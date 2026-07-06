@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "md-condesa-wa-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wa-agent-db",
+      // EVAN: after `wrangler d1 create wa-agent-db`, paste the returned
+      // database_id here (replace the placeholder below).
+      "database_id": "PASTE_D1_DATABASE_ID_HERE"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    "SLACK_CHANNEL_ID": "",
+    "AIRTABLE_BASE_ID": "appcX38TBVltyxHR6",
+    "AIRTABLE_TRIALS_TABLE": "",
+    "TRAINING_WHEELS": "1",
+    "HUMAN_SNOOZE_HOURS": "8"
+  },
+  // The compiled KB is imported as a text module (see src/kb.ts).
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["kb/compiled/kb.md"],
+      "fallthrough": true
+    }
+  ]
+}
