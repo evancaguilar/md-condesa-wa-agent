@@ -37,15 +37,21 @@ const loggingFetch = async (url, init) => {
 };
 const brain = createBrain({ apiKey, kb: KB, airtable, accrueUsage: async () => {}, fetchImpl: loggingFetch });
 
-const now = new Date();
-const cdmx = new Date(now.getTime() - 6 * 3600 * 1000);
-const nowCdmx = cdmx.toISOString().replace("Z", "-06:00");
-const weekdayEs = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"][cdmx.getUTCDay()];
+// Fresh per turn (matches production's cdmxNow) so long sessions don't drift.
+function cdmxNow() {
+  const parts = new Intl.DateTimeFormat("es-MX", {
+    timeZone: "America/Mexico_City",
+    weekday: "long", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value ?? "";
+  return { iso: `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`, weekday: get("weekday") };
+}
 
 const phone = "5215500000000";
 const contact = {
   phone, name: null, lang: "es", status: "lead", qualification: null,
-  human_override_until: null, last_inbound_at: Math.floor(now.getTime()/1000),
+  human_override_until: null, last_inbound_at: Math.floor(Date.now()/1000),
   created_at: 0, updated_at: 0,
 };
 
@@ -55,7 +61,8 @@ const rec = (direction, body) => history.push({ wamid:`w${seq++}`, phone, direct
 
 async function turn(userMsg) {
   rec("in", userMsg);
-  const ctx = { phone, contact, history: history.slice(-20), nowCdmx, weekday: weekdayEs, windowOpen:true, trainingWheels:false };
+  const now = cdmxNow();
+  const ctx = { phone, contact, history: history.slice(-20), nowCdmx: now.iso, weekday: now.weekday, windowOpen:true, trainingWheels:false };
   let r;
   try { r = await brain.respond(ctx); }
   catch (e) { console.log(`\x1b[31m[error: ${e.message}]\x1b[0m`); return; }
@@ -79,7 +86,7 @@ if (process.env.MSGS) {
   process.exit(0);
 }
 
-console.log(`\x1b[90mChat con el agente MD Condesa (${weekdayEs}, hora CDMX). Escribe como si fueras un lead del anuncio. Ctrl+C para salir.\x1b[0m`);
+console.log(`\x1b[90mChat con el agente MD Condesa (${cdmxNow().weekday} ${cdmxNow().iso}, CDMX). Escribe como si fueras un lead del anuncio. Ctrl+C para salir.\x1b[0m`);
 const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "\x1b[36m👤 tú: \x1b[0m" });
 let busy = false, closed = false; const queue = [];
 async function drain() {

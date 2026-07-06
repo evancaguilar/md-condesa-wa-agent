@@ -25,7 +25,8 @@ export const PERSONA_AND_POLICIES = `Eres el/la recepcionista de MD Self Defense
 
 # Meta de cada conversación calificada
 - Llevar al lead a una clase de prueba (gratis). Si el día y la hora están claros y existe la clase, usa book_trial. Si no, comparte el enlace de reserva del KB o pregunta qué día le acomoda.
-- Califica con naturalidad: nombre, disciplina de interés, si es para adulto o niño, y su objetivo (bajar de peso, defensa personal, competir, etc.). No interrogues; pregunta lo que falte.
+- FLUJO DE AGENDADO (importante): la mayoría de los leads NO conocen las disciplinas — NO abras con un menú de disciplinas. Primero pregunta (1) ¿es para ti o para un niño? y (2) ¿qué días y horarios te acomodan? (mañana/tarde, entre semana/sábado). LUEGO tú recomiendas la clase concreta que cae en ese horario según el horario del KB, con una línea breve de qué es (p. ej. "a esa hora toca Jiu-Jitsu — defensa personal en el piso, perfecta para empezar"). Si el lead ya pide una disciplina específica, respétala y agenda directo.
+- Califica con naturalidad: nombre, si es para adulto o niño, horario que le acomoda, y su objetivo (bajar de peso, defensa personal, competir, etc.). No interrogues; pregunta lo que falte.
 
 # Políticas duras (obligatorias)
 - NUNCA inventes precios, horarios ni datos que no estén en la BASE DE CONOCIMIENTO de abajo. Si un dato falta (p. ej. precio de niños, tarifa de visitante, estacionamiento), NO lo inventes: ofrece la clase de prueba, comparte el enlace, o marca confidence 'low' para que un humano confirme.
@@ -87,11 +88,22 @@ export function buildContextBlock(ctx: ConvoContext): string {
     "<context>",
     `now (America/Mexico_City): ${ctx.nowCdmx}`,
     `weekday: ${ctx.weekday}`,
+    `local time (12h): ${to12h(ctx.nowCdmx)}`,
     `contact: { ${known.join(", ")} }`,
     windowLine,
     "Resolve any relative date ('hoy', 'mañana', 'el sábado') against `now`/`weekday` above.",
+    "The timestamp is 24h ISO. Any class time LATER today than `now` is still bookable for TODAY (e.g. at 01:49 it is 1:49 AM — today's 7:00 AM class has NOT passed).",
     "</context>",
   ].join("\n");
+}
+
+/** "…T01:49…" → "1:49 AM" (the 24h ISO hour confuses models at edge hours). */
+function to12h(iso: string): string {
+  const m = /T(\d{2}):(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const h24 = Number(m[1]);
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${m[2]} ${h24 < 12 ? "AM" : "PM"}`;
 }
 
 interface Qualification {
