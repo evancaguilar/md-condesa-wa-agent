@@ -13,5 +13,5 @@
     "rootDir": ".",
     "noEmit": false
   },
-  "include": ["test/**/*.ts", "test/node-shims.d.ts", "src/routes/verify.ts", "src/routes/webhook-parse.ts"]
+  "include": ["test/**/*.ts", "test/node-shims.d.ts", "src/routes/verify.ts", "src/routes/webhook-parse.ts", "src/services/slack-timeouts.ts", "src/cron/time.ts", "src/cron/followups.ts", "src/cron/budget.ts", "src/services/airtable.ts"]
 }
