@@ -18,9 +18,9 @@
     "crons": ["*/5 * * * *"]
   },
   "vars": {
-    "SLACK_CHANNEL_ID": "",
+    "SLACK_CHANNEL_ID": "C0BFKQ6AU9F",
     "AIRTABLE_BASE_ID": "appcX38TBVltyxHR6",
-    "AIRTABLE_TRIALS_TABLE": "",
+    "AIRTABLE_TRIALS_TABLE": "Leads",
     "TRAINING_WHEELS": "1",
     "HUMAN_SNOOZE_HOURS": "8"
   },
