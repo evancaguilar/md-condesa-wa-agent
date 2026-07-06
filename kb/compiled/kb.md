@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-07-06+921b58b482f9
-     approx_tokens: 5141 (chars 17993 / 3.5)
+     version: 2026-07-06+f186c416b5bb
+     approx_tokens: 5087 (chars 17803 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -136,50 +136,47 @@ El precio de arriba es con pago **domiciliado** (cargo automático). Sin domicil
 | Silver | $2,500 | $3,000 |
 | Bronze | $1,996 | $2,396 |
 
-<!-- TODO(Evan): confirma la diferencia exacta domiciliado vs. sin domiciliar y
-     cómo explicarla al lead (¿por qué la diferencia? ¿qué es "domiciliado" en
-     una frase simple para alguien que pregunta por WhatsApp?). Los montos de
-     arriba salen del sitio; valida que sigan vigentes. -->
+"Domiciliado" = cargo automático a tu tarjeta cada 4 semanas; por eso el precio es más bajo. Sin domiciliar pagas manualmente cada periodo y el precio sube.
 
-## Precios de niños / teens / Baby Fight Club
+## Precios de niños / teens
 
-<!-- TODO(Evan): pon aquí el precio EXACTO de los programas infantiles. NO está
-     en el sitio, así que el bot no lo sabe hasta que lo escribas.
-     - Jiu-Jitsu / Muay Thai Kids (4–12) — $____ / ____
-     - Teens (13–17) — $____ / ____
-     - Mini (Muay Thai, 3–5) — $____ / ____
-     - Baby Fight Club (12–36 meses) — $____ / ____
-     ¿Hay inscripción para niños? ¿Descuento por hermanos? -->
+Kids (4–12) y Teens (13–17) tienen los MISMOS precios y planes que adultos, excepto que su plan más alto es **Gold** (no hay Diamond para niños/teens):
+
+| Plan | Semanal | Clases |
+|---|---|---|
+| Gold | $749 / sem | 10 / sem |
+| Silver | $625 / sem | 5 / sem |
+| Bronze | $499 / sem | 2 / sem |
+
+- Inscripción: $999 (GRATIS al inscribirse en línea), igual que adultos.
+- **Descuento de hermanos: 10%.**
+
+## Mini Muay Thai (3–5 años) y Baby Fight Club (12–36 meses)
+
+Cobro cada 4 semanas, como todos los planes:
+
+| Programa | 1 clase / semana | 2 clases / semana |
+|---|---|---|
+| Baby Fight Club (12–36 meses) | $1,500 / 4 sem | $2,500 / 4 sem |
+| Mini Muay Thai (3–5 años) | $1,500 / 4 sem | $1,996 / 4 sem |
+
+- Inscripción $999 (gratis en línea) y 10% de descuento de hermanos aplican igual.
 
 ## Clase de prueba / visitantes (drop-in)
 
-- La **primera clase de prueba / día de prueba es GRATIS**, sin compromiso.
+- La clase de prueba es **1 día GRATIS**, sin compromiso — para residentes de CDMX (no importa la nacionalidad, pero deben vivir aquí). Aplica igual para niños y adultos.
 - Se agenda en línea (ver enlaces de reserva en el KB) o por WhatsApp.
-
-<!-- TODO(Evan): letra chica de la clase de prueba:
-     - ¿Cuántas clases de prueba gratis? ¿Solo 1 día o varios?
-     - ¿Aplica a niños igual que a adultos?
-     - ¿Qué llevar / requisitos (edad mínima, firmar algo)? -->
-
-<!-- TODO(Evan): TARIFA DE VISITANTE / DROP-IN para grapplers de paso.
-     Hoy el sitio dice "confírmala por WhatsApp". Pon el monto para que el bot
-     lo dé directo:
-     - Drop-in 1 clase: $____
-     - Paquete semanal de visitante: $____ (si existe) -->
+- **Visitantes / de paso** (no viven en CDMX): pagan desde el día 1 la tarifa drop-in.
+- **Drop-in: $600 por día** — o **$400 si nos dejas una reseña en Google**.
 
 ## Formas de pago
 
-<!-- TODO(Evan): métodos aceptados (efectivo, tarjeta, transferencia, Mercado
-     Pago, domiciliación) y si el pago en línea al inscribirse es el que activa
-     la promo de inscripción gratis. -->
+Aceptamos prácticamente todo: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación. La inscripción de $999 sale GRATIS al completar la inscripción en línea.
 
 ## Estacionamiento
 
-<!-- TODO(Evan): ¿hay estacionamiento propio, en la calle, con valet, o
-     recomiendas alguno cercano? Muchos leads en coche lo preguntan. -->
+No tenemos estacionamiento propio. Hay **estacionamientos de paga alrededor del Parque México y en las calles aledañas**.
 
-## Otras políticas (opcional)
+## Otras políticas
 
-<!-- TODO(Evan): agrega lo que quieras que el bot sepa: congelamiento de
-     membresía, cancelación, descuento en equipo (el sitio menciona 10% para
-     inscritos), reposiciones, etc. -->
+- 10% de descuento en equipo para alumnos inscritos.
