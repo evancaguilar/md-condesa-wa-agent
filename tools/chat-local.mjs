@@ -23,7 +23,19 @@ const airtable = {
     return "recLOCALTEST123";
   },
 };
-const brain = createBrain({ apiKey, kb: KB, airtable, accrueUsage: async () => {} });
+// Wrap fetch so any API failure is shown loudly (instead of the brain silently
+// falling back to its "dame un momento" holding reply on error).
+const loggingFetch = async (url, init) => {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const body = await res.clone().text().catch(() => "");
+    console.log(`\n\x1b[31m⚠️  API ${res.status} ${res.statusText}\x1b[0m ${body.slice(0, 300)}`);
+    if (res.status === 401) console.log(`   → tu ANTHROPIC_API_KEY es inválida o no es la correcta. Revisa con: echo $ANTHROPIC_API_KEY`);
+    if (res.status === 400 && /credit|balance/i.test(body)) console.log(`   → la cuenta de Anthropic no tiene saldo. Agrega crédito en console.anthropic.com → Billing.`);
+  }
+  return res;
+};
+const brain = createBrain({ apiKey, kb: KB, airtable, accrueUsage: async () => {}, fetchImpl: loggingFetch });
 
 const now = new Date();
 const cdmx = new Date(now.getTime() - 6 * 3600 * 1000);
