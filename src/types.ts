@@ -1,0 +1,174 @@
+// Shared contract for all workstreams (A–E). B/C/D implement against the
+// port interfaces at the bottom; do not add runtime logic here.
+
+/** Worker bindings, secrets, and vars. Mirrors wrangler.jsonc + `wrangler secret`. */
+export interface Env {
+  // Bindings
+  DB: D1Database;
+
+  // Secrets
+  META_APP_SECRET: string;
+  WA_ACCESS_TOKEN: string;
+  WA_PHONE_NUMBER_ID: string;
+  WA_VERIFY_TOKEN: string;
+  ANTHROPIC_API_KEY: string;
+  SLACK_BOT_TOKEN: string;
+  SLACK_SIGNING_SECRET: string;
+  AIRTABLE_PAT: string;
+
+  // Vars
+  SLACK_CHANNEL_ID: string;
+  AIRTABLE_BASE_ID: string;
+  AIRTABLE_TRIALS_TABLE: string;
+  TRAINING_WHEELS: string; // "1" forces approval; "0" allows auto-send
+  HUMAN_SNOOZE_HOURS: string; // stringified integer, default "8"
+}
+
+export type Language = "es" | "en";
+export type Audience = "kid" | "adult";
+export type ContactStatus = "lead" | "student" | "opted_out";
+
+/** Parsed shape of contacts.qualification JSON. */
+export interface Qualification {
+  name?: string;
+  discipline?: string;
+  audience?: Audience;
+  goal?: string;
+}
+
+/** Row of the `contacts` table. Epoch fields are seconds. */
+export interface Contact {
+  phone: string; // digits only, e.g. 5215512345678
+  name: string | null;
+  lang: Language;
+  status: ContactStatus;
+  qualification: string | null; // JSON (see Qualification)
+  human_override_until: number | null;
+  last_inbound_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export type MessageDirection = "in" | "out_bot" | "out_human_echo";
+
+/** Row of the `messages` table. */
+export interface StoredMessage {
+  wamid: string;
+  phone: string;
+  direction: MessageDirection;
+  body: string;
+  ts: number; // epoch seconds
+  meta: string | null; // JSON
+}
+
+export type ApprovalStatus =
+  | "pending"
+  | "approved"
+  | "edited"
+  | "taken_over"
+  | "expired"
+  | "discarded";
+
+export type Confidence = "high" | "low";
+
+/** Row of the `pending_approvals` table. */
+export interface PendingApproval {
+  id: number;
+  phone: string;
+  draft: string;
+  context: string | null;
+  confidence: Confidence;
+  slack_ts: string | null;
+  status: ApprovalStatus;
+  holding_sent: number; // 0 | 1
+  created_at: number;
+  resolved_at: number | null;
+  final_text: string | null;
+}
+
+export type FollowupKind =
+  | "trial_confirm"
+  | "day_before"
+  | "same_day"
+  | "no_show_1"
+  | "reengage_7d"
+  | "custom";
+
+export type FollowupStatus = "scheduled" | "sent" | "cancelled" | "skipped_optout";
+
+/** Row of the `followups` table. */
+export interface Followup {
+  id: number;
+  phone: string;
+  kind: FollowupKind;
+  due_at: number; // epoch seconds
+  status: FollowupStatus;
+  airtable_record_id: string | null;
+  note: string | null;
+  created_at: number;
+}
+
+/** Everything the brain needs for one turn. Assembled by the inbound pipeline. */
+export interface ConvoContext {
+  phone: string;
+  contact: Contact;
+  history: StoredMessage[]; // oldest → newest, already capped
+  nowCdmx: string; // ISO 8601 in America/Mexico_City
+  weekday: string; // e.g. "lunes" / "Monday" — lets the model resolve relative dates
+  windowOpen: boolean; // true if within the 24h customer-service window
+  trainingWheels: boolean; // true ⇒ every reply routes through approval
+}
+
+/** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */
+export interface BookTrialInput {
+  name: string;
+  discipline: string;
+  audience: Audience;
+  trialDate: string; // YYYY-MM-DD (America/Mexico_City)
+  trialTime: string; // HH:mm 24h (America/Mexico_City)
+  phone: string;
+}
+
+/**
+ * Discriminated union returned by the brain, mirroring the model tools in the
+ * spec (send_reply / book_trial / escalate_to_human).
+ */
+export type BrainResult =
+  | { action: "send"; message: string; language: Language; confidence: Confidence }
+  | {
+      action: "draft";
+      message: string;
+      language: Language;
+      confidence: Confidence;
+      reason?: string;
+    }
+  | { action: "escalate"; reason: string; summary: string }
+  | ({
+      action: "book";
+      followupMessage: string;
+    } & BookTrialInput);
+
+// ---- Ports (stable interfaces B/C/D implement against) ----
+
+export interface BrainPort {
+  respond(ctx: ConvoContext): Promise<BrainResult>;
+}
+
+export interface SlackPort {
+  /** Posts a draft-approval card; returns the Slack message ts. */
+  postDraft(a: PendingApproval & { contextText: string }): Promise<string>;
+  /** Posts a plain informational note to the channel. */
+  postNote(text: string): Promise<void>;
+}
+
+export interface AirtablePort {
+  /** Creates a trial record (Source=WhatsApp); returns the Airtable record id. */
+  bookTrial(input: BookTrialInput): Promise<string>;
+}
+
+/** Ports bundle injected into the inbound pipeline. */
+export interface Ports {
+  brain: BrainPort;
+  slack: SlackPort;
+  airtable: AirtablePort;
+}
