@@ -7,6 +7,7 @@
     "typecheck": "tsc --noEmit",
     "build": "node tools/compile-kb.mjs",
     "deploy": "npm run build && wrangler deploy",
+    "chat": "tsc --outDir .chatdist --rootDir src --noEmit false --declaration false && echo '{\"type\":\"module\"}' > .chatdist/package.json && node tools/chat-local.mjs",
     "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/**/*.test.js\""
   },
   "devDependencies": {
