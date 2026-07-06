@@ -117,7 +117,7 @@ test("computeTrialSequence positions all four steps in-window", () => {
   assert.equal(byKind["same_day"].dueAt, cdmxToEpoch(2026, 7, 15, 15, 0, 0));
   // attendance T+3h == 22:00 → clamped to 09:00 next day
   assert.equal(byKind["attendance"].dueAt, cdmxToEpoch(2026, 7, 16, 9, 0, 0));
-  assert.equal(byKind["attendance"].kind, "custom");
+  assert.equal(byKind["attendance"].kind, "attendance_check");
 });
 
 test("computeTrialSequence clamps an early-morning trial confirm", () => {

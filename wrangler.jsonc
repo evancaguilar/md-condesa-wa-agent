@@ -30,8 +30,8 @@
   "rules": [
     {
       "type": "Text",
-      "globs": ["kb/compiled/kb.md"],
-      "fallthrough": true
+      "globs": ["**/*.md"],
+      "fallthrough": false
     }
   ]
 }

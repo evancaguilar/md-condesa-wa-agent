@@ -7,6 +7,8 @@ import {
 } from "../src/routes/webhook-parse.js";
 import inboundText from "./fixtures/inbound-text.json" with { type: "json" };
 import echo from "./fixtures/echo.json" with { type: "json" };
+import buttonReply from "./fixtures/button-reply.json" with { type: "json" };
+import duplicateDelivery from "./fixtures/duplicate-delivery.json" with { type: "json" };
 
 test("parses an inbound text message", () => {
   const events = parseWebhook(inboundText);
@@ -89,6 +91,26 @@ test("extracts body from an interactive list reply", () => {
   const ev = events[0] as InboundEvent;
   assert.equal(ev.kind, "interactive");
   assert.equal(ev.body, "Jiu Jitsu");
+});
+
+test("fixture: button-reply payload parses as interactive button_reply", () => {
+  const events = parseWebhook(buttonReply);
+  assert.equal(events.length, 1);
+  const ev = events[0] as InboundEvent;
+  assert.equal(ev.type, "inbound");
+  assert.equal(ev.wamid, "wamid.BUTTON_1");
+  assert.equal(ev.kind, "interactive");
+  assert.equal(ev.body, "Ahí estaré");
+});
+
+test("fixture: duplicate-delivery replays the same wamid as inbound-text", () => {
+  // Same wamid as inbound-text.json → the pipeline's INSERT OR IGNORE dedupe
+  // drops the second delivery. Here we assert the parser yields the identical
+  // wamid so the dedupe key collides on replay.
+  const first = parseWebhook(inboundText)[0] as InboundEvent;
+  const dup = parseWebhook(duplicateDelivery)[0] as InboundEvent;
+  assert.equal(dup.wamid, first.wamid);
+  assert.equal(dup.type, "inbound");
 });
 
 test("emits a status event and ignores app_state_sync payload content", () => {
