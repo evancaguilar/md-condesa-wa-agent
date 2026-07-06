@@ -11,9 +11,7 @@
     {
       "binding": "DB",
       "database_name": "wa-agent-db",
-      // EVAN: after `wrangler d1 create wa-agent-db`, paste the returned
-      // database_id here (replace the placeholder below).
-      "database_id": "PASTE_D1_DATABASE_ID_HERE"
+      "database_id": "c57b17de-9e0c-4a48-adc7-7cb791372cdc"
     }
   ],
   "triggers": {
