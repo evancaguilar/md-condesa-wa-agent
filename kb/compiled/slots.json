@@ -1,0 +1,539 @@
+{
+  "version": "2026-07-06+921b58b482f9",
+  "slots": [
+    {
+      "weekday": 0,
+      "time": "07:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "07:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "08:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "08:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "09:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "10:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "10:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "11:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "15:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 0,
+      "time": "16:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 0,
+      "time": "16:00",
+      "discipline": "mma",
+      "audience": "kid"
+    },
+    {
+      "weekday": 0,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid"
+    },
+    {
+      "weekday": 0,
+      "time": "18:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "18:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "19:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "19:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "20:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "20:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "07:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "07:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "08:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "08:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "09:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "10:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "10:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "11:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "16:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 1,
+      "time": "16:00",
+      "discipline": "mma",
+      "audience": "kid"
+    },
+    {
+      "weekday": 1,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid"
+    },
+    {
+      "weekday": 1,
+      "time": "18:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "18:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "19:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "19:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "20:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "20:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
+      "time": "21:00",
+      "discipline": "box",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "07:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "07:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "08:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "08:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "09:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "10:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "12:00",
+      "discipline": "baby",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "15:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 2,
+      "time": "16:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 2,
+      "time": "16:00",
+      "discipline": "mma",
+      "audience": "kid"
+    },
+    {
+      "weekday": 2,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid"
+    },
+    {
+      "weekday": 2,
+      "time": "18:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "18:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "19:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "19:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "20:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "20:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "07:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "07:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "08:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "08:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "09:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "10:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "10:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "11:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "16:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 3,
+      "time": "16:00",
+      "discipline": "mma",
+      "audience": "kid"
+    },
+    {
+      "weekday": 3,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid"
+    },
+    {
+      "weekday": 3,
+      "time": "18:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "18:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "19:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "19:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "20:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "20:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "21:00",
+      "discipline": "box",
+      "audience": "adult"
+    },
+    {
+      "weekday": 4,
+      "time": "07:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 4,
+      "time": "07:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 4,
+      "time": "08:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 4,
+      "time": "08:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 4,
+      "time": "09:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 4,
+      "time": "10:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 5,
+      "time": "09:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 5,
+      "time": "10:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 5,
+      "time": "10:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 5,
+      "time": "11:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 5,
+      "time": "11:00",
+      "discipline": "jiu",
+      "audience": "kid"
+    },
+    {
+      "weekday": 5,
+      "time": "12:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    },
+    {
+      "weekday": 5,
+      "time": "12:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 5,
+      "time": "13:00",
+      "discipline": "muay",
+      "audience": "kid"
+    },
+    {
+      "weekday": 5,
+      "time": "14:00",
+      "discipline": "box",
+      "audience": "adult"
+    },
+    {
+      "weekday": 5,
+      "time": "15:00",
+      "discipline": "baby",
+      "audience": "adult"
+    },
+    {
+      "weekday": 6,
+      "time": "11:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 6,
+      "time": "12:00",
+      "discipline": "jiu",
+      "audience": "adult"
+    }
+  ]
+}
