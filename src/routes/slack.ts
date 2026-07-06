@@ -10,11 +10,14 @@ import {
   getPendingApprovals,
   insertEdit,
   kvSet,
+  phoneForRecordId,
   resolveApproval,
+  scheduleFollowup,
   setContactStatus,
   setHumanOverride,
 } from "../db/queries.js";
 import { sendText, WindowClosedError } from "../services/wa.js";
+import { cdmxParts, cdmxToEpoch, DAY } from "../cron/time.js";
 import {
   parseInteractionPayload,
   verifySlackSignature,
@@ -227,7 +230,12 @@ async function onBotToggle(env: Env, enabled: boolean): Promise<void> {
   await updateControlPanel(env);
 }
 
-/** Workstream D reads kv key `attendance:<recordId>` (yes|no). */
+/**
+ * Attendance card Sí/No. Writes kv `attendance:<recordId>` (yes|no) so the
+ * no_show_1 followup can read it. On "No" we ALSO schedule the no-show
+ * producers: `no_show_1` next morning 10:00 CDMX and `reengage_7d` at +7 days
+ * (runDueFollowups cancels reengage if the contact wrote back meanwhile).
+ */
 async function onAttendance(
   env: Env,
   recordId: string | null,
@@ -235,6 +243,26 @@ async function onAttendance(
 ): Promise<void> {
   if (!recordId) return;
   await kvSet(env.DB, `attendance:${recordId}`, attended ? "yes" : "no");
+  if (attended) return;
+
+  const phone = await phoneForRecordId(env.DB, recordId);
+  if (!phone) return;
+
+  const now = Math.floor(Date.now() / 1000);
+  const p = cdmxParts(now + DAY); // tomorrow in CDMX
+  const nextMorning10 = cdmxToEpoch(p.year, p.month, p.day, 10, 0, 0);
+  await scheduleFollowup(env.DB, {
+    phone,
+    kind: "no_show_1",
+    dueAt: nextMorning10,
+    airtableRecordId: recordId,
+  });
+  await scheduleFollowup(env.DB, {
+    phone,
+    kind: "reengage_7d",
+    dueAt: now + 7 * DAY,
+    airtableRecordId: recordId,
+  });
 }
 
 // ---- Slack Web API bits used only by the route ----

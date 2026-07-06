@@ -17,12 +17,14 @@ import {
   isBotEnabled,
   newestInboundWamid,
   recentMessages,
+  scheduleFollowup,
   setApprovalSlackTs,
   setContactStatus,
   touchLastInbound,
   upsertContact,
 } from "../db/queries.js";
 import { sendText, WindowClosedError } from "../services/wa.js";
+import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
 
 const OPT_OUT = /^\s*(baja|stop|alto)\s*$/i;
 const DEBOUNCE_MS = 8000;
@@ -151,18 +153,39 @@ async function routeResult(
   }
 
   if (result.action === "book") {
-    // Booking executes through the airtable port (workstream D); on success we
-    // still deliver the follow-up confirmation text to the lead.
-    await ports.airtable.bookTrial({
+    // The brain already created the Airtable record (inside its tool loop) and
+    // handed us the recordId. We: (1) always post an FYI card to Slack,
+    // (2) schedule the anti-no-show sequence keyed to that record, and
+    // (3) deliver the booking confirmation to the lead. A confirmation is still
+    // a reply, so under TRAINING_WHEELS it routes through draft-approval instead.
+    const booking = {
       name: result.name,
       discipline: result.discipline,
       audience: result.audience,
       trialDate: result.trialDate,
       trialTime: result.trialTime,
       phone,
-    });
-    await deliverOrDraft(env, ports, ctx, result.followupMessage, "high", history);
+    };
+    await ports.slack.postBookingFyi(booking);
+    await scheduleTrialSequence(
+      env,
+      phone,
+      result.recordId,
+      cdmxIso(result.trialDate, result.trialTime),
+    );
+    if (ctx.trainingWheels) {
+      await queueApproval(env, ports, ctx, result.followupMessage, history);
+    } else {
+      await deliverOrDraft(env, ports, ctx, result.followupMessage, "high", history);
+    }
     return;
+  }
+
+  // Persist any custom follow-up the model requested (set_followup).
+  if (result.action === "send" || result.action === "draft") {
+    if (result.followup) {
+      await scheduleCustomFollowup(env, phone, result.followup);
+    }
   }
 
   const autoSend =
@@ -176,6 +199,21 @@ async function routeResult(
   // Draft / low confidence / training wheels ⇒ Slack approval.
   const reason = result.action === "draft" ? result.reason : undefined;
   await queueApproval(env, ports, ctx, result.message, history, reason);
+}
+
+/** Persists a set_followup request as a kind:'custom' followup row. */
+async function scheduleCustomFollowup(
+  env: Env,
+  phone: string,
+  followup: { hoursFromNow: number; note: string },
+): Promise<void> {
+  const dueAt = Math.floor(Date.now() / 1000) + Math.round(followup.hoursFromNow * 3600);
+  await scheduleFollowup(env.DB, {
+    phone,
+    kind: "custom",
+    dueAt,
+    note: followup.note || null,
+  });
 }
 
 async function deliverOrDraft(

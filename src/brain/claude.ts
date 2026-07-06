@@ -116,8 +116,12 @@ export function createBrain(deps: BrainDeps): BrainPort {
       cache_read_input_tokens: 0,
     };
 
-    let pendingBooking: { input: BookTrialInput; followupMessage: string } | null =
-      null;
+    let pendingBooking: {
+      input: BookTrialInput;
+      followupMessage: string;
+      recordId: string;
+    } | null = null;
+    let pendingFollowup: { hoursFromNow: number; note: string } | null = null;
 
     try {
       for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -140,9 +144,9 @@ export function createBrain(deps: BrainDeps): BrainPort {
         if (sendReply) {
           await flushUsage(deps.accrueUsage, usageAcc);
           // A booking that succeeded this turn + a send_reply → 'book' result
-          // (types.ts union carries the followupMessage on 'book').
+          // (types.ts union carries the followupMessage + recordId on 'book').
           if (pendingBooking) return bookResult(pendingBooking);
-          return sendResult(sendReply);
+          return sendResult(sendReply, pendingFollowup);
         }
 
         // No terminal tool yet — process the non-terminal tools, feed results
@@ -163,8 +167,13 @@ export function createBrain(deps: BrainDeps): BrainPort {
             results.push(outcome.result);
             if (outcome.booking) pendingBooking = outcome.booking;
           } else if (tu.name === "set_followup") {
-            // The pipeline persists followups; here we just acknowledge so the
-            // model proceeds to send_reply. (Executor wiring lives in E.)
+            // Capture the request; the pipeline persists it (the brain has no DB).
+            // We still acknowledge so the model proceeds to send_reply.
+            const fu = tu.input as { hours_from_now?: number; note?: string };
+            const hours = Number(fu.hours_from_now);
+            if (Number.isFinite(hours) && hours > 0) {
+              pendingFollowup = { hoursFromNow: hours, note: fu.note ?? "" };
+            }
             results.push({
               type: "tool_result",
               tool_use_id: tu.id,
@@ -312,7 +321,7 @@ function sleep(ms: number): Promise<void> {
 
 interface BookOutcome {
   result: ToolResultContent;
-  booking?: { input: BookTrialInput; followupMessage: string };
+  booking?: { input: BookTrialInput; followupMessage: string; recordId: string };
 }
 
 async function handleBookTrial(
@@ -365,7 +374,7 @@ async function handleBookTrial(
         tool_use_id: tu.id,
         content: `ok: booked (record ${recordId}). Now end the turn with send_reply confirming to the lead.`,
       },
-      booking: { input: bookInput, followupMessage },
+      booking: { input: bookInput, followupMessage, recordId },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -382,7 +391,10 @@ async function handleBookTrial(
 
 // ---- result mapping ------------------------------------------------------
 
-export function sendResult(tu: ToolUseContent): BrainResult {
+export function sendResult(
+  tu: ToolUseContent,
+  followup?: { hoursFromNow: number; note: string } | null,
+): BrainResult {
   const input = tu.input as {
     message?: string;
     language?: string;
@@ -392,13 +404,14 @@ export function sendResult(tu: ToolUseContent): BrainResult {
   const language: Language = input.language === "en" ? "en" : "es";
   const confidence: Confidence = input.confidence === "high" ? "high" : "low";
   const message = input.message ?? "";
+  const fu = followup ?? undefined;
   if (confidence === "high") {
-    return { action: "send", message, language, confidence };
+    return { action: "send", message, language, confidence, followup: fu };
   }
   const reason = input.escalation_reason;
   return reason
-    ? { action: "draft", message, language, confidence, reason }
-    : { action: "draft", message, language, confidence };
+    ? { action: "draft", message, language, confidence, reason, followup: fu }
+    : { action: "draft", message, language, confidence, followup: fu };
 }
 
 function escalateResult(tu: ToolUseContent): BrainResult {
@@ -413,8 +426,14 @@ function escalateResult(tu: ToolUseContent): BrainResult {
 function bookResult(b: {
   input: BookTrialInput;
   followupMessage: string;
+  recordId: string;
 }): BrainResult {
-  return { action: "book", ...b.input, followupMessage: b.followupMessage };
+  return {
+    action: "book",
+    ...b.input,
+    followupMessage: b.followupMessage,
+    recordId: b.recordId,
+  };
 }
 
 /** Model returned only text (no tool). Draft it for human review. */

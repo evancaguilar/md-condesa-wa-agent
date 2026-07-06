@@ -90,6 +90,7 @@ export type FollowupKind =
   | "trial_confirm"
   | "day_before"
   | "same_day"
+  | "attendance_check"
   | "no_show_1"
   | "reengage_7d"
   | "custom";
@@ -129,23 +130,42 @@ export interface BookTrialInput {
   phone: string;
 }
 
+/** A custom follow-up the model asked to schedule (set_followup tool). The
+ *  pipeline persists this as a `kind:'custom'` followup row. */
+export interface FollowupRequest {
+  hoursFromNow: number;
+  note: string;
+}
+
 /**
  * Discriminated union returned by the brain, mirroring the model tools in the
- * spec (send_reply / book_trial / escalate_to_human).
+ * spec (send_reply / book_trial / escalate_to_human / set_followup).
+ *
+ * `followup` rides on send/draft results: the brain acknowledges set_followup so
+ * the model still ends with send_reply, and the pipeline persists the request.
  */
 export type BrainResult =
-  | { action: "send"; message: string; language: Language; confidence: Confidence }
+  | {
+      action: "send";
+      message: string;
+      language: Language;
+      confidence: Confidence;
+      followup?: FollowupRequest;
+    }
   | {
       action: "draft";
       message: string;
       language: Language;
       confidence: Confidence;
       reason?: string;
+      followup?: FollowupRequest;
     }
   | { action: "escalate"; reason: string; summary: string }
   | ({
       action: "book";
       followupMessage: string;
+      /** Airtable record id from bookTrial — keys the anti-no-show sequence. */
+      recordId: string;
     } & BookTrialInput);
 
 // ---- Ports (stable interfaces B/C/D implement against) ----
@@ -159,6 +179,8 @@ export interface SlackPort {
   postDraft(a: PendingApproval & { contextText: string }): Promise<string>;
   /** Posts a plain informational note to the channel. */
   postNote(text: string): Promise<void>;
+  /** FYI card posted whenever book_trial fires (spec: always ALSO to Slack). */
+  postBookingFyi(booking: BookTrialInput): Promise<void>;
 }
 
 export interface AirtablePort {

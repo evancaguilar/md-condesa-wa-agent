@@ -335,6 +335,20 @@ export async function markFollowup(
     .run();
 }
 
+/** The phone tied to an Airtable record id (via any followup row for it). */
+export async function phoneForRecordId(
+  db: D1Database,
+  recordId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT phone FROM followups WHERE airtable_record_id = ?1 LIMIT 1`,
+    )
+    .bind(recordId)
+    .first<{ phone: string }>();
+  return row?.phone ?? null;
+}
+
 /** Cancels every scheduled followup for a phone (opt-out). */
 export async function cancelFollowups(
   db: D1Database,

@@ -57,7 +57,7 @@ export function computeTrialSequence(trialEpoch: number): SequenceStep[] {
     { kind: "day_before", dueAt: clampToWindow(dayBefore) },
     { kind: "same_day", dueAt: clampToWindow(trialEpoch - 4 * 3600) },
     {
-      kind: "custom",
+      kind: "attendance_check",
       dueAt: clampToWindow(trialEpoch + 3 * 3600),
       note: ATTENDANCE_NOTE,
     },
@@ -160,15 +160,20 @@ async function processOne(
       await markFollowup(env.DB, f.id, "sent");
       return;
 
+    case "attendance_check":
+      await deps.slack.postAttendanceCheck({ phone: f.phone, name, recordId });
+      await markFollowup(env.DB, f.id, "sent");
+      return;
+
     case "custom":
+      // generic custom follow-up (set_followup): warm text if in-window, else
+      // skip quietly. Legacy rows may still carry the attendance note.
       if (f.note?.startsWith(ATTENDANCE_NOTE)) {
         await deps.slack.postAttendanceCheck({ phone: f.phone, name, recordId });
-        await markFollowup(env.DB, f.id, "sent");
       } else {
-        // generic custom follow-up: warm text if in-window, else skip quietly
         await tryText(env, f.phone, customText(f.note, lang));
-        await markFollowup(env.DB, f.id, "sent");
       }
+      await markFollowup(env.DB, f.id, "sent");
       return;
 
     case "no_show_1": {
@@ -195,6 +200,13 @@ async function processOne(
     }
 
     case "reengage_7d":
+      // Skip re-engagement if the contact wrote back after this row was created
+      // (they're no longer cold). The row is created when the no-show is
+      // detected, so last_inbound_at > created_at means an inbound since then.
+      if ((contact?.last_inbound_at ?? 0) > f.created_at) {
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
       await sendTemplate(env, f.phone, tpl("reengage_lead", lang), lang, [
         bodyParams([name]),
       ]);

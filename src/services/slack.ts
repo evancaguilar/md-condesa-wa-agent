@@ -464,6 +464,7 @@ export function makeSlackPort(env: Env): SlackPort {
   return {
     postDraft: (a) => postDraft(env, a),
     postNote: (text) => postNote(env, text),
+    postBookingFyi: (booking) => postBookingFyi(env, booking),
   };
 }
 
