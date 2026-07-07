@@ -1,15 +1,21 @@
-// GET /admin — serves the dashboard SPA shell.
-//
-// TODO(W3): replace this body. W3 serves src/ui/admin.html (text module) with
-// `content-type: text/html; charset=utf-8` and `cache-control: no-store`. This
-// placeholder only exists so W1's index.ts routing typechecks before W3 lands.
+// GET /admin — serves the dashboard SPA shell (src/ui/admin.html) as a bundled
+// text module. W4 owns admin.html; this handler just wraps it with the right
+// headers. `cache-control: no-store` keeps the shell fresh across deploys (the
+// SPA fetches all data from /admin/api/*).
 
 import type { Env } from "../types.js";
+import adminHtml from "../ui/admin.html";
 
 export async function handleAdminUi(
   _req: Request,
   _env: Env,
   _ctx: ExecutionContext,
 ): Promise<Response> {
-  return new Response("admin UI not implemented", { status: 501 });
+  return new Response(adminHtml, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
 }
