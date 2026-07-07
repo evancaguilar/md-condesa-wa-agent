@@ -15,7 +15,17 @@ import {
 } from "../src/cron/nudges.js";
 import { classifyResult, normalizeResult } from "../src/services/airtable.js";
 import { syncBookings } from "../src/cron/followups.js";
+import { cdmxParts, cdmxToEpoch, DAY } from "../src/cron/time.js";
 import type { Contact, Env } from "../src/types.js";
+
+/** Next 09:00 CDMX strictly after `now` — a deterministic daytime base so the
+ *  quiet-aware day-1 plan always yields all three nudges (no quiet shifting). */
+function next9amBase(now: number): number {
+  const p = cdmxParts(now);
+  let base = cdmxToEpoch(p.year, p.month, p.day, 9, 0, 0);
+  while (base <= now) base += DAY;
+  return base;
+}
 
 // ---- tiny scriptable fake D1 (mirrors cron.test.ts) ----
 
@@ -197,7 +207,8 @@ test("classifyResult matches all accent/case variants", () => {
 test("armNudges: lead, no booking, under cap → cancels then schedules 3 nudges", async () => {
   const inserted: { kind: unknown; recordId: unknown }[] = [];
   let cancelledNudges = false;
-  const nowEpoch = Math.floor(Date.now() / 1000);
+  // Daytime base so all three nudges land outside quiet hours (deterministic).
+  const nowEpoch = next9amBase(Math.floor(Date.now() / 1000));
   const { db } = fakeDb((sql, binds) => {
     if (sql.includes("SELECT * FROM contacts"))
       return {

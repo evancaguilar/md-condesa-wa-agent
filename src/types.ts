@@ -36,6 +36,8 @@ export interface Env {
   AIRTABLE_RESULT_FIELD?: string;
   TRAINING_WHEELS: string; // "1" forces approval; "0" allows auto-send
   HUMAN_SNOOZE_HOURS: string; // stringified integer, default "8"
+  /** Booking-confirmation video URL. Defaults in code (DEFAULT_BOOKING_VIDEO_URL). */
+  BOOKING_VIDEO_URL?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;
@@ -166,6 +168,10 @@ export type FollowupKind =
   | "nudge_1h"
   | "nudge_6h"
   | "nudge_8h"
+  | "nudge_d2"
+  | "nudge_d3"
+  | "nudge_d4"
+  | "nudge_d5"
   | "custom";
 
 export type FollowupStatus = "scheduled" | "sent" | "cancelled" | "skipped_optout";

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS pending_approvals(
 
 CREATE TABLE IF NOT EXISTS followups(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  phone TEXT, kind TEXT,             -- trial_confirm|day_before|same_day|attendance_check|no_show_1|reengage_7d|nudge_1h|nudge_6h|nudge_8h|custom
+  phone TEXT, kind TEXT,             -- trial_confirm|day_before|same_day|attendance_check|no_show_1|reengage_7d|nudge_1h|nudge_6h|nudge_8h|nudge_d2|nudge_d3|nudge_d4|nudge_d5|custom
   due_at INTEGER, status TEXT DEFAULT 'scheduled', -- scheduled|sent|cancelled|skipped_optout
   airtable_record_id TEXT, note TEXT, created_at INTEGER,
   UNIQUE(phone, kind, airtable_record_id)

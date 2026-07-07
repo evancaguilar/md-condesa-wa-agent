@@ -111,3 +111,94 @@ place for Meta submission.
 > Hi {{1}}! Circling back on your message to MD Condesa. Still around? Happy to help. 🙌
 
 Variables: {{1}} name.
+
+---
+
+# Extended-drip templates (nudge_d2 … nudge_d5) — Marketing
+
+Sequences-v2 (R3). These are the WINDOW-CLOSED fallback for the extended
+multi-day drip: the engine tries a free-form send first (CTWA 72h windows make
+that the common path) and only falls back to a template when the 24h window is
+closed. Until these are submitted + approved in Meta, the fallback fails and the
+engine SKIPS the send and posts one Slack note per day (kv `tmpl_missing_note`).
+
+- **Category: Marketing** (all 12). **BAJA opt-out footer required** (FOOTER
+  component). **es only for now** — the code sends `<base>_es`; an `_en` variant
+  is not authored yet, so English leads whose window is closed are skipped until
+  cutover.
+- Base names → sent name: `nudge_d2_adults` → `nudge_d2_adults_es`, … through
+  `nudge_d5_baby` → `nudge_d5_baby_es` (12 templates).
+- Variables: **{{1}}** = contact first name (sender passes `""` when unknown —
+  keep the greeting readable without it).
+- Footer (identical on all 12): _Responde BAJA para dejar de recibir mensajes._
+- **TODO (Evan, at cutover):** submit these 12 to Meta; the free-form path covers
+  most sends in the meantime.
+
+Booking links (static, in body): adults → https://mdcondesa.com/clase-prueba-adultos/ ·
+kids & baby → https://mdcondesa.com/clase-prueba-ninos/
+
+## Adults
+
+**`nudge_d2_adults_es`**
+> ¡Hola {{1}}! 👋 ¿Pudiste encontrar algún horario que te quede bien para venir a probar tu día gratuito en MD Condesa? 🙌 Si quieres, agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d3_adults_es`**
+> ¡Hola {{1}}! Por si te sirve saberlo: no necesitas estar en forma ni tener experiencia para empezar. Justo por eso existe el día gratuito — vienes, pruebas unas clases reales, conoces la academia y ves si el reto se siente como algo que sí puedes sostener 💪 ¿Lo agendamos? https://mdcondesa.com/clase-prueba-adultos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d4_adults_es`**
+> ¡Hola {{1}}! A veces el cambio no empieza con una decisión enorme… empieza con una clase. Una hora. Un primer paso. Si buscas más condición, más confianza, más comunidad y más disciplina, esta puede ser una gran forma de empezar 🥋 ¿Te gustaría probar una clase gratis? https://mdcondesa.com/clase-prueba-adultos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d5_adults_es`**
+> ¡Hola {{1}}! Parece que por ahora quizá no es el momento, y está bien 🙂 Este será nuestro último mensaje de seguimiento por ahora. Si algo cambia y te gustaría ponerte en forma, aprender a defenderte y ganar confianza, aquí puedes agendar tu día gratuito cuando quieras: https://mdcondesa.com/clase-prueba-adultos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+## Kids
+
+**`nudge_d2_kids_es`**
+> ¡Hola {{1}}! 👋 ¿Pudiste ver algún horario que le funcione a tu peque para su clase de prueba en MD Condesa? 🙌 Si quieres, aparta su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d3_kids_es`**
+> ¡Hola {{1}}! Muchos papás nos buscan porque su peque es un poco tímido o ha tenido problemas de bullying. Justo ahí es donde más vemos el cambio: aprenden a defenderse, a poner límites sanos y a creer más en sí mismos 💪 ¿Le agendamos su clase gratis? https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d4_kids_es`**
+> ¡Hola {{1}}! Además de moverse y salir un rato de las pantallas, los niños hacen amigos, ganan disciplina y se divierten muchísimo 🙌 Es de las cosas que más nos gusta ver clase con clase. Si ves un horario que les funcione, aparta su clase gratis aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d5_kids_es`**
+> ¡Hola {{1}}! Parece que quizá no es el momento, y está perfecto 🙂 Este será nuestro último mensaje por ahora. Si más adelante te gustaría que tu peque pruebe una clase, con gusto le apartamos su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+## Baby (Baby Fight Club)
+
+**`nudge_d2_baby_es`**
+> ¡Hola {{1}}! Algo que nos ha encantado ver en Baby Fight Club es cómo algunos bebés llegan tímidos al inicio y, después de unas clases, empiezan a moverse con más confianza y hasta se adueñan del tatami 😄 Si todavía les interesa probar, cuéntame y apartamos su clase gratis, o resérvala aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d3_baby_es`**
+> ¡Hola de nuevo {{1}}! Además de la clase, al final tenemos 10 minutos de juego libre. Esa parte ha sido increíble para que los bebés exploren, convivan y empiecen a socializar en un espacio seguro 🙌 ¿Quieres que te ayude a apartar su clase gratuita? https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d4_baby_es`**
+> ¡Hola {{1}}! A esta edad, estimular movimiento, equilibrio, coordinación y confianza puede hacer una gran diferencia. En Baby Fight Club tu bebé se mueve, juega, explora y gana seguridad, siempre acompañado por mamá o papá 💪 Para apartar su clase gratis, resérvala aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d5_baby_es`**
+> ¡Hola {{1}}! Parece que quizá no es el momento para ustedes, y está bien 🙂 Este será nuestro último mensaje de seguimiento por el momento. Si más adelante te gustaría que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._

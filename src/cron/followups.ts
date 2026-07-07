@@ -17,16 +17,23 @@ import {
   setContactStatus,
   cancelFollowups,
 } from "../db/queries.js";
-import { cancelFollowupsByKinds } from "../db/queries-admin.js";
-import { sendText, sendTemplate, WindowClosedError } from "../services/wa.js";
+import { cancelFollowupsByKinds, getCampaign } from "../db/queries-admin.js";
+import {
+  sendText,
+  sendTemplate,
+  sendBookingVideo,
+  WindowClosedError,
+} from "../services/wa.js";
 import type { CronSlackDeps } from "./deps.js";
 import {
   clampToWindow,
   cdmxToEpoch,
   cdmxParts,
+  cdmxDateStr,
   cdmxIso,
   DAY,
 } from "./time.js";
+import { isQuietHour, next8am } from "./quiet.js";
 import {
   listRecentBookings,
   listStudents,
@@ -34,7 +41,16 @@ import {
   classifyResult,
   type BookingRecord,
 } from "../services/airtable.js";
-import { processNudge, NUDGE_KINDS, type NudgeKind } from "./nudges.js";
+import {
+  processNudge,
+  processExtendedNudge,
+  maybeArmExtended,
+  ALL_NUDGE_KINDS,
+  type NudgeKind,
+  type ExtendedKind,
+} from "./nudges.js";
+import { CLIENT } from "../client.gen.js";
+import { renderCopy } from "../client-config.js";
 
 const ATTENDANCE_NOTE = "attendance_check";
 const MAX_SEND_ATTEMPTS = 3;
@@ -206,6 +222,12 @@ async function processOne(
     case "nudge_1h":
     case "nudge_6h":
     case "nudge_8h": {
+      // Quiet-hour re-check: if cron drift fired this inside 21:30–08:00, push to
+      // the next 08:00 rather than sending an unsolicited message.
+      if (isQuietHour(nowSec())) {
+        await rescheduleRow(env, f, next8am(nowSec()));
+        return;
+      }
       // Lead-nudge drip. processNudge re-verifies eligibility at send time,
       // sends the free-form nudge, and bumps the rolling cap. Nudges are always
       // in-window by construction; a closed window → cancel (no template).
@@ -214,6 +236,37 @@ async function processOne(
         isWindowClosed: (err) => err instanceof WindowClosedError,
       });
       await markFollowup(env.DB, f.id, status);
+      // Nudge 3 actually landed → arm the extended chain (d2–d5) off its real
+      // send time, once per lead per 30 days.
+      if (f.kind === "nudge_8h" && status === "sent") {
+        await maybeArmExtended(env, f.phone, nowSec());
+      }
+      return;
+    }
+
+    case "nudge_d2":
+    case "nudge_d3":
+    case "nudge_d4":
+    case "nudge_d5": {
+      // Extended drip. Quiet re-check first, then free-form-first / template-
+      // fallback. A missing/unapproved template → skip + one throttled Slack note.
+      if (isQuietHour(nowSec())) {
+        await rescheduleRow(env, f, next8am(nowSec()));
+        return;
+      }
+      const res = await processExtendedNudge(env, f.phone, f.kind as ExtendedKind, {
+        sendText,
+        sendTemplate,
+        templateName: tpl,
+        isWindowClosed: (err) => err instanceof WindowClosedError,
+        campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
+      });
+      if (res.outcome === "template_missing") {
+        await noteTemplateMissing(env, deps, f.phone, res.template);
+        await markFollowup(env.DB, f.id, "cancelled");
+      } else {
+        await markFollowup(env.DB, f.id, res.outcome);
+      }
       return;
     }
 
@@ -236,7 +289,8 @@ async function processOne(
   }
 }
 
-/** trial_confirm: warm free-form text (address + what to bring); fallback template. */
+/** trial_confirm: warm free-form text (address + what to bring); fallback template.
+ *  After the confirmation lands, fire the booking video (best-effort; R4). */
 async function sendTrialConfirm(
   env: Env,
   phone: string,
@@ -251,10 +305,30 @@ async function sendTrialConfirm(
       await sendTemplate(env, phone, tpl("trial_confirm", lang), lang, [
         bodyParams([name]),
       ]);
+      await sendBookingVideo(env, phone); // after the template confirmation
       return;
     }
     throw err;
   }
+  await sendBookingVideo(env, phone); // after the free-form confirmation
+}
+
+/**
+ * Post at most ONE Slack note per CDMX day about a missing/unapproved extended-
+ * drip template (kv `tmpl_missing_note:<YYYY-MM-DD>`). The send was skipped.
+ */
+async function noteTemplateMissing(
+  env: Env,
+  deps: { slack: CronSlackDeps },
+  phone: string,
+  template: string,
+): Promise<void> {
+  const dayKey = `tmpl_missing_note:${cdmxDateStr(nowSec())}`;
+  if (await kvGet(env.DB, dayKey)) return;
+  await kvSet(env.DB, dayKey, "1");
+  await deps.slack.postNote(
+    `Plantilla de seguimiento extendido no disponible (${template}); se omitió un envío a ${phone}. Falta enviar las plantillas d2–d5 a Meta (ver docs/templates.md).`,
+  );
 }
 
 async function tryText(env: Env, phone: string, body: string): Promise<void> {
@@ -337,7 +411,7 @@ export async function syncBookings(
       if (Number.isFinite(trialEpoch) && trialEpoch > nowSec()) {
         await upsertContact(env.DB, { phone, name: rec.name ?? null });
         await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso);
-        await cancelFollowupsByKinds(env.DB, phone, NUDGE_KINDS);
+        await cancelFollowupsByKinds(env.DB, phone, ALL_NUDGE_KINDS);
         scheduled++;
       }
     }
@@ -383,11 +457,11 @@ async function processResult(
 
   if (action === "no_show") {
     await cancelFollowups(env.DB, phone); // all kinds
-    const link = "https://mdcondesa.com/clase-prueba-adultos/";
-    const body =
-      lang === "en"
-        ? `Hi${who}! We missed you at your trial class 🥋 No worries — want to reschedule? You can pick a new time here: ${link}`
-        : `¡Hola${who}! Te esperábamos en tu clase de prueba 🥋 No pasa nada, ¿la reagendamos? Elige otro horario aquí: ${link}`;
+    const link = CLIENT.links.booking;
+    const body = renderCopy(
+      lang === "en" ? CLIENT.copy.noShowEn : CLIENT.copy.noShowEs,
+      { who, link },
+    );
     try {
       await sendText(env, phone, body);
     } catch (err) {
@@ -409,11 +483,10 @@ async function processResult(
     // enrolled
     await setContactStatus(env.DB, phone, "student");
     await cancelFollowups(env.DB, phone); // all kinds; student stops marketing
-    const scheduleLink = "https://mdcondesa.com/#horarios";
-    const body =
-      lang === "en"
-        ? `Welcome to the family${who}! 🥋🎉 So glad you joined. Next: check the schedule (${scheduleLink}) and remember there's a 10% discount when you sign up as a team. See you on the mats!`
-        : `¡Bienvenid@ a la familia${who}! 🥋🎉 Nos da mucho gusto tenerte. Lo que sigue: revisa los horarios (${scheduleLink}) y recuerda que hay 10% de descuento si te inscribes en equipo. ¡Nos vemos en el tatami!`;
+    const body = renderCopy(
+      lang === "en" ? CLIENT.copy.welcomeEn : CLIENT.copy.welcomeEs,
+      { who, link: CLIENT.links.schedule },
+    );
     try {
       await sendText(env, phone, body);
     } catch (err) {
@@ -477,22 +550,18 @@ function bodyParams(values: string[]): {
   };
 }
 
-const ADDRESS = "Av. México 49, 1º piso, Condesa";
-
 function confirmText(name: string, lang: string): string {
   const who = name ? ` ${name}` : "";
-  if (lang === "en") {
-    return `Hi${who}! 🥋 Your trial class is booked. We're at ${ADDRESS}. Bring comfortable clothes and a water bottle — no gear needed, we lend it. See you soon!`;
-  }
-  return `¡Hola${who}! 🥋 Tu clase de prueba quedó agendada. Estamos en ${ADDRESS}. Trae ropa cómoda y una botella de agua — no necesitas equipo, nosotros te lo prestamos. ¡Nos vemos!`;
+  return renderCopy(lang === "en" ? CLIENT.copy.confirmEn : CLIENT.copy.confirmEs, {
+    who,
+    address: CLIENT.address,
+  });
 }
 
 function customText(note: string | null, lang: string): string {
   const n = (note ?? "").trim();
   if (n) return n;
-  return lang === "en"
-    ? "Hi! Just checking in from MD Condesa 🥋"
-    : "¡Hola! Te escribimos de MD Condesa 🥋";
+  return lang === "en" ? CLIENT.copy.checkinEn : CLIENT.copy.checkinEs;
 }
 
 function nowSec(): number {
