@@ -170,6 +170,7 @@ export interface CreateCampaignInput {
   info: string;
   status?: Campaign["status"];
   endsAt?: number | null;
+  adId?: string | null;
 }
 
 export async function createCampaign(
@@ -179,8 +180,8 @@ export async function createCampaign(
   const t = now();
   const res = await db
     .prepare(
-      `INSERT INTO campaigns(name, trigger_phrase, trigger_norm, info, status, ends_at, created_at, updated_at)
-       VALUES(?1, ?2, ?3, ?4, COALESCE(?5, 'active'), ?6, ?7, ?7)`,
+      `INSERT INTO campaigns(name, trigger_phrase, trigger_norm, info, status, ends_at, ad_id, created_at, updated_at)
+       VALUES(?1, ?2, ?3, ?4, COALESCE(?5, 'active'), ?6, ?7, ?8, ?8)`,
     )
     .bind(
       input.name,
@@ -189,6 +190,7 @@ export async function createCampaign(
       input.info,
       input.status ?? null,
       input.endsAt ?? null,
+      input.adId ?? null,
       t,
     )
     .run();
@@ -203,11 +205,13 @@ export interface UpdateCampaignInput {
   info?: string;
   status?: Campaign["status"];
   endsAt?: number | null;
+  adId?: string | null;
 }
 
 /**
- * Partial update. endsAt is special: `undefined` leaves it unchanged, but an
- * explicit `null` clears it — so we pass a sentinel flag rather than COALESCE.
+ * Partial update. endsAt / adId are special: `undefined` leaves them unchanged,
+ * but an explicit `null` clears them — so we pass a sentinel flag per field
+ * rather than COALESCE.
  */
 export async function updateCampaign(
   db: D1Database,
@@ -215,6 +219,7 @@ export async function updateCampaign(
   input: UpdateCampaignInput,
 ): Promise<Campaign | null> {
   const setEndsAt = "endsAt" in input;
+  const setAdId = "adId" in input;
   await db
     .prepare(
       `UPDATE campaigns SET
@@ -224,6 +229,7 @@ export async function updateCampaign(
          info = COALESCE(?5, info),
          status = COALESCE(?6, status),
          ends_at = CASE WHEN ?7 = 1 THEN ?8 ELSE ends_at END,
+         ad_id = CASE WHEN ?10 = 1 THEN ?11 ELSE ad_id END,
          updated_at = ?9
        WHERE id = ?1`,
     )
@@ -237,6 +243,8 @@ export async function updateCampaign(
       setEndsAt ? 1 : 0,
       input.endsAt ?? null,
       now(),
+      setAdId ? 1 : 0,
+      input.adId ?? null,
     )
     .run();
   return getCampaign(db, id);
@@ -285,6 +293,24 @@ export async function setContactCampaign(
       `UPDATE contacts SET campaign_id = ?2, updated_at = ?3 WHERE phone = ?1`,
     )
     .bind(phone, campaignId, now())
+    .run();
+}
+
+/**
+ * Stores the click-to-WhatsApp ad referral JSON on a contact. Called once, on
+ * first capture (the pipeline guards on ad_ref being null) so we keep the
+ * ORIGINAL attribution even if the lead later re-clicks a different ad.
+ */
+export async function setContactAdRef(
+  db: D1Database,
+  phone: string,
+  json: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE contacts SET ad_ref = ?2, updated_at = ?3 WHERE phone = ?1`,
+    )
+    .bind(phone, json, now())
     .run();
 }
 

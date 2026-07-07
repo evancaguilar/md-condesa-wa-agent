@@ -15,6 +15,7 @@ function contact(overrides: Partial<Contact> = {}): Contact {
     human_override_until: null,
     last_inbound_at: null,
     campaign_id: null,
+    ad_ref: null,
     created_at: 0,
     updated_at: 0,
     ...overrides,

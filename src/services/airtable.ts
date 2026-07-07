@@ -125,6 +125,9 @@ export async function bookTrial(
     "Trial DateTime": trialDateTime,
     Source: "WhatsApp",
   };
+  // Ad attribution ("headline (id)"), FIRST attempt only. If the Ad field does
+  // not exist in the base, the 422 unknown-field path retries with core fields.
+  if (input.ad) full["Ad"] = input.ad;
 
   const first = await createRecord(env, env.AIRTABLE_TRIALS_TABLE, full);
   if (first.ok) return first.id;

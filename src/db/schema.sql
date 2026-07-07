@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS contacts(
   human_override_until INTEGER,      -- epoch seconds; bot silent until then
   last_inbound_at INTEGER,           -- drives 24h-window logic
   campaign_id INTEGER,               -- campaigns.id the lead arrived through (nullable)
+  ad_ref TEXT,                       -- JSON click-to-WhatsApp referral {sourceId,headline,body,sourceUrl,ctwaClid}
   created_at INTEGER, updated_at INTEGER
 );
 
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS campaigns(
   info TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',  -- active|paused|ended
   ends_at INTEGER,
+  ad_id TEXT,                             -- Meta ad id; referral.source_id match auto-attaches (ad_id > phrase)
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_campaigns_trigger ON campaigns(trigger_norm);

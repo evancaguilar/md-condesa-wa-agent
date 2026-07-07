@@ -79,6 +79,8 @@ async function onInbound(
     phone: ev.from,
     body: ev.body,
     ts: ev.ts,
+    referral: ev.referral,
+    media: ev.media,
   });
 }
 

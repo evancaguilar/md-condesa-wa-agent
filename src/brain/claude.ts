@@ -336,6 +336,25 @@ function sleep(ms: number): Promise<void> {
 
 // ---- book_trial execution ------------------------------------------------
 
+/**
+ * Builds an "headline (id)" attribution label from a contact's ad_ref JSON, or
+ * null when there's no usable referral. Tolerant of malformed JSON.
+ */
+function adLabelFromRef(adRef: string | null): string | null {
+  if (!adRef) return null;
+  try {
+    const r = JSON.parse(adRef) as { headline?: string | null; sourceId?: string | null };
+    const headline = (r.headline ?? "").trim();
+    const id = (r.sourceId ?? "").trim();
+    if (headline && id) return `${headline} (${id})`;
+    if (headline) return headline;
+    if (id) return id;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 interface BookOutcome {
   result: ToolResultContent;
   booking?: { input: BookTrialInput; followupMessage: string; recordId: string };
@@ -382,6 +401,11 @@ async function handleBookTrial(
     trialTime,
     phone: ctx.phone,
   };
+  // Attribution: if the lead came via a click-to-WhatsApp ad, tag the booking
+  // with "headline (id)" so Airtable can attribute the trial. bookTrial tolerates
+  // the Ad field being absent (unknown-field 422 → core-fields retry).
+  const ad = adLabelFromRef(ctx.contact.ad_ref);
+  if (ad) bookInput.ad = ad;
 
   try {
     const recordId = await airtable.bookTrial(bookInput);

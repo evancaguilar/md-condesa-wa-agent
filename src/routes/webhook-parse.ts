@@ -2,13 +2,27 @@
 // is unit-testable under `node --test`. Normalizes the nested payload into a
 // flat list of events the pipeline/route can act on.
 
+/** Parsed Meta click-to-WhatsApp referral rider on an inbound message. */
+export interface InboundReferral {
+  sourceUrl: string | null;
+  sourceType: string | null;
+  sourceId: string | null; // the ad id
+  headline: string | null;
+  body: string | null;
+  ctwaClid: string | null;
+}
+
 export interface InboundEvent {
   type: "inbound";
   wamid: string;
   from: string; // sender phone, digits only
   ts: number; // epoch seconds
-  body: string; // extracted text (from text / button / interactive)
-  kind: "text" | "button" | "interactive" | "other";
+  body: string; // extracted text (from text / button / interactive; empty for audio)
+  kind: "text" | "button" | "interactive" | "audio" | "other";
+  /** Present when the message arrived from a click-to-WhatsApp ad. */
+  referral?: InboundReferral;
+  /** Present for voice notes / audio (kind:'audio'): the Graph media id + mime. */
+  media?: { mediaId: string; mimeType: string | null };
 }
 
 export interface StatusEvent {
@@ -50,6 +64,16 @@ interface RawMessage {
     button_reply?: { id?: string; title?: string };
     list_reply?: { id?: string; title?: string };
   };
+  audio?: { id?: string; mime_type?: string; voice?: boolean };
+  voice?: { id?: string; mime_type?: string };
+  referral?: {
+    source_url?: string;
+    source_type?: string;
+    source_id?: string;
+    headline?: string;
+    body?: string;
+    ctwa_clid?: string;
+  };
 }
 
 function toEpoch(ts: string | undefined): number {
@@ -66,7 +90,31 @@ function extractBody(m: RawMessage): { body: string; kind: InboundEvent["kind"] 
     const r = m.interactive.button_reply ?? m.interactive.list_reply;
     return { body: r?.title ?? r?.id ?? "", kind: "interactive" };
   }
+  // Voice notes / audio: no text body — the pipeline transcribes from media.id.
+  if ((m.type === "audio" || m.type === "voice") && (m.audio?.id || m.voice?.id))
+    return { body: "", kind: "audio" };
   return { body: "", kind: "other" };
+}
+
+/** Pulls the audio media {mediaId, mimeType} for a voice/audio message, if any. */
+function extractMedia(m: RawMessage): InboundEvent["media"] | undefined {
+  const a = m.audio ?? m.voice;
+  if (!a?.id) return undefined;
+  return { mediaId: a.id, mimeType: a.mime_type ?? null };
+}
+
+/** Maps a raw referral rider to the normalized InboundReferral, or undefined. */
+function extractReferral(m: RawMessage): InboundReferral | undefined {
+  const r = m.referral;
+  if (!r) return undefined;
+  return {
+    sourceUrl: r.source_url ?? null,
+    sourceType: r.source_type ?? null,
+    sourceId: r.source_id ?? null,
+    headline: r.headline ?? null,
+    body: r.body ?? null,
+    ctwaClid: r.ctwa_clid ?? null,
+  };
 }
 
 /**
@@ -120,14 +168,19 @@ export function parseWebhook(payload: unknown): WebhookEvent[] {
       // Default `messages` field: inbound messages + delivery statuses.
       for (const m of value.messages ?? []) {
         const { body, kind } = extractBody(m);
-        events.push({
+        const ev: InboundEvent = {
           type: "inbound",
           wamid: m.id ?? "",
           from: m.from ?? "",
           ts: toEpoch(m.timestamp),
           body,
           kind,
-        });
+        };
+        const referral = extractReferral(m);
+        if (referral) ev.referral = referral;
+        const media = extractMedia(m);
+        if (media) ev.media = media;
+        events.push(ev);
       }
       for (const s of value.statuses ?? []) {
         events.push({

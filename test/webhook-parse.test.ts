@@ -9,6 +9,8 @@ import inboundText from "./fixtures/inbound-text.json" with { type: "json" };
 import echo from "./fixtures/echo.json" with { type: "json" };
 import buttonReply from "./fixtures/button-reply.json" with { type: "json" };
 import duplicateDelivery from "./fixtures/duplicate-delivery.json" with { type: "json" };
+import inboundReferral from "./fixtures/inbound-referral.json" with { type: "json" };
+import inboundAudio from "./fixtures/inbound-audio.json" with { type: "json" };
 
 test("parses an inbound text message", () => {
   const events = parseWebhook(inboundText);
@@ -111,6 +113,43 @@ test("fixture: duplicate-delivery replays the same wamid as inbound-text", () =>
   const dup = parseWebhook(duplicateDelivery)[0] as InboundEvent;
   assert.equal(dup.wamid, first.wamid);
   assert.equal(dup.type, "inbound");
+});
+
+test("fixture: click-to-WhatsApp referral is extracted onto the inbound event", () => {
+  const events = parseWebhook(inboundReferral);
+  assert.equal(events.length, 1);
+  const ev = events[0] as InboundEvent;
+  assert.equal(ev.type, "inbound");
+  assert.equal(ev.wamid, "wamid.REFERRAL_1");
+  assert.equal(ev.kind, "text");
+  assert.equal(ev.body, "Hola, vi su anuncio de defensa personal");
+  assert.ok(ev.referral);
+  assert.equal(ev.referral?.sourceId, "120210000000012345");
+  assert.equal(ev.referral?.sourceType, "ad");
+  assert.equal(
+    ev.referral?.headline,
+    "Clase de prueba GRATIS — Defensa personal Condesa",
+  );
+  assert.equal(ev.referral?.ctwaClid, "ARBxyz0123456789ctwa");
+  assert.equal(ev.referral?.sourceUrl, "https://fb.me/2abcdEF");
+});
+
+test("inbound without a referral has no referral field", () => {
+  const ev = parseWebhook(inboundText)[0] as InboundEvent;
+  assert.equal(ev.referral, undefined);
+});
+
+test("fixture: audio (voice note) parses as kind:'audio' with media + empty body", () => {
+  const events = parseWebhook(inboundAudio);
+  assert.equal(events.length, 1);
+  const ev = events[0] as InboundEvent;
+  assert.equal(ev.type, "inbound");
+  assert.equal(ev.wamid, "wamid.AUDIO_1");
+  assert.equal(ev.kind, "audio");
+  assert.equal(ev.body, "");
+  assert.ok(ev.media);
+  assert.equal(ev.media?.mediaId, "MEDIA_ID_9876");
+  assert.equal(ev.media?.mimeType, "audio/ogg; codecs=opus");
 });
 
 test("emits a status event and ignores app_state_sync payload content", () => {

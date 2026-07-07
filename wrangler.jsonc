@@ -14,6 +14,10 @@
       "database_id": "c57b17de-9e0c-4a48-adc7-7cb791372cdc"
     }
   ],
+  // Workers AI: Whisper transcription for inbound voice notes (src/services/media.ts).
+  "ai": {
+    "binding": "AI"
+  },
   "triggers": {
     "crons": ["*/5 * * * *"]
   },

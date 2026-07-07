@@ -642,11 +642,13 @@ async function handleCampaignCreate(req: Request, env: Env): Promise<Response> {
     trigger?: string;
     info?: string;
     endsAt?: number | null;
+    adId?: string | null;
   }>(req);
   const name = (body.name ?? "").trim();
   const trigger = (body.trigger ?? "").trim();
   const info = body.info ?? "";
   if (!name || !trigger) return json({ error: "name_and_trigger_required" }, 400);
+  const adId = typeof body.adId === "string" ? body.adId.trim() || null : null;
 
   const triggerNorm = normalizeText(trigger);
   // Duplicate trigger (normalized) → 409. Check before insert; the unique index
@@ -663,6 +665,7 @@ async function handleCampaignCreate(req: Request, env: Env): Promise<Response> {
       triggerNorm,
       info,
       endsAt: body.endsAt ?? null,
+      adId,
     });
     return json({ campaign });
   } catch (err) {
@@ -682,6 +685,7 @@ async function handleCampaignUpdate(req: Request, env: Env, id: number): Promise
     info?: string;
     endsAt?: number | null;
     status?: string;
+    adId?: string | null;
   }>(req);
 
   let triggerNorm: string | undefined;
@@ -705,8 +709,12 @@ async function handleCampaignUpdate(req: Request, env: Env, id: number): Promise
     info: body.info,
     status,
   };
-  // endsAt: only forward the key when the client explicitly sent it (null clears).
+  // endsAt / adId: only forward the key when the client explicitly sent it
+  // (an explicit null clears the column; absent leaves it unchanged).
   if ("endsAt" in body) update.endsAt = body.endsAt ?? null;
+  if ("adId" in body) {
+    update.adId = typeof body.adId === "string" ? body.adId.trim() || null : null;
+  }
 
   try {
     const campaign = await updateCampaign(env.DB, id, update);
@@ -780,6 +788,7 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
       human_override_until: null,
       last_inbound_at: base,
       campaign_id: null,
+      ad_ref: null,
       created_at: base,
       updated_at: base,
     },

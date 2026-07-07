@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { matchCampaign, normalizeText } from "../src/pipeline/campaigns.js";
+import {
+  matchCampaign,
+  matchCampaignByAdId,
+  normalizeText,
+} from "../src/pipeline/campaigns.js";
 import type { Campaign } from "../src/types.js";
 
 function campaign(over: Partial<Campaign> = {}): Campaign {
@@ -12,6 +16,7 @@ function campaign(over: Partial<Campaign> = {}): Campaign {
     info: "info",
     status: "active",
     ends_at: null,
+    ad_id: null,
     created_at: 0,
     updated_at: 0,
     ...over,
@@ -78,5 +83,31 @@ test("returns the first matching campaign id", () => {
 
 test("ignores campaigns with empty trigger_norm", () => {
   const id = matchCampaign("cualquier cosa", [campaign({ id: 3, trigger_norm: "" })]);
+  assert.equal(id, null);
+});
+
+// ---- matchCampaignByAdId -------------------------------------------------
+
+test("ad-id match returns the campaign whose ad_id equals the source id", () => {
+  const id = matchCampaignByAdId("120210000000012345", [
+    campaign({ id: 4, ad_id: "999" }),
+    campaign({ id: 8, ad_id: "120210000000012345" }),
+  ]);
+  assert.equal(id, 8);
+});
+
+test("ad-id match returns null when nothing matches", () => {
+  const id = matchCampaignByAdId("nope", [campaign({ id: 8, ad_id: "120210000000012345" })]);
+  assert.equal(id, null);
+});
+
+test("ad-id match returns null on empty/undefined source id", () => {
+  assert.equal(matchCampaignByAdId(null, [campaign({ ad_id: "1" })]), null);
+  assert.equal(matchCampaignByAdId(undefined, [campaign({ ad_id: "1" })]), null);
+  assert.equal(matchCampaignByAdId("", [campaign({ ad_id: "1" })]), null);
+});
+
+test("ad-id match ignores campaigns with null ad_id", () => {
+  const id = matchCampaignByAdId("123", [campaign({ id: 3, ad_id: null })]);
   assert.equal(id, null);
 });

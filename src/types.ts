@@ -1,10 +1,21 @@
 // Shared contract for all workstreams (A–E). B/C/D implement against the
 // port interfaces at the bottom; do not add runtime logic here.
 
+/**
+ * Minimal Workers AI binding surface. The pinned @cloudflare/workers-types does
+ * not ship an `Ai` type, so we declare just the `run` method the media/whisper
+ * path uses. Kept local to avoid a types-package bump.
+ */
+export interface Ai {
+  run(model: string, input: Record<string, unknown>): Promise<unknown>;
+}
+
 /** Worker bindings, secrets, and vars. Mirrors wrangler.jsonc + `wrangler secret`. */
 export interface Env {
   // Bindings
   DB: D1Database;
+  /** Workers AI (Whisper transcription). Optional so local/sandbox runs skip it. */
+  AI?: Ai;
 
   // Secrets
   META_APP_SECRET: string;
@@ -52,8 +63,19 @@ export interface Contact {
   human_override_until: number | null;
   last_inbound_at: number | null;
   campaign_id: number | null; // FK-ish → campaigns.id; the campaign the lead arrived through
+  /** JSON click-to-WhatsApp ad referral captured on first inbound (see AdRef). */
+  ad_ref: string | null;
   created_at: number;
   updated_at: number;
+}
+
+/** Parsed shape of contacts.ad_ref JSON — a Meta click-to-WhatsApp referral. */
+export interface AdRef {
+  sourceId: string | null; // referral.source_id (the ad id)
+  headline: string | null;
+  body: string | null;
+  sourceUrl: string | null;
+  ctwaClid: string | null;
 }
 
 // ---- Admin dashboard: knowledge-base overlay + campaigns ----
@@ -91,6 +113,8 @@ export interface Campaign {
   info: string; // extra knowledge fed to the brain for this campaign's leads
   status: "active" | "paused" | "ended";
   ends_at: number | null; // epoch seconds; null = no end date
+  /** Meta ad id: leads whose referral.source_id matches auto-attach (ad_id > phrase). */
+  ad_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -178,6 +202,8 @@ export interface BookTrialInput {
   trialDate: string; // YYYY-MM-DD (America/Mexico_City)
   trialTime: string; // HH:mm 24h (America/Mexico_City)
   phone: string;
+  /** "headline (id)" string from the contact's ad_ref, when the lead came via an ad. */
+  ad?: string;
 }
 
 /** A custom follow-up the model asked to schedule (set_followup tool). The

@@ -501,11 +501,16 @@ async function openChat(phone){
   if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(phone); };
   var tr=q(".transcript",det); if(tr) tr.scrollTop=tr.scrollHeight;
 }
+function isVoiceMsg(msg){
+  if(!msg||!msg.meta) return false;
+  try{ return JSON.parse(msg.meta).voice===true; }catch(e){ return false; }
+}
 function bubbleHtml(msg){
   var dir=msg.direction, cls="in", who="";
   if(dir==="out_bot"){ cls="bot"; }
   else if(dir==="out_human_echo"){ cls="human"; who='<div class="who">🙋 tú</div>'; }
-  return '<div class="bub '+cls+'">'+who+esc(msg.body||"")+'<div class="ts">'+esc(clockTime(msg.ts))+'</div></div>';
+  var mic=isVoiceMsg(msg)?"🎤 ":"";
+  return '<div class="bub '+cls+'">'+who+mic+esc(msg.body||"")+'<div class="ts">'+esc(clockTime(msg.ts))+'</div></div>';
 }
 async function pauseConvo(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/pause",{method:"POST",body:{}});
@@ -829,6 +834,7 @@ async function loadCampaigns(){
     +'<label class="lab">Nombre</label><input id="cName" class="field" placeholder="Promo verano">'
     +'<label class="lab">Frase del anuncio (mensaje prellenado)</label><input id="cTrigger" class="field" placeholder="Hola, quiero info de la promo de verano">'
     +'<label class="lab">Información para el bot</label><textarea id="cInfo" class="field" placeholder="Contexto que el bot debe saber sobre esta campaña…"></textarea>'
+    +'<label class="lab">ID del anuncio (opcional)</label><input id="cAdId" class="field" placeholder="p. ej. 120210000000012345">'
     +'<label class="lab">Termina el (opcional)</label><input id="cEnds" class="field" type="date">'
     +'<button id="cCreate" class="btn gold" style="margin-top:12px">Crear campaña</button></details></div>';
   if(!items.length){ html+='<div class="card muted">Sin campañas todavía.</div>'; }
@@ -844,13 +850,14 @@ function campStatusChip(s){
 }
 function campCard(c){
   var ends = c.ends_at ? '<div style="margin-top:4px"><span class="muted sm">vence '+esc(fmtDate(c.ends_at))+'</span></div>' : "";
+  var adChip = c.ad_id ? ' <span class="chip blue">ad '+esc(c.ad_id)+'</span>' : "";
   var btns="";
   if(c.status==="active") btns+='<button class="btn sm" data-cs="paused">Pausar</button>';
   if(c.status==="paused") btns+='<button class="btn green sm" data-cs="active">Reactivar</button>';
   if(c.status!=="ended") btns+='<button class="btn red sm" data-cs="ended">Finalizar</button>';
   return '<div class="card" id="camp-'+c.id+'" data-id="'+c.id+'">'
     +'<div class="between"><b>'+esc(c.name)+'</b>'+campStatusChip(c.status)+'</div>'
-    +'<div class="muted sm" style="margin-top:4px">“'+esc(c.trigger_phrase)+'”</div>'
+    +'<div class="muted sm" style="margin-top:4px">“'+esc(c.trigger_phrase)+'”'+adChip+'</div>'
     +ends
     +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div></div>';
 }
@@ -864,9 +871,11 @@ async function createCampaign(){
   var name=el("cName").value.trim();
   var trigger=el("cTrigger").value.trim();
   var info=el("cInfo").value.trim();
+  var adId=el("cAdId")?el("cAdId").value.trim():"";
   var ends=el("cEnds").value;
   if(!name||!trigger||!info){ toast("Nombre, frase e información son obligatorios","err"); return; }
   var body={name:name,trigger:trigger,info:info};
+  if(adId){ body.adId=adId; }
   if(ends){ body.endsAt=Math.floor(new Date(ends+"T23:59:59").getTime()/1000); }
   try{
     await api("/campaigns",{method:"POST",body:body});

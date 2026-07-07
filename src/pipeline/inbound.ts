@@ -3,6 +3,7 @@
 // brain → route reply. Brain/Slack/Airtable arrive as injected ports.
 
 import type {
+  AdRef,
   BrainResult,
   ConvoContext,
   Env,
@@ -27,12 +28,15 @@ import {
   getActiveCampaigns,
   getCampaign,
   getTrainingWheels,
+  setContactAdRef,
   setContactCampaign,
 } from "../db/queries-admin.js";
-import { matchCampaign, normalizeText } from "./campaigns.js";
+import { matchCampaign, matchCampaignByAdId, normalizeText } from "./campaigns.js";
 import { sendText, WindowClosedError } from "../services/wa.js";
+import { fetchMediaBytes, transcribe } from "../services/media.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
 import { armNudges, cancelNudges } from "../cron/nudges.js";
+import type { InboundReferral } from "../routes/webhook-parse.js";
 
 const OPT_OUT = /^\s*(baja|stop|alto)\s*$/i;
 const DEBOUNCE_MS = 8000;
@@ -45,7 +49,14 @@ export interface InboundMessage {
   phone: string;
   body: string;
   ts: number;
+  /** Click-to-WhatsApp ad referral rider (parsed from the webhook), if present. */
+  referral?: InboundReferral;
+  /** Voice-note / audio media to transcribe (kind:'audio'), if present. */
+  media?: { mediaId: string; mimeType: string | null };
 }
+
+/** Failure body stored when a voice note can't be transcribed. */
+const VOICE_FAIL_BODY = "[nota de voz — no se pudo transcribir]";
 
 export async function processInbound(
   env: Env,
@@ -53,18 +64,54 @@ export async function processInbound(
   ports: Ports,
   msg: InboundMessage,
 ): Promise<void> {
+  // 0. Voice notes: fetch the media + transcribe BEFORE dedupe so the stored
+  // message body is the transcript. Whisper/media failures degrade to a marker
+  // body (the brain then goes low-confidence / asks them to write it). Never
+  // throws — media.ts swallows all errors to null.
+  let body = msg.body;
+  let meta: Record<string, unknown> | null = null;
+  if (msg.media) {
+    const bytes = await fetchMediaBytes(env, msg.media.mediaId);
+    const transcript = bytes ? await transcribe(env, bytes) : null;
+    if (transcript) {
+      body = transcript;
+      meta = { voice: true };
+    } else {
+      body = VOICE_FAIL_BODY;
+      meta = { voice: true, failed: true };
+    }
+  }
+
   // 1. Dedupe: INSERT OR IGNORE; existing row ⇒ drop the event entirely.
   const inserted = await insertMessageIfNew(env.DB, {
     wamid: msg.wamid,
     phone: msg.phone,
     direction: "in",
-    body: msg.body,
+    body,
     ts: msg.ts,
+    meta: meta ? JSON.stringify(meta) : null,
   });
   if (!inserted) return;
 
   await upsertContact(env.DB, { phone: msg.phone });
   await touchLastInbound(env.DB, msg.phone, msg.ts);
+
+  // 1a. Ad attribution: on the first inbound carrying a click-to-WhatsApp
+  // referral, persist it (only when the contact has none yet — keep the
+  // original attribution). Best-effort; failure must not block the reply path.
+  if (msg.referral) {
+    const contactForAd = await getContact(env.DB, msg.phone);
+    if (contactForAd && contactForAd.ad_ref === null) {
+      const adRef: AdRef = {
+        sourceId: msg.referral.sourceId,
+        headline: msg.referral.headline,
+        body: msg.referral.body,
+        sourceUrl: msg.referral.sourceUrl,
+        ctwaClid: msg.referral.ctwaClid,
+      };
+      await setContactAdRef(env.DB, msg.phone, JSON.stringify(adRef));
+    }
+  }
 
   // 1b. Cancel any pending lead-nudge drip: every new inbound resets it. The
   // drip re-arms after the next bot reply (auto-send or approved). Runs before
@@ -74,13 +121,13 @@ export async function processInbound(
   // 2. Global kill switch.
   if (!(await isBotEnabled(env.DB))) {
     await ports.slack.postNote(
-      `Bot en pausa (kill switch). Mensaje de ${msg.phone}: ${msg.body}`,
+      `Bot en pausa (kill switch). Mensaje de ${msg.phone}: ${body}`,
     );
     return;
   }
 
   // 3. Opt-out.
-  if (OPT_OUT.test(msg.body)) {
+  if (OPT_OUT.test(body)) {
     await setContactStatus(env.DB, msg.phone, "opted_out");
     await cancelFollowups(env.DB, msg.phone, "skipped_optout");
     try {
@@ -95,12 +142,15 @@ export async function processInbound(
     return;
   }
 
-  // 3b. Campaign tagging: if this inbound repeats an active campaign's trigger
-  // phrase (the lead came from that ad), tag the contact so the brain gets the
-  // campaign's extra knowledge. Only active, in-flight campaigns are considered.
+  // 3b. Campaign tagging. Precedence: an ad-id match (referral.source_id →
+  // campaigns.ad_id) wins over a trigger-phrase match, because a click-to-
+  // WhatsApp lead is attributed by the ad it clicked, not its prefilled text.
+  // Only active, in-flight campaigns are considered.
   const activeCampaigns = await getActiveCampaigns(env.DB);
   if (activeCampaigns.length > 0) {
-    const campaignId = matchCampaign(normalizeText(msg.body), activeCampaigns);
+    const campaignId =
+      matchCampaignByAdId(msg.referral?.sourceId, activeCampaigns) ??
+      matchCampaign(normalizeText(body), activeCampaigns);
     if (campaignId !== null) {
       await setContactCampaign(env.DB, msg.phone, campaignId);
     }
@@ -112,7 +162,7 @@ export async function processInbound(
   // 4. Student on the lead line: silent, ping Slack.
   if (contact.status === "student") {
     await ports.slack.postNote(
-      `Alumno conocido escribió en la línea de leads (${msg.phone}): ${msg.body}`,
+      `Alumno conocido escribió en la línea de leads (${msg.phone}): ${body}`,
     );
     return;
   }
@@ -121,7 +171,7 @@ export async function processInbound(
   const nowSec = Math.floor(Date.now() / 1000);
   if (contact.human_override_until && contact.human_override_until > nowSec) {
     await ports.slack.postNote(
-      `(bot en pausa por override) ${msg.phone}: ${msg.body}`,
+      `(bot en pausa por override) ${msg.phone}: ${body}`,
     );
     return;
   }
@@ -284,7 +334,11 @@ async function queueApproval(
 ): Promise<void> {
   const contextText = history
     .slice(-6)
-    .map((m) => `${m.direction === "in" ? "👤" : "🤖"} ${m.body}`)
+    .map((m) => {
+      const who = m.direction === "in" ? "👤" : "🤖";
+      const mic = isVoiceMeta(m.meta) ? "🎤 " : "";
+      return `${who} ${mic}${m.body}`;
+    })
     .join("\n");
   const confidence = "low";
   const id = await createApproval(env.DB, {
@@ -308,6 +362,16 @@ async function queueApproval(
     contextText: reason ? `${reason}\n\n${contextText}` : contextText,
   });
   await setApprovalSlackTs(env.DB, id, slackTs);
+}
+
+/** True when a stored message's meta JSON marks it as a voice transcription. */
+function isVoiceMeta(meta: string | null): boolean {
+  if (!meta) return false;
+  try {
+    return (JSON.parse(meta) as { voice?: boolean }).voice === true;
+  } catch {
+    return false;
+  }
 }
 
 interface CdmxNow {

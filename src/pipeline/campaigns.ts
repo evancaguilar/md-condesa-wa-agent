@@ -46,3 +46,20 @@ export function matchCampaign(
   }
   return null;
 }
+
+/**
+ * First campaign whose `ad_id` equals the referral `source_id` (the Meta ad id).
+ * This takes precedence over trigger-phrase matching: a click-to-WhatsApp lead is
+ * attributed by the ad it came from, not by whatever prefilled text it sent.
+ * Returns the campaign id, or null when `sourceId` is empty or nothing matches.
+ */
+export function matchCampaignByAdId(
+  sourceId: string | null | undefined,
+  campaigns: Campaign[],
+): number | null {
+  if (!sourceId) return null;
+  for (const c of campaigns) {
+    if (c.ad_id && c.ad_id === sourceId) return c.id;
+  }
+  return null;
+}

@@ -149,6 +149,7 @@ function draftBlocks(
   name: string | null,
   hoursLeft: number,
   reason: string | null,
+  adLine: string | null,
 ): unknown[] {
   const who = name ? `${name} · ${approval.phone}` : approval.phone;
   const blocks: unknown[] = [
@@ -157,6 +158,9 @@ function draftBlocks(
       text: { type: "plain_text", text: `📲 ${who}`, emoji: true },
     },
     context(statusChips(approval, name, hoursLeft)),
+  ];
+  if (adLine) blocks.push(context(adLine));
+  blocks.push(
     divider(),
     section(`*Conversación:*\n${approval.contextText || "_(sin contexto)_"}`),
     section(`*Respuesta propuesta:*\n>${quote(approval.draft)}`),
@@ -187,7 +191,7 @@ function draftBlocks(
         },
       ],
     },
-  ];
+  );
   return blocks;
 }
 
@@ -246,7 +250,8 @@ export async function postDraft(
   const now = Math.floor(Date.now() / 1000);
   const hoursLeft = windowHoursLeft(contact?.last_inbound_at ?? null, now);
   const reason = extractReason(a.context);
-  const blocks = draftBlocks(a, name, hoursLeft, reason);
+  const adLine = adContextLine(contact?.ad_ref ?? null);
+  const blocks = draftBlocks(a, name, hoursLeft, reason, adLine);
   return postMessage(env, blocks, `Nueva respuesta por aprobar — ${a.phone}`);
 }
 
@@ -469,6 +474,21 @@ export function makeSlackPort(env: Env): SlackPort {
 }
 
 // ---- internal ----
+
+/**
+ * Builds the "📣 Anuncio: …" context line from a contact's ad_ref JSON, or null
+ * when there's no referral. Prefers the ad headline, falling back to source_id.
+ */
+function adContextLine(adRef: string | null): string | null {
+  if (!adRef) return null;
+  try {
+    const r = JSON.parse(adRef) as { headline?: string | null; sourceId?: string | null };
+    const label = (r.headline ?? "").trim() || (r.sourceId ?? "").trim();
+    return label ? `📣 Anuncio: ${label}` : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The brain stashes its escalation reason in the approval context JSON. */
 function extractReason(context: string | null): string | null {
