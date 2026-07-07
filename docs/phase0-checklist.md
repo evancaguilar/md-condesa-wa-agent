@@ -204,6 +204,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_campaigns_trigger ON campaigns(trigger_nor
 ALTER TABLE contacts ADD COLUMN campaign_id INTEGER;
 ```
 
+### Step 6c — Pack migrations (follow-ups & attribution pack)
+
+Run these ONCE on the existing production D1, in the same **Console** → **Execute**.
+Idempotent-ish: if a column already exists the `ALTER` errors harmlessly with
+"duplicate column" — ignore that one error. (A fresh install from the full
+`src/db/schema.sql` already includes both columns; this block is only for
+migrating the live database in place.)
+
+```sql
+ALTER TABLE contacts ADD COLUMN ad_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN ad_id TEXT;
+```
+
+- `contacts.ad_ref` — JSON click-to-WhatsApp referral captured on first inbound
+  (`{sourceId, headline, body, sourceUrl, ctwaClid}`); surfaced on Slack draft
+  cards as "📣 Anuncio: …".
+- `campaigns.ad_id` — Meta ad id. When a lead's referral `source_id` equals a
+  campaign's `ad_id`, that campaign auto-attaches (ad-id match beats trigger phrase).
+
+**Also enable Workers AI** for voice-note transcription (F5): the worker now
+declares an `"ai": { "binding": "AI" }` binding in `wrangler.jsonc`. Workers AI is
+enabled per-account in the Cloudflare dashboard (**AI** → **Workers AI**); once the
+account has it, the binding deploys automatically — no extra secret. If the account
+does not have Workers AI, transcription degrades gracefully (voice notes store
+"[nota de voz — no se pudo transcribir]" and the bot asks the lead to write it).
+
+**Optional Airtable field** for booking attribution: add a single-line-text field
+named **`Ad`** to the Leads/Trials table. `bookTrial` writes `"headline (id)"` there
+for ad-sourced trials; if the field is absent the create call drops it automatically
+(unknown-field 422 → core-fields retry), so this is optional.
+
 ## Step 7 — Airtable: token, fields, students table
 
 1. Go to **airtable.com/create/tokens** → **Create new token**.
