@@ -51,9 +51,10 @@ import {
   statsOverview,
   getTrainingWheels,
   clearHumanOverride,
+  getActiveCampaigns,
 } from "../db/queries-admin.js";
 import { assembleOverlay, estimateTokens } from "../brain/overlay.js";
-import { normalizeText } from "../pipeline/campaigns.js";
+import { normalizeText, matchCampaign } from "../pipeline/campaigns.js";
 import {
   approveAndSend,
   editAndSend,
@@ -777,6 +778,27 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
   });
 
   const cdmx = cdmxNow();
+
+  // Mirror the pipeline's campaign matching so campaigns are testable in Probar:
+  // if ANY user turn matches an active campaign trigger, attach its info.
+  let campaign: ConvoContext["campaign"];
+  try {
+    const active = await getActiveCampaigns(env.DB);
+    if (active.length > 0) {
+      for (const t of turns) {
+        if (t.role !== "user") continue;
+        const id = matchCampaign(normalizeText(t.body ?? ""), active);
+        if (id !== null) {
+          const c = active.find((x) => x.id === id);
+          if (c) campaign = { name: c.name, info: c.info };
+          break;
+        }
+      }
+    }
+  } catch {
+    // sandbox must never fail because of campaign lookup
+  }
+
   const convoCtx: ConvoContext = {
     phone: "sandbox",
     contact: {
@@ -797,6 +819,7 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
     weekday: cdmx.weekday,
     windowOpen: true,
     trainingWheels: false,
+    ...(campaign ? { campaign } : {}),
   };
 
   const brain = createBrainWithKb({
