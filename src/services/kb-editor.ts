@@ -35,6 +35,7 @@ import {
 import { accrueUsage } from "../db/queries.js";
 import { normalizeText } from "../pipeline/campaigns.js";
 import { cdmxDateStr } from "../cron/time.js";
+import { CLIENT } from "../client.gen.js";
 
 // ---- request constants ----------------------------------------------------
 
@@ -178,7 +179,7 @@ const EDITOR_TOOLS = [proposeKbEdit, proposeKbDelete, proposeCampaign];
 
 // ---- static editor instructions (block 1, cached) -------------------------
 
-const EDITOR_INSTRUCTIONS = `Eres el asistente de edición de la base de conocimiento de MD Self Defense Academy Condesa. Evan (el dueño) te describe en español un cambio (una corrección, un dato nuevo, una promo/campaña) y tú PROPONES el cambio usando las herramientas propose_*. NUNCA aplicas nada: solo propones y el humano confirma.
+const EDITOR_INSTRUCTIONS = `Eres el asistente de edición de la base de conocimiento de ${CLIENT.businessName}. ${CLIENT.ownerName} (el dueño) te describe en español un cambio (una corrección, un dato nuevo, una promo/campaña) y tú PROPONES el cambio usando las herramientas propose_*. NUNCA aplicas nada: solo propones y el humano confirma.
 
 Reglas:
 - Propón cambios MÍNIMOS. Prefiere EDITAR una sección de overlay existente antes que crear una duplicada.

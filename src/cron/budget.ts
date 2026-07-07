@@ -6,6 +6,7 @@ import type { Env } from "../types.js";
 import { kvGet, kvSet } from "../db/queries.js";
 import type { CronSlackDeps } from "./deps.js";
 import { cdmxMonthStr, cdmxDateStr, DAY } from "./time.js";
+import { CLIENT } from "../client.gen.js";
 
 const THRESHOLDS = [30, 50] as const;
 
@@ -61,7 +62,7 @@ export async function runBudgetReport(
   const y = await yesterday(env, nowEpoch);
 
   await deps.slack.postNote(
-    `📊 MD Condesa bot — gasto\n` +
+    `📊 ${CLIENT.shortName} bot — gasto\n` +
       `Ayer (${y.day}): ~$${y.cost.toFixed(2)} USD · ${y.input + y.output} tokens\n` +
       `Mes ${month} a la fecha: ~$${mtd.costUsd.toFixed(2)} USD`,
   );

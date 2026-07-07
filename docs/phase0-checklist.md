@@ -275,9 +275,9 @@ for ad-sourced trials; if the field is absent the create call drops it automatic
 
 ## Step 9 — Fill the KB gaps, then submit the 6 templates
 
-1. Open `kb/intake.md` and fill every `<!-- TODO(Evan) -->`: kids pricing,
+1. Open `clients/md-condesa/intake.md` and fill every `<!-- TODO(Evan) -->`: kids pricing,
    drop-in / visitor rate, parking, and payment methods. Save. (If you can't run
-   the build yourself, just commit + push `kb/intake.md` — but the compiled KB
+   the build yourself, just commit + push the intake file — but the compiled KB
    won't update until `npm run build` runs; ask whoever set this up to regenerate
    `kb/compiled/kb.md`, or it regenerates on the next Cloudflare deploy since
    build runs `npm run build`.)

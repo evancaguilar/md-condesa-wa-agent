@@ -1,0 +1,41 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "{{CLIENT_ID}}-wa-agent",
+  "main": "../../src/index.ts",
+  "compatibility_date": "2024-11-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "{{CLIENT_ID}}-wa-agent-db",
+      // Crear con: npx wrangler d1 create {{CLIENT_ID}}-wa-agent-db
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  // Workers AI: transcripción Whisper de notas de voz entrantes.
+  "ai": {
+    "binding": "AI"
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    "SLACK_CHANNEL_ID": "REPLACE_WITH_SLACK_CHANNEL_ID",
+    // Si features.airtableSync = false, deja los valores dummy.
+    "AIRTABLE_BASE_ID": "unused",
+    "AIRTABLE_TRIALS_TABLE": "unused",
+    // Arranca SIEMPRE con training wheels: cada respuesta pasa por aprobación.
+    "TRAINING_WHEELS": "1",
+    "HUMAN_SNOOZE_HOURS": "8"
+  },
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.md", "**/*.html"],
+      "fallthrough": false
+    }
+  ]
+}

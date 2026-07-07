@@ -17,6 +17,7 @@ import { runBudgetReport } from "./budget.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
 import { kvGet, kvSet } from "../db/queries.js";
+import { CLIENT } from "../client.gen.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -54,7 +55,8 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   });
 
   // Every ~15 min (minute % 15 < 5): booking sync + result watcher.
-  if (p.minute % 15 < 5) {
+  // Feature-gated: clients without an Airtable pipeline skip the syncs entirely.
+  if (CLIENT.features.airtableSync && p.minute % 15 < 5) {
     await safe("syncBookings", () =>
       syncBookings(env, undefined, { slack: cronDeps.slack }),
     );
@@ -65,7 +67,9 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     const today = cdmxDateStr(nowEpoch);
     if ((await kvGet(env.DB, "daily_cron_mark")) !== today) {
       await kvSet(env.DB, "daily_cron_mark", today);
-      await safe("syncStudents", () => syncStudents(env));
+      if (CLIENT.features.airtableSync) {
+        await safe("syncStudents", () => syncStudents(env));
+      }
       await safe("budgetReport", () => runBudgetReport(env, cronDeps, nowEpoch));
       await safe("ensureControlPanel", () => cronDeps.ensureControlPanel(env));
     }

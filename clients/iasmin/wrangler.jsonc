@@ -1,0 +1,43 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "iasmin-wa-agent",
+  "main": "../../src/index.ts",
+  "compatibility_date": "2024-11-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "iasmin-wa-agent-db",
+      "database_id": "3ba91967-7191-4a56-b12e-cec4050c13f6"
+    }
+  ],
+  // Workers AI: transcripción Whisper de notas de voz (Yasmin trabaja mucho
+  // con notas de voz — sus clientas también las mandarán).
+  "ai": {
+    "binding": "AI"
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    // Canal #iasmin (aprobaciones/escalaciones). Invita al bot: /invite
+    "SLACK_CHANNEL_ID": "C0BF7SH0K4P",
+    // Airtable apagado (features.airtableSync=false) pero el Env los pide:
+    // valores dummy inofensivos.
+    "AIRTABLE_BASE_ID": "unused",
+    "AIRTABLE_TRIALS_TABLE": "unused",
+    // Piloto: TODO reply pasa por aprobación humana (test de voz del brief §6).
+    "TRAINING_WHEELS": "1",
+    "HUMAN_SNOOZE_HOURS": "8"
+  },
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.md", "**/*.html"],
+      "fallthrough": false
+    }
+  ]
+}

@@ -1,330 +1,92 @@
 #!/usr/bin/env node
 /* ============================================================
-   MD CONDESA WA AGENT — compilador del Knowledge Base (cero deps)
+   WA AGENT — compilador del cliente activo (cero deps)
 
-   Uso:  node tools/compile-kb.mjs
+   Uso:  node tools/compile-kb.mjs            (cliente por defecto: md-condesa)
+         CLIENT=iasmin node tools/compile-kb.mjs
 
-   Mirrors the ethos of the site's tools/build.js: zero npm deps, reads the
-   canonical site sources (schedule + NAP + content pages), and writes a tight
-   bilingual markdown KB that the worker imports as a text module.
+   Cada cliente vive en clients/<id>/ :
+     - client.mjs      → configuración del negocio (default export)
+     - persona.md      → persona + políticas duras (system prompt)
+     - intake.md       → contenido del KB editado a mano (fuente de verdad)
+     - kb-build.mjs    → (opcional) constructor de KB a la medida; exporta
+                         buildKb({ intake, cfg }) → { body, slots, sources }.
+                         Sin este archivo, el KB es intake.md VERBATIM y los
+                         slots vienen de cfg.slots (o ninguno).
 
-   Fuentes:
-     - ../md-condesa-site/js/schedule-data.js   (browser IIFE → window shim)
-     - ../md-condesa-site/content/site.js        (CommonJS NAP)
-     - ../md-condesa-site/content/pages/*.js      (disciplinas + FAQs)
-     - ../md-condesa-site/content/en-hub.js       (hub EN)
-     - ../md-condesa-site/content/founder.js      (confianza / linaje)
-     - kb/intake.md                               (precios, VERBATIM)
-
-   Salidas (todas se COMMITEAN):
+   Salidas (todas se COMMITEAN; reflejan el ÚLTIMO cliente compilado —
+   compila md-condesa antes de commitear si tocaste otro cliente):
      - kb/compiled/kb.md         → texto importado por src/kb.ts
      - kb/compiled/slots.json    → slots válidos (referencia legible)
-     - src/brain/slots.gen.ts    → mismos slots como const tipado (import del executor)
+     - src/brain/slots.gen.ts    → mismos slots como const tipado
+     - src/client.gen.ts         → ClientConfig del cliente activo
 
    Falla (exit 1) si el KB supera ~6000 tokens (chars/3.5).
 ============================================================ */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, "..");
-const SITE_LOCAL = join(REPO, "..", "md-condesa-site");
-const SITE_ORIGIN = "https://mdcondesa.com";
 const TOKEN_LIMIT = 6000;
 
-const BOOKING_ADULTS = "https://mdcondesa.com/clase-prueba-adultos/";
-const BOOKING_KIDS = "https://mdcondesa.com/clase-prueba-ninos/";
-
-// ---- source loaders (local sibling first, else fetch) --------------------
-
-/** Fetch text from the live site (build-time only; Node v24 has global fetch). */
-async function fetchText(pathname) {
-  const res = await fetch(SITE_ORIGIN + pathname);
-  if (!res.ok) throw new Error(`fetch ${pathname} → HTTP ${res.status}`);
-  return await res.text();
-}
-
-/** Load a source file's raw text, preferring the local sibling checkout. */
-async function loadSource(relPath, urlPath) {
-  const local = join(SITE_LOCAL, relPath);
-  if (existsSync(local)) return readFileSync(local, "utf8");
-  return await fetchText(urlPath);
-}
-
-/** Evaluate the schedule IIFE with a window shim and return {MD_SCHEDULE, I18N}. */
-function evalSchedule(code) {
-  const win = {};
-  // The file is an IIFE assigning window.MD_SCHEDULE / _I18N / _TIME.
-  new Function("window", code)(win);
-  if (!win.MD_SCHEDULE || !win.MD_SCHEDULE_I18N) {
-    throw new Error("schedule-data.js did not populate window.MD_SCHEDULE*");
-  }
-  return { schedule: win.MD_SCHEDULE, i18n: win.MD_SCHEDULE_I18N };
-}
-
-/** Evaluate a CommonJS module's source and return its module.exports. */
-function evalCjs(code) {
-  const mod = { exports: {} };
-  new Function("module", "exports", code)(mod, mod.exports);
-  return mod.exports;
-}
-
-// ---- schedule rendering --------------------------------------------------
-
-/** "7:00 AM" from a 24h hour, honoring an explicit slot.t label. */
-function fmtTime(slot) {
-  if (slot.t) return slot.t;
-  const h = slot.h;
-  const ampm = h < 12 ? "AM" : "PM";
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:00 ${ampm}`;
-}
-
-/** "HH:mm" (24h) from a slot — used for the machine-readable slots. */
-function hhmm(slot) {
-  return String(slot.h).padStart(2, "0") + ":00";
-}
-
-/** Human label for one class within a slot, in the given language. */
-function classLabel(cls, i18n, lang) {
-  const t = i18n[lang];
-  let name = t.progName[cls.n] || cls.n;
-  const bits = [];
-  if (cls.n === "jiu" && cls.v) bits.push(cls.v === "gi" ? t.gi : t.nogi);
-  if (cls.a) bits.push(t.aud[cls.a] || cls.a);
-  if (cls.l) bits.push(cls.l);
-  if (cls.s) bits.push(t.sparring);
-  return bits.length ? `${name} (${bits.join(", ")})` : name;
-}
-
-/**
- * Render the schedule TWICE: grouped by discipline (what leads ask — "when is
- * Muay Thai?") and by day. Compact one-liners keep the KB tight.
- */
-function renderSchedule(schedule, i18n, lang) {
-  const t = i18n[lang];
-  const order = schedule.order;
-  const days = schedule.days;
-
-  // --- by discipline ---
-  // program → day → [time labels]
-  const byProg = {};
-  for (const day of order) {
-    for (const slot of days[day] || []) {
-      for (const cls of slot.c) {
-        (byProg[cls.n] ||= {});
-        (byProg[cls.n][day] ||= []).push({ time: fmtTime(slot), cls });
-      }
-    }
-  }
-
-  const progLines = [];
-  // Stable, lead-relevant program order.
-  const progOrder = ["jiu", "muay", "mma", "box", "baby"];
-  for (const p of progOrder) {
-    if (!byProg[p]) continue;
-    const dayParts = [];
-    for (const day of order) {
-      const entries = byProg[p][day];
-      if (!entries) continue;
-      // Collapse to "Lun 7 AM, 8 AM, 6 PM (Kids)" — dedupe identical time labels,
-      // append audience/variant hints only when non-adult/non-plain.
-      const labels = entries.map((e) => {
-        const extra = classExtra(e.cls, i18n, lang);
-        return extra ? `${e.time} ${extra}` : e.time;
-      });
-      dayParts.push(`${t.dayShort[day]} ${labels.join(", ")}`);
-    }
-    progLines.push(`- **${t.progName[p]}**: ${dayParts.join(" · ")}`);
-  }
-
-  // --- by day ---
-  const dayLines = [];
-  for (const day of order) {
-    const slots = days[day] || [];
-    if (!slots.length) {
-      dayLines.push(`- **${t.dayFull[day]}**: ${t.closed}`);
-      continue;
-    }
-    const parts = slots.map((slot) => {
-      const classes = slot.c.map((c) => classLabel(c, i18n, lang)).join(" / ");
-      return `${fmtTime(slot)} ${classes}`;
-    });
-    dayLines.push(`- **${t.dayFull[day]}**: ${parts.join("; ")}`);
-  }
-
-  return { progLines, dayLines, sparNote: t.sparNote };
-}
-
-/** Parenthetical variant/audience hint for the by-discipline view (or ""). */
-function classExtra(cls, i18n, lang) {
-  const t = i18n[lang];
-  const bits = [];
-  if (cls.n === "jiu" && cls.v) bits.push(cls.v === "gi" ? t.gi : t.nogi);
-  if (cls.a) bits.push(t.aud[cls.a] || cls.a);
-  if (cls.l) bits.push(cls.l);
-  if (cls.s) bits.push(t.sparring);
-  return bits.length ? `(${bits.join(", ")})` : "";
-}
-
-// ---- slots (machine-readable, for validateSlot) --------------------------
-
-// The model resolves relative dates to a weekday; the executor maps that
-// weekday to schedule days via this order-index. 0 = Monday … 6 = Sunday.
-const WEEKDAY_KEYS = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"];
-
-/** Audience of a class: 'kid' for kids/teens/mini, else 'adult'. */
-function audienceOf(cls) {
-  return cls.a ? "kid" : "adult";
-}
-
-/**
- * Flatten the schedule into valid booking slots. One entry per
- * (weekday, time, discipline, audience). Discipline is the compact program key
- * (jiu/muay/mma/box/baby) so validateSlot can match the model's tool input.
- */
-function buildSlots(schedule) {
-  const slots = [];
-  const seen = new Set();
-  for (const day of schedule.order) {
-    const idx = WEEKDAY_KEYS.indexOf(day);
-    for (const slot of schedule.days[day] || []) {
-      for (const cls of slot.c) {
-        const key = `${idx}|${hhmm(slot)}|${cls.n}|${audienceOf(cls)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        slots.push({
-          weekday: idx, // 0=Mon … 6=Sun
-          time: hhmm(slot), // "HH:mm" 24h CDMX
-          discipline: cls.n, // jiu|muay|mma|box|baby
-          audience: audienceOf(cls), // 'adult'|'kid'
-        });
-      }
-    }
-  }
-  return slots;
-}
-
-// ---- content curation (distilled, not dumped) ----------------------------
-
-const stripHtml = (s) => (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-
-/**
- * Distill discipline blurbs + a few FAQs. We keep the lead (one sentence) and
- * up to `faqMax` FAQs per page, ES + EN, to stay tight.
- */
-function curatePages(pages) {
-  const blurbEs = [];
-  const blurbEn = [];
-  const faqEs = [];
-  const faqEn = [];
-  const faqMax = 1; // one distilled FAQ per discipline keeps the KB tight
-
-  // Only the disciplines a lead asks about; skip drop-in (folded into policies).
-  const order = [
-    "jiu-jitsu",
-    "muay-thai",
-    "mma",
-    "box",
-    "defensa-personal",
-    "defensa-personal-mujeres",
-    "clases-para-ninos",
-    "baby-fight-club",
-  ];
-  const byslug = new Map(pages.map((p) => [p.slug, p]));
-
-  for (const slug of order) {
-    const p = byslug.get(slug);
-    if (!p) continue;
-    if (p.es) {
-      blurbEs.push(`- **${stripHtml(p.es.h1 || p.es.serviceName)}**: ${stripHtml(p.es.lead)}`);
-      for (const f of (p.es.faqs || []).slice(0, faqMax)) {
-        faqEs.push(`- **${stripHtml(f.q)}** ${stripHtml(f.a)}`);
-      }
-    }
-    if (p.en) {
-      blurbEn.push(`- **${stripHtml(p.en.h1 || p.en.serviceName)}**: ${stripHtml(p.en.lead)}`);
-      for (const f of (p.en.faqs || []).slice(0, faqMax)) {
-        faqEn.push(`- **${stripHtml(f.q)}** ${stripHtml(f.a)}`);
-      }
-    }
-  }
-  return { blurbEs, blurbEn, faqEs, faqEn };
-}
-
-/** One-paragraph founder/trust distillation (ES + EN). */
-function curateFounder(f) {
-  const es = f.es
-    ? `${stripHtml(f.es.lead)} ${stripHtml(f.es.pullQuote || "")}`.trim()
-    : "";
-  const en = f.en
-    ? `${stripHtml(f.en.lead)} ${stripHtml(f.en.pullQuote || "")}`.trim()
-    : "";
-  return { es, en };
-}
-
-// ---- assembly ------------------------------------------------------------
-
 async function main() {
-  const scheduleCode = await loadSource("js/schedule-data.js", "/js/schedule-data.js");
-  const { schedule, i18n } = evalSchedule(scheduleCode);
+  const clientId = process.env.CLIENT || "md-condesa";
+  const clientDir = join(REPO, "clients", clientId);
+  if (!existsSync(join(clientDir, "client.mjs"))) {
+    throw new Error(
+      `clients/${clientId}/client.mjs no existe. Clientes disponibles: revisa clients/.`,
+    );
+  }
 
-  const siteCode = await loadSource("content/site.js", "/content/site.js");
-  const site = evalCjs(siteCode);
+  const cfg = (await import(pathToFileURL(join(clientDir, "client.mjs")).href)).default;
+  if (cfg.clientId !== clientId) {
+    throw new Error(
+      `clients/${clientId}/client.mjs declara clientId '${cfg.clientId}' — deben coincidir.`,
+    );
+  }
+  const persona = readFileSync(join(clientDir, "persona.md"), "utf8").trimEnd();
+  const intake = readFileSync(join(clientDir, "intake.md"), "utf8");
 
-  // Content pages: load from local sibling only (fetching each raw .js from the
-  // live site isn't served — they're compiled into HTML). If the sibling is
-  // absent we degrade to schedule+contact+intake, which is still a usable KB.
-  const { pages, enHub, founder } = loadContent();
-
-  const schedEs = renderSchedule(schedule, i18n, "es");
-  const schedEn = renderSchedule(schedule, i18n, "en");
-  const curated = curatePages(pages);
-  const founderTxt = curateFounder(founder);
-  const slots = buildSlots(schedule);
-
-  const intake = readFileSync(join(REPO, "kb", "intake.md"), "utf8");
-
-  const body = assembleMarkdown({
-    site,
-    schedEs,
-    schedEn,
-    curated,
-    founderTxt,
-    enHub,
-    intake,
-  });
+  // KB body + slots: custom builder when the client has one, else generic.
+  const kbBuildPath = join(clientDir, "kb-build.mjs");
+  let built;
+  if (existsSync(kbBuildPath)) {
+    const mod = await import(pathToFileURL(kbBuildPath).href);
+    built = await mod.buildKb({ intake, cfg });
+  } else {
+    built = genericKb(intake, cfg);
+  }
+  const { body, slots = [], sources = "intake.md" } = built;
 
   const hash = createHash("sha256").update(body).digest("hex").slice(0, 12);
   const date = new Date().toISOString().slice(0, 10);
+  const version = `${date}+${hash}`;
   const approxTokens = Math.ceil(body.length / 3.5);
 
   const header =
     `<!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.\n` +
-    `     version: ${date}+${hash}\n` +
+    `     version: ${version}\n` +
     `     approx_tokens: ${approxTokens} (chars ${body.length} / 3.5)\n` +
-    `     fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->\n\n`;
-
-  const full = header + body;
+    `     fuentes: ${sources} -->\n\n`;
 
   // Emit outputs.
   const compiledDir = join(REPO, "kb", "compiled");
   mkdirSync(compiledDir, { recursive: true });
-  writeFileSync(join(compiledDir, "kb.md"), full);
+  writeFileSync(join(compiledDir, "kb.md"), header + body);
   writeFileSync(
     join(compiledDir, "slots.json"),
-    JSON.stringify({ version: `${date}+${hash}`, slots }, null, 2) + "\n",
+    JSON.stringify({ version, slots }, null, 2) + "\n",
   );
 
-  const brainDir = join(REPO, "src", "brain");
-  mkdirSync(brainDir, { recursive: true });
-  writeFileSync(join(brainDir, "slots.gen.ts"), renderSlotsTs(slots, `${date}+${hash}`));
+  writeFileSync(join(REPO, "src", "brain", "slots.gen.ts"), renderSlotsTs(slots, version));
+  writeFileSync(join(REPO, "src", "client.gen.ts"), renderClientTs(cfg, persona, version));
 
   console.log(
-    `KB compiled → kb/compiled/kb.md (${approxTokens} tok, ${slots.length} slots) [${date}+${hash}]`,
+    `[${clientId}] KB compiled → kb/compiled/kb.md (${approxTokens} tok, ${slots.length} slots) [${version}]`,
   );
 
   if (approxTokens > TOKEN_LIMIT) {
@@ -333,100 +95,27 @@ async function main() {
     );
     process.exit(1);
   }
-}
 
-/** Load content pages/en-hub/founder from the local sibling (best effort). */
-function loadContent() {
-  const pagesDir = join(SITE_LOCAL, "content", "pages");
-  const pages = [];
-  if (existsSync(pagesDir)) {
-    for (const f of readdirSync(pagesDir).filter((n) => n.endsWith(".js")).sort()) {
-      pages.push(evalCjs(readFileSync(join(pagesDir, f), "utf8")));
-    }
+  if (cfg.features?.safety && !cfg.safety) {
+    console.error(`FAIL: features.safety está activo pero falta el bloque 'safety' en client.mjs.`);
+    process.exit(1);
   }
-  const enHubPath = join(SITE_LOCAL, "content", "en-hub.js");
-  const enHub = existsSync(enHubPath) ? evalCjs(readFileSync(enHubPath, "utf8")) : {};
-  const founderPath = join(SITE_LOCAL, "content", "founder.js");
-  const founder = existsSync(founderPath) ? evalCjs(readFileSync(founderPath, "utf8")) : {};
-  return { pages, enHub, founder };
+  if (cfg.features?.booking && slots.length === 0) {
+    console.warn(
+      `WARN: features.booking está activo pero no hay slots — book_trial rechazará todo.`,
+    );
+  }
 }
 
-function assembleMarkdown({ site, schedEs, schedEn, curated, founderTxt, enHub, intake }) {
-  const nap = site.address;
-  const lines = [];
-
-  lines.push(`# MD Self Defense Academy Condesa — Knowledge Base`);
-  lines.push("");
-  lines.push(
-    `Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX. Linaje directo Renzo Gracie. Bilingüe: español (principal) e inglés. Este KB es la única fuente de datos del bot: horario, contacto, disciplinas, confianza y precios.`,
-  );
-  lines.push("");
-
-  // --- Contacto / NAP ---
-  lines.push(`## Contacto y ubicación`);
-  lines.push("");
-  lines.push(`- **Nombre**: ${site.name}`);
-  lines.push(`- **Dirección**: ${nap.display} (CP ${nap.postalCode})`);
-  lines.push(`- **Referencia**: ${nap.landmark.es} / ${nap.landmark.en}`);
-  lines.push(`- **WhatsApp / teléfono**: ${site.phoneDisplay}`);
-  lines.push(`- **Google Maps**: ${site.mapsUrl}`);
-  lines.push(`- **Instagram**: ${site.instagram}`);
-  lines.push(`- **Agendar clase de prueba (adultos)**: ${BOOKING_ADULTS}`);
-  lines.push(`- **Agendar clase de prueba (niños)**: ${BOOKING_KIDS}`);
-  lines.push("");
-
-  // --- Horario ES ---
-  lines.push(`## Horario (America/Mexico_City)`);
-  lines.push("");
-  // ES: by-discipline (how leads ask "¿cuándo hay Muay Thai?") + by-day.
-  lines.push(`### Por disciplina`);
-  lines.push(...schedEs.progLines);
-  lines.push("");
-  lines.push(`### Por día`);
-  lines.push(...schedEs.dayLines);
-  lines.push("");
-  lines.push(`> ${schedEs.sparNote}`);
-  lines.push("");
-  // EN: compact by-discipline only (the by-day ES grid above is the full grid;
-  // EN readers get the same data condensed to disciplines to save tokens).
-  lines.push(`### Schedule (English, by discipline)`);
-  lines.push(...schedEn.progLines);
-  lines.push("");
-
-  // --- Disciplinas ---
-  lines.push(`## Disciplinas`);
-  lines.push("");
-  lines.push(`### Español`);
-  lines.push(...curated.blurbEs);
-  lines.push("");
-  lines.push(`### English`);
-  lines.push(...curated.blurbEn);
-  lines.push("");
-
-  // --- Confianza / fundador ---
-  lines.push(`## Fundador y confianza`);
-  lines.push("");
-  if (founderTxt.es) lines.push(`- ${founderTxt.es}`);
-  if (founderTxt.en) lines.push(`- ${founderTxt.en}`);
-  lines.push("");
-
-  // --- FAQs ---
-  lines.push(`## Preguntas frecuentes`);
-  lines.push("");
-  lines.push(`### Español`);
-  lines.push(...curated.faqEs);
-  lines.push("");
-  lines.push(`### English`);
-  lines.push(...curated.faqEn);
-  lines.push("");
-
-  // --- Precios (intake VERBATIM) ---
-  lines.push(`## Precios y políticas`);
-  lines.push("");
-  lines.push(intake.trim());
-  lines.push("");
-
-  return lines.join("\n");
+/** Generic KB: a one-line header + the client's intake.md verbatim. */
+function genericKb(intake, cfg) {
+  const body = [
+    `# ${cfg.businessName} — Knowledge Base`,
+    "",
+    intake.trim(),
+    "",
+  ].join("\n");
+  return { body, slots: cfg.slots ?? [], sources: "intake.md" };
 }
 
 function renderSlotsTs(slots, version) {
@@ -438,14 +127,48 @@ function renderSlotsTs(slots, version) {
     .join("\n");
   return (
     `// GENERATED by tools/compile-kb.mjs — do not edit. version: ${version}\n` +
-    `// Valid booking slots flattened from the site schedule. weekday: 0=Mon … 6=Sun.\n` +
+    `// Valid booking slots flattened from the client schedule. weekday: 0=Mon … 6=Sun.\n` +
     `export interface Slot {\n` +
     `  weekday: number;\n` +
     `  time: string; // "HH:mm" 24h, America/Mexico_City\n` +
-    `  discipline: string; // jiu|muay|mma|box|baby\n` +
+    `  discipline: string; // service key (see src/client.gen.ts services)\n` +
     `  audience: "adult" | "kid";\n` +
     `}\n\n` +
     `export const SLOTS: readonly Slot[] = [\n${rows}\n];\n`
+  );
+}
+
+function renderClientTs(cfg, persona, version) {
+  // Persona rides in from persona.md; everything else from client.mjs. The
+  // object is emitted as literal TS so the worker bundles it with zero I/O.
+  const obj = {
+    clientId: cfg.clientId,
+    businessName: cfg.businessName,
+    shortName: cfg.shortName,
+    ownerName: cfg.ownerName,
+    address: cfg.address ?? "",
+    links: {
+      booking: cfg.links?.booking ?? "",
+      bookingKids: cfg.links?.bookingKids ?? cfg.links?.booking ?? "",
+      schedule: cfg.links?.schedule ?? cfg.links?.booking ?? "",
+    },
+    services: cfg.services ?? [],
+    persona,
+    features: {
+      booking: !!cfg.features?.booking,
+      nudges: !!cfg.features?.nudges,
+      airtableSync: !!cfg.features?.airtableSync,
+      safety: !!cfg.features?.safety,
+    },
+    ...(cfg.safety ? { safety: cfg.safety } : {}),
+    copy: cfg.copy,
+  };
+  return (
+    `// GENERATED by tools/compile-kb.mjs — do not edit.\n` +
+    `// client: ${cfg.clientId} · version: ${version}\n` +
+    `// Source: clients/${cfg.clientId}/client.mjs + persona.md\n` +
+    `import type { ClientConfig } from "./client-config.js";\n\n` +
+    `export const CLIENT: ClientConfig = ${JSON.stringify(obj, null, 2)};\n`
   );
 }
 

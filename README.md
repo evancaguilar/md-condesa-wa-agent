@@ -1,13 +1,32 @@
-# MD Condesa WhatsApp AI agent
+# WhatsApp AI agent (multi-client engine)
 
-An in-house WhatsApp agent for **MD Self Defense Academy Condesa** that replaces
-ManyChat on the academy's number. It answers lead inquiries bilingually (ES-MX /
-EN) from a compiled knowledge base, qualifies leads and books trial classes into
-Airtable, runs anti-no-show + re-engagement sequences, and escalates to a human
-via a Slack approval flow. It runs as a single Cloudflare Worker (D1 for state,
-a `*/5` cron for followups) with zero runtime npm dependencies — raw `fetch` to
-Meta Graph, Anthropic, Slack, and Airtable. Coexistence-aware: the bot goes quiet
-when Evan replies from the WhatsApp Business app, and has a Slack kill switch.
+A productized WhatsApp agent engine, born as the in-house bot for **MD Self
+Defense Academy Condesa** (which remains the default client). It answers
+inquiries bilingually (ES-MX / EN) from a compiled knowledge base, optionally
+qualifies leads and books trials into Airtable, runs anti-no-show +
+re-engagement sequences, and escalates to a human via a Slack approval flow.
+One Cloudflare Worker + D1 database **per client**, zero runtime npm deps —
+raw `fetch` to Meta Graph, Anthropic, Slack, and Airtable. Coexistence-aware
+(goes quiet when a human replies from the WhatsApp Business app) with a Slack
+kill switch.
+
+## Clients
+
+Everything business-specific lives in `clients/<id>/` (config + persona +
+knowledge base + wrangler config); `src/` is the shared engine. Features are
+flags per client: `booking`, `nudges`, `airtableSync`, `safety` (deterministic
+crisis gate for emotionally sensitive products).
+
+```
+node tools/new-client.mjs <id>     # scaffold a new client
+CLIENT=<id> npm run build          # compile that client's KB + config
+npm run deploy:client <id>         # deploy that client's worker
+```
+
+- **clients/md-condesa/** — the academy (booking + nudges + Airtable ON)
+- **clients/iasmin/** — IAsmin, Yasmin Cahuich's between-sessions companion
+  (all sales features OFF, crisis-safety gate ON)
+- **[docs/new-client.md](docs/new-client.md)** — the onboarding runbook
 
 ## Where to look
 
@@ -30,9 +49,10 @@ only pulls dev tooling.
 
 ```
 npm run typecheck   # tsc over the worker
-npm test            # compile + node --test (parser, brain, cron, slack, verify)
-npm run build       # regenerate kb/compiled/kb.md from kb/intake.md + the site
-npm run deploy      # build + wrangler deploy (usually Cloudflare does this on push)
+npm test            # rebuilds md-condesa, then compile + node --test
+npm run build       # regenerate generated files for $CLIENT (default md-condesa)
+npm run deploy      # md-condesa build + wrangler deploy
+npm run deploy:client <id>   # build + deploy any client (clients/<id>/wrangler.jsonc)
 ```
 
 Local end-to-end run (offline; dummy creds in `.dev.vars`):

@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createBrain } from "../.chatdist/brain/claude.js";
+import { CLIENT } from "../.chatdist/client.gen.js";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 const KB = readFileSync(join(repo, "kb/compiled/kb.md"), "utf8");
@@ -86,7 +87,7 @@ if (process.env.MSGS) {
   process.exit(0);
 }
 
-console.log(`\x1b[90mChat con el agente MD Condesa (${cdmxNow().weekday} ${cdmxNow().iso}, CDMX). Escribe como si fueras un lead del anuncio. Ctrl+C para salir.\x1b[0m`);
+console.log(`\x1b[90mChat con el agente ${CLIENT.shortName} [${CLIENT.clientId}] (${cdmxNow().weekday} ${cdmxNow().iso}, CDMX). Escribe como si fueras un cliente real. Ctrl+C para salir.\x1b[0m`);
 const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "\x1b[36m👤 tú: \x1b[0m" });
 let busy = false, closed = false; const queue = [];
 async function drain() {

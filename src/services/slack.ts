@@ -32,6 +32,7 @@ import {
   windowHoursLeft,
   type TimeoutApprovalView,
 } from "./slack-timeouts.js";
+import { CLIENT } from "../client.gen.js";
 
 export {
   verifySlackSignature,
@@ -226,7 +227,7 @@ function resolvedBlocks(
 function controlPanelBlocks(enabled: boolean): unknown[] {
   const status = enabled ? "✅ Activo" : "⏸️ Pausado";
   return [
-    section(`🤖 *Bot MD Condesa* — estado: *${status}*`),
+    section(`🤖 *Bot ${CLIENT.shortName}* — estado: *${status}*`),
     {
       type: "actions",
       block_id: "control_panel",
@@ -317,7 +318,7 @@ export async function ensureControlPanel(env: Env): Promise<string> {
   const ts = await postMessage(
     env,
     controlPanelBlocks(enabled),
-    "Panel de control del bot MD Condesa",
+    `Panel de control del bot ${CLIENT.shortName}`,
   );
   await kvSet(env.DB, KV_CONTROL_PANEL_TS, ts);
   try {

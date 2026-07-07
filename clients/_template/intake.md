@@ -1,0 +1,26 @@
+<!-- {{CLIENT_ID}} — KB intake (fuente de verdad, editado a mano).
+     Este archivo se compila VERBATIM al KB del bot (salvo que el cliente tenga
+     su propio kb-build.mjs). Límite ~6000 tokens — el compilador falla si te pasas. -->
+
+## Contacto y ubicación
+
+- **Nombre**: …
+- **Dirección**: …
+- **Teléfono/WhatsApp**: …
+- **Enlaces**: …
+
+## Servicios y precios
+
+- …
+
+## Horarios
+
+- …
+
+## Preguntas frecuentes
+
+- **¿…?** …
+
+## Políticas
+
+- …

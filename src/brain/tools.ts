@@ -3,6 +3,7 @@
 // corrective tool_result). Pure module — safe to unit-test.
 
 import { SLOTS, type Slot } from "./slots.gen.js";
+import { CLIENT } from "../client.gen.js";
 
 export interface AnthropicTool {
   name: string;
@@ -57,9 +58,8 @@ const bookTrial: AnthropicTool = {
       name: { type: "string", description: "Lead's first name (or full name)." },
       discipline: {
         type: "string",
-        description:
-          "One of: jiu, muay, mma, box, baby (Jiu-Jitsu, Muay Thai, MMA, Boxing, Baby Fight Club).",
-        enum: ["jiu", "muay", "mma", "box", "baby"],
+        description: `One of: ${CLIENT.services.map((s) => s.key).join(", ")} (${CLIENT.services.map((s) => s.label).join(", ")}).`,
+        enum: CLIENT.services.map((s) => s.key),
       },
       audience: { type: "string", enum: ["adult", "kid"] },
       trial_date: {
@@ -134,24 +134,26 @@ const setFollowup: AnthropicTool = {
   },
 };
 
-/** All tool definitions, in a stable order (stable for prompt caching). */
-export const TOOLS: readonly AnthropicTool[] = [
-  sendReply,
-  bookTrial,
-  escalateToHuman,
-  setFollowup,
-];
+/**
+ * All tool definitions, in a stable order (stable for prompt caching).
+ * book_trial only exists when the client has the booking feature — companion
+ * clients (no scheduling) never see it.
+ */
+export const TOOLS: readonly AnthropicTool[] = CLIENT.features.booking
+  ? [sendReply, bookTrial, escalateToHuman, setFollowup]
+  : [sendReply, escalateToHuman, setFollowup];
 
 // ---- slot validation -----------------------------------------------------
 
-/** Map a discipline label the model might emit to the compact schedule key. */
+/**
+ * Map a service label the model might emit to the compact schedule key, using
+ * the client's per-service match patterns (clients/<id>/client.mjs).
+ */
 export function normalizeDiscipline(input: string): string {
   const s = input.trim().toLowerCase();
-  if (/jiu|bjj|jitsu|grappl/.test(s)) return "jiu";
-  if (/muay|thai/.test(s)) return "muay";
-  if (/mma|mixed/.test(s)) return "mma";
-  if (/box|boxe/.test(s)) return "box";
-  if (/baby/.test(s)) return "baby";
+  for (const svc of CLIENT.services) {
+    if (svc.match && new RegExp(svc.match).test(s)) return svc.key;
+  }
   return s;
 }
 
