@@ -183,8 +183,24 @@ Cron dispatcher (every 5 min): due followups → approval timeouts → hourly bo
 
 ## Env vars & secrets
 
-Secrets: `META_APP_SECRET`, `WA_ACCESS_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_VERIFY_TOKEN`, `ANTHROPIC_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `AIRTABLE_PAT`.
+Secrets: `META_APP_SECRET`, `WA_ACCESS_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_VERIFY_TOKEN`, `ANTHROPIC_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `AIRTABLE_PAT`, `ADMIN_PASSWORD` (dashboard login).
 Vars: `SLACK_CHANNEL_ID`, `AIRTABLE_BASE_ID=appcX38TBVltyxHR6`, `AIRTABLE_TRIALS_TABLE`, `TRAINING_WHEELS=1`, `HUMAN_SNOOZE_HOURS=8`.
+
+## Admin dashboard (`/admin`)
+
+Mobile-first es-MX SPA served by this same worker so Evan can run the academy's bot from his phone — no separate app, zero build step, zero runtime deps. Full spec: `docs/dashboard-plan.md` (historical/binding). Views: Inicio (kill-switch + supervision toggle + cost/convos/pending cards), Chats (transcripts, per-convo pause/resume, mark-student), Aprobaciones (approve/edit/discard, synced with the Slack cards), KB (overlay sections + revision history/revert), Editor (AI chat that PROPOSES overlay/campaign edits Evan confirms), Campañas (ad-trigger → extra bot knowledge), Probar (sandbox that runs the real brain with zero side effects).
+
+**Auth.** `POST /admin/api/login` compares SHA-256 of the submitted password against `env.ADMIN_PASSWORD` via `timingSafeEqual`, rate-limited per `CF-Connecting-IP` (5 fails / 15 min sliding → 429; state in `kv` key `admin_rl:<ip>`). Success sets an HttpOnly/Secure/SameSite=Lax cookie `md_admin=<exp>.<hmac>` — HMAC-SHA256 of `admin:<exp>` keyed by `ADMIN_PASSWORD` (30-day expiry). Every other `/admin/api/*` route verifies that cookie (`routes/admin-auth.ts`, pure + unit-tested); `GET /admin` itself is unauthed HTML and the SPA calls `/admin/api/me`.
+
+**Routes.** `GET /admin` → SPA shell (text module, `no-store`). `/admin/api/*` (JSON, all cookie-authed except login): `login`/`logout`/`me`, `overview`, `bot` + `training-wheels` toggles, `conversations[/:phone[/pause|resume|status]]`, `approvals[/:id/approve|edit|discard]`, `kb` (+ `sections` CRUD, `revisions[/:id/revert]`, `chat`, `confirm`), `campaigns[/:id]`, `edits`, `sandbox`. See `docs/dashboard-plan.md §5` for the full request/response table. Handlers live in `src/routes/admin-api.ts` (+ `admin-ui.ts` for the shell); shared approval logic in `src/services/approvals.ts` is called by BOTH this API and the Slack route, made concurrency-safe by `claimApproval` (atomic conditional `UPDATE … WHERE status='pending'`) so a Slack tap and a dashboard tap can't double-send.
+
+**New D1 tables** (append-only in `schema.sql`; migration in `docs/phase0-checklist.md`):
+- `kb_sections` — the editable **overlay**: correction/update snippets layered on top of the compiled (read-only) KB. `id, title, content, sort, enabled, timestamps`.
+- `kb_revisions` — audit log for every overlay create/update/delete/revert (`action, title, content, prev_content, reason, source` where source is `manual`|`chat`), powering before/after diffs and one-click revert.
+- `campaigns` — `name, trigger_phrase, trigger_norm, info, status, ends_at`; `trigger_norm` (NFD-stripped, lowercased, punctuation-collapsed) is UNIQUE. An inbound whose normalized body matches an active campaign's `trigger_norm` (equality or prefix) stamps `contacts.campaign_id`, and that campaign's `info` is injected into the brain's per-turn context.
+- `contacts.campaign_id` — the campaign a lead arrived through (nullable). New `kv` keys: `training_wheels` (overrides `env.TRAINING_WHEELS`), `admin_rl:<ip>`.
+
+**Overlay design.** `assembleOverlay(sections)` concatenates enabled sections (sorted by `sort`, then `id`) under a header telling the model "si algo aquí contradice la base, ESTO manda". It rides as a **second** cached system block (`cache_control: ephemeral, ttl:"1h"`) appended after the static KB block — so overlay edits invalidate only the small overlay cache, never the large KB/tools prefix (steady-state cost ≈ $0.0003/msg). A hard 2000-estimated-token cap (`ceil(chars/3.5)`) is enforced before any write; over-cap → HTTP 400 `overlay_too_large`. `makeOverlayLoader(db)` reads the live sections each brain turn, so edits take effect on the next reply with no redeploy. The **Editor** and **Sandbox** both reuse this exact loader and the real usage accrual; the Editor's model can only PROPOSE changes (proposal-only tools, never round-tripped/executed) which `applyProposal` writes after re-validation on explicit confirm.
 
 ## Rollout phases (booking prioritized)
 

@@ -141,6 +141,9 @@ Secrets (from your scratch note):
 - `SLACK_BOT_TOKEN`
 - `SLACK_SIGNING_SECRET`
 - `AIRTABLE_PAT`  (you create this in Step 7 — add it once you have it)
+- `ADMIN_PASSWORD` — invent a **strong** password (this logs you into the
+  `/admin` dashboard, Step 10). 📋 Save it in your scratch note. Use the
+  **Encrypt / Secret** option.
 
 Vars (plain text):
 - `SLACK_CHANNEL_ID` = the `C...` id from Step 4.7
@@ -155,6 +158,51 @@ Then apply the database schema once (Cloudflare D1 → your database → **Conso
 tab → paste the contents of `src/db/schema.sql` → **Execute**). This creates the
 tables. (Advanced/optional: the same can be done from a terminal with
 `npx wrangler d1 execute wa-agent-db --file src/db/schema.sql --remote`.)
+
+### Step 6c — admin-dashboard migration (run once, in the same D1 Console)
+
+If you pasted the FULL `src/db/schema.sql` above you're already done — it includes
+these tables. This block is here so you can also apply JUST the dashboard tables to
+an existing database without re-running the whole schema. Everything below is
+idempotent (safe to re-run; the `ALTER` errors harmlessly with "duplicate column"
+if `campaign_id` already exists — ignore that one error). Paste it into the D1
+**Console** and **Execute**:
+
+```sql
+CREATE TABLE IF NOT EXISTS kb_sections(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 100,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_revisions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  section_id INTEGER,
+  action TEXT NOT NULL,              -- create|update|delete|revert
+  title TEXT NOT NULL,
+  content TEXT,                      -- after (NULL on delete)
+  prev_content TEXT,                 -- before (NULL on create)
+  reason TEXT, source TEXT NOT NULL DEFAULT 'manual',  -- manual|chat
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS campaigns(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  trigger_phrase TEXT NOT NULL,
+  trigger_norm TEXT NOT NULL,
+  info TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',  -- active|paused|ended
+  ends_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_campaigns_trigger ON campaigns(trigger_norm);
+
+ALTER TABLE contacts ADD COLUMN campaign_id INTEGER;
+```
 
 ## Step 7 — Airtable: token, fields, students table
 
@@ -210,6 +258,27 @@ tables. (Advanced/optional: the same can be done from a terminal with
    The same-day reminder needs the two quick-reply buttons; `reengage_lead` needs
    the BAJA opt-out line as a **Footer** component. Approval usually takes minutes
    to a few hours.
+
+## Step 10 — Open the admin dashboard
+
+Prerequisites: `ADMIN_PASSWORD` secret set (Step 6b) + the dashboard tables applied
+(Step 6b full schema, or Step 6c) + the worker deployed (Step 6).
+
+1. On your phone (or desktop) go to
+   `https://<your-worker-host>/admin`.
+2. Log in with the `ADMIN_PASSWORD` you invented in Step 6b. (Five wrong tries in
+   15 minutes locks that device out for a bit — that's the brute-force guard.)
+3. Quick smoke test:
+   - **Inicio**: the big "Bot activo / ⏸ pausado" toggle should flip the same
+     kill-switch as the pinned Slack control-panel card (tap it, check Slack, tap
+     it back).
+   - **Probar**: send a test message — it runs the real bot with NO real send,
+     booking, or DB write ("SANDBOX" bookings are simulated).
+   - **Campañas**: create a campaign (a phrase from an ad + info for the bot).
+   - **Editor / KB**: ask the AI for a small correction, confirm the proposal, and
+     confirm it shows up in **Probar**.
+
+Add `/admin` to your phone's home screen for one-tap access.
 
 ---
 
