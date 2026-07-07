@@ -628,6 +628,10 @@ const APPLY_FAIL_STATUS: Record<string, number> = {
   overlay_too_large: 400,
   section_not_found: 404,
   unknown_proposal: 400,
+  // Airtable-rule proposal validation (WS-2): all client-side 400s.
+  unknown_field: 400,
+  bad_trigger: 400,
+  bad_action: 400,
 };
 
 async function handleKbConfirm(req: Request, env: Env): Promise<Response> {
