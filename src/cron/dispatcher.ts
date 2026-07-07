@@ -53,9 +53,11 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     await cronDeps.runApprovalTimeouts(env, pending);
   });
 
-  // Top of the hour (tick minute < 5): hourly booking sync.
-  if (p.minute < 5) {
-    await safe("syncBookings", () => syncBookings(env));
+  // Every ~15 min (minute % 15 < 5): booking sync + result watcher.
+  if (p.minute % 15 < 5) {
+    await safe("syncBookings", () =>
+      syncBookings(env, undefined, { slack: cronDeps.slack }),
+    );
   }
 
   // Once daily at 10:00 CDMX (guarded by a kv date mark).

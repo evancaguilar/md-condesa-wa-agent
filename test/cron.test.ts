@@ -163,9 +163,9 @@ test("syncBookings skips past/phoneless records, schedules future ones, advances
   const fakeAirtable = {
     async listRecentBookings() {
       return [
-        { id: "recFUT", phone: "5512345678", name: "Ana", trialDateTimeIso: futureIso },
-        { id: "recPAST", phone: "5512340000", name: "Beto", trialDateTimeIso: pastIso },
-        { id: "recNOPHONE", phone: null, name: "X", trialDateTimeIso: futureIso },
+        { id: "recFUT", phone: "5512345678", name: "Ana", trialDateTimeIso: futureIso, result: null },
+        { id: "recPAST", phone: "5512340000", name: "Beto", trialDateTimeIso: pastIso, result: null },
+        { id: "recNOPHONE", phone: null, name: "X", trialDateTimeIso: futureIso, result: null },
       ];
     },
   };

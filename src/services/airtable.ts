@@ -18,6 +18,41 @@ export interface BookingRecord {
   phone: string | null;
   name: string | null;
   trialDateTimeIso: string | null;
+  /** Value of the trial-outcome field (env.AIRTABLE_RESULT_FIELD), if present. */
+  result: string | null;
+}
+
+/** Default name of the Airtable trial-outcome field (env-overridable). */
+export const DEFAULT_RESULT_FIELD = "Resultado clase prueba";
+
+/** The configured result field name, or the default when env is unset. */
+export function resultFieldName(env: Env): string {
+  return env.AIRTABLE_RESULT_FIELD || DEFAULT_RESULT_FIELD;
+}
+
+/**
+ * Normalize a result value for matching: lowercase, NFD-decompose, strip accents,
+ * collapse whitespace. So "No asistió", "no asistio", "  NO   ASISTIÓ " all
+ * normalize to "no asistio". Pure.
+ */
+export function normalizeResult(raw: string | null | undefined): string {
+  return (raw ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Classify a normalized result value into an action bucket. */
+export function classifyResult(
+  raw: string | null | undefined,
+): "no_show" | "enrolled" | null {
+  const n = normalizeResult(raw);
+  if (!n) return null;
+  if (n.includes("no asistio")) return "no_show";
+  if (n.includes("se inscribio")) return "enrolled";
+  return null;
 }
 
 export interface StudentRecord {
@@ -169,19 +204,21 @@ export async function listRecentBookings(
       records?: AirtableRecord[];
       offset?: string;
     };
-    for (const r of data.records ?? []) out.push(toBookingRecord(r));
+    const resultField = resultFieldName(env);
+    for (const r of data.records ?? []) out.push(toBookingRecord(r, resultField));
     offset = data.offset;
   } while (offset);
   return out;
 }
 
-function toBookingRecord(r: AirtableRecord): BookingRecord {
+function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord {
   const f = r.fields;
   return {
     id: r.id,
     phone: asString(f["Phone E164"] ?? f["Phone"]),
     name: asString(f["Name"]),
     trialDateTimeIso: asString(f["Trial DateTime"]),
+    result: asString(f[resultField]),
   };
 }
 
