@@ -32,6 +32,7 @@ import {
 import { matchCampaign, normalizeText } from "./campaigns.js";
 import { sendText, WindowClosedError } from "../services/wa.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
+import { armNudges, cancelNudges } from "../cron/nudges.js";
 
 const OPT_OUT = /^\s*(baja|stop|alto)\s*$/i;
 const DEBOUNCE_MS = 8000;
@@ -64,6 +65,11 @@ export async function processInbound(
 
   await upsertContact(env.DB, { phone: msg.phone });
   await touchLastInbound(env.DB, msg.phone, msg.ts);
+
+  // 1b. Cancel any pending lead-nudge drip: every new inbound resets it. The
+  // drip re-arms after the next bot reply (auto-send or approved). Runs before
+  // the gates so the drip is cleared even for kill-switch/override/opt-out paths.
+  await cancelNudges(env, msg.phone);
 
   // 2. Global kill switch.
   if (!(await isBotEnabled(env.DB))) {
@@ -261,6 +267,11 @@ async function deliverOrDraft(
     }
     throw err;
   }
+  // Bot reply landed with the lead. Arm (or re-arm) the nudge drip. armNudges is
+  // internally conditional: it only arms status='lead' with no active booking,
+  // no override, and under the rolling cap — so booking-confirmation sends and
+  // student/opted-out contacts are no-ops.
+  await armNudges(env, ctx.phone);
 }
 
 async function queueApproval(

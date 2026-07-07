@@ -18,6 +18,7 @@ import {
   setHumanOverride,
 } from "../db/queries.js";
 import { sendText, WindowClosedError } from "../services/wa.js";
+import { armNudges } from "../cron/nudges.js";
 import {
   markApprovedCard,
   markDiscardedCard,
@@ -88,7 +89,12 @@ export async function approveAndSend(
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
   const res = await claimAndSend(env, id, "approved", a.draft, a.draft);
-  if (res.ok) await markApprovedCard(env, a, a.draft);
+  if (res.ok) {
+    await markApprovedCard(env, a, a.draft);
+    // Approved bot reply landed → arm/re-arm the lead-nudge drip (no-op unless
+    // the contact is a lead with no active booking/override, under the cap).
+    await armNudges(env, a.phone);
+  }
   return res;
 }
 
@@ -104,6 +110,8 @@ export async function editAndSend(
   if (res.ok) {
     await insertEdit(env.DB, a.phone, a.draft, finalText);
     await markEditedCard(env, a, finalText);
+    // Edited bot reply landed → arm/re-arm the lead-nudge drip (conditional).
+    await armNudges(env, a.phone);
   }
   return res;
 }

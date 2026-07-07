@@ -15,7 +15,9 @@ import {
   getContact,
   upsertContact,
   setContactStatus,
+  cancelFollowups,
 } from "../db/queries.js";
+import { cancelFollowupsByKinds } from "../db/queries-admin.js";
 import { sendText, sendTemplate, WindowClosedError } from "../services/wa.js";
 import type { CronSlackDeps } from "./deps.js";
 import {
@@ -29,8 +31,10 @@ import {
   listRecentBookings,
   listStudents,
   normalizeMxPhone,
+  classifyResult,
   type BookingRecord,
 } from "../services/airtable.js";
+import { processNudge, NUDGE_KINDS, type NudgeKind } from "./nudges.js";
 
 const ATTENDANCE_NOTE = "attendance_check";
 const MAX_SEND_ATTEMPTS = 3;
@@ -199,6 +203,20 @@ async function processOne(
       return;
     }
 
+    case "nudge_1h":
+    case "nudge_6h":
+    case "nudge_8h": {
+      // Lead-nudge drip. processNudge re-verifies eligibility at send time,
+      // sends the free-form nudge, and bumps the rolling cap. Nudges are always
+      // in-window by construction; a closed window → cancel (no template).
+      const status = await processNudge(env, f.phone, f.kind as NudgeKind, {
+        sendText,
+        isWindowClosed: (err) => err instanceof WindowClosedError,
+      });
+      await markFollowup(env.DB, f.id, status);
+      return;
+    }
+
     case "reengage_7d":
       // Skip re-engagement if the contact wrote back after this row was created
       // (they're no longer cold). The row is created when the no-show is
@@ -282,16 +300,27 @@ async function rescheduleRow(
 // ---- Airtable syncs ----
 
 /**
- * Hourly booking sync. Reads records modified since the kv cursor; for each with
- * a future Trial DateTime and a phone, upserts the contact and schedules the
- * trial sequence (idempotent via the followups UNIQUE constraint). WhatsApp-
- * sourced records were already scheduled by bookTrial — re-processing is a no-op.
+ * Booking sync (runs every ~15 min via the dispatcher gate). Reads records
+ * modified since the kv cursor. For each record with a phone:
+ *  - future Trial DateTime → upsert contact, schedule the trial sequence
+ *    (idempotent via the UNIQUE constraint), and CANCEL the lead-nudge drip so a
+ *    link-booker never gets the drip (F2). WhatsApp-sourced records were already
+ *    scheduled by bookTrial — re-processing is a no-op.
+ *  - a `Resultado clase prueba` value → run the F4 result watcher (no-show /
+ *    enrolled), acting once per record+value.
  */
 export async function syncBookings(
   env: Env,
   airtable: {
     listRecentBookings: (env: Env, sinceIso: string) => Promise<BookingRecord[]>;
   } = { listRecentBookings },
+  deps: { slack: Pick<CronSlackDeps, "postNote"> } = {
+    slack: {
+      async postNote(text: string): Promise<void> {
+        console.log(`[syncBookings] ${text}`);
+      },
+    },
+  },
 ): Promise<number> {
   const cursor =
     (await kvGet(env.DB, "airtable_sync_cursor")) ??
@@ -299,16 +328,112 @@ export async function syncBookings(
   const records = await airtable.listRecentBookings(env, cursor);
   let scheduled = 0;
   for (const rec of records) {
-    if (!rec.phone || !rec.trialDateTimeIso) continue;
-    const trialEpoch = Math.floor(Date.parse(rec.trialDateTimeIso) / 1000);
-    if (!Number.isFinite(trialEpoch) || trialEpoch <= nowSec()) continue;
+    if (!rec.phone) continue;
     const phone = normalizeMxPhone(rec.phone);
-    await upsertContact(env.DB, { phone, name: rec.name ?? null });
-    await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso);
-    scheduled++;
+
+    // Future booking → schedule the sequence and kill the drip.
+    if (rec.trialDateTimeIso) {
+      const trialEpoch = Math.floor(Date.parse(rec.trialDateTimeIso) / 1000);
+      if (Number.isFinite(trialEpoch) && trialEpoch > nowSec()) {
+        await upsertContact(env.DB, { phone, name: rec.name ?? null });
+        await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso);
+        await cancelFollowupsByKinds(env.DB, phone, NUDGE_KINDS);
+        scheduled++;
+      }
+    }
+
+    // Result watcher (independent of the trial datetime).
+    if (rec.result) {
+      await processResult(env, deps, rec.id, phone, rec.result, rec.name ?? null);
+    }
   }
   await kvSet(env.DB, "airtable_sync_cursor", new Date(nowSec() * 1000).toISOString());
   return scheduled;
+}
+
+/**
+ * F4 result watcher for one record. Acts ONCE per record+normalized-value via
+ * kv `resultado:<recordId>`:
+ *  - "no asistio"  → cancel ALL pending followups, send a warm reschedule
+ *    (free-form if window open, else no_show_followup template; failure → Slack).
+ *  - "se inscribio" → set status=student, cancel ALL pending followups, send a
+ *    warm welcome (free-form if window open, else human_followup template
+ *    fallback; failure → Slack).
+ */
+async function processResult(
+  env: Env,
+  deps: { slack: Pick<CronSlackDeps, "postNote"> },
+  recordId: string,
+  phone: string,
+  rawResult: string,
+  name: string | null,
+): Promise<void> {
+  const action = classifyResult(rawResult);
+  if (!action) return;
+
+  const kvKey = `resultado:${recordId}`;
+  const already = await kvGet(env.DB, kvKey);
+  const marker = `${action}`;
+  if (already === marker) return; // acted on this record+value already
+
+  await upsertContact(env.DB, { phone, name });
+  const contact = await getContact(env.DB, phone);
+  const lang = contact?.lang ?? "es";
+  const who = name ? ` ${name.split(/\s+/)[0] ?? ""}` : "";
+
+  if (action === "no_show") {
+    await cancelFollowups(env.DB, phone); // all kinds
+    const link = "https://mdcondesa.com/clase-prueba-adultos/";
+    const body =
+      lang === "en"
+        ? `Hi${who}! We missed you at your trial class 🥋 No worries — want to reschedule? You can pick a new time here: ${link}`
+        : `¡Hola${who}! Te esperábamos en tu clase de prueba 🥋 No pasa nada, ¿la reagendamos? Elige otro horario aquí: ${link}`;
+    try {
+      await sendText(env, phone, body);
+    } catch (err) {
+      if (err instanceof WindowClosedError) {
+        try {
+          await sendTemplate(env, phone, tpl("no_show_followup", lang), lang, [
+            bodyParams([name ?? ""]),
+          ]);
+        } catch (tErr) {
+          await deps.slack.postNote(
+            `No pude enviar reagenda a ${phone} (plantilla no_show_followup falló): ${String(tErr)}`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
+  } else {
+    // enrolled
+    await setContactStatus(env.DB, phone, "student");
+    await cancelFollowups(env.DB, phone); // all kinds; student stops marketing
+    const scheduleLink = "https://mdcondesa.com/#horarios";
+    const body =
+      lang === "en"
+        ? `Welcome to the family${who}! 🥋🎉 So glad you joined. Next: check the schedule (${scheduleLink}) and remember there's a 10% discount when you sign up as a team. See you on the mats!`
+        : `¡Bienvenid@ a la familia${who}! 🥋🎉 Nos da mucho gusto tenerte. Lo que sigue: revisa los horarios (${scheduleLink}) y recuerda que hay 10% de descuento si te inscribes en equipo. ¡Nos vemos en el tatami!`;
+    try {
+      await sendText(env, phone, body);
+    } catch (err) {
+      if (err instanceof WindowClosedError) {
+        try {
+          await sendTemplate(env, phone, tpl("human_followup", lang), lang, [
+            bodyParams([name ?? ""]),
+          ]);
+        } catch (tErr) {
+          await deps.slack.postNote(
+            `No pude enviar bienvenida a ${phone} (plantilla human_followup falló): ${String(tErr)}`,
+          );
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  await kvSet(env.DB, kvKey, marker);
 }
 
 /**
