@@ -2,8 +2,9 @@
 // come from env. Tolerant of schema drift (unknown-field 422 → minimal retry)
 // and of the Students table not existing yet (404 → []).
 
-import type { Env, BookTrialInput } from "../types.js";
+import type { Env, BookTrialInput, RuleAction } from "../types.js";
 import { cdmxIso } from "../cron/time.js";
+import { kvGet, kvSet } from "../db/queries.js";
 
 const API = "https://api.airtable.com/v0";
 const MAX_429_RETRIES = 4;
@@ -107,9 +108,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Create a trial record. Maps BookTrialInput → the manually-added Phase-0
- * fields. On a 422 unknown-field error, retries once with only the core fields
- * (schema-drift tolerance) and logs a warning.
+ * Book a trial. Upserts the Leads row BY PHONE (structurally killing duplicate
+ * rows from bot vs web-form vs lead-sync) and returns the record id — contract
+ * unchanged. Trial details (Discipline/Audience/Trial DateTime) are always
+ * written; Name/Source/Ad are fill-if-empty so manual Airtable edits survive.
+ * createWithDriftRetry inside upsertLead tolerates unknown fields.
  */
 export async function bookTrial(
   env: Env,
@@ -117,43 +120,86 @@ export async function bookTrial(
 ): Promise<string> {
   const phone = normalizeMxPhone(input.phone);
   const trialDateTime = cdmxIso(input.trialDate, input.trialTime);
-  const full: Record<string, unknown> = {
-    Name: input.name,
+  const current = await findLeadByPhone(env, phone);
+  const cur = current?.fields ?? null;
+
+  const fields: Record<string, unknown> = {
     "Phone E164": phone,
     Discipline: input.discipline,
     Audience: input.audience,
     "Trial DateTime": trialDateTime,
-    Source: "WhatsApp",
   };
-  // Ad attribution ("headline (id)"), FIRST attempt only. If the Ad field does
-  // not exist in the base, the 422 unknown-field path retries with core fields.
-  if (input.ad) full["Ad"] = input.ad;
+  if (input.name && isEmpty(cur?.["Name"])) fields["Name"] = input.name;
+  if (isEmpty(cur?.["Source"])) fields["Source"] = "WhatsApp";
+  if (input.ad && isEmpty(cur?.["Ad"])) fields["Ad"] = input.ad;
 
-  const first = await createRecord(env, env.AIRTABLE_TRIALS_TABLE, full);
-  if (first.ok) return first.id;
-
-  if (first.unknownField) {
-    console.warn(
-      `[airtable] bookTrial unknown-field 422 (${first.detail}); retrying with core fields only`,
-    );
-    const minimal: Record<string, unknown> = {
-      Name: input.name,
-      "Phone E164": phone,
-      "Trial DateTime": trialDateTime,
-      Source: "WhatsApp",
-    };
-    const retry = await createRecord(env, env.AIRTABLE_TRIALS_TABLE, minimal);
-    if (retry.ok) return retry.id;
-    throw new Error(`airtable bookTrial failed after retry: ${retry.detail}`);
-  }
-  throw new Error(`airtable bookTrial failed: ${first.detail}`);
+  const res = await upsertLead(env, phone, fields, fields, current);
+  return res.id;
 }
 
 interface CreateResult {
   ok: boolean;
   id: string;
+  fields: Record<string, unknown>;
   unknownField: boolean;
   detail: string;
+}
+
+/** Shape of an Airtable JSON error body (or a bare string in odd cases). */
+type AirtableErrorBody = {
+  error?: { type?: string; message?: string } | string;
+};
+
+interface ParsedAirtableError {
+  detail: string;
+  unknownField: boolean; // 422 UNKNOWN_FIELD_NAME
+  invalidFormula: boolean; // 422 INVALID_FILTER_BY_FORMULA
+}
+
+/** Shared error extractor for createRecord/updateRecord/findLeadByPhone. */
+function parseAirtableError(status: number, data: AirtableErrorBody): ParsedAirtableError {
+  const errObj = typeof data.error === "object" ? data.error : undefined;
+  const detail =
+    errObj?.message ??
+    (typeof data.error === "string" ? data.error : `HTTP ${status}`);
+  const type = errObj?.type;
+  const unknownField =
+    status === 422 &&
+    (type === "UNKNOWN_FIELD_NAME" || /unknown field name/i.test(detail));
+  const invalidFormula =
+    status === 422 &&
+    (type === "INVALID_FILTER_BY_FORMULA" || /invalid.*formula/i.test(detail));
+  return { detail, unknownField, invalidFormula };
+}
+
+/** Thrown by updateRecord on a non-ok PATCH; carries the unknown-field flag. */
+export class AirtableWriteError extends Error {
+  constructor(
+    message: string,
+    readonly unknownField: boolean,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "AirtableWriteError";
+  }
+}
+
+/**
+ * Pull the offending field name out of an UNKNOWN_FIELD_NAME detail string
+ * (e.g. `Unknown field name: "Actividad"`), or null if not parseable. Lets the
+ * caller drop just that field and retry (schema-drift tolerance).
+ */
+export function extractUnknownFieldName(detail: string): string | null {
+  const m = detail.match(/unknown field name[s]?:?\s*"?([^"]+?)"?\s*$/i);
+  return m ? m[1]!.trim() : null;
+}
+
+/** True when an Airtable field value is absent/blank (fill-if-empty guard). */
+function isEmpty(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") return v.trim() === "";
+  if (Array.isArray(v)) return v.length === 0;
+  return false;
 }
 
 async function createRecord(
@@ -165,22 +211,311 @@ async function createRecord(
     method: "POST",
     body: JSON.stringify({ fields, typecast: true }),
   });
-  const data = (await res.json().catch(() => ({}))) as {
+  const data = (await res.json().catch(() => ({}))) as AirtableErrorBody & {
     id?: string;
-    error?: { type?: string; message?: string } | string;
+    fields?: Record<string, unknown>;
   };
   if (res.ok && data.id) {
-    return { ok: true, id: data.id, unknownField: false, detail: "" };
+    return {
+      ok: true,
+      id: data.id,
+      fields: data.fields ?? fields,
+      unknownField: false,
+      detail: "",
+    };
   }
-  const errObj = typeof data.error === "object" ? data.error : undefined;
-  const detail =
-    errObj?.message ??
-    (typeof data.error === "string" ? data.error : `HTTP ${res.status}`);
-  const unknownField =
-    res.status === 422 &&
-    (errObj?.type === "UNKNOWN_FIELD_NAME" ||
-      /unknown field name/i.test(detail));
-  return { ok: false, id: "", unknownField, detail };
+  const err = parseAirtableError(res.status, data);
+  return { ok: false, id: "", fields: {}, unknownField: err.unknownField, detail: err.detail };
+}
+
+/**
+ * PATCH an existing record (typecast:true so new select options are created).
+ * Returns the full updated record. Throws AirtableWriteError on any non-ok
+ * response so callers can inspect `unknownField` and drop/attribute the field.
+ */
+export async function updateRecord(
+  env: Env,
+  table: string,
+  recordId: string,
+  fields: Record<string, unknown>,
+): Promise<AirtableRecord> {
+  const res = await airtableFetch(env, `${baseUrl(env, table)}/${recordId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ fields, typecast: true }),
+  });
+  const data = (await res.json().catch(() => ({}))) as AirtableErrorBody & {
+    id?: string;
+    fields?: Record<string, unknown>;
+  };
+  if (res.ok && data.id) return { id: data.id, fields: data.fields ?? {} };
+  const err = parseAirtableError(res.status, data);
+  throw new AirtableWriteError(err.detail, err.unknownField, res.status);
+}
+
+/**
+ * POST a new record, tolerating schema drift: on an UNKNOWN_FIELD_NAME 422 we
+ * drop the named field and retry (a few times) rather than failing outright.
+ * Returns the created record's id + fields.
+ */
+async function createWithDriftRetry(
+  env: Env,
+  table: string,
+  fields: Record<string, unknown>,
+): Promise<{ id: string; fields: Record<string, unknown> }> {
+  const attempt: Record<string, unknown> = { ...fields };
+  for (let i = 0; i < 4; i++) {
+    const r = await createRecord(env, table, attempt);
+    if (r.ok) return { id: r.id, fields: r.fields };
+    if (r.unknownField) {
+      const bad = extractUnknownFieldName(r.detail);
+      if (bad && bad in attempt) {
+        console.warn(
+          `[airtable] create dropping unknown field "${bad}" (${r.detail})`,
+        );
+        delete attempt[bad];
+        continue;
+      }
+    }
+    throw new Error(`airtable create failed: ${r.detail}`);
+  }
+  throw new Error("airtable create failed after drift retries");
+}
+
+/**
+ * Find a Leads row by phone via filterByFormula {Phone E164}='digits'. Digits-
+ * only (guards against formula injection + matches the stored E164 shape). On a
+ * 422 INVALID_FILTER_BY_FORMULA (field renamed/removed) we warn and return null
+ * so the caller degrades to create rather than throwing.
+ */
+export async function findLeadByPhone(
+  env: Env,
+  phone: string,
+): Promise<AirtableRecord | null> {
+  const digits = normalizeMxPhone(phone).replace(/\D/g, "");
+  if (!digits) return null;
+  const url = new URL(baseUrl(env, env.AIRTABLE_TRIALS_TABLE));
+  url.searchParams.set("filterByFormula", `{Phone E164}='${digits}'`);
+  url.searchParams.set("pageSize", "1");
+  const res = await airtableFetch(env, url.toString(), { method: "GET" });
+  if (res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { records?: AirtableRecord[] };
+    return data.records?.[0] ?? null;
+  }
+  const data = (await res.json().catch(() => ({}))) as AirtableErrorBody;
+  const err = parseAirtableError(res.status, data);
+  if (err.invalidFormula) {
+    console.warn(`[airtable] findLeadByPhone invalid formula (${err.detail}); returning null`);
+    return null;
+  }
+  throw new Error(`airtable findLeadByPhone failed: ${err.detail}`);
+}
+
+export interface UpsertLeadResult {
+  id: string;
+  created: boolean;
+  fields: Record<string, unknown>;
+}
+
+/**
+ * Upsert a Leads row by phone: find → PATCH patchFields, else POST createFields
+ * (with drift retry). Pass `current` (from a prior findLeadByPhone) to skip the
+ * internal find. Returns the record id, whether it was created, and its fields
+ * (authoritative post-write values, for downstream multi-select unions).
+ */
+export async function upsertLead(
+  env: Env,
+  phone: string,
+  patchFields: Record<string, unknown>,
+  createFields: Record<string, unknown>,
+  current?: AirtableRecord | null,
+): Promise<UpsertLeadResult> {
+  const existing = current !== undefined ? current : await findLeadByPhone(env, phone);
+  if (existing) {
+    const updated = await updateRecord(
+      env,
+      env.AIRTABLE_TRIALS_TABLE,
+      existing.id,
+      patchFields,
+    );
+    return { id: updated.id, created: false, fields: updated.fields };
+  }
+  const made = await createWithDriftRetry(env, env.AIRTABLE_TRIALS_TABLE, createFields);
+  return { id: made.id, created: true, fields: made.fields };
+}
+
+/** Input to buildLeadFields — the base CRM columns every lead-sync writes. */
+export interface LeadFieldsInput {
+  phone: string;
+  name?: string | null;
+  campaignName?: string | null;
+  ad?: string | null; // "headline (id)" attribution label
+}
+
+/**
+ * Pure. Builds the base Leads field map for an upsert. Name/Ad/Source are
+ * fill-if-empty against the CURRENT record so manual Airtable edits are never
+ * clobbered; Campaña is set whenever known (the campaign a lead arrived through).
+ */
+export function buildLeadFields(
+  current: Record<string, unknown> | null,
+  input: LeadFieldsInput,
+): Record<string, unknown> {
+  const f: Record<string, unknown> = { "Phone E164": input.phone };
+  if (isEmpty(current?.["Source"])) f["Source"] = "WhatsApp";
+  const name = (input.name ?? "").trim();
+  if (name && isEmpty(current?.["Name"])) f["Name"] = name;
+  const ad = (input.ad ?? "").trim();
+  if (ad && isEmpty(current?.["Ad"])) f["Ad"] = ad;
+  const camp = (input.campaignName ?? "").trim();
+  if (camp) f["Campaña"] = camp;
+  return f;
+}
+
+/** Coerce an Airtable field value to a string[] for multi-select unions. */
+function toStringArray(v: unknown): string[] {
+  if (v === null || v === undefined) return [];
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
+  if (typeof v === "string") return v === "" ? [] : [v];
+  return [];
+}
+
+/**
+ * Pure. Turns a list of RuleActions into an Airtable PATCH field map, resolved
+ * against the record's CURRENT fields:
+ * - set:   overwrite with value
+ * - add:   union into the multi-select (read-modify-write; dedupes; coerces a
+ *          scalar current value to a single-element array)
+ * - clear: null (empties the field)
+ * Later actions on the same field build on earlier ones within the same batch.
+ */
+export function buildPatchFields(
+  current: Record<string, unknown>,
+  actions: RuleAction[],
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const a of actions) {
+    if (a.op === "clear") {
+      patch[a.field] = null;
+    } else if (a.op === "set") {
+      patch[a.field] = a.value;
+    } else {
+      // add: union
+      const base = a.field in patch ? patch[a.field] : current[a.field];
+      const arr = toStringArray(base);
+      if (!arr.includes(a.value)) arr.push(a.value);
+      patch[a.field] = arr;
+    }
+  }
+  return patch;
+}
+
+// ---- base schema (metadata API) ----
+
+export interface SchemaField {
+  name: string;
+  type: string;
+  /** Option names for select-type fields (single/multiple select). */
+  choices?: string[];
+}
+
+export interface BaseSchema {
+  table: string;
+  fields: SchemaField[];
+}
+
+const SCHEMA_KV_KEY = "airtable_schema";
+const SCHEMA_TTL_MS = 3600_000; // 1h
+
+interface RawMetaField {
+  name?: string;
+  type?: string;
+  options?: { choices?: { name?: string }[] };
+}
+interface RawMetaTable {
+  name?: string;
+  fields?: RawMetaField[];
+}
+
+function compactTable(table: RawMetaTable, tableName: string): BaseSchema {
+  const fields: SchemaField[] = [];
+  for (const f of table.fields ?? []) {
+    const name = f.name ?? "";
+    if (!name) continue;
+    const field: SchemaField = { name, type: f.type ?? "unknown" };
+    const choices = f.options?.choices;
+    if (Array.isArray(choices)) {
+      const names = choices
+        .map((c) => c.name ?? "")
+        .filter((n) => n !== "");
+      if (names.length > 0) field.choices = names;
+    }
+    fields.push(field);
+  }
+  return { table: tableName, fields };
+}
+
+/**
+ * The Leads table schema via the metadata API, cached in kv ('airtable_schema')
+ * for 1h. On any fetch failure (or the table not being found) we return the last
+ * cached schema if present — stale-on-failure so the Editor chat keeps working.
+ */
+export async function getBaseSchema(env: Env): Promise<BaseSchema | null> {
+  const cachedRaw = await kvGet(env.DB, SCHEMA_KV_KEY);
+  let cached: { at: number; schema: BaseSchema } | null = null;
+  if (cachedRaw) {
+    try {
+      cached = JSON.parse(cachedRaw) as { at: number; schema: BaseSchema };
+    } catch {
+      cached = null;
+    }
+  }
+  if (cached && Date.now() - cached.at < SCHEMA_TTL_MS) return cached.schema;
+
+  try {
+    const url = `${API}/meta/bases/${env.AIRTABLE_BASE_ID}/tables`;
+    const res = await airtableFetch(env, url, { method: "GET" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { tables?: RawMetaTable[] };
+    const raw = (data.tables ?? []).find((t) => t.name === env.AIRTABLE_TRIALS_TABLE);
+    if (!raw) return cached?.schema ?? null;
+    const schema = compactTable(raw, env.AIRTABLE_TRIALS_TABLE);
+    await kvSet(env.DB, SCHEMA_KV_KEY, JSON.stringify({ at: Date.now(), schema }));
+    return schema;
+  } catch (err) {
+    console.warn(`[airtable] getBaseSchema failed (${String(err)}); serving cache`);
+    return cached?.schema ?? null; // stale-on-failure
+  }
+}
+
+const MAX_SUMMARY_CHOICES = 12;
+
+/** Rough token estimate (~4 chars/token) for the pure schema summary cap. */
+function estTokens(s: string): number {
+  return Math.ceil(s.length / 4);
+}
+
+/**
+ * Pure. Compact human/LLM-readable summary of the Leads schema for the Editor
+ * chat, hard-capped at ~maxTokens. Each select field lists its first 12 options
+ * then "(+N más)"; fields are dropped once the running estimate exceeds the cap.
+ */
+export function schemaSummary(schema: BaseSchema, maxTokens = 600): string {
+  const lines: string[] = [];
+  let tokens = 0;
+  for (const field of schema.fields) {
+    let line = `- ${field.name} (${field.type})`;
+    if (field.choices && field.choices.length > 0) {
+      const shown = field.choices.slice(0, MAX_SUMMARY_CHOICES);
+      const extra = field.choices.length - shown.length;
+      line += `: ${shown.join(", ")}`;
+      if (extra > 0) line += ` (+${extra} más)`;
+    }
+    const lineTokens = estTokens(line);
+    if (tokens + lineTokens > maxTokens && lines.length > 0) break;
+    lines.push(line);
+    tokens += lineTokens;
+  }
+  return lines.join("\n");
 }
 
 /**
