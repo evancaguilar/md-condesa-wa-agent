@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<title>MD Condesa — Panel</title>
+<style>
+:root{
+  --bg:#0f0f10; --panel:#17181b; --panel2:#1e1f23; --line:#2a2c31;
+  --text:#f2f2f3; --muted:#a4a7ad; --gold:#c9a227; --gold-dim:#8f7420;
+  --green:#1f9d55; --green-d:#177544; --red:#d13b3b; --red-d:#a52c2c;
+  --blue:#2f6fd6; --amber:#e0a423; --chip:#2a2c31; --radius:14px;
+  --tabh:62px; --sidew:220px;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);-webkit-text-size-adjust:100%}
+body{font-size:16px;line-height:1.4}
+button{font-family:inherit;cursor:pointer;border:none;font-size:15px}
+input,textarea,select{font-family:inherit;font-size:16px}
+a{color:var(--gold);text-decoration:none}
+.hidden{display:none!important}
+
+/* layout */
+#app{min-height:100vh}
+#shell{display:flex;min-height:100vh}
+#side{display:none}
+#main{flex:1;min-width:0;padding:16px 16px calc(var(--tabh) + 22px) 16px;max-width:900px;margin:0 auto;width:100%}
+h1,h2,h3{margin:0 0 12px}
+h1{font-size:22px}
+h2{font-size:19px}
+.muted{color:var(--muted)}
+.sm{font-size:13px}
+.center{text-align:center}
+
+/* tab bar (mobile) */
+#tabs{position:fixed;left:0;right:0;bottom:0;height:var(--tabh);display:flex;background:var(--panel);
+  border-top:1px solid var(--line);z-index:40;padding-bottom:env(safe-area-inset-bottom)}
+#tabs button{flex:1;background:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:2px;font-size:10px;padding:6px 0 4px;position:relative;min-height:44px}
+#tabs button .ic{font-size:20px;line-height:1}
+#tabs button.on{color:var(--gold)}
+#tabs .badge{position:absolute;top:4px;left:calc(50% + 7px);background:var(--red);color:#fff;font-size:10px;
+  min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px;font-weight:700}
+
+/* cards / controls */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.row{display:flex;align-items:center;gap:10px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.grid{display:grid;gap:12px}
+.grid.stats{grid-template-columns:1fr 1fr}
+.btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:11px 14px;min-height:44px}
+.btn:active{opacity:.8}
+.btn.gold{background:var(--gold);color:#111;border-color:var(--gold);font-weight:700}
+.btn.green{background:var(--green);color:#fff;border-color:var(--green)}
+.btn.red{background:var(--red);color:#fff;border-color:var(--red)}
+.btn.blue{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:7px 11px;min-height:36px;font-size:13px;border-radius:8px}
+.btn:disabled{opacity:.5;cursor:default}
+.field{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin-top:6px}
+textarea.field{min-height:80px;resize:vertical;line-height:1.4}
+label.lab{display:block;font-size:13px;color:var(--muted);margin-top:10px}
+.chip{display:inline-block;background:var(--chip);color:var(--muted);border-radius:999px;padding:3px 9px;font-size:11px;
+  font-weight:600;line-height:1.5;white-space:nowrap}
+.chip.gold{background:rgba(201,162,39,.16);color:var(--gold)}
+.chip.green{background:rgba(31,157,85,.18);color:#4ec585}
+.chip.red{background:rgba(209,59,59,.18);color:#ef7d7d}
+.chip.blue{background:rgba(47,111,214,.18);color:#7fb0f5}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.spin{display:inline-block;width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--gold);
+  border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle}
+@keyframes sp{to{transform:rotate(360deg)}}
+.loading{color:var(--muted);padding:24px 0;text-align:center}
+hr.sep{border:none;border-top:1px solid var(--line);margin:12px 0}
+
+/* toggle switch */
+.switch{position:relative;display:inline-block;width:52px;height:30px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--panel2);border:1px solid var(--line);border-radius:999px;transition:.2s}
+.slider:before{content:"";position:absolute;height:22px;width:22px;left:3px;top:3px;background:#ccc;border-radius:50%;transition:.2s}
+.switch input:checked + .slider{background:var(--gold);border-color:var(--gold)}
+.switch input:checked + .slider:before{transform:translateX(22px);background:#111}
+
+/* big bot toggle */
+.bigtoggle{width:100%;border-radius:var(--radius);padding:22px 16px;font-size:22px;font-weight:800;color:#fff;
+  border:none;text-align:center;letter-spacing:.3px}
+.bigtoggle.active{background:linear-gradient(135deg,var(--green),var(--green-d))}
+.bigtoggle.paused{background:linear-gradient(135deg,var(--red),var(--red-d))}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.stat .n{font-size:26px;font-weight:800}
+.stat .l{font-size:12px;color:var(--muted);margin-top:2px}
+.stat.tap{cursor:pointer}
+.stat.tap:active{opacity:.85}
+
+/* list rows (chats) */
+.lrow{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;margin-bottom:8px}
+.lrow:active{background:var(--panel2)}
+.lrow.sel{border-color:var(--gold)}
+.lrow .top{display:flex;justify-content:space-between;gap:8px}
+.lrow .nm{font-weight:700}
+.lrow .pv{color:var(--muted);font-size:14px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lrow .tm{color:var(--muted);font-size:11px;white-space:nowrap;flex:none}
+
+/* transcript bubbles */
+.transcript{display:flex;flex-direction:column;gap:8px;padding:6px 0}
+.bub{max-width:78%;padding:9px 12px;border-radius:14px;font-size:15px;white-space:pre-wrap;word-break:break-word;line-height:1.35}
+.bub.in{align-self:flex-start;background:var(--panel2);border-bottom-left-radius:4px}
+.bub.bot{align-self:flex-end;background:var(--green-d);border-bottom-right-radius:4px}
+.bub.human{align-self:flex-end;background:var(--blue);border-bottom-right-radius:4px}
+.bub .who{font-size:10px;opacity:.75;margin-bottom:2px;font-weight:700}
+.bub .ts{font-size:10px;opacity:.6;margin-top:3px;text-align:right}
+
+/* toast */
+#toasts{position:fixed;left:12px;right:12px;bottom:calc(var(--tabh) + 12px);z-index:60;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{background:#26282e;border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:10px;padding:12px 14px;
+  font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.4);animation:tin .2s ease}
+.toast.ok{border-left-color:var(--green)}
+.toast.err{border-left-color:var(--red)}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* token meter */
+.meter{height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.meter > i{display:block;height:100%;background:var(--green);transition:width .3s,background .3s}
+.meter.warn > i{background:var(--amber)}
+.meter.bad > i{background:var(--red)}
+
+/* diff */
+.diff{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.diff .del{color:#ef7d7d;text-decoration:line-through}
+.diff .add{color:#4ec585}
+
+/* login */
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+#login .card{max-width:340px;width:100%;text-align:center}
+.logo{font-weight:900;font-size:26px;letter-spacing:1px;color:var(--gold);margin-bottom:6px}
+
+/* detail header (mobile back) */
+.dhead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.backbtn{background:none;color:var(--gold);font-size:22px;padding:4px 8px;min-height:44px;min-width:44px}
+
+.collapsible summary{cursor:pointer;font-weight:700;list-style:none}
+.collapsible summary::-webkit-details-marker{display:none}
+.collapsible summary::before{content:"▸ ";color:var(--gold)}
+.collapsible[open] summary::before{content:"▾ "}
+pre.base{white-space:pre-wrap;word-break:break-word;background:var(--panel2);border:1px solid var(--line);
+  border-radius:8px;padding:10px;font-size:13px;max-height:340px;overflow:auto;margin-top:8px}
+
+/* composer */
+.composer{display:flex;gap:8px;margin-top:10px}
+.composer textarea{flex:1;min-height:44px;max-height:120px}
+
+/* desktop */
+@media(min-width:768px){
+  :root{--tabh:0px}
+  #tabs{display:none}
+  #side{display:flex;flex-direction:column;width:var(--sidew);flex:none;background:var(--panel);
+    border-right:1px solid var(--line);position:sticky;top:0;height:100vh;padding:18px 12px}
+  #side .brand{font-weight:900;color:var(--gold);font-size:20px;letter-spacing:1px;padding:6px 10px 16px}
+  #side button.nav{display:flex;align-items:center;gap:10px;background:none;color:var(--muted);text-align:left;
+    padding:11px 12px;border-radius:10px;margin-bottom:2px;font-size:15px;position:relative}
+  #side button.nav .ic{font-size:18px;width:22px;text-align:center}
+  #side button.nav.on{background:var(--panel2);color:var(--gold);font-weight:700}
+  #side .badge{margin-left:auto;background:var(--red);color:#fff;font-size:11px;min-width:18px;height:18px;
+    border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;font-weight:700}
+  #main{padding:24px 28px 40px;max-width:940px}
+  #toasts{left:auto;right:20px;bottom:20px;width:340px}
+  .grid.stats{grid-template-columns:1fr 1fr 1fr}
+  .pane-2{display:flex;gap:16px;align-items:flex-start}
+  .pane-2 .list{width:340px;flex:none}
+  .pane-2 .detail{flex:1;min-width:0}
+  .backbtn.mobile-only{display:none}
+}
+@media(min-width:1000px){.grid.stats{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="login" class="hidden">
+    <div class="card">
+      <div class="logo">MD CONDESA</div>
+      <div class="muted sm" style="margin-bottom:16px">Panel de administración</div>
+      <input id="loginPw" class="field" type="password" placeholder="Contraseña" autocomplete="current-password" style="text-align:center">
+      <button id="loginBtn" class="btn gold" style="width:100%;margin-top:14px">Entrar</button>
+      <div id="loginErr" class="sm" style="color:var(--red);margin-top:10px;min-height:18px"></div>
+    </div>
+  </div>
+
+  <div id="shell" class="hidden">
+    <nav id="side"></nav>
+    <main id="main"></main>
+    <nav id="tabs"></nav>
+  </div>
+</div>
+<div id="toasts"></div>
+
+<script>
+"use strict";
+(function(){
+// ---------- helpers ----------
+function esc(s){
+  if(s==null) return "";
+  return String(s).replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+  });
+}
+function el(id){return document.getElementById(id);}
+function q(sel,root){return (root||document).querySelector(sel);}
+function qa(sel,root){return Array.prototype.slice.call((root||document).querySelectorAll(sel));}
+
+function toast(msg,kind){
+  var box=el("toasts");
+  var t=document.createElement("div");
+  t.className="toast "+(kind||"");
+  t.textContent=msg;
+  box.appendChild(t);
+  setTimeout(function(){t.style.opacity="0";t.style.transition="opacity .3s";setTimeout(function(){t.remove();},300);},3200);
+}
+
+async function api(path,opts){
+  opts=opts||{};
+  var init={method:opts.method||"GET",credentials:"same-origin",headers:{}};
+  if(opts.body!==undefined){init.headers["Content-Type"]="application/json";init.body=JSON.stringify(opts.body);}
+  var res;
+  try{ res=await fetch("/admin/api"+path,init); }
+  catch(e){ throw {status:0,data:{error:"network"}}; }
+  if(res.status===401 && path!=="/login" && path!=="/me"){ showLogin(); throw {status:401,data:{}}; }
+  var data=null;
+  try{ data=await res.json(); }catch(e){ data=null; }
+  if(!res.ok) throw {status:res.status,data:data||{}};
+  return data;
+}
+
+function fmtPhone(p){
+  if(!p) return "";
+  var d=String(p).replace(/\D/g,"");
+  if(d.length>=12 && d.slice(0,2)==="52"){
+    var rest=d.slice(2);
+    if(rest.length===11 && rest[0]==="1") rest=rest.slice(1);
+    if(rest.length===10) return "+52 "+rest.slice(0,2)+" "+rest.slice(2,6)+" "+rest.slice(6);
+  }
+  return "+"+d;
+}
+function nameOr(name,phone){ return (name && String(name).trim()) ? String(name).trim() : fmtPhone(phone); }
+
+function relTime(ts){
+  if(!ts) return "";
+  var ms = ts<1e12 ? ts*1000 : ts;
+  var diff=Date.now()-ms;
+  if(diff<0) diff=0;
+  var m=Math.floor(diff/60000);
+  if(m<1) return "ahora";
+  if(m<60) return "hace "+m+" min";
+  var h=Math.floor(m/60);
+  if(h<24) return "hace "+h+" h";
+  var d=Math.floor(h/24);
+  if(d<7) return "hace "+d+" d";
+  return new Date(ms).toLocaleDateString("es-MX",{day:"numeric",month:"short"});
+}
+function clockTime(ts){
+  if(!ts) return "";
+  var ms= ts<1e12 ? ts*1000 : ts;
+  return new Date(ms).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"});
+}
+function fmtDate(ts){
+  if(!ts) return "";
+  var ms= ts<1e12 ? ts*1000 : ts;
+  return new Date(ms).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"});
+}
+function money(n){ return "$"+(Number(n||0).toFixed(2))+" USD"; }
+
+// naive line diff: removed lines red/strike, added lines green
+function lineDiff(oldText,newText){
+  var a=(oldText==null?"":String(oldText)).split("\n");
+  var b=(newText==null?"":String(newText)).split("\n");
+  var out=[];
+  var bset={}; b.forEach(function(l){bset[l]=(bset[l]||0)+1;});
+  var aset={}; a.forEach(function(l){aset[l]=(aset[l]||0)+1;});
+  a.forEach(function(l){ if(!(l in bset)) out.push('<span class="del">- '+esc(l)+'</span>'); });
+  b.forEach(function(l){ if(!(l in aset)) out.push('<span class="add">+ '+esc(l)+'</span>'); });
+  if(!out.length) out.push('<span class="muted">(sin cambios de texto)</span>');
+  return '<div class="diff">'+out.join("\n")+"</div>";
+}
+
+// ---------- app state ----------
+var TABS=[
+  {id:"inicio",   icon:"🏠",label:"Inicio"},
+  {id:"chats",    icon:"💬",label:"Chats"},
+  {id:"aprobaciones",icon:"✅",label:"Aprobar",badge:true},
+  {id:"kb",       icon:"📚",label:"KB"},
+  {id:"editor",   icon:"✨",label:"Editor"},
+  {id:"campanas", icon:"📣",label:"Camp"},
+  {id:"probar",   icon:"🧪",label:"Probar"}
+];
+var state={ pendingCount:0, poll:null };
+
+function currentHash(){ var h=(location.hash||"#inicio").replace(/^#/,""); return h.split("/")[0]||"inicio"; }
+
+// ---------- shell / nav ----------
+function renderNav(){
+  var active=currentHash();
+  var side=el("side");
+  side.innerHTML='<div class="brand">MD CONDESA</div>'+TABS.map(function(t){
+    var badge=(t.badge && state.pendingCount>0)?'<span class="badge">'+state.pendingCount+'</span>':"";
+    return '<button class="nav'+(t.id===active?" on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+badge+'</button>';
+  }).join("")+'<div style="flex:1"></div><button class="nav" data-logout="1"><span class="ic">🚪</span>Salir</button>';
+  var tabs=el("tabs");
+  tabs.innerHTML=TABS.map(function(t){
+    var badge=(t.badge && state.pendingCount>0)?'<span class="badge">'+state.pendingCount+'</span>':"";
+    return '<button class="'+(t.id===active?"on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+badge+'</button>';
+  }).join("");
+  qa("[data-go]").forEach(function(b){ b.onclick=function(){ location.hash="#"+b.getAttribute("data-go"); }; });
+  qa("[data-logout]").forEach(function(b){ b.onclick=doLogout; });
+}
+function updateBadges(){ renderNav(); }
+
+var VIEWS={};
+function route(){
+  el("login").classList.add("hidden");
+  el("shell").classList.remove("hidden");
+  stopPoll();
+  var id=currentHash();
+  if(!VIEWS[id]){ id="inicio"; }
+  renderNav();
+  window.scrollTo(0,0);
+  VIEWS[id]();
+}
+window.addEventListener("hashchange",route);
+
+function startPoll(fn,ms){
+  stopPoll();
+  state.poll=setInterval(function(){ if(document.visibilityState==="visible") fn(); },ms);
+}
+function stopPoll(){ if(state.poll){clearInterval(state.poll);state.poll=null;} }
+document.addEventListener("visibilitychange",function(){
+  if(document.visibilityState==="visible") refreshOverviewSilent();
+});
+
+async function refreshOverviewSilent(){
+  try{ var o=await api("/overview"); state.pendingCount=o.pendingCount||0; updateBadges(); }catch(e){}
+}
+
+// ---------- LOGIN ----------
+function showLogin(){
+  stopPoll();
+  el("shell").classList.add("hidden");
+  el("login").classList.remove("hidden");
+  el("loginErr").textContent="";
+  el("loginPw").value="";
+  setTimeout(function(){ try{el("loginPw").focus();}catch(e){} },50);
+}
+async function doLogin(){
+  var pw=el("loginPw").value;
+  var errEl=el("loginErr");
+  errEl.textContent="";
+  el("loginBtn").disabled=true;
+  try{
+    await api("/login",{method:"POST",body:{password:pw}});
+    el("loginBtn").disabled=false;
+    await boot();
+  }catch(e){
+    el("loginBtn").disabled=false;
+    if(e.status===429) errEl.textContent="Demasiados intentos, espera 15 minutos";
+    else if(e.status===401 || e.status===400) errEl.textContent="Contraseña incorrecta";
+    else if(e.status===0) errEl.textContent="Sin conexión. Intenta de nuevo.";
+    else errEl.textContent="No se pudo entrar. Intenta de nuevo.";
+  }
+}
+async function doLogout(){
+  try{ await api("/logout",{method:"POST"}); }catch(e){}
+  showLogin();
+}
+
+// ================= VIEWS =================
+
+// ---------- INICIO ----------
+VIEWS.inicio=function(){
+  var m=el("main");
+  m.innerHTML='<h1>Inicio</h1><div id="inicioBody"><div class="loading"><span class="spin"></span></div></div>';
+  loadInicio();
+  startPoll(function(){ loadInicio(true); },30000);
+};
+async function loadInicio(silent){
+  var body=el("inicioBody"); if(!body) return;
+  var o;
+  try{ o=await api("/overview"); }
+  catch(e){ if(!silent) body.innerHTML='<div class="card muted">No se pudo cargar el resumen.</div>'; return; }
+  state.pendingCount=o.pendingCount||0; updateBadges();
+  if(!el("inicioBody")) return; // view changed while loading
+  var botOn=!!o.botEnabled;
+  var tw=!!o.trainingWheels;
+  var mo=o.month||{};
+  var html="";
+  html+='<button id="botBig" class="bigtoggle '+(botOn?"active":"paused")+'">'+(botOn?"🤖 Bot activo":"⏸ Bot pausado")+'</button>';
+  html+='<div class="card between" style="margin-top:12px"><div><div style="font-weight:700">Modo supervisión</div>'
+      +'<div class="muted sm">Aprobar todas las respuestas antes de enviar</div></div>'
+      +'<label class="switch"><input id="twToggle" type="checkbox" '+(tw?"checked":"")+'><span class="slider"></span></label></div>';
+  html+='<div class="grid stats" style="margin-top:4px">'
+      +stat(money(mo.costUsd),"Costo del mes")
+      +stat(o.convosToday!=null?o.convosToday:"–","Conversaciones hoy")
+      +stat(o.convosWeek!=null?o.convosWeek:"–","Esta semana")
+      +'<div class="stat tap" id="pendStat"><div class="n">'+(o.pendingCount||0)+'</div><div class="l">Pendientes →</div></div>'
+      +'</div>';
+  body.innerHTML=html;
+
+  el("botBig").onclick=function(){ toggleBot(botOn); };
+  el("twToggle").onchange=function(){ setTrainingWheels(this.checked); };
+  el("pendStat").onclick=function(){ location.hash="#aprobaciones"; };
+}
+function stat(n,l){ return '<div class="stat"><div class="n">'+esc(String(n))+'</div><div class="l">'+esc(l)+'</div></div>'; }
+async function toggleBot(currentlyOn){
+  var next=!currentlyOn;
+  if(currentlyOn){
+    if(!confirm("¿Pausar el bot? Dejará de responder automáticamente a todos los leads.")) return;
+  }
+  try{
+    await api("/bot",{method:"POST",body:{enabled:next}});
+    toast(next?"Bot activado":"Bot pausado","ok");
+    loadInicio();
+  }catch(e){ toast("No se pudo cambiar el estado del bot","err"); }
+}
+async function setTrainingWheels(on){
+  try{
+    await api("/training-wheels",{method:"POST",body:{enabled:on}});
+    toast(on?"Modo supervisión activado":"Modo supervisión desactivado","ok");
+  }catch(e){ toast("No se pudo cambiar el modo supervisión","err"); loadInicio(); }
+}
+
+// ---------- CHATS ----------
+var chatsCache={items:[],openPhone:null};
+VIEWS.chats=function(){
+  var m=el("main");
+  m.innerHTML='<div id="chatsView"><h1>Chats</h1><div class="pane-2">'
+    +'<div class="list" id="chatList"><div class="loading"><span class="spin"></span></div></div>'
+    +'<div class="detail" id="chatDetail"></div></div></div>';
+  loadChats();
+};
+async function loadChats(){
+  var list=el("chatList"); if(!list) return;
+  var data;
+  try{ data=await api("/conversations?limit=100&offset=0"); }
+  catch(e){ list.innerHTML='<div class="card muted">No se pudieron cargar los chats.</div>'; return; }
+  chatsCache.items=data.items||[];
+  if(!chatsCache.items.length){ list.innerHTML='<div class="card muted">Sin conversaciones todavía.</div>'; return; }
+  list.innerHTML=chatsCache.items.map(function(c){
+    var chips=convoChips(c);
+    var sel=(c.phone===chatsCache.openPhone)?" sel":"";
+    return '<button class="lrow'+sel+'" data-phone="'+esc(c.phone)+'">'
+      +'<div class="top"><span class="nm">'+esc(nameOr(c.name,c.phone))+'</span><span class="tm">'+esc(relTime(c.lastTs))+'</span></div>'
+      +'<div class="pv">'+esc(c.lastBody||"")+'</div>'
+      +(chips?'<div class="chips" style="margin-top:6px">'+chips+'</div>':"")
+      +'</button>';
+  }).join("");
+  qa("#chatList .lrow").forEach(function(b){ b.onclick=function(){ openChat(b.getAttribute("data-phone")); }; });
+  if(window.matchMedia("(min-width:768px)").matches && !el("chatDetail").innerHTML.trim()){
+    openChat(chatsCache.openPhone || chatsCache.items[0].phone);
+  }
+}
+function convoChips(c){
+  var out=[];
+  var st=c.status;
+  if(st==="student") out.push('<span class="chip gold">🎓 Alumno</span>');
+  else if(st==="opted_out") out.push('<span class="chip red">🚫 Baja</span>');
+  else out.push('<span class="chip">Lead</span>');
+  if(c.paused) out.push('<span class="chip red">⏸ Pausado</span>');
+  if(c.pendingCount>0) out.push('<span class="chip gold">⏳ Pendiente</span>');
+  if(c.campaignName) out.push('<span class="chip blue">📣 '+esc(c.campaignName)+'</span>');
+  return out.join("");
+}
+async function openChat(phone){
+  chatsCache.openPhone=phone;
+  qa("#chatList .lrow").forEach(function(b){ b.classList.toggle("sel",b.getAttribute("data-phone")===phone); });
+  var isMobile=!window.matchMedia("(min-width:768px)").matches;
+  var det=el("chatDetail");
+  var list=el("chatList");
+  if(isMobile){ list.classList.add("hidden"); }
+  det.innerHTML='<div class="loading"><span class="spin"></span></div>';
+  var d;
+  try{ d=await api("/conversations/"+encodeURIComponent(phone)); }
+  catch(e){ det.innerHTML='<div class="card muted">No se pudo cargar la conversación.</div>'; return; }
+  var contact=d.contact||{};
+  var msgs=d.messages||[];
+  var paused=contact.human_override_until && (contact.human_override_until*1 > Date.now()/1000);
+  var head='<div class="dhead">'
+    +(isMobile?'<button class="backbtn mobile-only" id="chatBack">←</button>':'')
+    +'<div><div style="font-weight:800;font-size:18px">'+esc(nameOr(contact.name,contact.phone))+'</div>'
+    +'<div class="muted sm">'+esc(fmtPhone(contact.phone))+'</div></div></div>';
+  var bubbles='<div class="transcript">'+msgs.map(bubbleHtml).join("")+'</div>';
+  var actions='<div class="row" style="flex-wrap:wrap;margin-top:12px">';
+  if(paused) actions+='<button class="btn green sm" id="resumeBtn">▶ Reanudar</button>';
+  else actions+='<button class="btn sm" id="pauseBtn">⏸ Pausar bot aquí</button>';
+  if(contact.status!=="student") actions+='<button class="btn gold sm" id="studentBtn">🎓 Marcar como alumno</button>';
+  actions+='</div>';
+  det.innerHTML=head+bubbles+actions;
+  if(el("chatBack")) el("chatBack").onclick=function(){ el("chatList").classList.remove("hidden"); det.innerHTML=""; };
+  if(el("pauseBtn")) el("pauseBtn").onclick=function(){ pauseConvo(phone); };
+  if(el("resumeBtn")) el("resumeBtn").onclick=function(){ resumeConvo(phone); };
+  if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(phone); };
+  var tr=q(".transcript",det); if(tr) tr.scrollTop=tr.scrollHeight;
+}
+function bubbleHtml(msg){
+  var dir=msg.direction, cls="in", who="";
+  if(dir==="out_bot"){ cls="bot"; }
+  else if(dir==="out_human_echo"){ cls="human"; who='<div class="who">🙋 tú</div>'; }
+  return '<div class="bub '+cls+'">'+who+esc(msg.body||"")+'<div class="ts">'+esc(clockTime(msg.ts))+'</div></div>';
+}
+async function pauseConvo(phone){
+  try{ await api("/conversations/"+encodeURIComponent(phone)+"/pause",{method:"POST",body:{}});
+    toast("Bot pausado en esta conversación","ok"); openChat(phone); loadChats(); }
+  catch(e){ toast("No se pudo pausar","err"); }
+}
+async function resumeConvo(phone){
+  try{ await api("/conversations/"+encodeURIComponent(phone)+"/resume",{method:"POST"});
+    toast("Bot reanudado","ok"); openChat(phone); loadChats(); }
+  catch(e){ toast("No se pudo reanudar","err"); }
+}
+async function markStudent(phone){
+  try{ await api("/conversations/"+encodeURIComponent(phone)+"/status",{method:"POST",body:{status:"student"}});
+    toast("Marcado como alumno","ok"); openChat(phone); loadChats(); }
+  catch(e){ toast("No se pudo actualizar","err"); }
+}
+
+// ---------- APROBACIONES ----------
+VIEWS.aprobaciones=function(){
+  var m=el("main");
+  m.innerHTML='<h1>Aprobaciones</h1><div id="apprBody"><div class="loading"><span class="spin"></span></div></div>';
+  loadApprovals();
+  startPoll(loadApprovals,30000);
+};
+async function loadApprovals(){
+  var body=el("apprBody"); if(!body) return;
+  var data;
+  try{ data=await api("/approvals"); }
+  catch(e){ if(el("apprBody")) body.innerHTML='<div class="card muted">No se pudieron cargar las aprobaciones.</div>'; return; }
+  if(!el("apprBody")) return;
+  var items=data.items||[];
+  state.pendingCount=items.length; updateBadges();
+  if(!items.length){ body.innerHTML='<div class="card center muted" style="padding:40px 16px">🎉 No hay nada pendiente.</div>'; return; }
+  body.innerHTML=items.map(apprCard).join("");
+  items.forEach(function(it){ wireApprCard(it); });
+}
+function apprCard(it){
+  var ctx=it.context||"";
+  var ctxHtml=esc(ctx).split("\n").filter(function(l){return l.trim();}).map(function(l){return '<div class="muted sm">'+l+'</div>';}).join("");
+  return '<div class="card" id="appr-'+it.id+'">'
+    +'<div class="between"><div style="font-weight:700">'+esc(nameOr(it.name,it.phone))+'</div>'
+    +'<div class="muted sm">'+esc(relTime(it.createdAt))+'</div></div>'
+    +(ctxHtml?'<div style="margin:8px 0">'+ctxHtml+'</div>':"")
+    +'<div class="sm muted" style="margin-top:8px">Respuesta propuesta</div>'
+    +'<div class="bub bot" style="max-width:100%;margin:4px 0 10px;align-self:stretch">'+esc(it.draft||"")+'</div>'
+    +'<div class="row" style="flex-wrap:wrap"><button class="btn green sm" data-a="approve">✅ Aprobar</button>'
+    +'<button class="btn sm" data-a="edit">✏️ Editar</button>'
+    +'<button class="btn red sm" data-a="discard">🗑 Descartar</button></div>'
+    +'<div class="editbox hidden" style="margin-top:10px"><textarea class="field ta">'+esc(it.draft||"")+'</textarea>'
+    +'<button class="btn gold sm sendedit" style="margin-top:8px">Enviar</button></div>'
+    +'</div>';
+}
+function wireApprCard(it){
+  var card=el("appr-"+it.id); if(!card) return;
+  qa("[data-a]",card).forEach(function(b){
+    var a=b.getAttribute("data-a");
+    b.onclick=function(){
+      if(a==="approve") resolveAppr(it.id,"approve");
+      else if(a==="discard") resolveAppr(it.id,"discard");
+      else if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); }
+    };
+  });
+  q(".sendedit",card).onclick=function(){
+    var txt=q(".ta",card).value;
+    if(!txt.trim()){ toast("Escribe una respuesta","err"); return; }
+    resolveAppr(it.id,"edit",txt);
+  };
+}
+function removeCard(id){
+  var c=el("appr-"+id); if(c) c.remove();
+  var b=el("apprBody");
+  if(b && !qa(".card",b).length){ b.innerHTML='<div class="card center muted" style="padding:40px 16px">🎉 No hay nada pendiente.</div>'; }
+  state.pendingCount=Math.max(0,state.pendingCount-1); updateBadges();
+}
+async function resolveAppr(id,kind,text){
+  var path="/approvals/"+id+"/"+kind;
+  var opts= kind==="edit" ? {method:"POST",body:{text:text}} : {method:"POST"};
+  try{
+    var r=await api(path,opts);
+    if(r && r.ok===false){
+      if(r.reason==="not_pending"){ toast("Ya resuelta (probablemente desde Slack)"); removeCard(id); }
+      else if(r.reason==="window_closed"){ toast("Ventana de 24h cerrada","err"); removeCard(id); }
+      else { toast("No se pudo procesar","err"); }
+      return;
+    }
+    toast(kind==="discard"?"Descartada":(kind==="edit"?"Respuesta enviada":"Aprobada y enviada"),"ok");
+    removeCard(id);
+  }catch(e){
+    if(e.data && e.data.reason==="not_pending"){ toast("Ya resuelta (probablemente desde Slack)"); removeCard(id); }
+    else if(e.data && e.data.reason==="window_closed"){ toast("Ventana de 24h cerrada","err"); removeCard(id); }
+    else toast("No se pudo procesar","err");
+  }
+}
+
+// ---------- KB ----------
+VIEWS.kb=function(){
+  var sub=(location.hash.split("/")[1]||"");
+  if(sub==="historial"){ renderKbHistory(); return; }
+  var m=el("main");
+  m.innerHTML='<div class="between"><h1>Base de conocimiento</h1><a href="#kb/historial">Historial</a></div>'
+    +'<div id="kbBody"><div class="loading"><span class="spin"></span></div></div>';
+  loadKb();
+};
+var kbCache={overlayTokens:0};
+async function loadKb(){
+  var body=el("kbBody"); if(!body) return;
+  var d;
+  try{ d=await api("/kb"); }
+  catch(e){ body.innerHTML='<div class="card muted">No se pudo cargar la KB.</div>'; return; }
+  if(!el("kbBody")) return;
+  kbCache.overlayTokens=d.overlayTokens||0;
+  var base=d.base||{};
+  var sections=d.sections||[];
+  var html="";
+  html+='<div class="card"><details class="collapsible"><summary>Base compilada (v'+esc(base.version||"?")+')</summary>'
+    +'<pre class="base">'+esc(base.text||"")+'</pre></details></div>';
+  html+=tokenMeterHtml(d.overlayTokens||0);
+  html+='<h2 style="margin-top:16px">Secciones del overlay</h2><div id="kbSections">';
+  html+=sections.map(kbSectionCard).join("");
+  html+='</div><button class="btn gold" id="kbNew" style="margin-top:4px">+ Nueva sección</button>';
+  body.innerHTML=html;
+  sections.forEach(wireKbSection);
+  el("kbNew").onclick=addKbSection;
+}
+function tokenMeterHtml(tok){
+  var max=2000; var pct=Math.min(100,Math.round(tok/max*100));
+  var cls= tok>=2000?"bad":(tok>=1200?"warn":"");
+  return '<div class="card"><div class="between sm"><span class="muted">Tamaño del overlay</span>'
+    +'<span style="'+(tok>=2000?'color:var(--red);font-weight:700':(tok>=1200?'color:var(--amber);font-weight:700':'color:var(--muted)'))+'">'+tok+' / 2000 tokens</span></div>'
+    +'<div class="meter '+cls+'" style="margin-top:6px"><i style="width:'+pct+'%"></i></div></div>';
+}
+function kbSectionCard(s){
+  var enabled=s.enabled*1===1 || s.enabled===true;
+  return '<div class="card" id="kbs-'+s.id+'" data-id="'+s.id+'">'
+    +'<input class="field kb-title" style="margin-top:0;font-weight:700" value="'+esc(s.title)+'">'
+    +'<textarea class="field kb-content">'+esc(s.content)+'</textarea>'
+    +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'
+    +'<button class="btn gold sm kb-save">Guardar</button>'
+    +'<button class="btn sm kb-toggle">'+(enabled?"Desactivar":"Activar")+'</button>'
+    +'<button class="btn red sm kb-del">Eliminar</button>'
+    +(enabled?'<span class="chip green">Activa</span>':'<span class="chip">Inactiva</span>')
+    +'</div></div>';
+}
+function wireKbSection(s){
+  var card=el("kbs-"+s.id); if(!card) return;
+  var enabled=s.enabled*1===1 || s.enabled===true;
+  q(".kb-save",card).onclick=function(){
+    saveKbSection(s.id,{title:q(".kb-title",card).value,content:q(".kb-content",card).value});
+  };
+  q(".kb-toggle",card).onclick=function(){ saveKbSection(s.id,{enabled:enabled?0:1}); };
+  q(".kb-del",card).onclick=function(){
+    if(!confirm("¿Eliminar esta sección del overlay?")) return;
+    deleteKbSection(s.id);
+  };
+}
+function handleOverlayError(e){
+  if(e.data && e.data.error==="overlay_too_large"){ toast("El overlay es demasiado grande (máx 2000 tokens)","err"); return true; }
+  return false;
+}
+async function saveKbSection(id,patch){
+  try{
+    var r=await api("/kb/sections/"+id,{method:"PUT",body:patch});
+    if(r && r.overlayTokens!=null){ kbCache.overlayTokens=r.overlayTokens; }
+    toast("Sección guardada","ok"); loadKb();
+  }catch(e){ if(!handleOverlayError(e)) toast("No se pudo guardar","err"); }
+}
+async function deleteKbSection(id){
+  try{ await api("/kb/sections/"+id,{method:"DELETE"}); toast("Sección eliminada","ok"); loadKb(); }
+  catch(e){ toast("No se pudo eliminar","err"); }
+}
+async function addKbSection(){
+  try{
+    await api("/kb/sections",{method:"POST",body:{title:"Nueva sección",content:""}});
+    toast("Sección creada","ok"); loadKb();
+  }catch(e){ if(!handleOverlayError(e)) toast("No se pudo crear","err"); }
+}
+async function renderKbHistory(){
+  var m=el("main");
+  m.innerHTML='<div class="dhead"><button class="backbtn" onclick="location.hash=\'#kb\'">←</button><h1 style="margin:0">Historial</h1></div>'
+    +'<div id="histBody"><div class="loading"><span class="spin"></span></div></div>';
+  var body=el("histBody");
+  var d;
+  try{ d=await api("/kb/revisions?limit=50"); }
+  catch(e){ body.innerHTML='<div class="card muted">No se pudo cargar el historial.</div>'; return; }
+  if(!el("histBody")) return;
+  var items=d.items||[];
+  if(!items.length){ body.innerHTML='<div class="card muted">Sin cambios registrados.</div>'; return; }
+  body.innerHTML=items.map(function(r){
+    var actLabel={create:"Creó",update:"Editó",delete:"Eliminó",revert:"Revirtió"}[r.action]||r.action;
+    return '<div class="card" id="rev-'+r.id+'">'
+      +'<div class="between"><div><span class="chip gold">'+esc(actLabel)+'</span> <b>'+esc(r.title)+'</b></div>'
+      +'<div class="muted sm">'+esc(fmtDate(r.created_at))+'</div></div>'
+      +(r.reason?'<div class="muted sm" style="margin-top:6px">'+esc(r.reason)+'</div>':"")
+      +'<details class="collapsible" style="margin-top:8px"><summary class="sm">Ver cambio</summary>'
+      +lineDiff(r.prev_content,r.content)+'</details>'
+      +'<button class="btn sm" style="margin-top:8px" data-revert="'+r.id+'">↩ Revertir</button></div>';
+  }).join("");
+  qa("[data-revert]").forEach(function(b){ b.onclick=function(){ revertRev(b.getAttribute("data-revert")); }; });
+}
+async function revertRev(id){
+  if(!confirm("¿Revertir a esta versión?")) return;
+  try{ await api("/kb/revisions/"+id+"/revert",{method:"POST"}); toast("Cambio revertido","ok"); renderKbHistory(); }
+  catch(e){ toast("No se pudo revertir","err"); }
+}
+
+// ---------- EDITOR ----------
+var editorHist=[]; // {role, content, proposals?}
+VIEWS.editor=function(){
+  var m=el("main");
+  m.innerHTML='<h1>Editor con IA</h1>'
+    +'<div class="muted sm" style="margin-bottom:10px">Pídele a la IA cambios a la base. Cada propuesta la confirmas tú.</div>'
+    +'<div id="edThread"></div>'
+    +'<div class="composer"><textarea id="edInput" class="field" placeholder="Ej: agrega los precios de niños"></textarea>'
+    +'<button id="edSend" class="btn gold">Enviar</button></div>';
+  renderEditorThread();
+  el("edSend").onclick=editorSend;
+  el("edInput").addEventListener("keydown",function(e){ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)) editorSend(); });
+};
+function renderEditorThread(){
+  var t=el("edThread"); if(!t) return;
+  if(!editorHist.length){ t.innerHTML='<div class="muted sm center" style="padding:16px">Sin mensajes todavía.</div>'; return; }
+  t.innerHTML='<div class="transcript">'+editorHist.map(function(msg,i){
+    if(msg.role==="user") return '<div class="bub human" style="max-width:85%">'+esc(msg.content)+'</div>';
+    var html='<div class="bub in" style="max-width:92%">'+esc(msg.content||"")+'</div>';
+    if(msg.proposals && msg.proposals.length){
+      html+=msg.proposals.map(function(p,j){ return proposalCard(p,i,j); }).join("");
+    }
+    return html;
+  }).join("")+'</div>';
+  editorHist.forEach(function(msg,i){
+    if(!msg.proposals) return;
+    msg.proposals.forEach(function(p,j){
+      var card=el("prop-"+i+"-"+j); if(!card) return;
+      var conf=q(".p-confirm",card), disc=q(".p-discard",card);
+      if(p._done){ if(conf) conf.disabled=true; if(disc) disc.disabled=true; return; }
+      if(conf) conf.onclick=function(){ confirmProposal(p,card); };
+      if(disc) disc.onclick=function(){ card.style.opacity=".4"; conf.disabled=true; disc.disabled=true; };
+    });
+  });
+  var tr=q(".transcript",t); if(tr) tr.scrollTop=tr.scrollHeight;
+}
+function proposalTypeLabel(p){
+  if(p.name||p.trigger_phrase||p.trigger) return "Nueva campaña";
+  if(p.action==="delete"||p.delete||(p.section_id!=null && p.new_content==null && p.content==null)) return "Eliminar sección";
+  if(p.section_id!=null) return "Editar sección";
+  return "Nueva sección";
+}
+function proposalCard(p,i,j){
+  var label=proposalTypeLabel(p);
+  var body="";
+  if(label==="Nueva campaña"){
+    body='<div><b>'+esc(p.name||"")+'</b></div>'
+      +'<div class="muted sm">Frase: “'+esc(p.trigger_phrase||p.trigger||"")+'”</div>'
+      +'<div class="diff"><span class="add">+ '+esc(p.info||"")+'</span></div>';
+  } else if(label==="Eliminar sección"){
+    body='<div class="diff"><span class="del">- '+esc(p.prevTitle||p.title||"(sección)")+'</span></div>';
+  } else {
+    var nc = p.new_content!=null?p.new_content:p.content;
+    body='<div><b>'+esc(p.title||p.prevTitle||"")+'</b></div>'+lineDiff(p.prevContent,nc);
+  }
+  return '<div class="card" id="prop-'+i+'-'+j+'" style="max-width:100%;margin:6px 0">'
+    +'<div class="chip gold">'+esc(label)+'</div>'
+    +body
+    +(p.reason?'<div class="muted sm" style="font-style:italic;margin-top:6px">'+esc(p.reason)+'</div>':"")
+    +'<div class="p-status hidden" style="margin-top:8px"></div>'
+    +'<div class="row p-actions" style="margin-top:10px"><button class="btn green sm p-confirm">Confirmar</button>'
+    +'<button class="btn sm p-discard">Descartar</button></div></div>';
+}
+async function editorSend(){
+  var inp=el("edInput"); var text=inp.value.trim();
+  if(!text) return;
+  editorHist.push({role:"user",content:text});
+  inp.value="";
+  var thinking={role:"assistant",content:"…",_t:true};
+  editorHist.push(thinking); renderEditorThread();
+  try{
+    var payload=editorHist.filter(function(m){return !m._t;}).map(function(m){return {role:m.role,content:m.content};});
+    var r=await api("/kb/chat",{method:"POST",body:{messages:payload}});
+    editorHist.pop();
+    editorHist.push({role:"assistant",content:r.reply||"",proposals:r.proposals||[]});
+  }catch(e){
+    editorHist.pop();
+    editorHist.push({role:"assistant",content:"⚠️ No se pudo procesar la solicitud."});
+    toast("Error al consultar la IA","err");
+  }
+  renderEditorThread();
+}
+async function confirmProposal(p,card){
+  var conf=q(".p-confirm",card), disc=q(".p-discard",card);
+  conf.disabled=true; disc.disabled=true;
+  try{
+    await api("/kb/confirm",{method:"POST",body:{proposal:p}});
+    p._done=true;
+    var st=q(".p-status",card); st.classList.remove("hidden"); st.innerHTML='<span class="chip green">✅ Aplicado</span>';
+    q(".p-actions",card).classList.add("hidden");
+    toast("Cambio aplicado","ok");
+  }catch(e){
+    conf.disabled=false; disc.disabled=false;
+    if(!handleOverlayError(e)){
+      if(e.status===409 || (e.data && e.data.error==="dup_trigger")) toast("Ya existe una campaña con esa frase","err");
+      else toast("No se pudo aplicar","err");
+    }
+  }
+}
+
+// ---------- CAMPAÑAS ----------
+VIEWS.campanas=function(){
+  var m=el("main");
+  m.innerHTML='<h1>Campañas</h1><div id="campBody"><div class="loading"><span class="spin"></span></div></div>';
+  loadCampaigns();
+};
+async function loadCampaigns(){
+  var body=el("campBody"); if(!body) return;
+  var d;
+  try{ d=await api("/campaigns"); }
+  catch(e){ body.innerHTML='<div class="card muted">No se pudieron cargar las campañas.</div>'; return; }
+  if(!el("campBody")) return;
+  var items=d.items||[];
+  var html="";
+  html+='<div class="card"><details class="collapsible"><summary>+ Nueva campaña</summary>'
+    +'<label class="lab">Nombre</label><input id="cName" class="field" placeholder="Promo verano">'
+    +'<label class="lab">Frase del anuncio (mensaje prellenado)</label><input id="cTrigger" class="field" placeholder="Hola, quiero info de la promo de verano">'
+    +'<label class="lab">Información para el bot</label><textarea id="cInfo" class="field" placeholder="Contexto que el bot debe saber sobre esta campaña…"></textarea>'
+    +'<label class="lab">Termina el (opcional)</label><input id="cEnds" class="field" type="date">'
+    +'<button id="cCreate" class="btn gold" style="margin-top:12px">Crear campaña</button></details></div>';
+  if(!items.length){ html+='<div class="card muted">Sin campañas todavía.</div>'; }
+  else html+=items.map(campCard).join("");
+  body.innerHTML=html;
+  el("cCreate").onclick=createCampaign;
+  items.forEach(wireCamp);
+}
+function campStatusChip(s){
+  if(s==="active") return '<span class="chip green">Activa</span>';
+  if(s==="paused") return '<span class="chip">Pausada</span>';
+  return '<span class="chip red">Finalizada</span>';
+}
+function campCard(c){
+  var ends = c.ends_at ? '<div style="margin-top:4px"><span class="muted sm">vence '+esc(fmtDate(c.ends_at))+'</span></div>' : "";
+  var btns="";
+  if(c.status==="active") btns+='<button class="btn sm" data-cs="paused">Pausar</button>';
+  if(c.status==="paused") btns+='<button class="btn green sm" data-cs="active">Reactivar</button>';
+  if(c.status!=="ended") btns+='<button class="btn red sm" data-cs="ended">Finalizar</button>';
+  return '<div class="card" id="camp-'+c.id+'" data-id="'+c.id+'">'
+    +'<div class="between"><b>'+esc(c.name)+'</b>'+campStatusChip(c.status)+'</div>'
+    +'<div class="muted sm" style="margin-top:4px">“'+esc(c.trigger_phrase)+'”</div>'
+    +ends
+    +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div></div>';
+}
+function wireCamp(c){
+  var card=el("camp-"+c.id); if(!card) return;
+  qa("[data-cs]",card).forEach(function(b){
+    b.onclick=function(){ setCampStatus(c.id,b.getAttribute("data-cs")); };
+  });
+}
+async function createCampaign(){
+  var name=el("cName").value.trim();
+  var trigger=el("cTrigger").value.trim();
+  var info=el("cInfo").value.trim();
+  var ends=el("cEnds").value;
+  if(!name||!trigger||!info){ toast("Nombre, frase e información son obligatorios","err"); return; }
+  var body={name:name,trigger:trigger,info:info};
+  if(ends){ body.endsAt=Math.floor(new Date(ends+"T23:59:59").getTime()/1000); }
+  try{
+    await api("/campaigns",{method:"POST",body:body});
+    toast("Campaña creada","ok"); loadCampaigns();
+  }catch(e){
+    if(e.status===409) toast("Ya existe una campaña con esa frase","err");
+    else toast("No se pudo crear la campaña","err");
+  }
+}
+async function setCampStatus(id,status){
+  try{ await api("/campaigns/"+id,{method:"PUT",body:{status:status}});
+    toast("Campaña actualizada","ok"); loadCampaigns(); }
+  catch(e){ toast("No se pudo actualizar","err"); }
+}
+
+// ---------- PROBAR (sandbox) ----------
+var sandboxHist=[]; // {role, body, _card?}
+VIEWS.probar=function(){
+  var m=el("main");
+  m.innerHTML='<div class="between"><h1>Probar</h1><button class="btn sm" id="sbReset">🧹 Reiniciar</button></div>'
+    +'<div class="muted sm" style="margin-bottom:10px">Simulación sin efectos reales. Escribe como un lead.</div>'
+    +'<div id="sbThread"></div>'
+    +'<div class="composer"><textarea id="sbInput" class="field" placeholder="Hola, ¿tienen clases de box?"></textarea>'
+    +'<button id="sbSend" class="btn gold">Enviar</button></div>';
+  renderSandbox();
+  el("sbSend").onclick=sandboxSend;
+  el("sbReset").onclick=function(){ sandboxHist=[]; renderSandbox(); toast("Conversación reiniciada"); };
+  el("sbInput").addEventListener("keydown",function(e){ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)) sandboxSend(); });
+};
+function renderSandbox(){
+  var t=el("sbThread"); if(!t) return;
+  if(!sandboxHist.length){ t.innerHTML='<div class="muted sm center" style="padding:16px">Sin mensajes todavía.</div>'; return; }
+  t.innerHTML='<div class="transcript">'+sandboxHist.map(function(m){
+    if(m.role==="user") return '<div class="bub human" style="max-width:85%">'+esc(m.body)+'</div>';
+    if(m._card) return m._card;
+    return '<div class="bub bot" style="max-width:85%">'+esc(m.body||"")+'</div>';
+  }).join("")+'</div>';
+  var tr=q(".transcript",t); if(tr) tr.scrollTop=tr.scrollHeight;
+}
+function sandboxReplyCard(r){
+  var chip="", msg=r.message||r.followupMessage||"";
+  if(r.action==="send") chip='<span class="chip green">✅ Enviaría directo</span>';
+  else if(r.action==="draft") chip='<span class="chip gold" title="'+esc(r.reason||"")+'">🟡 Pediría aprobación</span>';
+  else if(r.action==="escalate") chip='<span class="chip red" title="'+esc(r.reason||"")+'">🔴 Escalaría a humano</span>';
+  else if(r.action==="book"){
+    var bk = r.booking || r;
+    var line="📋 SANDBOX — Reservaría: "+esc(bk.discipline||"")+" · "+esc(bk.audience||"")
+      +" · "+esc(bk.trialDate||"")+" "+esc(bk.trialTime||"")+" (sin registro real)";
+    var out='<div class="card" style="max-width:100%;margin:2px 0;border-color:var(--gold)">'
+      +'<div style="font-weight:700;color:var(--gold)">'+line+'</div>';
+    if(msg) out+='<div class="bub bot" style="max-width:100%;margin-top:8px;align-self:stretch">'+esc(msg)+'</div>';
+    out+='</div>';
+    return out;
+  }
+  var extra = (r.action==="escalate") ? (r.summary||r.reason||"") : msg;
+  return '<div class="bub bot" style="max-width:85%">'+esc(extra)+'<div style="margin-top:6px">'+chip+'</div></div>';
+}
+async function sandboxSend(){
+  var inp=el("sbInput"); var text=inp.value.trim();
+  if(!text) return;
+  sandboxHist.push({role:"user",body:text});
+  inp.value="";
+  var thinking={role:"assistant",body:"…",_t:true};
+  sandboxHist.push(thinking); renderSandbox();
+  try{
+    var payload=sandboxHist.filter(function(m){return !m._t;}).map(function(m){return {role:m.role,body:m.body};});
+    var r=await api("/sandbox",{method:"POST",body:{messages:payload}});
+    sandboxHist.pop();
+    sandboxHist.push({role:"assistant",body:r.message||r.followupMessage||"",_card:sandboxReplyCard(r)});
+  }catch(e){
+    sandboxHist.pop();
+    sandboxHist.push({role:"assistant",body:"⚠️ Error en la simulación."});
+    toast("Error en la simulación","err");
+  }
+  renderSandbox();
+}
+
+// ---------- wire login controls ----------
+el("loginBtn").onclick=doLogin;
+el("loginPw").addEventListener("keydown",function(e){ if(e.key==="Enter") doLogin(); });
+
+// ---------- BOOT ----------
+async function boot(){
+  try{
+    await api("/me");
+  }catch(e){
+    showLogin(); return;
+  }
+  if(!location.hash) location.hash="#inicio";
+  await refreshOverviewSilent();
+  route();
+}
+boot();
+})();
+</script>
+</body>
+</html>
