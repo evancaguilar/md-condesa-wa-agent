@@ -20,6 +20,9 @@ export interface Env {
   SLACK_CHANNEL_ID: string;
   AIRTABLE_BASE_ID: string;
   AIRTABLE_TRIALS_TABLE: string;
+  /** Airtable field holding the trial-class outcome. Defaults in code to
+   *  "Resultado clase prueba" when unset. */
+  AIRTABLE_RESULT_FIELD?: string;
   TRAINING_WHEELS: string; // "1" forces approval; "0" allows auto-send
   HUMAN_SNOOZE_HOURS: string; // stringified integer, default "8"
 
@@ -136,6 +139,9 @@ export type FollowupKind =
   | "attendance_check"
   | "no_show_1"
   | "reengage_7d"
+  | "nudge_1h"
+  | "nudge_6h"
+  | "nudge_8h"
   | "custom";
 
 export type FollowupStatus = "scheduled" | "sent" | "cancelled" | "skipped_optout";

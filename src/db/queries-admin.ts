@@ -301,6 +301,54 @@ export async function clearHumanOverride(
     .run();
 }
 
+// ---- followups: cancel by kind ----
+
+/**
+ * Cancels scheduled followups for a phone whose kind is in `kinds`. Used to drop
+ * the lead-nudge drip (kind IN nudge_1h/6h/8h) when the lead replies, books, or
+ * converts, without touching an active trial sequence. No-op on empty `kinds`.
+ * `status` is the terminal status to write (default 'cancelled').
+ */
+export async function cancelFollowupsByKinds(
+  db: D1Database,
+  phone: string,
+  kinds: readonly string[],
+  status: string = "cancelled",
+): Promise<void> {
+  if (kinds.length === 0) return;
+  const placeholders = kinds.map((_, i) => `?${i + 3}`).join(", ");
+  await db
+    .prepare(
+      `UPDATE followups SET status = ?2
+       WHERE phone = ?1 AND status = 'scheduled' AND kind IN (${placeholders})`,
+    )
+    .bind(phone, status, ...kinds)
+    .run();
+}
+
+/**
+ * True if the phone has any scheduled followup whose kind is in `kinds` — used
+ * to detect an active/future trial booking (trial_confirm|day_before|same_day)
+ * so the nudge drip is suppressed for leads who already have a class booked.
+ */
+export async function hasScheduledFollowupOfKind(
+  db: D1Database,
+  phone: string,
+  kinds: readonly string[],
+): Promise<boolean> {
+  if (kinds.length === 0) return false;
+  const placeholders = kinds.map((_, i) => `?${i + 2}`).join(", ");
+  const row = await db
+    .prepare(
+      `SELECT 1 AS n FROM followups
+       WHERE phone = ?1 AND status = 'scheduled' AND kind IN (${placeholders})
+       LIMIT 1`,
+    )
+    .bind(phone, ...kinds)
+    .first<{ n: number }>();
+  return row !== null;
+}
+
 // ---- approvals: atomic claim ----
 
 /**
