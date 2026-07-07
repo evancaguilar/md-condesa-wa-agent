@@ -2,6 +2,8 @@ import type { Env, Ports } from "./types.js";
 import { handleVerify, handleWebhook } from "./routes/whatsapp.js";
 import { handleHealth } from "./routes/admin.js";
 import { handleSlackInteractive } from "./routes/slack.js";
+import { handleAdminUi } from "./routes/admin-ui.js";
+import { handleAdminApi } from "./routes/admin-api.js";
 import { runCron, setCronDeps } from "./cron/dispatcher.js";
 import { createBrainWithKb } from "./brain/index.js";
 import { accrueUsage } from "./db/queries.js";
@@ -78,6 +80,14 @@ export default {
     }
 
     if (pathname === "/health") return handleHealth(env);
+
+    // Admin dashboard: SPA shell + JSON API (W3 owns the handler bodies).
+    if (pathname === "/admin" && req.method === "GET") {
+      return handleAdminUi(req, env, ctx);
+    }
+    if (pathname.startsWith("/admin/api/")) {
+      return handleAdminApi(req, env, ctx, makePorts(env));
+    }
 
     return new Response("not found", { status: 404 });
   },

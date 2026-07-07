@@ -8,15 +8,10 @@
 import type { Env } from "../types.js";
 import {
   getPendingApprovals,
-  insertEdit,
   kvSet,
   phoneForRecordId,
-  resolveApproval,
   scheduleFollowup,
-  setContactStatus,
-  setHumanOverride,
 } from "../db/queries.js";
-import { sendText, WindowClosedError } from "../services/wa.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "../cron/time.js";
 import {
   parseInteractionPayload,
@@ -25,14 +20,16 @@ import {
 } from "../services/slack-timeouts.js";
 import {
   markApprovedCard,
-  markDiscardedCard,
-  markEditedCard,
-  markStudentCard,
-  markTakenOverCard,
-  markWindowClosedCard,
   sendHumanFollowupTemplate,
   updateControlPanel,
 } from "../services/slack.js";
+import {
+  approveAndSend,
+  discardApproval,
+  editAndSend,
+  markStudentFromApproval,
+  takeoverApproval,
+} from "../services/approvals.js";
 
 export async function handleSlackInteractive(
   req: Request,
@@ -114,47 +111,24 @@ async function dispatchAction(env: Env, action: ParsedAction): Promise<void> {
   }
 }
 
-// ---- approval actions (idempotent: act only from 'pending') ----
+// ---- approval actions: thin wrappers over services/approvals.ts ----
+// The shared flows claim the approval atomically and handle card updates +
+// window-closed handling; a lost race (already resolved) is a silent no-op here.
 
 async function onApprove(env: Env, id: number): Promise<void> {
-  const a = await loadPending(env, id);
-  if (!a) return;
-  try {
-    await sendText(env, a.phone, a.draft);
-  } catch (err) {
-    if (err instanceof WindowClosedError) {
-      await resolveApproval(env.DB, id, "expired");
-      await markWindowClosedCard(env, a);
-      return;
-    }
-    throw err;
-  }
-  await resolveApproval(env.DB, id, "approved", a.draft);
-  await markApprovedCard(env, a, a.draft);
+  await approveAndSend(env, id);
 }
 
 async function onTakeover(env: Env, id: number): Promise<void> {
-  const a = await loadPending(env, id);
-  if (!a) return;
-  const hours = Number(env.HUMAN_SNOOZE_HOURS) || 8;
-  await setHumanOverride(env.DB, a.phone, hours);
-  await resolveApproval(env.DB, id, "taken_over");
-  await markTakenOverCard(env, a);
+  await takeoverApproval(env, id);
 }
 
 async function onMarkStudent(env: Env, id: number): Promise<void> {
-  const a = await loadPending(env, id);
-  if (!a) return;
-  await setContactStatus(env.DB, a.phone, "student");
-  await resolveApproval(env.DB, id, "discarded");
-  await markStudentCard(env, a);
+  await markStudentFromApproval(env, id);
 }
 
 async function onDiscard(env: Env, id: number): Promise<void> {
-  const a = await loadPending(env, id);
-  if (!a) return;
-  await resolveApproval(env.DB, id, "discarded");
-  await markDiscardedCard(env, a);
+  await discardApproval(env, id);
 }
 
 /** From the expired/window-closed card: send the human_followup template. */
@@ -174,22 +148,7 @@ async function onViewSubmission(
   editedText: string | null,
 ): Promise<void> {
   if (!privateMetadata || !editedText) return;
-  const id = num(privateMetadata);
-  const a = await loadPending(env, id);
-  if (!a) return;
-  try {
-    await sendText(env, a.phone, editedText);
-  } catch (err) {
-    if (err instanceof WindowClosedError) {
-      await resolveApproval(env.DB, id, "expired");
-      await markWindowClosedCard(env, a);
-      return;
-    }
-    throw err;
-  }
-  await insertEdit(env.DB, a.phone, a.draft, editedText);
-  await resolveApproval(env.DB, id, "edited", editedText);
-  await markEditedCard(env, a, editedText);
+  await editAndSend(env, num(privateMetadata), editedText);
 }
 
 async function openEditModal(
