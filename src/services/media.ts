@@ -49,30 +49,41 @@ function extractText(out: unknown): string | null {
   return null;
 }
 
+/** Base64-encode bytes in chunks (avoids call-stack limits on large audios). */
+function toBase64(bytes: Uint8Array): string {
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
 /**
- * Transcribe audio bytes with Workers AI Whisper. Tries the turbo model, and on
- * a model-not-found error falls back to the base whisper model. Returns null
- * when env.AI is unbound (local/sandbox) or on any failure — never throws.
+ * Transcribe audio bytes with Workers AI Whisper. The turbo model takes
+ * `{ audio: <base64 string> }`; the classic model takes `{ audio: number[] }`.
+ * Tries turbo first and falls back to classic on ANY error (input-shape
+ * rejections included, not just model-not-found). Returns null when env.AI is
+ * unbound (local/sandbox) or both models fail — never throws.
  */
 export async function transcribe(
   env: Env,
   bytes: Uint8Array,
 ): Promise<string | null> {
   if (!env.AI) return null;
-  const audio = Array.from(bytes);
   try {
-    const out = await env.AI.run(WHISPER_TURBO, { audio });
+    const out = await env.AI.run(WHISPER_TURBO, { audio: toBase64(bytes) });
+    const text = extractText(out);
+    if (text) return text;
+    console.warn("[media] turbo whisper returned no text, trying fallback");
+  } catch (err) {
+    console.warn(`[media] turbo whisper failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    const out = await env.AI.run(WHISPER_FALLBACK, { audio: Array.from(bytes) });
     return extractText(out);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/not\s*found|no\s*such\s*model|unknown\s*model|404/i.test(msg)) {
-      try {
-        const out = await env.AI.run(WHISPER_FALLBACK, { audio });
-        return extractText(out);
-      } catch {
-        return null;
-      }
-    }
+    console.warn(`[media] fallback whisper failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
