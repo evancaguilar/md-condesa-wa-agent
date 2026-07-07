@@ -68,6 +68,7 @@ label.lab{display:block;font-size:13px;color:var(--muted);margin-top:10px}
 .chip.green{background:rgba(31,157,85,.18);color:#4ec585}
 .chip.red{background:rgba(209,59,59,.18);color:#ef7d7d}
 .chip.blue{background:rgba(47,111,214,.18);color:#7fb0f5}
+.chip.amber{background:rgba(224,164,35,.18);color:var(--amber);cursor:help}
 .chips{display:flex;flex-wrap:wrap;gap:5px}
 .spin{display:inline-block;width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--gold);
   border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle}
@@ -753,7 +754,14 @@ function renderEditorThread(){
   var tr=q(".transcript",t); if(tr) tr.scrollTop=tr.scrollHeight;
 }
 function proposalTypeLabel(p){
-  if(p.name||p.trigger_phrase||p.trigger) return "Nueva campaña";
+  // Branch on the server-provided discriminant FIRST (an airtable_rule also has
+  // p.name + p.trigger, so the legacy heuristics below would mislabel it).
+  if(p.kind==="airtable_rule") return "Nueva regla de Airtable";
+  if(p.kind==="campaign") return "Nueva campaña";
+  if(p.kind==="kb_delete") return "Eliminar sección";
+  if(p.kind==="kb_edit") return p.sectionId!=null ? "Editar sección" : "Nueva sección";
+  // Legacy fallback (proposals without an explicit kind).
+  if(p.name||p.trigger_phrase) return "Nueva campaña";
   if(p.action==="delete"||p.delete||(p.section_id!=null && p.new_content==null && p.content==null)) return "Eliminar sección";
   if(p.section_id!=null) return "Editar sección";
   return "Nueva sección";
@@ -761,9 +769,12 @@ function proposalTypeLabel(p){
 function proposalCard(p,i,j){
   var label=proposalTypeLabel(p);
   var body="";
-  if(label==="Nueva campaña"){
+  if(label==="Nueva regla de Airtable"){
     body='<div><b>'+esc(p.name||"")+'</b></div>'
-      +'<div class="muted sm">Frase: “'+esc(p.trigger_phrase||p.trigger||"")+'”</div>'
+      +'<div class="diff"><span class="add">'+esc(p.summaryEs||"")+'</span></div>';
+  } else if(label==="Nueva campaña"){
+    body='<div><b>'+esc(p.name||"")+'</b></div>'
+      +'<div class="muted sm">Frase: “'+esc(p.trigger_phrase||p.triggerPhrase||"")+'”</div>'
       +'<div class="diff"><span class="add">+ '+esc(p.info||"")+'</span></div>';
   } else if(label==="Eliminar sección"){
     body='<div class="diff"><span class="del">- '+esc(p.prevTitle||p.title||"(sección)")+'</span></div>';
@@ -802,11 +813,14 @@ async function confirmProposal(p,card){
   var conf=q(".p-confirm",card), disc=q(".p-discard",card);
   conf.disabled=true; disc.disabled=true;
   try{
-    await api("/kb/confirm",{method:"POST",body:{proposal:p}});
+    var res=await api("/kb/confirm",{method:"POST",body:{proposal:p}});
     p._done=true;
     var st=q(".p-status",card); st.classList.remove("hidden"); st.innerHTML='<span class="chip green">✅ Aplicado</span>';
     q(".p-actions",card).classList.add("hidden");
     toast("Cambio aplicado","ok");
+    if(res && res.createdOptions && res.createdOptions.length){
+      toast("Se creará la opción nueva: "+res.createdOptions.join(", "),"ok");
+    }
   }catch(e){
     conf.disabled=false; disc.disabled=false;
     if(!handleOverlayError(e)){
@@ -839,9 +853,56 @@ async function loadCampaigns(){
     +'<button id="cCreate" class="btn gold" style="margin-top:12px">Crear campaña</button></details></div>';
   if(!items.length){ html+='<div class="card muted">Sin campañas todavía.</div>'; }
   else html+=items.map(campCard).join("");
+  html+='<h2 style="font-size:16px;margin:26px 0 10px">Reglas de Airtable</h2>'
+    +'<div class="muted sm" style="margin-bottom:10px">Automatizaciones que aplican campos en Airtable a cada lead. Créalas desde el Editor.</div>'
+    +'<div id="rulesBody"><div class="loading"><span class="spin"></span></div></div>';
   body.innerHTML=html;
   el("cCreate").onclick=createCampaign;
   items.forEach(wireCamp);
+  loadRules();
+}
+async function loadRules(){
+  var body=el("rulesBody"); if(!body) return;
+  var d;
+  try{ d=await api("/rules"); }
+  catch(e){ body.innerHTML='<div class="card muted">No se pudieron cargar las reglas.</div>'; return; }
+  if(!el("rulesBody")) return;
+  var items=d.items||[];
+  if(!items.length){ body.innerHTML='<div class="card muted">Sin reglas — créalas desde el Editor ✨</div>'; return; }
+  body.innerHTML=items.map(ruleCard).join("");
+  items.forEach(wireRule);
+}
+function ruleCard(r){
+  var stateChip = r.enabled ? '<span class="chip green">Activa</span>' : '<span class="chip">Pausada</span>';
+  var warn = r.lastError ? ' <span class="chip amber" title="'+esc(r.lastError)+'">⚠</span>' : "";
+  var btns="";
+  if(r.enabled) btns+='<button class="btn sm" data-re="0">Pausar</button>';
+  else btns+='<button class="btn green sm" data-re="1">Reactivar</button>';
+  btns+='<button class="btn red sm" data-rdel="1">Eliminar</button>';
+  return '<div class="card" id="rule-'+r.id+'" data-id="'+r.id+'">'
+    +'<div class="between"><b>'+esc(r.name)+'</b><span>'+stateChip+warn+'</span></div>'
+    +'<div class="muted sm" style="margin-top:4px">'+esc(r.summaryEs||"(regla inválida — revisa el JSON)")+'</div>'
+    +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div></div>';
+}
+function wireRule(r){
+  var card=el("rule-"+r.id); if(!card) return;
+  var re=q("[data-re]",card);
+  if(re) re.onclick=function(){ setRuleEnabled(r.id, re.getAttribute("data-re")==="1"); };
+  var del=q("[data-rdel]",card);
+  if(del) del.onclick=function(){ deleteRule(r.id); };
+}
+async function setRuleEnabled(id,enabled){
+  try{
+    await api("/rules/"+id,{method:"PUT",body:{enabled:enabled}});
+    toast(enabled?"Regla reactivada":"Regla pausada","ok"); loadRules();
+  }catch(e){ toast("No se pudo actualizar la regla","err"); }
+}
+async function deleteRule(id){
+  if(!confirm("¿Eliminar esta regla? No se puede deshacer.")) return;
+  try{
+    await api("/rules/"+id,{method:"DELETE"});
+    toast("Regla eliminada","ok"); loadRules();
+  }catch(e){ toast("No se pudo eliminar la regla","err"); }
 }
 function campStatusChip(s){
   if(s==="active") return '<span class="chip green">Activa</span>';
