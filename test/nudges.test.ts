@@ -97,6 +97,7 @@ function contact(over: Partial<Contact>): Contact {
     last_inbound_at: null,
     campaign_id: null,
     ad_ref: null,
+    airtable_lead_id: null,
     created_at: 0,
     updated_at: 0,
     ...over,

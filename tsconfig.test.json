@@ -13,5 +13,5 @@
     "rootDir": ".",
     "noEmit": false
   },
-  "include": ["test/**/*.ts", "test/node-shims.d.ts", "test/brain-shims.d.ts", "src/routes/verify.ts", "src/routes/webhook-parse.ts", "src/routes/admin-auth.ts", "src/services/slack-timeouts.ts", "src/cron/time.ts", "src/cron/quiet.ts", "src/cron/nudge-copy.ts", "src/cron/followups.ts", "src/cron/nudges.ts", "src/cron/budget.ts", "src/services/airtable.ts", "src/brain/prompt.ts", "src/brain/tools.ts", "src/brain/slots.gen.ts", "src/brain/claude.ts", "src/brain/overlay.ts", "src/pipeline/campaigns.ts"]
+  "include": ["test/**/*.ts", "test/node-shims.d.ts", "test/brain-shims.d.ts", "src/routes/verify.ts", "src/routes/webhook-parse.ts", "src/routes/admin-auth.ts", "src/services/slack-timeouts.ts", "src/cron/time.ts", "src/cron/quiet.ts", "src/cron/nudge-copy.ts", "src/cron/followups.ts", "src/cron/nudges.ts", "src/cron/budget.ts", "src/services/airtable.ts", "src/services/airtable-rules.ts", "src/brain/prompt.ts", "src/brain/tools.ts", "src/brain/slots.gen.ts", "src/brain/claude.ts", "src/brain/overlay.ts", "src/pipeline/campaigns.ts"]
 }

@@ -23,9 +23,11 @@ import {
   setApprovalSlackTs,
   setContactStatus,
   setHumanOverride,
+  setQualification,
   touchLastInbound,
   upsertContact,
 } from "../db/queries.js";
+import { syncLead } from "../services/lead-sync.js";
 import {
   getActiveCampaigns,
   getCampaign,
@@ -164,11 +166,19 @@ export async function processInbound(
       matchCampaign(normalizeText(body), activeCampaigns);
     if (campaignId !== null) {
       await setContactCampaign(env.DB, msg.phone, campaignId);
+      // Sync the campaign tag + fire campaign/program rules (best-effort).
+      ctx.waitUntil(syncLead(env, msg.phone, "campaign_matched"));
     }
   }
 
   const contact = await getContact(env.DB, msg.phone);
   if (!contact) return;
+
+  // First-contact Airtable row: every lead gets a Leads record (Airtable is the
+  // CRM). Only when we haven't synced yet; best-effort, never blocks the reply.
+  if (contact.airtable_lead_id === null) {
+    ctx.waitUntil(syncLead(env, msg.phone, "lead_created"));
+  }
 
   // 4. Student on the lead line: silent, ping Slack.
   if (contact.status === "student") {
@@ -285,6 +295,23 @@ async function routeResult(
       result.recordId,
       cdmxIso(result.trialDate, result.trialTime),
     );
+    // Persist qualification (this is the sole caller — gives classifyProgram real
+    // data) then sync the booking to Airtable + fire program rules. Isolated so a
+    // sync failure never derails the confirmation/video path below.
+    try {
+      await setQualification(
+        env.DB,
+        phone,
+        JSON.stringify({
+          discipline: result.discipline,
+          audience: result.audience,
+          name: result.name,
+        }),
+      );
+      await syncLead(env, phone, "booking_created");
+    } catch (err) {
+      console.warn(`[inbound] booking sync failed for ${phone}:`, err);
+    }
     if (ctx.trainingWheels) {
       // Booking confirmation routes through approval; mark it booking-origin so
       // approve/edit fires the booking video after sending (R4).

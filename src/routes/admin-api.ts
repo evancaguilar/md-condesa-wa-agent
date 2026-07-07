@@ -52,7 +52,12 @@ import {
   getTrainingWheels,
   clearHumanOverride,
   getActiveCampaigns,
+  listAirtableRules,
+  getAirtableRule,
+  updateAirtableRule,
+  deleteAirtableRule,
 } from "../db/queries-admin.js";
+import { parseRule, ruleSummaryEs } from "../services/airtable-rules.js";
 import { assembleOverlay, estimateTokens } from "../brain/overlay.js";
 import { normalizeText, matchCampaign } from "../pipeline/campaigns.js";
 import {
@@ -272,6 +277,17 @@ export async function handleAdminApi(
   const campMatch = path.match(/^\/admin\/api\/campaigns\/(\d+)$/);
   if (campMatch && method === "PUT") {
     return handleCampaignUpdate(req, env, Number(campMatch[1]));
+  }
+
+  // ---- airtable rules ----
+  if (path === "/admin/api/rules" && method === "GET") {
+    return handleRulesList(env);
+  }
+  const ruleMatch = path.match(/^\/admin\/api\/rules\/(\d+)$/);
+  if (ruleMatch) {
+    const id = Number(ruleMatch[1]);
+    if (method === "PUT") return handleRuleUpdate(req, env, id);
+    if (method === "DELETE") return handleRuleDelete(env, id);
   }
 
   // ---- edits ----
@@ -728,6 +744,66 @@ async function handleCampaignUpdate(req: Request, env: Env, id: number): Promise
   }
 }
 
+// ---- airtable rules ----
+
+/**
+ * List rules with parsed trigger/actions, a Spanish summary, and the resolved
+ * campaign name (for campaign-triggered rules). A rule whose JSON fails to parse
+ * still lists (parsed:null) so the UI can flag it rather than hiding it.
+ */
+async function handleRulesList(env: Env): Promise<Response> {
+  const rules = await listAirtableRules(env.DB);
+  // Resolve campaign names once (only campaign-triggered rules need them).
+  const campaigns = await listCampaigns(env.DB);
+  const campName = (id: number): string | null =>
+    campaigns.find((c) => c.id === id)?.name ?? null;
+
+  const items = rules.map((r) => {
+    const parsed = parseRule(r.trigger_json, r.actions_json);
+    const campaignName =
+      parsed && parsed.trigger.type === "campaign"
+        ? campName(parsed.trigger.campaignId)
+        : null;
+    return {
+      id: r.id,
+      name: r.name,
+      enabled: r.enabled === 1,
+      lastError: r.last_error,
+      trigger: parsed?.trigger ?? null,
+      actions: parsed?.actions ?? null,
+      campaignName,
+      summaryEs: parsed ? ruleSummaryEs(parsed.trigger, parsed.actions, campaignName ?? undefined) : null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  });
+  return json({ items });
+}
+
+async function handleRuleUpdate(req: Request, env: Env, id: number): Promise<Response> {
+  const existing = await getAirtableRule(env.DB, id);
+  if (!existing) return json({ error: "not_found" }, 404);
+
+  const body = await readJson<{ enabled?: boolean; name?: string }>(req);
+  const enabled =
+    body.enabled === undefined ? undefined : body.enabled ? 1 : 0;
+  const name =
+    typeof body.name === "string" && body.name.trim() !== ""
+      ? body.name.trim()
+      : undefined;
+
+  const rule = await updateAirtableRule(env.DB, id, { enabled, name });
+  if (!rule) return json({ error: "not_found" }, 404);
+  return json({ rule });
+}
+
+async function handleRuleDelete(env: Env, id: number): Promise<Response> {
+  const existing = await getAirtableRule(env.DB, id);
+  if (!existing) return json({ error: "not_found" }, 404);
+  await deleteAirtableRule(env.DB, id);
+  return json({ ok: true });
+}
+
 // ---- sandbox ----
 
 interface CdmxNow {
@@ -811,6 +887,7 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
       last_inbound_at: base,
       campaign_id: null,
       ad_ref: null,
+      airtable_lead_id: null,
       created_at: base,
       updated_at: base,
     },
