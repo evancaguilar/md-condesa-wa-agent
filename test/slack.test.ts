@@ -152,6 +152,27 @@ test("parseInteractionPayload: view_submission extracts input + private_metadata
   assert.equal(parsed.viewValues.edit_block.edit_input, "texto editado");
 });
 
+test("parseInteractionPayload: form-encoded '+' decodes to spaces (edited replies)", () => {
+  const payload = {
+    type: "view_submission",
+    view: {
+      private_metadata: "42",
+      state: {
+        values: {
+          edit_block: { edit_input: { value: "hola, nos vemos mañana a las 7 + calentamiento" } },
+        },
+      },
+    },
+  };
+  // Slack sends application/x-www-form-urlencoded: spaces become "+",
+  // literal "+" becomes %2B (encodeURIComponent already does the latter).
+  const body =
+    "payload=" +
+    encodeURIComponent(JSON.stringify(payload)).replace(/%20/g, "+");
+  const parsed = parseInteractionPayload(body);
+  assert.equal(parsed.firstInputValue, "hola, nos vemos mañana a las 7 + calentamiento");
+});
+
 test("parseInteractionPayload: bot_pause action has null arg", () => {
   const payload = { type: "block_actions", actions: [{ action_id: "bot_pause" }] };
   const parsed = parseInteractionPayload(JSON.stringify(payload));

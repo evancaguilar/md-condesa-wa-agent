@@ -107,7 +107,12 @@ function splitActionId(actionId: string): { verb: string; arg: string | null } {
 export function parseInteractionPayload(rawOrJson: string): ParsedInteraction {
   let jsonStr = rawOrJson;
   if (rawOrJson.startsWith("payload=")) {
-    jsonStr = decodeURIComponent(rawOrJson.slice("payload=".length));
+    // x-www-form-urlencoded: "+" means space (decodeURIComponent alone leaves
+    // them in, mangling every space of edited replies). Literal "+" arrives
+    // as %2B, so the replace-then-decode order is safe.
+    jsonStr = decodeURIComponent(
+      rawOrJson.slice("payload=".length).replace(/\+/g, " "),
+    );
   }
   let obj: any;
   try {
