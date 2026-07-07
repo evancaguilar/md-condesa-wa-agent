@@ -16,11 +16,13 @@ import {
   getContact,
   insertMessageIfNew,
   isBotEnabled,
+  kvSet,
   newestInboundWamid,
   recentMessages,
   scheduleFollowup,
   setApprovalSlackTs,
   setContactStatus,
+  setHumanOverride,
   touchLastInbound,
   upsertContact,
 } from "../db/queries.js";
@@ -32,13 +34,22 @@ import {
   setContactCampaign,
 } from "../db/queries-admin.js";
 import { matchCampaign, matchCampaignByAdId, normalizeText } from "./campaigns.js";
-import { sendText, WindowClosedError } from "../services/wa.js";
+import { compileSafetyPatterns, matchesSafety } from "./safety.js";
+import { sendText, sendBookingVideo, WindowClosedError } from "../services/wa.js";
+import { bookingApprovalKey } from "../services/approvals.js";
+import { CLIENT } from "../client.gen.js";
 import { fetchMediaBytes, transcribe } from "../services/media.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
 import { armNudges, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
 const OPT_OUT = /^\s*(baja|stop|alto)\s*$/i;
+
+// Crisis patterns compiled once per isolate (empty when the feature is off).
+const SAFETY_PATTERNS =
+  CLIENT.features.safety && CLIENT.safety
+    ? compileSafetyPatterns(CLIENT.safety)
+    : [];
 const DEBOUNCE_MS = 8000;
 const HISTORY_LIMIT = 20;
 const HISTORY_WINDOW_SECONDS = 48 * 3600;
@@ -176,6 +187,25 @@ export async function processInbound(
     return;
   }
 
+  // 5b. Crisis-safety gate (features.safety). Deterministic, pre-brain, no
+  // debounce: reply ONLY with the containment message + real resources, pause
+  // the bot for this conversation, kill all followups, and escalate urgently.
+  if (SAFETY_PATTERNS.length > 0 && matchesSafety(body, SAFETY_PATTERNS)) {
+    const safety = CLIENT.safety!;
+    const reply = contact.lang === "en" ? safety.responseEn : safety.responseEs;
+    await setHumanOverride(env.DB, msg.phone, safety.pauseHours);
+    await cancelFollowups(env.DB, msg.phone);
+    try {
+      await sendText(env, msg.phone, reply);
+    } catch (err) {
+      if (!(err instanceof WindowClosedError)) throw err;
+    }
+    await ports.slack.postNote(
+      `🚨 SEÑAL DE CRISIS (${msg.phone}). Bot pausado ${safety.pauseHours}h; se envió el mensaje de contención con recursos. ATENCIÓN HUMANA URGENTE.\nMensaje: ${body}`,
+    );
+    return;
+  }
+
   // 6. Debounce: wait ~8s, then only the newest inbound proceeds so we consume
   // all unanswered messages in one brain call.
   await new Promise((r) => setTimeout(r, DEBOUNCE_MS));
@@ -256,9 +286,29 @@ async function routeResult(
       cdmxIso(result.trialDate, result.trialTime),
     );
     if (ctx.trainingWheels) {
-      await queueApproval(env, ports, ctx, result.followupMessage, history);
+      // Booking confirmation routes through approval; mark it booking-origin so
+      // approve/edit fires the booking video after sending (R4).
+      await queueApproval(
+        env,
+        ports,
+        ctx,
+        result.followupMessage,
+        history,
+        undefined,
+        true,
+      );
     } else {
-      await deliverOrDraft(env, ports, ctx, result.followupMessage, "high", history);
+      const delivered = await deliverOrDraft(
+        env,
+        ports,
+        ctx,
+        result.followupMessage,
+        "high",
+        history,
+        true,
+      );
+      // Confirmation text landed → fire the booking video right after (R4).
+      if (delivered) await sendBookingVideo(env, phone);
     }
     return;
   }
@@ -305,15 +355,26 @@ async function deliverOrDraft(
   message: string,
   confidence: "high" | "low",
   history: StoredMessage[],
-): Promise<void> {
+  bookingOrigin = false,
+): Promise<boolean> {
+  void confidence;
   try {
     await sendText(env, ctx.phone, message);
   } catch (err) {
     if (err instanceof WindowClosedError) {
       // Window closed: can't free-form. Surface as an approval so a human can
-      // decide on a template (template sending belongs to workstreams C/D).
-      await queueApproval(env, ports, ctx, message, history, "24h window closed");
-      return;
+      // decide on a template (template sending belongs to workstreams C/D). Carry
+      // the booking-origin marker so approve/edit still fires the video (R4).
+      await queueApproval(
+        env,
+        ports,
+        ctx,
+        message,
+        history,
+        "24h window closed",
+        bookingOrigin,
+      );
+      return false;
     }
     throw err;
   }
@@ -322,6 +383,7 @@ async function deliverOrDraft(
   // no override, and under the rolling cap — so booking-confirmation sends and
   // student/opted-out contacts are no-ops.
   await armNudges(env, ctx.phone);
+  return true;
 }
 
 async function queueApproval(
@@ -331,6 +393,7 @@ async function queueApproval(
   draft: string,
   history: StoredMessage[],
   reason?: string,
+  bookingOrigin = false,
 ): Promise<void> {
   const contextText = history
     .slice(-6)
@@ -347,6 +410,10 @@ async function queueApproval(
     context: contextText,
     confidence,
   });
+  // Booking-origin marker (kv, keyed by approval id) so the video fires when this
+  // draft is approved/edited later. Kept off the stored context column, which is
+  // rendered verbatim in Slack + the dashboard.
+  if (bookingOrigin) await kvSet(env.DB, bookingApprovalKey(id), "1");
   const slackTs = await ports.slack.postDraft({
     id,
     phone: ctx.phone,

@@ -13,11 +13,12 @@ import {
 } from "../db/queries-admin.js";
 import {
   insertEdit,
+  kvGet,
   resolveApproval,
   setContactStatus,
   setHumanOverride,
 } from "../db/queries.js";
-import { sendText, WindowClosedError } from "../services/wa.js";
+import { sendText, sendBookingVideo, WindowClosedError } from "../services/wa.js";
 import { armNudges } from "../cron/nudges.js";
 import {
   markApprovedCard,
@@ -35,6 +36,20 @@ export type ApprovalResult =
 
 const NOT_PENDING: ApprovalResult = { ok: false, reason: "not_pending" };
 const WINDOW_CLOSED: ApprovalResult = { ok: false, reason: "window_closed" };
+
+/**
+ * kv key marking an approval as a booking-confirmation draft. The pipeline sets
+ * it when queuing a book-result draft; approve/edit read it to fire the booking
+ * video after the confirmation text is sent (R4). Keyed by approval id so it
+ * survives cron re-posts and works for both Slack and dashboard resolution.
+ */
+export function bookingApprovalKey(id: number): string {
+  return `booking_approval:${id}`;
+}
+
+async function isBookingApproval(env: Env, id: number): Promise<boolean> {
+  return (await kvGet(env.DB, bookingApprovalKey(id))) === "1";
+}
 
 /** Loads any approval row by id (pending or resolved) for card rendering. */
 async function loadApproval(
@@ -91,6 +106,8 @@ export async function approveAndSend(
   const res = await claimAndSend(env, id, "approved", a.draft, a.draft);
   if (res.ok) {
     await markApprovedCard(env, a, a.draft);
+    // Booking-confirmation draft → fire the booking video right after (R4).
+    if (await isBookingApproval(env, id)) await sendBookingVideo(env, a.phone);
     // Approved bot reply landed → arm/re-arm the lead-nudge drip (no-op unless
     // the contact is a lead with no active booking/override, under the cap).
     await armNudges(env, a.phone);
@@ -110,6 +127,8 @@ export async function editAndSend(
   if (res.ok) {
     await insertEdit(env.DB, a.phone, a.draft, finalText);
     await markEditedCard(env, a, finalText);
+    // Booking-confirmation draft → fire the booking video right after (R4).
+    if (await isBookingApproval(env, id)) await sendBookingVideo(env, a.phone);
     // Edited bot reply landed → arm/re-arm the lead-nudge drip (conditional).
     await armNudges(env, a.phone);
   }

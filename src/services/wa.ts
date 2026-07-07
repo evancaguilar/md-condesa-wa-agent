@@ -88,6 +88,57 @@ export async function sendText(
   return wamid;
 }
 
+/**
+ * Video send (Graph `type:"video"`, `video:{link, caption?}`). Records the wamid +
+ * message row like sendText and enforces the identical 24h-window guard. Bookings
+ * are always in-window, so this only throws when misused out-of-window.
+ */
+export async function sendVideo(
+  env: Env,
+  phone: string,
+  videoUrl: string,
+  caption?: string,
+): Promise<string> {
+  const contact = await getContact(env.DB, phone);
+  const last = contact?.last_inbound_at ?? 0;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (nowSec - last >= WINDOW_SECONDS) {
+    throw new WindowClosedError(phone);
+  }
+  const video: Record<string, unknown> = { link: videoUrl };
+  if (caption) video.caption = caption;
+  const wamid = await post(env, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: phone,
+    type: "video",
+    video,
+  });
+  await recordOutbound(env, phone, wamid, caption ?? "[video]", {
+    type: "video",
+    link: videoUrl,
+  });
+  return wamid;
+}
+
+/** Default booking-confirmation video (already live). Overridable via env. */
+export const DEFAULT_BOOKING_VIDEO_URL =
+  "https://mdcondesa.com/media/confirmar-reserva.mp4";
+
+/**
+ * Fire-and-forget booking video: sends the confirmation clip right after a
+ * booking-confirmation text. Best-effort — never throws (video must never block
+ * or fail the confirmation). Uses env.BOOKING_VIDEO_URL or the default.
+ */
+export async function sendBookingVideo(env: Env, phone: string): Promise<void> {
+  const url = env.BOOKING_VIDEO_URL || DEFAULT_BOOKING_VIDEO_URL;
+  try {
+    await sendVideo(env, phone, url);
+  } catch (err) {
+    console.error(`[wa] booking video send failed for ${phone}: ${String(err)}`);
+  }
+}
+
 /** Template send (allowed even when the window is closed). */
 export async function sendTemplate(
   env: Env,

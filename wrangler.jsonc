@@ -26,7 +26,8 @@
     "AIRTABLE_BASE_ID": "appcX38TBVltyxHR6",
     "AIRTABLE_TRIALS_TABLE": "Leads",
     "TRAINING_WHEELS": "1",
-    "HUMAN_SNOOZE_HOURS": "8"
+    "HUMAN_SNOOZE_HOURS": "8",
+    "BOOKING_VIDEO_URL": "https://mdcondesa.com/media/confirmar-reserva.mp4"
   },
   // Text modules: the compiled KB (*.md, see src/kb.ts) and the admin SPA
   // (src/ui/admin.html, imported by routes/admin-ui.ts) are inlined as strings.
