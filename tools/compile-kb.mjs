@@ -31,7 +31,7 @@ import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, "..");
-const TOKEN_LIMIT = 6000;
+const TOKEN_LIMIT = 9000;
 
 async function main() {
   const clientId = process.env.CLIENT || "md-condesa";
