@@ -3,6 +3,7 @@
 // routes) call these — keep signatures stable.
 
 import type {
+  AirtableRule,
   ApprovalStatus,
   Campaign,
   Env,
@@ -278,6 +279,108 @@ export async function getActiveCampaigns(db: D1Database): Promise<Campaign[]> {
     .bind(now())
     .all<Campaign>();
   return results;
+}
+
+// ---- airtable_rules (lead-sync automations) ----
+
+export interface CreateAirtableRuleInput {
+  name: string;
+  triggerJson: string;
+  actionsJson: string;
+  enabled?: number;
+}
+
+export async function createAirtableRule(
+  db: D1Database,
+  input: CreateAirtableRuleInput,
+): Promise<AirtableRule> {
+  const t = now();
+  const res = await db
+    .prepare(
+      `INSERT INTO airtable_rules(name, trigger_json, actions_json, enabled, created_at, updated_at)
+       VALUES(?1, ?2, ?3, COALESCE(?4, 1), ?5, ?5)`,
+    )
+    .bind(input.name, input.triggerJson, input.actionsJson, input.enabled ?? null, t)
+    .run();
+  const id = res.meta.last_row_id as number;
+  return (await getAirtableRule(db, id)) as AirtableRule;
+}
+
+export async function getAirtableRule(
+  db: D1Database,
+  id: number,
+): Promise<AirtableRule | null> {
+  return await db
+    .prepare(`SELECT * FROM airtable_rules WHERE id = ?1`)
+    .bind(id)
+    .first<AirtableRule>();
+}
+
+/** All rules (newest first), or only enabled ones when enabledOnly is set. */
+export async function listAirtableRules(
+  db: D1Database,
+  opts: { enabledOnly?: boolean } = {},
+): Promise<AirtableRule[]> {
+  const sql = opts.enabledOnly
+    ? `SELECT * FROM airtable_rules WHERE enabled = 1 ORDER BY id DESC`
+    : `SELECT * FROM airtable_rules ORDER BY id DESC`;
+  const { results } = await db.prepare(sql).all<AirtableRule>();
+  return results;
+}
+
+export interface UpdateAirtableRuleInput {
+  name?: string;
+  triggerJson?: string;
+  actionsJson?: string;
+  enabled?: number;
+}
+
+/** Partial update (COALESCE); only provided fields change. Returns updated row. */
+export async function updateAirtableRule(
+  db: D1Database,
+  id: number,
+  input: UpdateAirtableRuleInput,
+): Promise<AirtableRule | null> {
+  await db
+    .prepare(
+      `UPDATE airtable_rules SET
+         name = COALESCE(?2, name),
+         trigger_json = COALESCE(?3, trigger_json),
+         actions_json = COALESCE(?4, actions_json),
+         enabled = COALESCE(?5, enabled),
+         updated_at = ?6
+       WHERE id = ?1`,
+    )
+    .bind(
+      id,
+      input.name ?? null,
+      input.triggerJson ?? null,
+      input.actionsJson ?? null,
+      input.enabled ?? null,
+      now(),
+    )
+    .run();
+  return getAirtableRule(db, id);
+}
+
+export async function deleteAirtableRule(db: D1Database, id: number): Promise<void> {
+  await db.prepare(`DELETE FROM airtable_rules WHERE id = ?1`).bind(id).run();
+}
+
+/**
+ * Set (or clear, when error is null) a rule's last_error — the amber schema-drift
+ * chip. Passing null clears it (rule healthy again). updated_at is left untouched
+ * so an error mark doesn't reorder or churn the rule.
+ */
+export async function setRuleLastError(
+  db: D1Database,
+  id: number,
+  error: string | null,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE airtable_rules SET last_error = ?2 WHERE id = ?1`)
+    .bind(id, error)
+    .run();
 }
 
 // ---- contact <-> campaign + human override ----

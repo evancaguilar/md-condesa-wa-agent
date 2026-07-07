@@ -89,6 +89,20 @@ export async function setQualification(
     .run();
 }
 
+/** Stores the Airtable Leads record id on a contact (once synced). */
+export async function setContactAirtableLeadId(
+  db: D1Database,
+  phone: string,
+  leadId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE contacts SET airtable_lead_id = ?2, updated_at = ?3 WHERE phone = ?1`,
+    )
+    .bind(phone, leadId, now())
+    .run();
+}
+
 /** Sets human_override_until = now + hours*3600. */
 export async function setHumanOverride(
   db: D1Database,

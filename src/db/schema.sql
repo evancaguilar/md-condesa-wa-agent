@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS contacts(
   last_inbound_at INTEGER,           -- drives 24h-window logic
   campaign_id INTEGER,               -- campaigns.id the lead arrived through (nullable)
   ad_ref TEXT,                       -- JSON click-to-WhatsApp referral {sourceId,headline,body,sourceUrl,ctwaClid}
+  airtable_lead_id TEXT,             -- Airtable Leads record id once synced (nullable)
   created_at INTEGER, updated_at INTEGER
 );
 
@@ -77,3 +78,17 @@ CREATE TABLE IF NOT EXISTS campaigns(
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_campaigns_trigger ON campaigns(trigger_norm);
+
+-- ---- Airtable rules engine (dashboard-defined lead-sync automations) ----
+-- NOTE: production is a live DB — Evan pastes the migration in the D1 console
+-- (docs/airtable-rules-plan.md §Migration); this mirror is for fresh installs.
+
+CREATE TABLE IF NOT EXISTS airtable_rules(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  trigger_json TEXT NOT NULL,             -- JSON RuleTrigger {type:campaign|program|always,...}
+  actions_json TEXT NOT NULL,             -- JSON RuleAction[] [{op:set|add|clear,field,value?}]
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_error TEXT,                        -- last Airtable apply error (amber chip); NULL when healthy
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);

@@ -67,6 +67,8 @@ export interface Contact {
   campaign_id: number | null; // FK-ish → campaigns.id; the campaign the lead arrived through
   /** JSON click-to-WhatsApp ad referral captured on first inbound (see AdRef). */
   ad_ref: string | null;
+  /** Airtable Leads record id (rec…) once the lead is synced; null before first sync. */
+  airtable_lead_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -117,6 +119,43 @@ export interface Campaign {
   ends_at: number | null; // epoch seconds; null = no end date
   /** Meta ad id: leads whose referral.source_id matches auto-attach (ad_id > phrase). */
   ad_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+// ---- Airtable rules engine ----
+
+/** Program bucket a rule can target (mirrors cron/nudge-copy classifyProgram). */
+export type RuleProgram = "adults" | "kids" | "baby";
+
+/**
+ * What makes a rule fire. v1 triggers:
+ * - campaign: the lead is tagged with campaigns.id === campaignId
+ * - program:  the lead classifies as this program (adults|kids|baby)
+ * - always:   every synced lead
+ */
+export type RuleTrigger =
+  | { type: "campaign"; campaignId: number }
+  | { type: "program"; program: RuleProgram }
+  | { type: "always" };
+
+/**
+ * A single Airtable field mutation. `set` overwrites, `add` unions into a
+ * multi-select (read-modify-write), `clear` empties the field.
+ */
+export type RuleAction =
+  | { op: "set"; field: string; value: string }
+  | { op: "add"; field: string; value: string }
+  | { op: "clear"; field: string };
+
+/** Row of the `airtable_rules` table. trigger_json/actions_json are JSON blobs. */
+export interface AirtableRule {
+  id: number;
+  name: string;
+  trigger_json: string; // JSON RuleTrigger
+  actions_json: string; // JSON RuleAction[]
+  enabled: number; // 0 | 1
+  last_error: string | null;
   created_at: number;
   updated_at: number;
 }
