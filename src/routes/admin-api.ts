@@ -603,15 +603,31 @@ async function handleKbChat(req: Request, env: Env): Promise<Response> {
   return json({ reply: result.reply, proposals: result.proposals });
 }
 
+// applyProposal validation reasons → HTTP status. duplicate_trigger is a 409
+// (the UI keys off status===409); the rest are 4xx client errors keyed off
+// `error` in the body (e.g. handleOverlayError reads error==="overlay_too_large").
+const APPLY_FAIL_STATUS: Record<string, number> = {
+  duplicate_trigger: 409,
+  overlay_too_large: 400,
+  section_not_found: 404,
+  unknown_proposal: 400,
+};
+
 async function handleKbConfirm(req: Request, env: Env): Promise<Response> {
   const body = await readJson<{ proposal?: unknown }>(req);
   if (!body.proposal) return json({ error: "proposal_required" }, 400);
   try {
     const result = await applyProposal(env, body.proposal as never);
+    // applyProposal returns a discriminated union; a failed validation is
+    // {ok:false, reason} (NOT a thrown error). Map it to the right HTTP status
+    // with an {error:<reason>} body so the SPA's api() helper (which only reacts
+    // to non-2xx) surfaces it instead of rendering a false "✅ Aplicado".
+    if (!result.ok) {
+      return json({ error: result.reason }, APPLY_FAIL_STATUS[result.reason] ?? 400);
+    }
     return json(result);
   } catch (err) {
-    // applyProposal validates (section exists, overlay ≤2000 tok, trigger unique);
-    // surface its validation errors as 400 (or 409 for duplicate triggers).
+    // Backstop: a DB-level unique-constraint violation still maps to 409.
     const msg = err instanceof Error ? err.message : String(err);
     const status = /duplicate|trigger|unique|conflict|exists/i.test(msg) ? 409 : 400;
     return json({ error: msg }, status);
