@@ -22,6 +22,9 @@ export interface Env {
   AIRTABLE_TRIALS_TABLE: string;
   TRAINING_WHEELS: string; // "1" forces approval; "0" allows auto-send
   HUMAN_SNOOZE_HOURS: string; // stringified integer, default "8"
+
+  // Admin dashboard secret (Cloudflare secret; auth for /admin)
+  ADMIN_PASSWORD: string;
 }
 
 export type Language = "es" | "en";
@@ -45,6 +48,46 @@ export interface Contact {
   qualification: string | null; // JSON (see Qualification)
   human_override_until: number | null;
   last_inbound_at: number | null;
+  campaign_id: number | null; // FK-ish → campaigns.id; the campaign the lead arrived through
+  created_at: number;
+  updated_at: number;
+}
+
+// ---- Admin dashboard: knowledge-base overlay + campaigns ----
+
+/** A live-editable overlay section layered on top of the compiled KB base. */
+export interface KbSection {
+  id: number;
+  title: string;
+  content: string;
+  sort: number;
+  enabled: number; // 0 | 1
+  created_at: number;
+  updated_at: number;
+}
+
+/** Audit row for every overlay change (manual dashboard edit or chat proposal). */
+export interface KbRevision {
+  id: number;
+  section_id: number | null;
+  action: "create" | "update" | "delete" | "revert";
+  title: string;
+  content: string | null; // after (NULL on delete)
+  prev_content: string | null; // before (NULL on create)
+  reason: string | null;
+  source: "manual" | "chat";
+  created_at: number;
+}
+
+/** An ad/promo campaign; leads whose first message matches its trigger are tagged. */
+export interface Campaign {
+  id: number;
+  name: string;
+  trigger_phrase: string;
+  trigger_norm: string; // normalized (diacritic-stripped, lowercased) for matching
+  info: string; // extra knowledge fed to the brain for this campaign's leads
+  status: "active" | "paused" | "ended";
+  ends_at: number | null; // epoch seconds; null = no end date
   created_at: number;
   updated_at: number;
 }
@@ -118,6 +161,7 @@ export interface ConvoContext {
   weekday: string; // e.g. "lunes" / "Monday" — lets the model resolve relative dates
   windowOpen: boolean; // true if within the 24h customer-service window
   trainingWheels: boolean; // true ⇒ every reply routes through approval
+  campaign?: { name: string; info: string }; // present when the lead arrived via a campaign
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */
