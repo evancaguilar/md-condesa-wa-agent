@@ -23,6 +23,13 @@ import {
   touchLastInbound,
   upsertContact,
 } from "../db/queries.js";
+import {
+  getActiveCampaigns,
+  getCampaign,
+  getTrainingWheels,
+  setContactCampaign,
+} from "../db/queries-admin.js";
+import { matchCampaign, normalizeText } from "./campaigns.js";
 import { sendText, WindowClosedError } from "../services/wa.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
 
@@ -82,6 +89,17 @@ export async function processInbound(
     return;
   }
 
+  // 3b. Campaign tagging: if this inbound repeats an active campaign's trigger
+  // phrase (the lead came from that ad), tag the contact so the brain gets the
+  // campaign's extra knowledge. Only active, in-flight campaigns are considered.
+  const activeCampaigns = await getActiveCampaigns(env.DB);
+  if (activeCampaigns.length > 0) {
+    const campaignId = matchCampaign(normalizeText(msg.body), activeCampaigns);
+    if (campaignId !== null) {
+      await setContactCampaign(env.DB, msg.phone, campaignId);
+    }
+  }
+
   const contact = await getContact(env.DB, msg.phone);
   if (!contact) return;
 
@@ -119,7 +137,14 @@ export async function processInbound(
   );
   const windowOpen =
     (fresh.last_inbound_at ?? 0) > nowSec - WINDOW_SECONDS;
-  const trainingWheels = env.TRAINING_WHEELS !== "0";
+  const trainingWheels = await getTrainingWheels(env);
+
+  // If the lead is tagged with a campaign, load its extra knowledge for the brain.
+  let campaign: ConvoContext["campaign"];
+  if (fresh.campaign_id !== null) {
+    const camp = await getCampaign(env.DB, fresh.campaign_id);
+    if (camp) campaign = { name: camp.name, info: camp.info };
+  }
 
   const cdmx = cdmxNow();
   const brainCtx: ConvoContext = {
@@ -130,6 +155,7 @@ export async function processInbound(
     weekday: cdmx.weekday,
     windowOpen,
     trainingWheels,
+    campaign,
   };
 
   const result = await ports.brain.respond(brainCtx);

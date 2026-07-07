@@ -37,6 +37,13 @@ export interface BrainDeps {
   kb: string;
   airtable: AirtablePort;
   accrueUsage: AccrueUsage;
+  /**
+   * Returns the current overlay text (live-editable dashboard corrections) as a
+   * second cached system block. Called once per respond() so edits take effect
+   * without rebuilding the brain. Omit (or return "") for no overlay — the
+   * system prompt stays a single block. Injected by makeOverlayLoader.
+   */
+  loadOverlay?: () => Promise<string>;
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -62,11 +69,11 @@ const HISTORY_TOKEN_CAP = 1000;
 
 // ---- Anthropic wire types (minimal) --------------------------------------
 
-interface TextContent {
+export interface TextContent {
   type: "text";
   text: string;
 }
-interface ToolUseContent {
+export interface ToolUseContent {
   type: "tool_use";
   id: string;
   name: string;
@@ -81,19 +88,19 @@ interface ToolResultContent {
 type AssistantContent = TextContent | ToolUseContent;
 type UserContent = TextContent | ToolResultContent;
 
-interface ApiMessage {
+export interface ApiMessage {
   role: "user" | "assistant";
   content: string | UserContent[] | AssistantContent[];
 }
 
-interface ApiUsage {
+export interface ApiUsage {
   input_tokens?: number;
   output_tokens?: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
 }
 
-interface ApiResponse {
+export interface ApiResponse {
   content: AssistantContent[];
   stop_reason: string;
   usage?: ApiUsage;
@@ -104,9 +111,11 @@ interface ApiResponse {
 export function createBrain(deps: BrainDeps): BrainPort {
   const doFetch = deps.fetchImpl ?? fetch;
 
-  const system = buildSystem(deps.kb);
-
   async function respond(ctx: ConvoContext): Promise<BrainResult> {
+    // Assemble the system per call so live overlay edits take effect immediately.
+    // No overlay loader (or an empty overlay) → single static block, unchanged.
+    const overlay = deps.loadOverlay ? await deps.loadOverlay() : "";
+    const system = buildSystem(deps.kb, overlay);
     const messages = buildInitialMessages(ctx);
 
     const usageAcc: Required<ApiUsage> = {
@@ -273,18 +282,26 @@ function trimHistory(history: StoredMessage[]): StoredMessage[] {
   return recent;
 }
 
-async function callAnthropic(
+/**
+ * One Anthropic Messages call (with a single retry). Exported so the KB editor
+ * can reuse the exact same transport/pricing. `tools` and `maxTokens` default to
+ * the brain's TOOLS / 1024 so existing callers are unchanged; the KB editor
+ * passes its proposal-only tools + a larger budget.
+ */
+export async function callAnthropic(
   doFetch: typeof fetch,
   apiKey: string,
   system: SystemBlock[],
   messages: ApiMessage[],
+  tools: readonly unknown[] = TOOLS,
+  maxTokens: number = MAX_TOKENS,
 ): Promise<ApiResponse> {
   const body = JSON.stringify({
     model: MODEL,
-    max_tokens: MAX_TOKENS,
+    max_tokens: maxTokens,
     thinking: { type: "disabled" },
     system,
-    tools: TOOLS,
+    tools,
     messages,
   });
 

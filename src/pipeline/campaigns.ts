@@ -1,0 +1,48 @@
+// Campaign matching for inbound leads. When a lead's first message repeats the
+// trigger phrase from an ad (e.g. "Vi su anuncio de defensa personal"), we tag
+// the contact with that campaign so the brain can respond with campaign-specific
+// knowledge. Pure module (no I/O) — unit-tested.
+
+import type { Campaign } from "../types.js";
+
+/**
+ * Normalize free text for trigger matching:
+ *   - NFD decompose + strip combining diacritics ("Ánuncio" → "anuncio")
+ *   - lowercase
+ *   - strip punctuation (anything not a letter, number, or space)
+ *   - collapse runs of whitespace to a single space, trim
+ *
+ * The same normalization is applied to stored `trigger_norm` (in the KB editor /
+ * campaign create path) so equality/prefix comparisons line up.
+ */
+export function normalizeText(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // strip combining marks
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ") // punctuation → space
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * First active campaign whose normalized trigger matches the normalized inbound
+ * body: either the whole body equals the trigger, or the body starts with the
+ * trigger (so "curso de defensa ... me interesa" still matches trigger "curso de
+ * defensa"). Returns the campaign id, or null when nothing matches.
+ *
+ * `bodyNorm` is expected already normalized via `normalizeText`.
+ */
+export function matchCampaign(
+  bodyNorm: string,
+  campaigns: Campaign[],
+): number | null {
+  for (const c of campaigns) {
+    const trigger = c.trigger_norm;
+    if (!trigger) continue;
+    if (bodyNorm === trigger || bodyNorm.startsWith(trigger)) {
+      return c.id;
+    }
+  }
+  return null;
+}

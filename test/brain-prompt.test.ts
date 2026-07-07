@@ -94,3 +94,47 @@ test("context block survives malformed qualification JSON", () => {
   assert.ok(block.includes("<context>"));
   assert.ok(!block.includes("qual.discipline"));
 });
+
+// ---- two-block system (overlay) ------------------------------------------
+
+test("buildSystem with empty/omitted overlay stays a single block (unchanged)", () => {
+  const one = buildSystem(KB_A);
+  const alsoOne = buildSystem(KB_A, "");
+  assert.equal(one.length, 1);
+  assert.equal(alsoOne.length, 1);
+  assert.equal(one[0]!.text, alsoOne[0]!.text);
+  assert.equal(one[0]!.text, systemText(KB_A));
+});
+
+test("buildSystem with a non-empty overlay appends a second cached block", () => {
+  const overlay = "# ACTUALIZACIONES\n## Precios\nniños $450";
+  const sys = buildSystem(KB_A, overlay);
+  assert.equal(sys.length, 2);
+  // Block 1 is byte-identical to the single-arg form (cache key preserved).
+  assert.equal(sys[0]!.text, systemText(KB_A));
+  assert.deepEqual(sys[0]!.cache_control, { type: "ephemeral", ttl: "1h" });
+  // Block 2 carries the overlay with its own 1h ephemeral cache.
+  assert.equal(sys[1]!.type, "text");
+  assert.equal(sys[1]!.text, overlay);
+  assert.deepEqual(sys[1]!.cache_control, { type: "ephemeral", ttl: "1h" });
+});
+
+// ---- campaign context block ----------------------------------------------
+
+test("no campaign → no <campaign_info> block", () => {
+  const block = buildContextBlock(ctx());
+  assert.ok(!block.includes("<campaign_info>"));
+});
+
+test("campaign present → <campaign_info> with name and info", () => {
+  const block = buildContextBlock(
+    ctx({ campaign: { name: "Promo verano", info: "2x1 en clases de niños" } }),
+  );
+  assert.ok(block.includes("<campaign_info>"));
+  assert.ok(block.includes("campaña: Promo verano"));
+  assert.ok(block.includes("2x1 en clases de niños"));
+  assert.ok(block.includes("El lead llegó por esta campaña; úsala para responder."));
+  assert.ok(block.includes("</campaign_info>"));
+  // The campaign block comes after the closed context block.
+  assert.ok(block.indexOf("</context>") < block.indexOf("<campaign_info>"));
+});

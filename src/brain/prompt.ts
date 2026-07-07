@@ -55,17 +55,32 @@ export function systemText(kb: string): string {
 }
 
 /**
- * The static system array: one cached block (persona + policies + KB). No
- * volatile content, so the ~5K-token prefix caches across every turn.
+ * The system array. Block 1 is the frozen prefix (persona + policies + KB) with
+ * no volatile content, so the ~5K-token prefix caches across every turn.
+ *
+ * When `overlay` is a non-empty string, a SECOND cached block is appended: the
+ * live-editable overlay (dashboard "actualizaciones y correcciones"). It has its
+ * own 1h ephemeral cache, so editing the overlay only invalidates block 2 — the
+ * expensive base prefix keeps hitting cache. With no overlay the single-block
+ * shape (and byte-for-byte text) is unchanged from before, so existing callers
+ * and the cache key are preserved.
  */
-export function buildSystem(kb: string): SystemBlock[] {
-  return [
+export function buildSystem(kb: string, overlay?: string): SystemBlock[] {
+  const blocks: SystemBlock[] = [
     {
       type: "text",
       text: systemText(kb),
       cache_control: { type: "ephemeral", ttl: "1h" },
     },
   ];
+  if (overlay && overlay.length > 0) {
+    blocks.push({
+      type: "text",
+      text: overlay,
+      cache_control: { type: "ephemeral", ttl: "1h" },
+    });
+  }
+  return blocks;
 }
 
 /**
@@ -89,7 +104,7 @@ export function buildContextBlock(ctx: ConvoContext): string {
     ? "24h window OPEN (free-form replies allowed)"
     : "24h window CLOSED (only template messages until the lead writes again)";
 
-  return [
+  const lines = [
     "<context>",
     `now (America/Mexico_City): ${ctx.nowCdmx}`,
     `weekday: ${ctx.weekday}`,
@@ -99,7 +114,21 @@ export function buildContextBlock(ctx: ConvoContext): string {
     "Resolve any relative date ('hoy', 'mañana', 'el sábado') against `now`/`weekday` above.",
     "The timestamp is 24h ISO. Any class time LATER today than `now` is still bookable for TODAY (e.g. at 01:49 it is 1:49 AM — today's 7:00 AM class has NOT passed).",
     "</context>",
-  ].join("\n");
+  ];
+
+  // The lead arrived via an ad campaign: hand the model that campaign's extra
+  // knowledge so it can respond in context (offer/promo details, etc.).
+  if (ctx.campaign) {
+    lines.push(
+      "<campaign_info>",
+      `campaña: ${ctx.campaign.name}`,
+      ctx.campaign.info,
+      "El lead llegó por esta campaña; úsala para responder.",
+      "</campaign_info>",
+    );
+  }
+
+  return lines.join("\n");
 }
 
 /** "…T01:49…" → "1:49 AM" (the 24h ISO hour confuses models at edge hours). */

@@ -5,7 +5,7 @@ import { handleSlackInteractive } from "./routes/slack.js";
 import { handleAdminUi } from "./routes/admin-ui.js";
 import { handleAdminApi } from "./routes/admin-api.js";
 import { runCron, setCronDeps } from "./cron/dispatcher.js";
-import { createBrainWithKb } from "./brain/index.js";
+import { createBrainWithKb, makeOverlayLoader } from "./brain/index.js";
 import { accrueUsage } from "./db/queries.js";
 import { makeAirtablePort } from "./services/airtable.js";
 import {
@@ -33,6 +33,7 @@ function makePorts(env: Env): Ports {
     airtable,
     accrueUsage: (day, inTok, cachedTok, outTok, cost) =>
       accrueUsage(env.DB, day, inTok, cachedTok, outTok, cost),
+    loadOverlay: makeOverlayLoader(env.DB),
   });
   const slack = makeSlackPort(env);
 
