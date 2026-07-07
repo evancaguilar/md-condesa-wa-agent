@@ -178,7 +178,8 @@ export type ApprovalStatus =
   | "edited"
   | "taken_over"
   | "expired"
-  | "discarded";
+  | "discarded"
+  | "superseded";
 
 export type Confidence = "high" | "low";
 
@@ -302,6 +303,8 @@ export interface SlackPort {
   postNote(text: string): Promise<void>;
   /** FYI card posted whenever book_trial fires (spec: always ALSO to Slack). */
   postBookingFyi(booking: BookTrialInput): Promise<void>;
+  /** Swaps a stale pending card to "reemplazada por #newId" (new draft covers it). */
+  markSuperseded(a: PendingApproval, newId: number): Promise<void>;
 }
 
 export interface AirtablePort {

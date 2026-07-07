@@ -376,6 +376,19 @@ export function markStudentCard(env: Env, a: PendingApproval): Promise<void> {
 export function markDiscardedCard(env: Env, a: PendingApproval): Promise<void> {
   return updateResolvedCard(env, a, "🗑️ *Descartada*", a.draft);
 }
+/** A newer draft (built from the full conversation) replaced this stale card. */
+export function markSupersededCard(
+  env: Env,
+  a: PendingApproval,
+  newId: number,
+): Promise<void> {
+  return updateResolvedCard(
+    env,
+    a,
+    `⏭️ *Reemplazada* por la respuesta #${newId} (el lead siguió escribiendo)`,
+    a.draft,
+  );
+}
 /** Window closed on approve/edit: swap the card to offer the template button. */
 export function markWindowClosedCard(env: Env, a: PendingApproval): Promise<void> {
   return updateResolvedCard(
@@ -471,6 +484,7 @@ export function makeSlackPort(env: Env): SlackPort {
     postDraft: (a) => postDraft(env, a),
     postNote: (text) => postNote(env, text),
     postBookingFyi: (booking) => postBookingFyi(env, booking),
+    markSuperseded: (a, newId) => markSupersededCard(env, a, newId),
   };
 }
 

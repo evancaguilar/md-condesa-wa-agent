@@ -14,6 +14,8 @@ import {
   cancelFollowups,
   createApproval,
   getContact,
+  getPendingApprovals,
+  supersedeApproval,
   insertMessageIfNew,
   isBotEnabled,
   kvSet,
@@ -431,12 +433,25 @@ async function queueApproval(
     })
     .join("\n");
   const confidence = "low";
+  // Older pending cards for this phone are strictly stale — this new draft was
+  // built from the FULL conversation. Snapshot them now, supersede after create.
+  const stale = await getPendingApprovals(env.DB, ctx.phone);
   const id = await createApproval(env.DB, {
     phone: ctx.phone,
     draft,
     context: contextText,
     confidence,
   });
+  for (const s of stale) {
+    try {
+      // Atomic guard: skip the card swap if Evan approved it in a race.
+      if (await supersedeApproval(env.DB, s.id)) {
+        await ports.slack.markSuperseded(s, id);
+      }
+    } catch (err) {
+      console.error("supersede approval failed", s.id, err);
+    }
+  }
   // Booking-origin marker (kv, keyed by approval id) so the video fires when this
   // draft is approved/edited later. Kept off the stored context column, which is
   // rendered verbatim in Slack + the dashboard.

@@ -266,6 +266,25 @@ export async function cancelPendingApprovals(
     .run();
 }
 
+/**
+ * Atomically marks ONE approval superseded; returns false if it was already
+ * resolved (e.g. approved in a race) so callers skip the Slack card swap.
+ */
+export async function supersedeApproval(
+  db: D1Database,
+  id: number,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE pending_approvals
+       SET status = 'superseded', resolved_at = ?2
+       WHERE id = ?1 AND status = 'pending'`,
+    )
+    .bind(id, now())
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
 export async function getPendingApprovals(
   db: D1Database,
   phone?: string,
