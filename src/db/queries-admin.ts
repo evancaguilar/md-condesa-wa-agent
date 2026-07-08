@@ -324,8 +324,15 @@ export async function listAirtableRules(
   const sql = opts.enabledOnly
     ? `SELECT * FROM airtable_rules WHERE enabled = 1 ORDER BY id DESC`
     : `SELECT * FROM airtable_rules ORDER BY id DESC`;
-  const { results } = await db.prepare(sql).all<AirtableRule>();
-  return results;
+  try {
+    const { results } = await db.prepare(sql).all<AirtableRule>();
+    return results;
+  } catch (err) {
+    // Pre-migration deploys have no airtable_rules table yet. Rules simply
+    // don't exist then — never take down callers (Editor chat, lead sync).
+    if (/no such table/i.test(String(err))) return [];
+    throw err;
+  }
 }
 
 export interface UpdateAirtableRuleInput {
