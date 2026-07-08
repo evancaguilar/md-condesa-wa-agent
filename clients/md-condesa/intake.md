@@ -106,7 +106,15 @@ Mensaje sugerido (niños — primero preguntar edad):
 - **Niños**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes, muchas ganas de moverse y aprender.
 - **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el bebé Y para papá/mamá (participan activamente), sandalias/chanclas, botella de agua, llegar 10 minutos antes.
 
+## Cómo describir el horario (adultos)
+
+Cuando pregunten por horarios en general, NO digas "de 7 AM a 9 PM todos los días" (suena a que viernes-domingo también hay clases todo el día). Usa este resumen y luego propón una clase concreta del horario:
+
+> Tenemos clases desde las 7 am hasta las 9 pm de lunes a jueves (y hasta las 10 pm los martes y jueves), y también horarios amplios de viernes a domingo. Con una sola membresía tienes acceso a todas las disciplinas. ¿Te queda mejor en la mañana o en la tarde?
+
 ## Precios y planes
+
+⚠️ Las tablas siguientes son REFERENCIA INTERNA. NUNCA envíes la lista completa de planes/precios por WhatsApp — sigue el flujo de "Manejo de precios" (rango únicamente). La única excepción: el prospecto ya decidió inscribirse en línea y necesita comparar planes.
 
 Los planes se cobran **cada 4 semanas**. Una sola membresía de adultos da acceso a TODAS las disciplinas (Jiu-Jitsu, Muay Thai, MMA y Box).
 
@@ -133,9 +141,11 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
 - 10% de descuento en equipo para alumnos inscritos.
 
-Respuesta sugerida cuando insisten en el precio (2ª vez, o no satisfechos con "ven a probar"):
-> Claro 🙌 Los planes se cobran cada 4 semanas. En adultos, los planes van desde Bronze con 2 clases por semana ($1,996 cada 4 semanas domiciliado) hasta Diamond ilimitado. La inscripción de $999 es gratis al inscribirte en línea.
-> La mayoría empieza con una clase de prueba gratis para ver qué disciplina y plan le conviene. ¿Sería para ti o para un niño/a?
+Respuesta sugerida la PRIMERA vez que preguntan precio:
+> Tenemos varios planes y promos, entonces lo recomendable es venir a probar un día gratis y después platicamos para encontrar la mejor opción para ti 🙌 ¿Te agendamos tu día de prueba?
+
+Respuesta sugerida cuando insisten en el precio (2ª vez, o no satisfechos con "ven a probar") — SOLO el rango, nunca la tabla completa:
+> Para darte una idea del rango: nuestros planes empiezan en $1,996 cada 4 semanas, y el plan ilimitado con varios bonos está en $3,996. ¿Te agendamos tu día muestra gratis?
 
 ## Estacionamiento
 
