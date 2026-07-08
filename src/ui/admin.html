@@ -909,24 +909,61 @@ function campStatusChip(s){
   if(s==="paused") return '<span class="chip">Pausada</span>';
   return '<span class="chip red">Finalizada</span>';
 }
+function dateInputVal(epoch){
+  var d=new Date(epoch*1000);
+  var m=("0"+(d.getMonth()+1)).slice(-2), day=("0"+d.getDate()).slice(-2);
+  return d.getFullYear()+"-"+m+"-"+day;
+}
 function campCard(c){
   var ends = c.ends_at ? '<div style="margin-top:4px"><span class="muted sm">vence '+esc(fmtDate(c.ends_at))+'</span></div>' : "";
   var adChip = c.ad_id ? ' <span class="chip blue">ad '+esc(c.ad_id)+'</span>' : "";
-  var btns="";
+  var btns='<button class="btn sm" data-cedit="1">✏️ Editar</button>';
   if(c.status==="active") btns+='<button class="btn sm" data-cs="paused">Pausar</button>';
   if(c.status==="paused") btns+='<button class="btn green sm" data-cs="active">Reactivar</button>';
   if(c.status!=="ended") btns+='<button class="btn red sm" data-cs="ended">Finalizar</button>';
+  var form='<div class="c-edit hidden" style="margin-top:10px">'
+    +'<label class="lab">Nombre</label><input class="field ce-name" value="'+esc(c.name)+'">'
+    +'<label class="lab">Frase del anuncio</label><input class="field ce-trigger" value="'+esc(c.trigger_phrase)+'">'
+    +'<label class="lab">Información para el bot</label><textarea class="field ce-info">'+esc(c.info||"")+'</textarea>'
+    +'<label class="lab">ID del anuncio (vacío = quitar)</label><input class="field ce-adid" value="'+esc(c.ad_id||"")+'">'
+    +'<label class="lab">Termina el (vacío = sin fecha)</label><input class="field ce-ends" type="date" value="'+(c.ends_at?dateInputVal(c.ends_at):"")+'">'
+    +'<div class="row" style="margin-top:10px"><button class="btn gold sm ce-save">Guardar</button>'
+    +'<button class="btn sm ce-cancel">Cancelar</button></div></div>';
   return '<div class="card" id="camp-'+c.id+'" data-id="'+c.id+'">'
     +'<div class="between"><b>'+esc(c.name)+'</b>'+campStatusChip(c.status)+'</div>'
     +'<div class="muted sm" style="margin-top:4px">“'+esc(c.trigger_phrase)+'”'+adChip+'</div>'
     +ends
-    +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div></div>';
+    +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div>'+form+'</div>';
 }
 function wireCamp(c){
   var card=el("camp-"+c.id); if(!card) return;
   qa("[data-cs]",card).forEach(function(b){
     b.onclick=function(){ setCampStatus(c.id,b.getAttribute("data-cs")); };
   });
+  var editBtn=q("[data-cedit]",card), form=q(".c-edit",card);
+  if(editBtn) editBtn.onclick=function(){ form.classList.toggle("hidden"); };
+  var cancel=q(".ce-cancel",card);
+  if(cancel) cancel.onclick=function(){ form.classList.add("hidden"); };
+  var save=q(".ce-save",card);
+  if(save) save.onclick=function(){ saveCampaign(c.id,card); };
+}
+async function saveCampaign(id,card){
+  var name=q(".ce-name",card).value.trim();
+  var trigger=q(".ce-trigger",card).value.trim();
+  var info=q(".ce-info",card).value.trim();
+  var adId=q(".ce-adid",card).value.trim();
+  var ends=q(".ce-ends",card).value;
+  if(!name||!trigger||!info){ toast("Nombre, frase e información son obligatorios","err"); return; }
+  var body={name:name,trigger:trigger,info:info,
+    adId:adId||null,
+    endsAt:ends?Math.floor(new Date(ends+"T23:59:59").getTime()/1000):null};
+  try{
+    await api("/campaigns/"+id,{method:"PUT",body:body});
+    toast("Campaña actualizada","ok"); loadCampaigns();
+  }catch(e){
+    if(e.status===409) toast("Otra campaña ya usa esa frase","err");
+    else toast("No se pudo actualizar la campaña","err");
+  }
 }
 async function createCampaign(){
   var name=el("cName").value.trim();
