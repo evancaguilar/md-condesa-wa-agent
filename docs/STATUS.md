@@ -14,7 +14,7 @@ Recent fixes (2026-07-08/09): stale pending approvals auto-supersede when the le
 
 - [x] D1 migration: `airtable_rules` table + `contacts.airtable_lead_id` (ran 2026-07-09)
 - [ ] ⚠️ **AIRTABLE_PAT secret** — until set, NOTHING writes to Airtable (no lead rows, no chat-booking `Trial DateTime`, no rules). Token at airtable.com/create/tokens, scopes `data.records:read`, `data.records:write`, `schema.bases:read` on base `appcX38TBVltyxHR6`; add as Secret on the worker.
-- [ ] ⚠️ Airtable Leads table fields the code writes: `Phone E164`, `Name`, `Source`, `Ad`, `Campaña`, `Discipline`, `Audience`, `Trial DateTime`, `Resultado clase prueba` (watcher), multi-select `Tags` (rules). Missing fields degrade gracefully (drift retry) but data is lost.
+- [x] Airtable field mapping (2026-07-09): the bot now writes Evan's REAL Spanish CRM columns (`# de Teléfono`, `Nombre de Lead`, `Fecha Clase Prueba`, `Actividad`, `Programa`, `Canal`="WA", `Campaña`, `Ad`, `Resultado Clase Prueba`, `Tags`) via `airtableLeads` map in clients/md-condesa/client.mjs. Phone lookup matches last-10-digits regardless of stored format. No English fields needed.
 - [ ] Earlier D1 migrations if not yet run: `ALTER TABLE contacts ADD COLUMN ad_ref TEXT; ALTER TABLE campaigns ADD COLUMN ad_id TEXT;` + dashboard tables (docs/phase0-checklist.md Step 6c).
 - [ ] Confirm WA_ACCESS_TOKEN is the permanent System User token (temp tokens 401 after ~24h).
 - [ ] Submit WhatsApp templates (docs/templates.md: 6 base + 12 extended nudges) — at cutover.

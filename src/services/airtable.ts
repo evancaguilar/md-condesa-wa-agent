@@ -3,6 +3,8 @@
 // and of the Students table not existing yet (404 → []).
 
 import type { Env, BookTrialInput, RuleAction } from "../types.js";
+import type { AirtableLeadsMap } from "../client-config.js";
+import { CLIENT } from "../client.gen.js";
 import { cdmxIso } from "../cron/time.js";
 import { kvGet, kvSet } from "../db/queries.js";
 
@@ -26,9 +28,35 @@ export interface BookingRecord {
 /** Default name of the Airtable trial-outcome field (env-overridable). */
 export const DEFAULT_RESULT_FIELD = "Resultado clase prueba";
 
-/** The configured result field name, or the default when env is unset. */
+/**
+ * Legacy English column names — the fallback when a client doesn't declare
+ * `airtableLeads` in its client.mjs. md-condesa maps these onto its real
+ * Spanish CRM columns (# de Teléfono, Nombre de Lead, Fecha Clase Prueba…).
+ */
+export const DEFAULT_LEADS_MAP: AirtableLeadsMap = {
+  phone: "Phone E164",
+  name: "Name",
+  source: "Source",
+  sourceValue: "WhatsApp",
+  ad: "Ad",
+  campaign: "Campaña",
+  trialDateTime: "Trial DateTime",
+  discipline: "Discipline",
+  disciplineIsMulti: false,
+  audience: "Audience",
+  result: DEFAULT_RESULT_FIELD,
+  disciplineValues: {},
+  audienceValues: {},
+};
+
+/** The active client's Leads-table map (client overrides merged over defaults). */
+export function leadsMap(): AirtableLeadsMap {
+  return { ...DEFAULT_LEADS_MAP, ...(CLIENT.airtableLeads ?? {}) };
+}
+
+/** The configured result field name: env override > client map > default. */
 export function resultFieldName(env: Env): string {
-  return env.AIRTABLE_RESULT_FIELD || DEFAULT_RESULT_FIELD;
+  return env.AIRTABLE_RESULT_FIELD || leadsMap().result;
 }
 
 /**
@@ -51,8 +79,9 @@ export function classifyResult(
 ): "no_show" | "enrolled" | null {
   const n = normalizeResult(raw);
   if (!n) return null;
-  if (n.includes("no asistio")) return "no_show";
+  // Enrollment wins when a multi-select holds both (no-show → later enrolled).
   if (n.includes("se inscribio")) return "enrolled";
+  if (n.includes("no asistio")) return "no_show";
   return null;
 }
 
@@ -118,23 +147,46 @@ export async function bookTrial(
   env: Env,
   input: BookTrialInput,
 ): Promise<string> {
+  const m = leadsMap();
   const phone = normalizeMxPhone(input.phone);
   const trialDateTime = cdmxIso(input.trialDate, input.trialTime);
   const current = await findLeadByPhone(env, phone);
   const cur = current?.fields ?? null;
 
+  // Map the service key (jiu/muay/…) to the table's real select option,
+  // preferring a kid-specific variant ("jiu:kid" → "BJJ Kids") when present.
+  const discKey = input.discipline;
+  const discOpt =
+    (input.audience === "kid" ? m.disciplineValues[`${discKey}:kid`] : undefined) ??
+    m.disciplineValues[discKey] ??
+    input.discipline;
+  const audKey = discKey === "baby" ? "baby" : input.audience;
+  const audOpt = m.audienceValues[audKey] ?? input.audience;
+
   const fields: Record<string, unknown> = {
-    "Phone E164": phone,
-    Discipline: input.discipline,
-    Audience: input.audience,
-    "Trial DateTime": trialDateTime,
+    [m.phone]: storedPhone(phone),
+    [m.audience]: audOpt,
+    [m.trialDateTime]: trialDateTime,
   };
-  if (input.name && isEmpty(cur?.["Name"])) fields["Name"] = input.name;
-  if (isEmpty(cur?.["Source"])) fields["Source"] = "WhatsApp";
-  if (input.ad && isEmpty(cur?.["Ad"])) fields["Ad"] = input.ad;
+  // multipleSelects PATCH replaces the whole array — union with current values.
+  fields[m.discipline] = m.disciplineIsMulti
+    ? [...new Set([...toStringArray(cur?.[m.discipline]), discOpt])]
+    : discOpt;
+  if (input.name && isEmpty(cur?.[m.name])) fields[m.name] = input.name;
+  if (isEmpty(cur?.[m.source])) fields[m.source] = m.sourceValue;
+  if (input.ad && isEmpty(cur?.[m.ad])) fields[m.ad] = input.ad;
 
   const res = await upsertLead(env, phone, fields, fields, current);
   return res.id;
+}
+
+/**
+ * Phone value written on NEW rows: "+<normalized digits>" (e.g. +5215534260813).
+ * Reads never rely on this exact shape — findLeadByPhone matches the last 10
+ * digits, so legacy rows in any format ("(556) 979-4387", "55 4019 4997") match.
+ */
+function storedPhone(normalized: string): string {
+  return `+${normalized}`;
 }
 
 interface CreateResult {
@@ -282,10 +334,24 @@ async function createWithDriftRetry(
 }
 
 /**
- * Find a Leads row by phone via filterByFormula {Phone E164}='digits'. Digits-
- * only (guards against formula injection + matches the stored E164 shape). On a
- * 422 INVALID_FILTER_BY_FORMULA (field renamed/removed) we warn and return null
- * so the caller degrades to create rather than throwing.
+ * Airtable formula that strips " ", "-", "(", ")", "+" from the phone column —
+ * the CRM holds every historical format ("+525513805999", "(556) 979-4387",
+ * "55 4019 4997"), so lookups compare the LAST 10 DIGITS of the cleaned value.
+ * Pure + exported for tests.
+ */
+export function phoneMatchFormula(fieldName: string, last10: string): string {
+  const cleaned =
+    `SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(` +
+    `{${fieldName}}&""` +
+    `," ",""),"-",""),"(",""),")",""),"+","")`;
+  return `RIGHT(${cleaned},10)="${last10}"`;
+}
+
+/**
+ * Find a Leads row by phone, matching the last 10 digits of the mapped phone
+ * column regardless of stored format. Digits-only interpolation (guards against
+ * formula injection). On a 422 INVALID_FILTER_BY_FORMULA (field renamed/removed)
+ * we warn and return null so the caller degrades to create rather than throwing.
  */
 export async function findLeadByPhone(
   env: Env,
@@ -293,8 +359,13 @@ export async function findLeadByPhone(
 ): Promise<AirtableRecord | null> {
   const digits = normalizeMxPhone(phone).replace(/\D/g, "");
   if (!digits) return null;
+  const m = leadsMap();
+  const formula =
+    digits.length >= 10
+      ? phoneMatchFormula(m.phone, digits.slice(-10))
+      : `{${m.phone}}&""="${digits}"`;
   const url = new URL(baseUrl(env, env.AIRTABLE_TRIALS_TABLE));
-  url.searchParams.set("filterByFormula", `{Phone E164}='${digits}'`);
+  url.searchParams.set("filterByFormula", formula);
   url.searchParams.set("pageSize", "1");
   const res = await airtableFetch(env, url.toString(), { method: "GET" });
   if (res.ok) {
@@ -359,15 +430,16 @@ export interface LeadFieldsInput {
 export function buildLeadFields(
   current: Record<string, unknown> | null,
   input: LeadFieldsInput,
+  map: AirtableLeadsMap = leadsMap(),
 ): Record<string, unknown> {
-  const f: Record<string, unknown> = { "Phone E164": input.phone };
-  if (isEmpty(current?.["Source"])) f["Source"] = "WhatsApp";
+  const f: Record<string, unknown> = { [map.phone]: `+${input.phone}` };
+  if (isEmpty(current?.[map.source])) f[map.source] = map.sourceValue;
   const name = (input.name ?? "").trim();
-  if (name && isEmpty(current?.["Name"])) f["Name"] = name;
+  if (name && isEmpty(current?.[map.name])) f[map.name] = name;
   const ad = (input.ad ?? "").trim();
-  if (ad && isEmpty(current?.["Ad"])) f["Ad"] = ad;
+  if (ad && isEmpty(current?.[map.ad])) f[map.ad] = ad;
   const camp = (input.campaignName ?? "").trim();
-  if (camp) f["Campaña"] = camp;
+  if (camp) f[map.campaign] = camp;
   return f;
 }
 
@@ -551,13 +623,24 @@ export async function listRecentBookings(
 
 function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord {
   const f = r.fields;
+  const m = leadsMap();
   return {
     id: r.id,
-    phone: asString(f["Phone E164"] ?? f["Phone"]),
-    name: asString(f["Name"]),
-    trialDateTimeIso: asString(f["Trial DateTime"]),
-    result: asString(f[resultField]),
+    phone: asString(f[m.phone] ?? f["Phone E164"] ?? f["Phone"]),
+    name: asString(f[m.name] ?? f["Name"]),
+    trialDateTimeIso: asString(f[m.trialDateTime] ?? f["Trial DateTime"]),
+    // multipleSelects result columns come back as arrays — join for classify.
+    result: asResultString(f[resultField]),
   };
+}
+
+/** Coerce a result cell (string or multipleSelects array) to a match string. */
+function asResultString(v: unknown): string | null {
+  if (Array.isArray(v)) {
+    const parts = v.filter((x): x is string => typeof x === "string");
+    return parts.length ? parts.join(", ") : null;
+  }
+  return asString(v);
 }
 
 /**

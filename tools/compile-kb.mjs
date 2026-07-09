@@ -161,6 +161,7 @@ function renderClientTs(cfg, persona, version) {
       safety: !!cfg.features?.safety,
     },
     ...(cfg.safety ? { safety: cfg.safety } : {}),
+    ...(cfg.airtableLeads ? { airtableLeads: cfg.airtableLeads } : {}),
     copy: cfg.copy,
   };
   return (

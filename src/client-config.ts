@@ -64,6 +64,34 @@ export interface ClientFeatures {
   safety: boolean;
 }
 
+/**
+ * Column names + value maps for the client's REAL Airtable Leads table, so the
+ * engine adapts to an existing CRM instead of imposing English field names.
+ * Every property is optional in client.mjs; unset ones fall back to the legacy
+ * English defaults in services/airtable.ts (DEFAULT_LEADS_MAP).
+ */
+export interface AirtableLeadsMap {
+  /** Phone column. Rows may hold any format; lookup matches the last 10 digits. */
+  phone: string;
+  name: string;
+  source: string;
+  /** Value written to `source` for bot-originated leads (fill-if-empty). */
+  sourceValue: string;
+  ad: string;
+  campaign: string;
+  trialDateTime: string;
+  discipline: string;
+  /** True when `discipline` is a multipleSelects column (values sent as arrays). */
+  disciplineIsMulti: boolean;
+  audience: string;
+  /** Trial-outcome column watched by the result cron (env-overridable). */
+  result: string;
+  /** service key (or "<key>:kid") → select option name, e.g. jiu→"BJJ". */
+  disciplineValues: Record<string, string>;
+  /** "adult" | "kid" | "baby" → select option name, e.g. adult→"Adultos". */
+  audienceValues: Record<string, string>;
+}
+
 export interface ClientConfig {
   /** Folder name under clients/ (e.g. "md-condesa", "iasmin"). */
   clientId: string;
@@ -90,6 +118,8 @@ export interface ClientConfig {
   features: ClientFeatures;
   /** Required when features.safety is true. */
   safety?: SafetyConfig;
+  /** Real Leads-table column names; unset keys use the English defaults. */
+  airtableLeads?: Partial<AirtableLeadsMap>;
   copy: ClientCopy;
 }
 

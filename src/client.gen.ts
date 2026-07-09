@@ -48,6 +48,33 @@ export const CLIENT: ClientConfig = {
     "airtableSync": true,
     "safety": false
   },
+  "airtableLeads": {
+    "phone": "# de Teléfono",
+    "name": "Nombre de Lead",
+    "source": "Canal",
+    "sourceValue": "WA",
+    "ad": "Ad",
+    "campaign": "Campaña",
+    "trialDateTime": "Fecha Clase Prueba",
+    "discipline": "Actividad",
+    "disciplineIsMulti": true,
+    "audience": "Programa",
+    "result": "Resultado Clase Prueba",
+    "disciplineValues": {
+      "jiu": "BJJ",
+      "muay": "Muay Thai",
+      "mma": "MMA",
+      "box": "Box",
+      "jiu:kid": "BJJ Kids",
+      "muay:kid": "Muay Thai Kids",
+      "baby": "Baby Fight Club"
+    },
+    "audienceValues": {
+      "adult": "Adultos",
+      "kid": "Kids",
+      "baby": "Baby Fight Club (BFC)"
+    }
+  },
   "copy": {
     "confirmEs": "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda y una botella de agua — no necesitas equipo, nosotros te lo prestamos. ¡Nos vemos!",
     "confirmEn": "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes and a water bottle — no gear needed, we lend it. See you soon!",
