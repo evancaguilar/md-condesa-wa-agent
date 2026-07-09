@@ -22,7 +22,7 @@ Recent fixes (2026-07-08/09): stale pending approvals auto-supersede when the le
 
 ## Known bugs / next work
 
-1. **trial_confirm mis-timed for web-form bookers**: `computeTrialSequence` schedules the confirmation text+video at the CLASS time, not at booking time (src/cron/followups.ts:76). Chat bookings mask it (bot confirms inline); form bookers get their "confirmed" message when class starts. Fix: fire trial_confirm at booking-detection time (clamped to send window), skip for chat bookings. Identified 2026-07-09, approved-to-fix pending.
+1. ~~trial_confirm mis-timed for web-form bookers~~ **FIXED 2026-07-09**: `computeTrialSequence` now fires trial_confirm at booking-detection time (clamped to the send window) instead of at class time; chat bookings pass `includeConfirm: false` since the bot confirms inline (src/cron/followups.ts, src/pipeline/inbound.ts).
 2. Meta test-number quirk (not a code bug): outbound to non-verified recipients fails; Mexico numbers may need the `521…` form in the allowlist. Disappears on the real number.
 3. Tune the brain weekly from Slack Editar diffs while training wheels are on (edits are logged to D1 `edits`).
 

@@ -119,6 +119,25 @@ test("send_reply high → action:send", async () => {
   assert.equal(accrued, 1, "usage flushed once");
 });
 
+test("send_reply with literal \\n sequences → real newlines in the draft", async () => {
+  const { fetchImpl } = mockFetch([
+    sendReplyResp("low", "¡Hola! 👋 Bienvenido/a 🥋 \\n\\n¿La clase sería para ti?"),
+  ]);
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    fetchImpl,
+  });
+  const r = await brain.respond(ctx("hola"));
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") {
+    assert.equal(r.message, "¡Hola! 👋 Bienvenido/a 🥋 \n\n¿La clase sería para ti?");
+    assert.ok(!r.message.includes("\\n"), "no literal backslash-n survives");
+  }
+});
+
 test("send_reply low → action:draft with reason", async () => {
   const resp = {
     stop_reason: "tool_use",

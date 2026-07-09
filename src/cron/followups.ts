@@ -63,17 +63,34 @@ export interface SequenceStep {
   note?: string;
 }
 
+export interface SequenceOpts {
+  /** When the booking was detected (epoch s). trial_confirm fires here, not at
+   *  class time. Defaults to now. */
+  nowEpoch?: number;
+  /** false for chat bookings — the bot already confirmed inline. */
+  includeConfirm?: boolean;
+}
+
 /**
  * Pure computation of the followup sequence for a trial at `trialEpoch`
  * (epoch seconds). Sends are clamped to the 09:00–21:00 CDMX window. Exposed
  * for unit testing; scheduleTrialSequence persists the result.
  */
-export function computeTrialSequence(trialEpoch: number): SequenceStep[] {
+export function computeTrialSequence(
+  trialEpoch: number,
+  opts: SequenceOpts = {},
+): SequenceStep[] {
   const p = cdmxParts(trialEpoch);
   // day-before at 18:00 CDMX
   const dayBefore = cdmxToEpoch(p.year, p.month, p.day, 18, 0, 0) - DAY;
-  const steps: SequenceStep[] = [
-    { kind: "trial_confirm", dueAt: clampToWindow(trialEpoch) },
+  const steps: SequenceStep[] = [];
+  if (opts.includeConfirm !== false) {
+    steps.push({
+      kind: "trial_confirm",
+      dueAt: clampToWindow(opts.nowEpoch ?? nowSec()),
+    });
+  }
+  steps.push(
     { kind: "day_before", dueAt: clampToWindow(dayBefore) },
     { kind: "same_day", dueAt: clampToWindow(trialEpoch - 4 * 3600) },
     {
@@ -81,7 +98,7 @@ export function computeTrialSequence(trialEpoch: number): SequenceStep[] {
       dueAt: clampToWindow(trialEpoch + 3 * 3600),
       note: ATTENDANCE_NOTE,
     },
-  ];
+  );
   return steps;
 }
 
@@ -91,10 +108,11 @@ export async function scheduleTrialSequence(
   phone: string,
   recordId: string,
   trialDateTimeIso: string,
+  opts: SequenceOpts = {},
 ): Promise<void> {
   const trialEpoch = Math.floor(Date.parse(trialDateTimeIso) / 1000);
   if (!Number.isFinite(trialEpoch)) return;
-  for (const step of computeTrialSequence(trialEpoch)) {
+  for (const step of computeTrialSequence(trialEpoch, opts)) {
     await scheduleFollowup(env.DB, {
       phone,
       kind: step.kind,

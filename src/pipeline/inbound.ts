@@ -291,11 +291,14 @@ async function routeResult(
       phone,
     };
     await ports.slack.postBookingFyi(booking);
+    // Chat booking: the bot confirms inline below, so skip the scheduled
+    // trial_confirm (it's for web-form bookers detected via syncBookings).
     await scheduleTrialSequence(
       env,
       phone,
       result.recordId,
       cdmxIso(result.trialDate, result.trialTime),
+      { includeConfirm: false },
     );
     // Persist qualification (this is the sole caller — gives classifyProgram real
     // data) then sync the booking to Airtable + fire program rules. Isolated so a

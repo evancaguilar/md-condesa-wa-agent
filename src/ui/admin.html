@@ -113,6 +113,8 @@ hr.sep{border:none;border-top:1px solid var(--line);margin:12px 0}
 .bub.human{align-self:flex-end;background:var(--blue);border-bottom-right-radius:4px}
 .bub .who{font-size:10px;opacity:.75;margin-bottom:2px;font-weight:700}
 .bub .ts{font-size:10px;opacity:.6;margin-top:3px;text-align:right}
+.daysep{align-self:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:3px 10px;font-size:11px;color:var(--muted);margin:4px 0}
 
 /* toast */
 #toasts{position:fixed;left:12px;right:12px;bottom:calc(var(--tabh) + 12px);z-index:60;display:flex;flex-direction:column;gap:8px;pointer-events:none}
@@ -270,6 +272,20 @@ function fmtDate(ts){
   if(!ts) return "";
   var ms= ts<1e12 ? ts*1000 : ts;
   return new Date(ms).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"});
+}
+// day key "YYYY-MM-DD" in CDMX regardless of the browser's timezone
+function cdmxDayKey(ts){
+  if(!ts) return "";
+  var ms= ts<1e12 ? ts*1000 : ts;
+  return new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(ms));
+}
+function cdmxDayLabel(ts){
+  var key=cdmxDayKey(ts);
+  var now=Date.now();
+  if(key===cdmxDayKey(now)) return "Hoy";
+  if(key===cdmxDayKey(now-864e5)) return "Ayer";
+  var ms= ts<1e12 ? ts*1000 : ts;
+  return new Intl.DateTimeFormat("es-MX",{timeZone:"America/Mexico_City",day:"numeric",month:"short",year:"numeric"}).format(new Date(ms));
 }
 function money(n){ return "$"+(Number(n||0).toFixed(2))+" USD"; }
 
@@ -489,7 +505,13 @@ async function openChat(phone){
     +(isMobile?'<button class="backbtn mobile-only" id="chatBack">←</button>':'')
     +'<div><div style="font-weight:800;font-size:18px">'+esc(nameOr(contact.name,contact.phone))+'</div>'
     +'<div class="muted sm">'+esc(fmtPhone(contact.phone))+'</div></div></div>';
-  var bubbles='<div class="transcript">'+msgs.map(bubbleHtml).join("")+'</div>';
+  var parts=[], lastDay="";
+  for(var mi=0; mi<msgs.length; mi++){
+    var dk=cdmxDayKey(msgs[mi].ts);
+    if(dk && dk!==lastDay){ parts.push('<div class="daysep">'+esc(cdmxDayLabel(msgs[mi].ts))+'</div>'); lastDay=dk; }
+    parts.push(bubbleHtml(msgs[mi]));
+  }
+  var bubbles='<div class="transcript">'+parts.join("")+'</div>';
   var actions='<div class="row" style="flex-wrap:wrap;margin-top:12px">';
   if(paused) actions+='<button class="btn green sm" id="resumeBtn">▶ Reanudar</button>';
   else actions+='<button class="btn sm" id="pauseBtn">⏸ Pausar bot aquí</button>';

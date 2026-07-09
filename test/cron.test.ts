@@ -104,13 +104,14 @@ test("clampToWindow: inside window unchanged", () => {
 
 test("computeTrialSequence positions all four steps in-window", () => {
   const trial = cdmxToEpoch(2026, 7, 15, 19, 0, 0); // Wed 7pm CDMX
-  const steps = computeTrialSequence(trial);
+  const booked = cdmxToEpoch(2026, 7, 13, 14, 0, 0); // booked Mon 2pm CDMX
+  const steps = computeTrialSequence(trial, { nowEpoch: booked });
   const byKind = Object.fromEntries(
     steps.map((s) => [s.note === "attendance_check" ? "attendance" : s.kind, s]),
   );
 
-  // trial_confirm at T+0, but 7pm is in-window so unchanged
-  assert.equal(byKind["trial_confirm"].dueAt, trial);
+  // trial_confirm at booking time (2pm is in-window so unchanged)
+  assert.equal(byKind["trial_confirm"].dueAt, booked);
   // day_before 18:00 the previous day (14th)
   assert.equal(byKind["day_before"].dueAt, cdmxToEpoch(2026, 7, 14, 18, 0, 0));
   // same_day −4h == 15:00 CDMX, in-window
@@ -120,11 +121,19 @@ test("computeTrialSequence positions all four steps in-window", () => {
   assert.equal(byKind["attendance"].kind, "attendance_check");
 });
 
-test("computeTrialSequence clamps an early-morning trial confirm", () => {
+test("computeTrialSequence clamps an out-of-window booking-time confirm", () => {
   const trial = cdmxToEpoch(2026, 7, 15, 7, 0, 0); // 7am class
-  const steps = computeTrialSequence(trial);
+  const booked = cdmxToEpoch(2026, 7, 13, 23, 0, 0); // booked at 11pm
+  const steps = computeTrialSequence(trial, { nowEpoch: booked });
   const confirm = steps.find((s) => s.kind === "trial_confirm")!;
-  assert.equal(confirm.dueAt, cdmxToEpoch(2026, 7, 15, 9, 0, 0)); // clamped to 9am
+  assert.equal(confirm.dueAt, cdmxToEpoch(2026, 7, 14, 9, 0, 0)); // clamped to 9am next day
+});
+
+test("computeTrialSequence omits trial_confirm for chat bookings", () => {
+  const trial = cdmxToEpoch(2026, 7, 15, 19, 0, 0);
+  const steps = computeTrialSequence(trial, { includeConfirm: false });
+  assert.equal(steps.length, 3);
+  assert.ok(!steps.some((s) => s.kind === "trial_confirm"));
 });
 
 // ---- phone normalization ----

@@ -1,5 +1,5 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-07-08+e95d33858fe9
+     version: 2026-07-09+e95d33858fe9
      approx_tokens: 7896 (chars 27633 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 

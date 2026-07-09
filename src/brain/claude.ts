@@ -379,7 +379,7 @@ async function handleBookTrial(
   const audience = (input.audience === "kid" ? "kid" : "adult") as Audience;
   const trialDate = input.trial_date ?? "";
   const trialTime = input.trial_time ?? "";
-  const followupMessage = input.followup_message ?? "";
+  const followupMessage = unescapeNewlines(input.followup_message ?? "");
 
   const check = validateSlot(trialDate, trialTime, audience, discipline);
   if (!check.ok) {
@@ -432,6 +432,16 @@ async function handleBookTrial(
 
 // ---- result mapping ------------------------------------------------------
 
+/**
+ * The model sometimes copies literal "\n" sequences into its reply (e.g. when
+ * campaign info stored in D1 contains them). WhatsApp copy never wants a
+ * literal backslash-n, so normalize every escaped newline to a real one before
+ * the message reaches the approval card / send path.
+ */
+export function unescapeNewlines(text: string): string {
+  return text.replace(/\\n/g, "\n");
+}
+
 export function sendResult(
   tu: ToolUseContent,
   followup?: { hoursFromNow: number; note: string } | null,
@@ -444,7 +454,7 @@ export function sendResult(
   };
   const language: Language = input.language === "en" ? "en" : "es";
   const confidence: Confidence = input.confidence === "high" ? "high" : "low";
-  const message = input.message ?? "";
+  const message = unescapeNewlines(input.message ?? "");
   const fu = followup ?? undefined;
   if (confidence === "high") {
     return { action: "send", message, language, confidence, followup: fu };
@@ -486,7 +496,7 @@ function textFallback(resp: ApiResponse, ctx: ConvoContext): BrainResult {
     .trim();
   return {
     action: "draft",
-    message: text || safeApology(ctx.contact.lang),
+    message: unescapeNewlines(text) || safeApology(ctx.contact.lang),
     language: ctx.contact.lang,
     confidence: "low",
     reason: "no_tool_call",
