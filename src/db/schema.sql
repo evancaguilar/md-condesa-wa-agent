@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS campaigns(
   info TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',  -- active|paused|ended
   ends_at INTEGER,
-  ad_id TEXT,                             -- Meta ad id; referral.source_id match auto-attaches (ad_id > phrase)
+  ad_id TEXT,                             -- Meta ad id(s), comma-separated; referral.source_id match auto-attaches (ad_id > phrase)
+  first_reply TEXT,  -- pre-written instant welcome sent on a new ad lead's first message (no brain, no approval); NULL = off
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_campaigns_trigger ON campaigns(trigger_norm);

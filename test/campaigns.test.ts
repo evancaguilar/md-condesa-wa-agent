@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  firstReplyFor,
+  firstReplyKey,
   matchCampaign,
   matchCampaignByAdId,
   normalizeText,
@@ -17,6 +19,7 @@ function campaign(over: Partial<Campaign> = {}): Campaign {
     status: "active",
     ends_at: null,
     ad_id: null,
+    first_reply: null,
     created_at: 0,
     updated_at: 0,
     ...over,
@@ -110,4 +113,59 @@ test("ad-id match returns null on empty/undefined source id", () => {
 test("ad-id match ignores campaigns with null ad_id", () => {
   const id = matchCampaignByAdId("123", [campaign({ id: 3, ad_id: null })]);
   assert.equal(id, null);
+});
+
+test("ad-id match supports a comma/whitespace-separated id list", () => {
+  const c = campaign({ id: 5, ad_id: "111, 222,333\n444" });
+  assert.equal(matchCampaignByAdId("222", [c]), 5);
+  assert.equal(matchCampaignByAdId("444", [c]), 5);
+  assert.equal(matchCampaignByAdId("22", [c]), null); // no partial-id match
+});
+
+// ---- firstReplyFor --------------------------------------------------------
+
+test("firstReplyFor returns the trimmed welcome for a fresh lead", () => {
+  const c = campaign({ first_reply: "  Hola, gracias por escribirnos!  " });
+  assert.equal(firstReplyFor(c, false), "Hola, gracias por escribirnos!");
+});
+
+test("firstReplyFor returns null when the phone already has an outbound message", () => {
+  const c = campaign({ first_reply: "Hola!" });
+  assert.equal(firstReplyFor(c, true), null);
+});
+
+test("firstReplyFor returns null when first_reply is null", () => {
+  const c = campaign({ first_reply: null });
+  assert.equal(firstReplyFor(c, false), null);
+});
+
+test("firstReplyFor returns null when first_reply is empty string", () => {
+  const c = campaign({ first_reply: "" });
+  assert.equal(firstReplyFor(c, false), null);
+});
+
+test("firstReplyFor returns null when first_reply is whitespace-only", () => {
+  const c = campaign({ first_reply: "   \n\t  " });
+  assert.equal(firstReplyFor(c, false), null);
+});
+
+test("firstReplyFor returns null when the property is absent (pre-migration row shape)", () => {
+  // SELECT * on a pre-migration DB simply lacks the column; simulate via a cast.
+  const { first_reply, ...rest } = campaign();
+  const preMigration = rest as Campaign;
+  assert.equal(firstReplyFor(preMigration, false), null);
+});
+
+test("firstReplyFor returns null for a null campaign", () => {
+  assert.equal(firstReplyFor(null, false), null);
+});
+
+test("firstReplyFor returns null for an undefined campaign", () => {
+  assert.equal(firstReplyFor(undefined, false), null);
+});
+
+// ---- firstReplyKey ---------------------------------------------------------
+
+test("firstReplyKey shape", () => {
+  assert.equal(firstReplyKey("5215512345678"), "first_reply_sent:5215512345678");
 });

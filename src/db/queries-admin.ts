@@ -172,6 +172,27 @@ export interface CreateCampaignInput {
   status?: Campaign["status"];
   endsAt?: number | null;
   adId?: string | null;
+  firstReply?: string | null;
+}
+
+/**
+ * Best-effort write of campaigns.first_reply. Pre-migration (column absent)
+ * this is a silent no-op — soft-fail like listAirtableRules.
+ */
+async function setCampaignFirstReplySoft(
+  db: D1Database,
+  id: number,
+  firstReply: string | null,
+): Promise<void> {
+  try {
+    await db
+      .prepare(`UPDATE campaigns SET first_reply = ?2, updated_at = ?3 WHERE id = ?1`)
+      .bind(id, firstReply, now())
+      .run();
+  } catch (err) {
+    if (/no such column/i.test(String(err))) return;
+    throw err;
+  }
 }
 
 export async function createCampaign(
@@ -196,6 +217,8 @@ export async function createCampaign(
     )
     .run();
   const id = res.meta.last_row_id as number;
+  const trimmedFirstReply = input.firstReply?.trim();
+  if (trimmedFirstReply) await setCampaignFirstReplySoft(db, id, trimmedFirstReply);
   return (await getCampaign(db, id)) as Campaign;
 }
 
@@ -207,12 +230,15 @@ export interface UpdateCampaignInput {
   status?: Campaign["status"];
   endsAt?: number | null;
   adId?: string | null;
+  firstReply?: string | null;
 }
 
 /**
  * Partial update. endsAt / adId are special: `undefined` leaves them unchanged,
  * but an explicit `null` clears them — so we pass a sentinel flag per field
- * rather than COALESCE.
+ * rather than COALESCE. firstReply is handled separately via the soft-fail
+ * helper (see CreateCampaignInput comment) rather than in this UPDATE, since
+ * touching first_reply pre-migration would fail at prepare-time.
  */
 export async function updateCampaign(
   db: D1Database,
@@ -248,6 +274,9 @@ export async function updateCampaign(
       input.adId ?? null,
     )
     .run();
+  if ("firstReply" in input) {
+    await setCampaignFirstReplySoft(db, id, input.firstReply ?? null);
+  }
   return getCampaign(db, id);
 }
 

@@ -9,7 +9,7 @@ WhatsApp AI agent for MD Self Defense Academy Condesa (martial-arts gym, CDMX). 
 - **Cloudflare Worker** (TypeScript) + **D1** (`wa-agent-db`). Deployed by **git push to main** → Workers Builds CI. Live at https://md-condesa-wa-agent.evancaguilar.workers.dev
 - **ZERO runtime npm dependencies.** Raw `fetch` + WebCrypto only. Don't add packages.
 - Brain: `claude-sonnet-5` via raw fetch (src/brain/claude.ts). Two cached system blocks (persona+KB, then D1 overlay), 1h-TTL `cache_control`, `thinking: disabled`, NO temperature/top_p. Volatile data (time, contact) goes in a per-turn `<context>` block, never in system.
-- Inbound pipeline (src/pipeline/inbound.ts) gate order is contractual: dedupe → kill switch → opt-out → student → human override → debounce → brain → route.
+- Inbound pipeline (src/pipeline/inbound.ts) gate order is contractual: dedupe → kill switch → opt-out → campaign tagging → student → human override → crisis → campaign first-reply (instant pre-written welcome, no brain/approval) → debounce → brain → route.
 - Slack approval flow (src/services/slack.ts, approvals.ts): Aprobar/Editar/Tomar control. TRAINING_WHEELS=1 → every reply needs approval.
 - Cron (*/5 min): anti-no-show sequence, lead-nudge drips (day-1 + extended d2–d5), Airtable syncBookings + result watcher, approval timeouts. Quiet hours 21:30–08:00 CDMX for all unsolicited sends.
 - Admin dashboard `/admin` (src/ui/admin.html, single inline-script SPA): Inicio, Chats, Aprobaciones, KB overlay, Editor (IA proposes KB edits/campaigns/rules), Campañas (+ Reglas), Probar sandbox.

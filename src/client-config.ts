@@ -90,6 +90,10 @@ export interface AirtableLeadsMap {
   disciplineValues: Record<string, string>;
   /** "adult" | "kid" | "baby" → select option name, e.g. adult→"Adultos". */
   audienceValues: Record<string, string>;
+  /** Multi-select column used to tag leads (e.g. opt-out), e.g. "Tags". */
+  tags: string;
+  /** Value added to `tags` when a lead opts out, e.g. "Baja". */
+  optOutTag: string;
 }
 
 export interface ClientConfig {

@@ -59,7 +59,7 @@ import {
 } from "../db/queries-admin.js";
 import { parseRule, ruleSummaryEs } from "../services/airtable-rules.js";
 import { assembleOverlay, estimateTokens } from "../brain/overlay.js";
-import { normalizeText, matchCampaign } from "../pipeline/campaigns.js";
+import { normalizeText, matchCampaign, firstReplyFor } from "../pipeline/campaigns.js";
 import {
   approveAndSend,
   editAndSend,
@@ -664,12 +664,14 @@ async function handleCampaignCreate(req: Request, env: Env): Promise<Response> {
     info?: string;
     endsAt?: number | null;
     adId?: string | null;
+    firstReply?: string | null;
   }>(req);
   const name = (body.name ?? "").trim();
   const trigger = (body.trigger ?? "").trim();
   const info = body.info ?? "";
   if (!name || !trigger) return json({ error: "name_and_trigger_required" }, 400);
   const adId = typeof body.adId === "string" ? body.adId.trim() || null : null;
+  const firstReply = typeof body.firstReply === "string" ? body.firstReply.trim() || null : null;
 
   const triggerNorm = normalizeText(trigger);
   // Duplicate trigger (normalized) → 409. Check before insert; the unique index
@@ -687,6 +689,7 @@ async function handleCampaignCreate(req: Request, env: Env): Promise<Response> {
       info,
       endsAt: body.endsAt ?? null,
       adId,
+      firstReply,
     });
     return json({ campaign });
   } catch (err) {
@@ -707,6 +710,7 @@ async function handleCampaignUpdate(req: Request, env: Env, id: number): Promise
     endsAt?: number | null;
     status?: string;
     adId?: string | null;
+    firstReply?: string | null;
   }>(req);
 
   let triggerNorm: string | undefined;
@@ -730,11 +734,14 @@ async function handleCampaignUpdate(req: Request, env: Env, id: number): Promise
     info: body.info,
     status,
   };
-  // endsAt / adId: only forward the key when the client explicitly sent it
-  // (an explicit null clears the column; absent leaves it unchanged).
+  // endsAt / adId / firstReply: only forward the key when the client explicitly
+  // sent it (an explicit null clears the column; absent leaves it unchanged).
   if ("endsAt" in body) update.endsAt = body.endsAt ?? null;
   if ("adId" in body) {
     update.adId = typeof body.adId === "string" ? body.adId.trim() || null : null;
+  }
+  if ("firstReply" in body) {
+    update.firstReply = typeof body.firstReply === "string" ? body.firstReply.trim() || null : null;
   }
 
   try {
@@ -862,6 +869,7 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
   // Mirror the pipeline's campaign matching so campaigns are testable in Probar:
   // if ANY user turn matches an active campaign trigger, attach its info.
   let campaign: ConvoContext["campaign"];
+  let firstReplyCandidate: string | null = null;
   try {
     const active = await getActiveCampaigns(env.DB);
     if (active.length > 0) {
@@ -870,13 +878,25 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
         const id = matchCampaign(normalizeText(t.body ?? ""), active);
         if (id !== null) {
           const c = active.find((x) => x.id === id);
-          if (c) campaign = { name: c.name, info: c.info };
+          if (c) {
+            campaign = { name: c.name, info: c.info };
+            // Instant-reply gate mirrors gate 5c: only fires when this is the
+            // lead's first message (a real conversation has no prior outbound).
+            firstReplyCandidate = firstReplyFor(c, turns.length !== 1);
+          }
           break;
         }
       }
     }
   } catch {
     // sandbox must never fail because of campaign lookup
+  }
+
+  // Campaign first-reply short-circuit (gate 5c parity): a fresh lead whose only
+  // message matches a campaign with a pre-written welcome gets it instantly — no
+  // brain call, mirrors "✅ Enviaría directo" in the sandbox reply card.
+  if (firstReplyCandidate) {
+    return json({ action: "send", message: firstReplyCandidate, language: "es", confidence: "high" });
   }
 
   const convoCtx: ConvoContext = {

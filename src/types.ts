@@ -117,8 +117,10 @@ export interface Campaign {
   info: string; // extra knowledge fed to the brain for this campaign's leads
   status: "active" | "paused" | "ended";
   ends_at: number | null; // epoch seconds; null = no end date
-  /** Meta ad id: leads whose referral.source_id matches auto-attach (ad_id > phrase). */
+  /** Meta ad id(s), comma/whitespace-separated: leads whose referral.source_id matches auto-attach (ad_id > phrase). */
   ad_id: string | null;
+  /** pre-written instant welcome; property may be ABSENT at runtime pre-migration (SELECT *) — consumers must `?? null`. */
+  first_reply: string | null;
   created_at: number;
   updated_at: number;
 }

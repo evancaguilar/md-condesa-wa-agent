@@ -870,7 +870,8 @@ async function loadCampaigns(){
     +'<label class="lab">Nombre</label><input id="cName" class="field" placeholder="Promo verano">'
     +'<label class="lab">Frase del anuncio (mensaje prellenado)</label><input id="cTrigger" class="field" placeholder="Hola, quiero info de la promo de verano">'
     +'<label class="lab">Información para el bot</label><textarea id="cInfo" class="field" placeholder="Contexto que el bot debe saber sobre esta campaña…"></textarea>'
-    +'<label class="lab">ID del anuncio (opcional)</label><input id="cAdId" class="field" placeholder="p. ej. 120210000000012345">'
+    +'<label class="lab">Respuesta automática al primer mensaje (opcional)</label><textarea id="cFirstReply" class="field" placeholder="Se envía al instante, sin IA ni aprobación, solo en el primer mensaje del lead"></textarea>'
+    +'<label class="lab">ID(s) del anuncio (opcional, varios separados por coma)</label><input id="cAdId" class="field" placeholder="p. ej. 120210000000012345, 120210000000067890">'
     +'<label class="lab">Termina el (opcional)</label><input id="cEnds" class="field" type="date">'
     +'<button id="cCreate" class="btn gold" style="margin-top:12px">Crear campaña</button></details></div>';
   if(!items.length){ html+='<div class="card muted">Sin campañas todavía.</div>'; }
@@ -939,6 +940,7 @@ function dateInputVal(epoch){
 function campCard(c){
   var ends = c.ends_at ? '<div style="margin-top:4px"><span class="muted sm">vence '+esc(fmtDate(c.ends_at))+'</span></div>' : "";
   var adChip = c.ad_id ? ' <span class="chip blue">ad '+esc(c.ad_id)+'</span>' : "";
+  var autoChip = c.first_reply ? ' <span class="chip gold">⚡ auto</span>' : "";
   var btns='<button class="btn sm" data-cedit="1">✏️ Editar</button>';
   if(c.status==="active") btns+='<button class="btn sm" data-cs="paused">Pausar</button>';
   if(c.status==="paused") btns+='<button class="btn green sm" data-cs="active">Reactivar</button>';
@@ -947,13 +949,14 @@ function campCard(c){
     +'<label class="lab">Nombre</label><input class="field ce-name" value="'+esc(c.name)+'">'
     +'<label class="lab">Frase del anuncio</label><input class="field ce-trigger" value="'+esc(c.trigger_phrase)+'">'
     +'<label class="lab">Información para el bot</label><textarea class="field ce-info">'+esc(c.info||"")+'</textarea>'
-    +'<label class="lab">ID del anuncio (vacío = quitar)</label><input class="field ce-adid" value="'+esc(c.ad_id||"")+'">'
+    +'<label class="lab">Respuesta automática al primer mensaje (vacío = quitar)</label><textarea class="field ce-firstreply">'+esc(c.first_reply||"")+'</textarea>'
+    +'<label class="lab">ID(s) del anuncio (varios separados por coma; vacío = quitar)</label><input class="field ce-adid" value="'+esc(c.ad_id||"")+'">'
     +'<label class="lab">Termina el (vacío = sin fecha)</label><input class="field ce-ends" type="date" value="'+(c.ends_at?dateInputVal(c.ends_at):"")+'">'
     +'<div class="row" style="margin-top:10px"><button class="btn gold sm ce-save">Guardar</button>'
     +'<button class="btn sm ce-cancel">Cancelar</button></div></div>';
   return '<div class="card" id="camp-'+c.id+'" data-id="'+c.id+'">'
     +'<div class="between"><b>'+esc(c.name)+'</b>'+campStatusChip(c.status)+'</div>'
-    +'<div class="muted sm" style="margin-top:4px">“'+esc(c.trigger_phrase)+'”'+adChip+'</div>'
+    +'<div class="muted sm" style="margin-top:4px">“'+esc(c.trigger_phrase)+'”'+adChip+autoChip+'</div>'
     +ends
     +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div>'+form+'</div>';
 }
@@ -973,10 +976,12 @@ async function saveCampaign(id,card){
   var name=q(".ce-name",card).value.trim();
   var trigger=q(".ce-trigger",card).value.trim();
   var info=q(".ce-info",card).value.trim();
+  var firstReply=q(".ce-firstreply",card).value.trim();
   var adId=q(".ce-adid",card).value.trim();
   var ends=q(".ce-ends",card).value;
   if(!name||!trigger||!info){ toast("Nombre, frase e información son obligatorios","err"); return; }
   var body={name:name,trigger:trigger,info:info,
+    firstReply:firstReply||null,
     adId:adId||null,
     endsAt:ends?Math.floor(new Date(ends+"T23:59:59").getTime()/1000):null};
   try{
@@ -991,10 +996,12 @@ async function createCampaign(){
   var name=el("cName").value.trim();
   var trigger=el("cTrigger").value.trim();
   var info=el("cInfo").value.trim();
+  var firstReply=el("cFirstReply")?el("cFirstReply").value.trim():"";
   var adId=el("cAdId")?el("cAdId").value.trim():"";
   var ends=el("cEnds").value;
   if(!name||!trigger||!info){ toast("Nombre, frase e información son obligatorios","err"); return; }
   var body={name:name,trigger:trigger,info:info};
+  if(firstReply){ body.firstReply=firstReply; }
   if(adId){ body.adId=adId; }
   if(ends){ body.endsAt=Math.floor(new Date(ends+"T23:59:59").getTime()/1000); }
   try{

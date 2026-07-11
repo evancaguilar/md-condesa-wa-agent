@@ -57,6 +57,8 @@ export default {
       kid: "Kids",
       baby: "Baby Fight Club (BFC)",
     },
+    tags: "Tags",
+    optOutTag: "Baja",
   },
   copy: {
     confirmEs:

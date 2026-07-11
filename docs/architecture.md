@@ -104,14 +104,17 @@ CREATE TABLE kv(key TEXT PRIMARY KEY, value TEXT);  -- bot_enabled flag, airtabl
 
 ## Inbound pipeline (`src/pipeline/inbound.ts`)
 
-Gate order:
-1. **Dedupe**: `INSERT OR IGNORE INTO messages(wamid,…)`; existing row ⇒ drop event.
+Gate order (contractual — the file header comment mirrors this list):
+1. **Dedupe**: `INSERT OR IGNORE INTO messages(wamid,…)`; existing row ⇒ drop event. (Voice notes are transcribed before this so the stored body is the transcript; ad referral + nudge-cancel run right after.)
 2. **Global kill switch**: `kv.bot_enabled === 'false'` ⇒ log + surface to Slack, no reply.
-3. **Opt-out**: body matches `BAJA|STOP|ALTO` (case-insensitive, trimmed) ⇒ `status='opted_out'`, cancel followups, send one confirmation, done.
-4. **Student**: `status='student'` ⇒ Slack note "known student wrote on lead line", no bot reply.
-5. **Human override**: `human_override_until > now` ⇒ log + silent Slack surface, no reply.
-6. **Debounce**: after storing, wait ~8s in `waitUntil`, re-check for a newer inbound from same phone; only the latest event calls the brain (consuming all unanswered messages).
-7. **Brain** → route result: auto-send (confidence high AND `TRAINING_WHEELS=0`) or draft→Slack approval.
+3. **Opt-out**: `isOptOut(body)` (src/pipeline/opt-out.ts — exact-match set: baja/stop/alto/unsubscribe + unambiguous "ya no me manden mensajes" phrases, accent/punctuation-tolerant) ⇒ `status='opted_out'`, cancel followups, flag `Tags += "Baja"` in Airtable (best-effort), 🚫 Slack note, send one confirmation, done.
+4. **Campaign tagging**: referral `source_id` ∈ campaign `ad_id` list (comma-separated) wins over trigger-phrase prefix match; tags `contacts.campaign_id` + syncs Airtable.
+5. **Student**: `status='student'` ⇒ Slack note "known student wrote on lead line", no bot reply.
+6. **Human override**: `human_override_until > now` ⇒ log + silent Slack surface, no reply.
+7. **Crisis safety** (features.safety): deterministic containment reply + pause + urgent Slack escalation.
+8. **Campaign first-reply**: a brand-new ad lead (no prior outbound message) whose message matched a campaign with `first_reply` set gets that pre-written welcome INSTANTLY — no debounce, no brain, no approval (ManyChat parity). At-most-once per phone via atomic kv claim `first_reply_sent:<phone>`; arms the nudge drip; ⚡ FYI note to Slack; the AI takes over from the lead's next message. A failed send falls through to the brain path.
+9. **Debounce**: after storing, wait ~8s in `waitUntil`, re-check for a newer inbound from same phone; only the latest event calls the brain (consuming all unanswered messages).
+10. **Brain** → route result: auto-send (confidence high AND `TRAINING_WHEELS=0`) or draft→Slack approval.
 
 ## Global kill switch
 

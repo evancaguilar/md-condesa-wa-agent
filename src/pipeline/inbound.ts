@@ -1,10 +1,12 @@
 // Inbound pipeline. Gate order is EXACTLY as architecture.md §Inbound pipeline:
-// dedupe → kill switch → opt-out → student → human override → 8s debounce →
-// brain → route reply. Brain/Slack/Airtable arrive as injected ports.
+// dedupe → kill switch → opt-out → campaign tagging → student → human override
+// → crisis → campaign first-reply → 8s debounce → brain → route reply.
+// Brain/Slack/Airtable arrive as injected ports.
 
 import type {
   AdRef,
   BrainResult,
+  Campaign,
   ConvoContext,
   Env,
   Ports,
@@ -16,9 +18,11 @@ import {
   getContact,
   getPendingApprovals,
   supersedeApproval,
+  hasOutboundMessage,
   insertMessageIfNew,
   isBotEnabled,
   kvSet,
+  kvSetIfAbsent,
   newestInboundWamid,
   recentMessages,
   scheduleFollowup,
@@ -29,7 +33,7 @@ import {
   touchLastInbound,
   upsertContact,
 } from "../db/queries.js";
-import { syncLead } from "../services/lead-sync.js";
+import { flagOptOutInAirtable, syncLead } from "../services/lead-sync.js";
 import {
   getActiveCampaigns,
   getCampaign,
@@ -37,7 +41,14 @@ import {
   setContactAdRef,
   setContactCampaign,
 } from "../db/queries-admin.js";
-import { matchCampaign, matchCampaignByAdId, normalizeText } from "./campaigns.js";
+import {
+  firstReplyFor,
+  firstReplyKey,
+  matchCampaign,
+  matchCampaignByAdId,
+  normalizeText,
+} from "./campaigns.js";
+import { isOptOut } from "./opt-out.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/wa.js";
 import { bookingApprovalKey } from "../services/approvals.js";
@@ -46,8 +57,6 @@ import { fetchMediaBytes, transcribe } from "../services/media.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
 import { armNudges, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
-
-const OPT_OUT = /^\s*(baja|stop|alto)\s*$/i;
 
 // Crisis patterns compiled once per isolate (empty when the feature is off).
 const SAFETY_PATTERNS =
@@ -141,10 +150,15 @@ export async function processInbound(
     return;
   }
 
-  // 3. Opt-out.
-  if (OPT_OUT.test(body)) {
+  // 3. Opt-out. CRM flag + Slack note go out BEFORE the confirmation send so
+  // the baja is visible to the team even if that send fails.
+  if (isOptOut(body)) {
     await setContactStatus(env.DB, msg.phone, "opted_out");
     await cancelFollowups(env.DB, msg.phone, "skipped_optout");
+    ctx.waitUntil(flagOptOutInAirtable(env, msg.phone));
+    await ports.slack.postNote(
+      `🚫 ${msg.phone} se dio de baja (opt-out). Seguimientos cancelados.`,
+    );
     try {
       await sendText(
         env,
@@ -162,11 +176,14 @@ export async function processInbound(
   // WhatsApp lead is attributed by the ad it clicked, not its prefilled text.
   // Only active, in-flight campaigns are considered.
   const activeCampaigns = await getActiveCampaigns(env.DB);
+  let matchedCampaign: Campaign | null = null;
   if (activeCampaigns.length > 0) {
     const campaignId =
       matchCampaignByAdId(msg.referral?.sourceId, activeCampaigns) ??
       matchCampaign(normalizeText(body), activeCampaigns);
     if (campaignId !== null) {
+      matchedCampaign =
+        activeCampaigns.find((c) => c.id === campaignId) ?? null;
       await setContactCampaign(env.DB, msg.phone, campaignId);
       // Sync the campaign tag + fire campaign/program rules (best-effort).
       ctx.waitUntil(syncLead(env, msg.phone, "campaign_matched"));
@@ -216,6 +233,43 @@ export async function processInbound(
       `🚨 SEÑAL DE CRISIS (${msg.phone}). Bot pausado ${safety.pauseHours}h; se envió el mensaje de contención con recursos. ATENCIÓN HUMANA URGENTE.\nMensaje: ${body}`,
     );
     return;
+  }
+
+  // 5c. Campaign first-reply: a brand-new ad lead whose message matched a
+  // campaign with a pre-written welcome gets it INSTANTLY — no debounce, no
+  // brain, no approval (ManyChat parity); the AI takes over from the lead's
+  // NEXT message. The prior-outbound check keeps a trigger phrase typed
+  // mid-conversation from re-welcoming; the atomic kv claim makes the send
+  // at-most-once per phone. A failed send falls through to the brain path.
+  if (matchedCampaign && contact.status === "lead") {
+    const canned = firstReplyFor(
+      matchedCampaign,
+      await hasOutboundMessage(env.DB, msg.phone),
+    );
+    if (
+      canned !== null &&
+      (await kvSetIfAbsent(env.DB, firstReplyKey(msg.phone), String(nowSec)))
+    ) {
+      try {
+        await sendText(env, msg.phone, canned);
+        await armNudges(env, msg.phone);
+        ctx.waitUntil(
+          ports.slack
+            .postNote(
+              `⚡ Nuevo lead — campaña «${matchedCampaign.name}» (${msg.phone}). Respuesta automática enviada; la IA contesta a partir de su próximo mensaje.`,
+            )
+            .catch(() => {}),
+        );
+        return;
+      } catch (err) {
+        // WindowClosed can't happen here (last_inbound was just touched); any
+        // other send failure degrades to a normal AI reply this turn.
+        console.error(
+          `[inbound] first-reply send failed for ${msg.phone}:`,
+          err,
+        );
+      }
+    }
   }
 
   // 6. Debounce: wait ~8s, then only the newest inbound proceeds so we consume

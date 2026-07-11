@@ -14,6 +14,7 @@ import {
   buildPatchFields,
   extractUnknownFieldName,
   findLeadByPhone,
+  leadsMap,
   updateRecord,
   upsertLead,
 } from "./airtable.js";
@@ -23,7 +24,7 @@ import { postNote } from "./slack.js";
 import { cdmxDateStr } from "../cron/time.js";
 
 /** What triggered a sync — only used for logging/Slack context. */
-export type SyncEvent = "lead_created" | "campaign_matched" | "booking_created";
+export type SyncEvent = "lead_created" | "campaign_matched" | "booking_created" | "opted_out";
 
 const nowSec = (): number => Math.floor(Date.now() / 1000);
 
@@ -80,6 +81,26 @@ export async function syncLead(env: Env, phone: string, event: SyncEvent): Promi
     await applyRules(env, phone, contact, campaignName, res.id, res.fields);
   } catch (err) {
     await noteSyncFailure(env, phone, event, err);
+  }
+}
+
+/**
+ * Adds the opt-out tag to the lead's Tags multi-select. Best-effort + gated
+ * like syncLead; no row yet (opt-out on the lead's very first message) is a
+ * silent no-op — there's nothing to tag.
+ */
+export async function flagOptOutInAirtable(env: Env, phone: string): Promise<void> {
+  if (!CLIENT.features.airtableSync) return;
+  try {
+    const current = await findLeadByPhone(env, phone);
+    if (!current) return;
+    const map = leadsMap();
+    const patch = buildPatchFields(current.fields, [
+      { op: "add", field: map.tags, value: map.optOutTag },
+    ]);
+    await updateRecord(env, env.AIRTABLE_TRIALS_TABLE, current.id, patch);
+  } catch (err) {
+    await noteSyncFailure(env, phone, "opted_out", err);
   }
 }
 

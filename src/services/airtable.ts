@@ -47,6 +47,8 @@ export const DEFAULT_LEADS_MAP: AirtableLeadsMap = {
   result: DEFAULT_RESULT_FIELD,
   disciplineValues: {},
   audienceValues: {},
+  tags: "Tags",
+  optOutTag: "Baja",
 };
 
 /** The active client's Leads-table map (client overrides merged over defaults). */

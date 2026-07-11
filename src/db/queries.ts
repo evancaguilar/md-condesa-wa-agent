@@ -192,6 +192,20 @@ export async function newestInboundWamid(
   return row?.wamid ?? null;
 }
 
+/** True if any non-inbound message (bot or human echo) has ever been sent to this phone. */
+export async function hasOutboundMessage(
+  db: D1Database,
+  phone: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS n FROM messages WHERE phone = ?1 AND direction != 'in' LIMIT 1`,
+    )
+    .bind(phone)
+    .first<{ n: number }>();
+  return row !== null;
+}
+
 // ---- pending approvals ----
 
 export interface CreateApprovalInput {
@@ -484,6 +498,23 @@ export async function kvSet(
     )
     .bind(key, value)
     .run();
+}
+
+/**
+ * Atomic claim: inserts the key only if absent. Returns true only if THIS call
+ * won (a new row was inserted) — the at-most-once primitive for first-reply
+ * dedupe (and any other "claim this once" use).
+ */
+export async function kvSetIfAbsent(
+  db: D1Database,
+  key: string,
+  value: string,
+): Promise<boolean> {
+  const res = await db
+    .prepare(`INSERT OR IGNORE INTO kv(key, value) VALUES(?1, ?2)`)
+    .bind(key, value)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 /** bot_enabled defaults to true when the kv row is absent. */
