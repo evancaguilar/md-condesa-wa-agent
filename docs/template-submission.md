@@ -4,7 +4,7 @@ One-time submission artifact for go-live. **Copy source of truth is docs/templat
 
 ## Where
 
-business.facebook.com → **WhatsApp Manager** → account **MD Condesa** (WABA `1545530463899885`) → **Account tools → Message templates** → *Create template*. Templates belong to the WABA, so they work for the real leads number at cutover regardless of which number is live today.
+business.facebook.com → **WhatsApp Manager** → account **"MD Self Defense Condesa"** (WABA `2227852814309146` — the one holding the REAL number +52 55 3426 0813; NOT the test WABA `1545530463899885`) → **Account tools → Message templates** → *Create template*. Templates belong to the WABA — submitting them under the test account makes them unusable on the real number.
 
 ## Rules that will break sends if you miss them
 
