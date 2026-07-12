@@ -517,6 +517,29 @@ export async function kvSetIfAbsent(
   return (res.meta.changes ?? 0) > 0;
 }
 
+/**
+ * Atomic timestamp claim: wins when the key is absent OR its stored epoch is at
+ * least `minAgeSeconds` old (then bumps it to `nowSec`). The cooldown primitive
+ * for the campaign first-reply RE-send on an ad re-click — a concurrent second
+ * webhook loses the upsert's WHERE and gets false.
+ */
+export async function kvClaimIfAbsentOrOlder(
+  db: D1Database,
+  key: string,
+  nowSec: number,
+  minAgeSeconds: number,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `INSERT INTO kv(key, value) VALUES(?1, ?2)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value
+       WHERE CAST(kv.value AS INTEGER) <= CAST(excluded.value AS INTEGER) - ?3`,
+    )
+    .bind(key, String(nowSec), minAgeSeconds)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
 /** bot_enabled defaults to true when the kv row is absent. */
 export async function isBotEnabled(db: D1Database): Promise<boolean> {
   const v = await kvGet(db, "bot_enabled");

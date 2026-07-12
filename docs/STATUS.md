@@ -15,11 +15,14 @@ Recent fixes (2026-07-08/09): stale pending approvals auto-supersede when the le
 - **Multi-ad-id campaigns**: `campaigns.ad_id` now accepts a comma-separated list (one concept = many live Meta ads).
 - **Opt-out hardening**: broader exact-match set (baja/stop/alto/unsubscribe + "ya no me manden mensajes" variants, accent/punctuation-tolerant, src/pipeline/opt-out.ts), 🚫 Slack note, and best-effort `Tags += "Baja"` on the Airtable lead.
 - **Template submission pack**: docs/template-submission.md — copy-paste doc for Evan to submit all 24 templates in WhatsApp Manager.
+- **First-reply RE-send on ad re-click** (Evan request, same day): a known lead who clicks an ad again (inbound carries a referral) and has no trial booked gets the same campaign welcome again, at most once per 24h (`kvClaimIfAbsentOrOlder` cooldown claim). Typing trigger-like text mid-chat never re-welcomes. Slack note: 🔁.
+- **🧹 Reiniciar (prueba)** button in Chats detail: wipes messages/followups/approvals/kv claims + resets the contact so a test phone acts like a brand-new lead (POST /admin/api/conversations/:phone/reset).
+- The 4 campaigns are LOADED in /admin with welcomes + ad ids (curso de verano ends 14-ago; BFC active but ad-less, ads paused on purpose).
 
 ## Evan's pending setup (blockers marked ⚠️)
 
 - [x] D1 migration: `airtable_rules` table + `contacts.airtable_lead_id` (ran 2026-07-09)
-- [ ] ⚠️ **AIRTABLE_PAT secret** — until set, NOTHING writes to Airtable (no lead rows, no chat-booking `Trial DateTime`, no rules). Token at airtable.com/create/tokens, scopes `data.records:read`, `data.records:write`, `schema.bases:read` on base `appcX38TBVltyxHR6`; add as Secret on the worker.
+- [x] **AIRTABLE_PAT secret** — set on the worker (confirmed 2026-07-11). If Airtable writes ever fail, verify the token still has scopes `data.records:read`, `data.records:write`, `schema.bases:read` on base `appcX38TBVltyxHR6`.
 - [x] Airtable field mapping (2026-07-09): the bot now writes Evan's REAL Spanish CRM columns (`# de Teléfono`, `Nombre de Lead`, `Fecha Clase Prueba`, `Actividad`, `Programa`, `Canal`="WA", `Campaña`, `Ad`, `Resultado Clase Prueba`, `Tags`) via `airtableLeads` map in clients/md-condesa/client.mjs. Phone lookup matches last-10-digits regardless of stored format. No English fields needed.
 - [ ] ⚠️ **D1 migration for campaign first replies**: `ALTER TABLE campaigns ADD COLUMN first_reply TEXT;` — until it runs, saved first replies are silently dropped (soft-fail) and gate 5c never fires.
 - [ ] Earlier D1 migrations if not yet run: `ALTER TABLE contacts ADD COLUMN ad_ref TEXT; ALTER TABLE campaigns ADD COLUMN ad_id TEXT;` + dashboard tables (docs/phase0-checklist.md Step 6c).

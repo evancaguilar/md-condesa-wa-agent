@@ -23,6 +23,7 @@ import {
   isBotEnabled,
   kvSet,
   kvSetIfAbsent,
+  kvClaimIfAbsentOrOlder,
   newestInboundWamid,
   recentMessages,
   scheduleFollowup,
@@ -38,10 +39,13 @@ import {
   getActiveCampaigns,
   getCampaign,
   getTrainingWheels,
+  hasScheduledFollowupOfKind,
   setContactAdRef,
   setContactCampaign,
 } from "../db/queries-admin.js";
 import {
+  FIRST_REPLY_RESEND_COOLDOWN_SECONDS,
+  firstReplyDecision,
   firstReplyFor,
   firstReplyKey,
   matchCampaign,
@@ -55,7 +59,7 @@ import { bookingApprovalKey } from "../services/approvals.js";
 import { CLIENT } from "../client.gen.js";
 import { fetchMediaBytes, transcribe } from "../services/media.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
-import { armNudges, cancelNudges } from "../cron/nudges.js";
+import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
 // Crisis patterns compiled once per isolate (empty when the feature is off).
@@ -235,39 +239,57 @@ export async function processInbound(
     return;
   }
 
-  // 5c. Campaign first-reply: a brand-new ad lead whose message matched a
-  // campaign with a pre-written welcome gets it INSTANTLY — no debounce, no
-  // brain, no approval (ManyChat parity); the AI takes over from the lead's
-  // NEXT message. The prior-outbound check keeps a trigger phrase typed
-  // mid-conversation from re-welcoming; the atomic kv claim makes the send
-  // at-most-once per phone. A failed send falls through to the brain path.
+  // 5c. Campaign first-reply: a campaign-matched lead gets the pre-written
+  // welcome INSTANTLY — no debounce, no brain, no approval (ManyChat parity);
+  // the AI takes over from the lead's NEXT message. Two ways in:
+  //  - "first": brand-new lead (no outbound ever); at-most-once via kv claim.
+  //  - "resend": a known lead CLICKED AN AD AGAIN (referral present) and has
+  //    no trial booked — same welcome again, at most once per cooldown window
+  //    (atomic kv timestamp claim). Typing trigger-like text mid-chat never
+  //    re-welcomes. A failed send falls through to the brain path.
   if (matchedCampaign && contact.status === "lead") {
-    const canned = firstReplyFor(
-      matchedCampaign,
-      await hasOutboundMessage(env.DB, msg.phone),
-    );
-    if (
-      canned !== null &&
-      (await kvSetIfAbsent(env.DB, firstReplyKey(msg.phone), String(nowSec)))
-    ) {
-      try {
-        await sendText(env, msg.phone, canned);
-        await armNudges(env, msg.phone);
-        ctx.waitUntil(
-          ports.slack
-            .postNote(
-              `⚡ Nuevo lead — campaña «${matchedCampaign.name}» (${msg.phone}). Respuesta automática enviada; la IA contesta a partir de su próximo mensaje.`,
-            )
-            .catch(() => {}),
-        );
-        return;
-      } catch (err) {
-        // WindowClosed can't happen here (last_inbound was just touched); any
-        // other send failure degrades to a normal AI reply this turn.
-        console.error(
-          `[inbound] first-reply send failed for ${msg.phone}:`,
-          err,
-        );
+    const canned = firstReplyFor(matchedCampaign, false);
+    if (canned !== null) {
+      const hasPriorOutbound = await hasOutboundMessage(env.DB, msg.phone);
+      const hasActiveBooking =
+        hasPriorOutbound && msg.referral
+          ? await hasScheduledFollowupOfKind(env.DB, msg.phone, BOOKING_KINDS)
+          : false;
+      const decision = firstReplyDecision({
+        hasPriorOutbound,
+        hasReferral: Boolean(msg.referral),
+        hasActiveBooking,
+      });
+      const key = firstReplyKey(msg.phone);
+      const claimed =
+        decision === "first"
+          ? await kvSetIfAbsent(env.DB, key, String(nowSec))
+          : decision === "resend"
+            ? await kvClaimIfAbsentOrOlder(
+                env.DB,
+                key,
+                nowSec,
+                FIRST_REPLY_RESEND_COOLDOWN_SECONDS,
+              )
+            : false;
+      if (claimed) {
+        try {
+          await sendText(env, msg.phone, canned);
+          await armNudges(env, msg.phone);
+          const note =
+            decision === "first"
+              ? `⚡ Nuevo lead — campaña «${matchedCampaign.name}» (${msg.phone}). Respuesta automática enviada; la IA contesta a partir de su próximo mensaje.`
+              : `🔁 Lead volvió a llegar por la campaña «${matchedCampaign.name}» (${msg.phone}). Bienvenida reenviada.`;
+          ctx.waitUntil(ports.slack.postNote(note).catch(() => {}));
+          return;
+        } catch (err) {
+          // WindowClosed can't happen here (last_inbound was just touched); any
+          // other send failure degrades to a normal AI reply this turn.
+          console.error(
+            `[inbound] first-reply send failed for ${msg.phone}:`,
+            err,
+          );
+        }
       }
     }
   }

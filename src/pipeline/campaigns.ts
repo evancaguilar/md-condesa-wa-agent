@@ -86,3 +86,24 @@ export function firstReplyFor(
 export function firstReplyKey(phone: string): string {
   return `first_reply_sent:${phone}`;
 }
+
+/** Minimum age of the last canned welcome before an ad re-click re-sends it. */
+export const FIRST_REPLY_RESEND_COOLDOWN_SECONDS = 24 * 3600;
+
+/**
+ * Whether a campaign-matched inbound should get the canned welcome:
+ *  - "first": brand-new lead (no outbound ever) — any match kind qualifies.
+ *  - "resend": returning lead who CLICKED AN AD AGAIN (referral present — typing
+ *    something trigger-like mid-chat never re-welcomes) and has no trial booked.
+ *    The caller still enforces the resend cooldown via the kv timestamp claim.
+ *  - "none": everything else → normal brain path.
+ */
+export function firstReplyDecision(opts: {
+  hasPriorOutbound: boolean;
+  hasReferral: boolean;
+  hasActiveBooking: boolean;
+}): "first" | "resend" | "none" {
+  if (!opts.hasPriorOutbound) return "first";
+  if (opts.hasReferral && !opts.hasActiveBooking) return "resend";
+  return "none";
+}

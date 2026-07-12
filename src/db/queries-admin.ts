@@ -694,6 +694,43 @@ export async function statsOverview(db: D1Database): Promise<StatsOverview> {
   };
 }
 
+// ---- conversation reset (testing tool) ----
+
+/**
+ * Wipes a conversation so the phone behaves like a brand-new lead again:
+ * deletes its messages, followups, pending approvals, and the first-reply /
+ * nudge-cap kv claims, then resets the contact's lead state. Admin testing
+ * tool — keeps `airtable_lead_id` so the CRM row stays linked (upsert-by-phone
+ * would re-find it anyway).
+ */
+export async function resetConversation(
+  db: D1Database,
+  phone: string,
+): Promise<void> {
+  await db.prepare(`DELETE FROM messages WHERE phone = ?1`).bind(phone).run();
+  await db.prepare(`DELETE FROM followups WHERE phone = ?1`).bind(phone).run();
+  await db
+    .prepare(`DELETE FROM pending_approvals WHERE phone = ?1`)
+    .bind(phone)
+    .run();
+  await db
+    .prepare(`DELETE FROM kv WHERE key IN (?1, ?2, ?3)`)
+    .bind(
+      `first_reply_sent:${phone}`,
+      `nudge_count:${phone}`,
+      `seq_done:${phone}`,
+    )
+    .run();
+  await db
+    .prepare(
+      `UPDATE contacts SET status = 'lead', campaign_id = NULL, ad_ref = NULL,
+       qualification = NULL, human_override_until = NULL, last_inbound_at = NULL,
+       updated_at = ?2 WHERE phone = ?1`,
+    )
+    .bind(phone, now())
+    .run();
+}
+
 // ---- training wheels (kv override, env fallback) ----
 
 /**

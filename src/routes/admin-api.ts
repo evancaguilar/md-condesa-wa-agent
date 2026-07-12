@@ -51,6 +51,7 @@ import {
   statsOverview,
   getTrainingWheels,
   clearHumanOverride,
+  resetConversation,
   getActiveCampaigns,
   listAirtableRules,
   getAirtableRule,
@@ -212,7 +213,7 @@ export async function handleAdminApi(
   if (path === "/admin/api/conversations" && method === "GET") {
     return handleConversationsList(env, url);
   }
-  const convoMatch = path.match(/^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status))?$/);
+  const convoMatch = path.match(/^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset))?$/);
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
     const sub = convoMatch[3];
@@ -220,6 +221,11 @@ export async function handleAdminApi(
     if (sub === "pause" && method === "POST") return handlePause(req, env, phone);
     if (sub === "resume" && method === "POST") return handleResume(env, phone);
     if (sub === "status" && method === "POST") return handleStatus(req, env, phone);
+    if (sub === "reset" && method === "POST") {
+      // Testing tool: wipe history + claims so the phone acts like a new lead.
+      await resetConversation(env.DB, phone);
+      return json({ ok: true });
+    }
     return json({ error: "not_found" }, 404);
   }
 

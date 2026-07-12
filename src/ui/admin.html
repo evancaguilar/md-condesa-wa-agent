@@ -516,12 +516,14 @@ async function openChat(phone){
   if(paused) actions+='<button class="btn green sm" id="resumeBtn">▶ Reanudar</button>';
   else actions+='<button class="btn sm" id="pauseBtn">⏸ Pausar bot aquí</button>';
   if(contact.status!=="student") actions+='<button class="btn gold sm" id="studentBtn">🎓 Marcar como alumno</button>';
+  actions+='<button class="btn red sm" id="resetBtn">🧹 Reiniciar (prueba)</button>';
   actions+='</div>';
   det.innerHTML=head+bubbles+actions;
   if(el("chatBack")) el("chatBack").onclick=function(){ el("chatList").classList.remove("hidden"); det.innerHTML=""; };
   if(el("pauseBtn")) el("pauseBtn").onclick=function(){ pauseConvo(phone); };
   if(el("resumeBtn")) el("resumeBtn").onclick=function(){ resumeConvo(phone); };
   if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(phone); };
+  if(el("resetBtn")) el("resetBtn").onclick=function(){ resetConvo(phone); };
   var tr=q(".transcript",det); if(tr) tr.scrollTop=tr.scrollHeight;
 }
 function isVoiceMsg(msg){
@@ -549,6 +551,12 @@ async function markStudent(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/status",{method:"POST",body:{status:"student"}});
     toast("Marcado como alumno","ok"); openChat(phone); loadChats(); }
   catch(e){ toast("No se pudo actualizar","err"); }
+}
+async function resetConvo(phone){
+  if(!confirm("¿Borrar TODO el historial y estado de este número? El bot lo tratará como lead nuevo (bienvenida de campaña incluida). Solo para pruebas.")) return;
+  try{ await api("/conversations/"+encodeURIComponent(phone)+"/reset",{method:"POST",body:{}});
+    toast("Conversación reiniciada","ok"); el("chatDetail").innerHTML=""; loadChats(); }
+  catch(e){ toast("No se pudo reiniciar","err"); }
 }
 
 // ---------- APROBACIONES ----------

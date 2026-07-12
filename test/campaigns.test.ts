@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  firstReplyDecision,
   firstReplyFor,
   firstReplyKey,
   matchCampaign,
@@ -113,6 +114,35 @@ test("ad-id match returns null on empty/undefined source id", () => {
 test("ad-id match ignores campaigns with null ad_id", () => {
   const id = matchCampaignByAdId("123", [campaign({ id: 3, ad_id: null })]);
   assert.equal(id, null);
+});
+
+test("firstReplyDecision: new lead → first, regardless of referral", () => {
+  assert.equal(
+    firstReplyDecision({ hasPriorOutbound: false, hasReferral: false, hasActiveBooking: false }),
+    "first",
+  );
+  assert.equal(
+    firstReplyDecision({ hasPriorOutbound: false, hasReferral: true, hasActiveBooking: false }),
+    "first",
+  );
+});
+
+test("firstReplyDecision: returning ad click (referral) → resend, unless booked", () => {
+  assert.equal(
+    firstReplyDecision({ hasPriorOutbound: true, hasReferral: true, hasActiveBooking: false }),
+    "resend",
+  );
+  assert.equal(
+    firstReplyDecision({ hasPriorOutbound: true, hasReferral: true, hasActiveBooking: true }),
+    "none",
+  );
+});
+
+test("firstReplyDecision: trigger typed mid-chat without referral → none", () => {
+  assert.equal(
+    firstReplyDecision({ hasPriorOutbound: true, hasReferral: false, hasActiveBooking: false }),
+    "none",
+  );
 });
 
 test("ad-id match supports a comma/whitespace-separated id list", () => {
