@@ -192,6 +192,25 @@ export async function newestInboundWamid(
   return row?.wamid ?? null;
 }
 
+/**
+ * Sets the contact's name ONLY when none is stored yet. Used for the WhatsApp
+ * profile (push) name — a display alias that must never overwrite a real name
+ * the bot learned in conversation or a booking.
+ */
+export async function setContactNameIfEmpty(
+  db: D1Database,
+  phone: string,
+  name: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE contacts SET name = ?2, updated_at = ?3
+       WHERE phone = ?1 AND (name IS NULL OR name = '')`,
+    )
+    .bind(phone, name, now())
+    .run();
+}
+
 /** True if any non-inbound message (bot or human echo) has ever been sent to this phone. */
 export async function hasOutboundMessage(
   db: D1Database,

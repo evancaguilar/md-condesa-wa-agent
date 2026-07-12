@@ -28,6 +28,7 @@ import {
   recentMessages,
   scheduleFollowup,
   setApprovalSlackTs,
+  setContactNameIfEmpty,
   setContactStatus,
   setHumanOverride,
   setQualification,
@@ -77,6 +78,8 @@ export interface InboundMessage {
   phone: string;
   body: string;
   ts: number;
+  /** WhatsApp profile (push) name from the webhook, if present. */
+  profileName?: string;
   /** Click-to-WhatsApp ad referral rider (parsed from the webhook), if present. */
   referral?: InboundReferral;
   /** Voice-note / audio media to transcribe (kind:'audio'), if present. */
@@ -122,6 +125,12 @@ export async function processInbound(
   if (!inserted) return;
 
   await upsertContact(env.DB, { phone: msg.phone });
+  // WhatsApp push name → contact.name, fill-if-empty only (never overwrite a
+  // real name learned in conversation). Gives Airtable a name from message #1,
+  // like ManyChat did.
+  if (msg.profileName) {
+    await setContactNameIfEmpty(env.DB, msg.phone, msg.profileName);
+  }
   await touchLastInbound(env.DB, msg.phone, msg.ts);
 
   // 1a. Ad attribution: on the first inbound carrying a click-to-WhatsApp
@@ -189,18 +198,29 @@ export async function processInbound(
       matchedCampaign =
         activeCampaigns.find((c) => c.id === campaignId) ?? null;
       await setContactCampaign(env.DB, msg.phone, campaignId);
-      // Sync the campaign tag + fire campaign/program rules (best-effort).
-      ctx.waitUntil(syncLead(env, msg.phone, "campaign_matched"));
     }
   }
 
   const contact = await getContact(env.DB, msg.phone);
   if (!contact) return;
 
-  // First-contact Airtable row: every lead gets a Leads record (Airtable is the
-  // CRM). Only when we haven't synced yet; best-effort, never blocks the reply.
-  if (contact.airtable_lead_id === null) {
-    ctx.waitUntil(syncLead(env, msg.phone, "lead_created"));
+  // Airtable sync — ONE sequential chain, never parallel calls: a first ad
+  // message needs both lead_created and campaign_matched, and firing them
+  // concurrently made both see "no row yet" and create DUPLICATE Leads rows.
+  // Best-effort, never blocks the reply.
+  {
+    const needsLeadCreate = contact.airtable_lead_id === null;
+    const campaignJustMatched = matchedCampaign !== null;
+    if (needsLeadCreate || campaignJustMatched) {
+      ctx.waitUntil(
+        (async () => {
+          if (needsLeadCreate) await syncLead(env, msg.phone, "lead_created");
+          if (campaignJustMatched) {
+            await syncLead(env, msg.phone, "campaign_matched");
+          }
+        })(),
+      );
+    }
   }
 
   // 4. Student on the lead line: silent, ping Slack.

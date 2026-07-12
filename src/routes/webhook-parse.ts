@@ -19,6 +19,8 @@ export interface InboundEvent {
   ts: number; // epoch seconds
   body: string; // extracted text (from text / button / interactive; empty for audio)
   kind: "text" | "button" | "interactive" | "audio" | "other";
+  /** WhatsApp profile (push) name from the webhook's contacts rider, if any. */
+  profileName?: string;
   /** Present when the message arrived from a click-to-WhatsApp ad. */
   referral?: InboundReferral;
   /** Present for voice notes / audio (kind:'audio'): the Graph media id + mime. */
@@ -130,6 +132,7 @@ export function parseWebhook(payload: unknown): WebhookEvent[] {
         field?: string;
         value?: {
           messages?: RawMessage[];
+          contacts?: { wa_id?: string; profile?: { name?: string } }[];
           statuses?: {
             id?: string;
             status?: string;
@@ -176,6 +179,11 @@ export function parseWebhook(payload: unknown): WebhookEvent[] {
           body,
           kind,
         };
+        // WhatsApp profile (push) name rides in value.contacts, keyed by wa_id.
+        const profile = (value.contacts ?? [])
+          .find((c) => c.wa_id === m.from)
+          ?.profile?.name?.trim();
+        if (profile) ev.profileName = profile;
         const referral = extractReferral(m);
         if (referral) ev.referral = referral;
         const media = extractMedia(m);

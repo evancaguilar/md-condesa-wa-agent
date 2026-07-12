@@ -24,6 +24,64 @@ test("parses an inbound text message", () => {
   assert.equal(ev.body, "Hola, quiero una clase de prueba de jiu jitsu");
 });
 
+test("extracts the WhatsApp profile (push) name from the contacts rider", () => {
+  const payload = {
+    entry: [
+      {
+        changes: [
+          {
+            field: "messages",
+            value: {
+              contacts: [
+                { wa_id: "5215512345678", profile: { name: "  Karla P  " } },
+              ],
+              messages: [
+                {
+                  from: "5215512345678",
+                  id: "wamid.NAME",
+                  timestamp: "1720200300",
+                  type: "text",
+                  text: { body: "hola" },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+  const ev = parseWebhook(payload)[0] as InboundEvent;
+  assert.equal(ev.profileName, "Karla P");
+});
+
+test("profileName is absent when the contacts rider doesn't match the sender", () => {
+  const payload = {
+    entry: [
+      {
+        changes: [
+          {
+            field: "messages",
+            value: {
+              contacts: [{ wa_id: "9999999999", profile: { name: "Otro" } }],
+              messages: [
+                {
+                  from: "5215512345678",
+                  id: "wamid.NONAME",
+                  timestamp: "1720200301",
+                  type: "text",
+                  text: { body: "hola" },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+  const ev = parseWebhook(payload)[0] as InboundEvent;
+  assert.equal(ev.profileName, undefined);
+});
+
 test("parses a coexistence echo (smb_message_echoes)", () => {
   const events = parseWebhook(echo);
   assert.equal(events.length, 1);
