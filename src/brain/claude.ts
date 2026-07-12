@@ -506,7 +506,7 @@ function textFallback(resp: ApiResponse, ctx: ConvoContext): BrainResult {
 function safeApology(lang: Language): string {
   return lang === "en"
     ? "Thanks for your message! 🙌 Give me a moment and I'll get right back to you."
-    : "¡Gracias por escribir! 🙌 Dame un momento y te confirmo enseguida.";
+    : "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí.";
 }
 
 // ---- usage / cost --------------------------------------------------------

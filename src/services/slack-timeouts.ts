@@ -263,5 +263,7 @@ export function windowHoursLeft(lastInboundAt: number | null, now: number): numb
   return Math.ceil(remaining / 3600);
 }
 
+// Neutral on purpose: "te confirmo" reads like a booking confirmation when the
+// lead was mid-scheduling, so the copy must only promise a human reply.
 export const HOLDING_LINE =
-  "¡Gracias por escribir! 🙌 Dame un momento y te confirmo enseguida.";
+  "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí.";
