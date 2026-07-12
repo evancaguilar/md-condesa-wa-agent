@@ -94,6 +94,8 @@ export interface AirtableLeadsMap {
   tags: string;
   /** Value added to `tags` when a lead opts out, e.g. "Baja". */
   optOutTag: string;
+  /** Child-name column for kid/baby bookings, e.g. "Nombre Del Niñ@". */
+  childName: string;
 }
 
 export interface ClientConfig {

@@ -55,7 +55,12 @@ const bookTrial: AnthropicTool = {
   input_schema: {
     type: "object",
     properties: {
-      name: { type: "string", description: "Lead's first name (or full name)." },
+      name: { type: "string", description: "Lead's first name (or full name). For kid/baby bookings this is the PARENT (the person writing)." },
+      child_name: {
+        type: "string",
+        description:
+          "REQUIRED for kid/baby bookings: the child's name. Ask for both the parent's and the child's name before booking a minor.",
+      },
       discipline: {
         type: "string",
         description: `One of: ${CLIENT.services.map((s) => s.key).join(", ")} (${CLIENT.services.map((s) => s.label).join(", ")}).`,

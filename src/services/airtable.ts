@@ -49,6 +49,7 @@ export const DEFAULT_LEADS_MAP: AirtableLeadsMap = {
   audienceValues: {},
   tags: "Tags",
   optOutTag: "Baja",
+  childName: "Child Name",
 };
 
 /** The active client's Leads-table map (client overrides merged over defaults). */
@@ -175,6 +176,9 @@ export async function bookTrial(
     ? [...new Set([...toStringArray(cur?.[m.discipline]), discOpt])]
     : discOpt;
   if (input.name && isEmpty(cur?.[m.name])) fields[m.name] = input.name;
+  if (input.childName && isEmpty(cur?.[m.childName])) {
+    fields[m.childName] = input.childName;
+  }
   if (isEmpty(cur?.[m.source])) fields[m.source] = m.sourceValue;
   if (input.ad && isEmpty(cur?.[m.ad])) fields[m.ad] = input.ad;
 

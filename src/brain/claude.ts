@@ -367,6 +367,7 @@ async function handleBookTrial(
 ): Promise<BookOutcome> {
   const input = tu.input as {
     name?: string;
+    child_name?: string;
     discipline?: string;
     audience?: string;
     trial_date?: string;
@@ -375,6 +376,7 @@ async function handleBookTrial(
   };
 
   const name = input.name ?? ctx.contact.name ?? "";
+  const childName = (input.child_name ?? "").trim();
   const discipline = normalizeDiscipline(input.discipline ?? "");
   const audience = (input.audience === "kid" ? "kid" : "adult") as Audience;
   const trialDate = input.trial_date ?? "";
@@ -406,6 +408,7 @@ async function handleBookTrial(
   // the Ad field being absent (unknown-field 422 → core-fields retry).
   const ad = adLabelFromRef(ctx.contact.ad_ref);
   if (ad) bookInput.ad = ad;
+  if (childName) bookInput.childName = childName;
 
   try {
     const recordId = await airtable.bookTrial(bookInput);

@@ -59,6 +59,7 @@ export default {
     },
     tags: "Tags",
     optOutTag: "Baja",
+    childName: "Nombre Del Niñ@",
   },
   copy: {
     confirmEs:

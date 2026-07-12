@@ -252,6 +252,8 @@ export interface BookTrialInput {
   phone: string;
   /** "headline (id)" string from the contact's ad_ref, when the lead came via an ad. */
   ad?: string;
+  /** Child's name for kid/baby bookings (`name` stays the parent/contact). */
+  childName?: string;
 }
 
 /** A custom follow-up the model asked to schedule (set_followup tool). The

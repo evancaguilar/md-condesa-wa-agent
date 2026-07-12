@@ -51,7 +51,7 @@
     },
     {
       "weekday": 0,
-      "time": "15:00",
+      "time": "15:15",
       "discipline": "muay",
       "audience": "kid"
     },
@@ -261,7 +261,7 @@
     },
     {
       "weekday": 2,
-      "time": "15:00",
+      "time": "15:15",
       "discipline": "muay",
       "audience": "kid"
     },
@@ -507,7 +507,7 @@
     },
     {
       "weekday": 5,
-      "time": "13:00",
+      "time": "13:15",
       "discipline": "muay",
       "audience": "kid"
     },

@@ -69,9 +69,13 @@ function fmtTime(slot) {
   return `${h12}:00 ${ampm}`;
 }
 
-/** "HH:mm" (24h) from a slot — used for the machine-readable slots. */
+/** "HH:mm" (24h) from a slot — used for the machine-readable slots. Minutes
+ *  come from the display time (e.g. "3:15 PM"), NOT just the hour int — Mini
+ *  Muay Thai runs at :15 and flattening it to :00 made validateSlot reject
+ *  the real slot (and accept a nonexistent one). */
 function hhmm(slot) {
-  return String(slot.h).padStart(2, "0") + ":00";
+  const m = /:(\d{2})/.exec(slot.t || "");
+  return String(slot.h).padStart(2, "0") + ":" + (m ? m[1] : "00");
 }
 
 /** Human label for one class within a slot, in the given language. */
