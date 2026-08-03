@@ -446,13 +446,87 @@ test("syncBookings: 'Se inscribió' result (trial today) → sets student, sends
   const fakeAirtable = {
     async listRecentBookings() {
       return [
-        { id: "recEN", phone: "5512345678", name: "Ana", trialDateTimeIso: null, result: "Se inscribió" },
+        {
+          id: "recEN",
+          phone: "5512345678",
+          name: "Ana",
+          trialDateTimeIso: new Date().toISOString(),
+          result: "Se inscribió",
+        },
       ];
     },
   };
   await syncBookings(envWith(db), fakeAirtable);
   assert.equal(setStudent, true);
   assert.equal(kvMark, "enrolled");
+});
+
+test("syncBookings: stale 'Se inscribió' (old trial date) → tags student + kv silently, NO send", async () => {
+  let sent = false;
+  (globalThis as { fetch: unknown }).fetch = async () => {
+    sent = true;
+    return { ok: true, status: 200, async json() { return { messages: [{ id: "w" }] }; }, async text() { return ""; } };
+  };
+  let setStudent = false;
+  let kvMark: string | null = null;
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.includes("SELECT value FROM kv")) {
+      if (String(binds[0]).startsWith("resultado:")) return { first: null }; // never acted
+      return { first: { value: "2026-01-01T00:00:00Z" } };
+    }
+    if (sql.startsWith("UPDATE contacts SET status") && binds[1] === "student") setStudent = true;
+    if (sql.includes("SELECT * FROM contacts"))
+      return { first: contact({ status: "lead", last_inbound_at: Math.floor(Date.now() / 1000) }) };
+    if (sql.startsWith("INSERT INTO kv")) {
+      if (String(binds[0]).startsWith("resultado:")) kvMark = String(binds[1]);
+      return {};
+    }
+    return {};
+  });
+  const monthsAgo = new Date(Date.now() - 150 * 86400 * 1000).toISOString();
+  const fakeAirtable = {
+    async listRecentBookings() {
+      return [
+        { id: "recOld", phone: "5512345678", name: "Valeria", trialDateTimeIso: monthsAgo, result: "Se inscribió" },
+      ];
+    },
+  };
+  await syncBookings(envWith(db), fakeAirtable);
+  assert.equal(setStudent, true, "still tags the contact as student");
+  assert.equal(kvMark, "enrolled", "still records the act-once marker");
+  assert.equal(sent, false, "must not send a ghost welcome");
+});
+
+test("syncBookings: result with NO trial date → acts silently, NO send", async () => {
+  let sent = false;
+  (globalThis as { fetch: unknown }).fetch = async () => {
+    sent = true;
+    return { ok: true, status: 200, async json() { return { messages: [{ id: "w" }] }; }, async text() { return ""; } };
+  };
+  let kvMark: string | null = null;
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.includes("SELECT value FROM kv")) {
+      if (String(binds[0]).startsWith("resultado:")) return { first: null };
+      return { first: { value: "2026-01-01T00:00:00Z" } };
+    }
+    if (sql.includes("SELECT * FROM contacts"))
+      return { first: contact({ status: "lead", last_inbound_at: Math.floor(Date.now() / 1000) }) };
+    if (sql.startsWith("INSERT INTO kv")) {
+      if (String(binds[0]).startsWith("resultado:")) kvMark = String(binds[1]);
+      return {};
+    }
+    return {};
+  });
+  const fakeAirtable = {
+    async listRecentBookings() {
+      return [
+        { id: "recND", phone: "5512345678", name: "Ana", trialDateTimeIso: null, result: "No asistió" },
+      ];
+    },
+  };
+  await syncBookings(envWith(db), fakeAirtable);
+  assert.equal(kvMark, "no_show");
+  assert.equal(sent, false);
 });
 
 test("syncBookings: result already acted (kv marker matches) → no re-send", async () => {

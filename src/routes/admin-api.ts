@@ -752,7 +752,16 @@ async function handleConversationDetail(
     getPendingApprovals(env.DB, phone),
   ]);
   if (!contact) return json({ error: "not_found" }, 404);
-  return json({ contact, messages, pending, now: nowSec() });
+  // Campaign name for the header attribution pill (best-effort).
+  let campaignName: string | null = null;
+  if (contact.campaign_id != null) {
+    try {
+      campaignName = (await getCampaign(env.DB, contact.campaign_id))?.name ?? null;
+    } catch {
+      campaignName = null;
+    }
+  }
+  return json({ contact, messages, pending, campaignName, now: nowSec() });
 }
 
 async function handlePause(req: Request, env: Env, phone: string): Promise<Response> {

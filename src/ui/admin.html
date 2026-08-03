@@ -101,7 +101,7 @@ hr.sep{border:none;border-top:1px solid var(--line);margin:12px 0}
 .lrow:active{background:var(--panel2)}
 .lrow.sel{border-color:var(--gold)}
 .lrow .top{display:flex;justify-content:space-between;gap:8px}
-.lrow .nm{font-weight:700}
+.lrow .nm{font-weight:700;color:var(--text)}
 .lrow .pv{color:var(--muted);font-size:14px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lrow .tm{color:var(--muted);font-size:11px;white-space:nowrap;flex:none}
 
@@ -584,6 +584,9 @@ async function loadChats(){
   }
 }
 function chatFilterFn(c){
+  // CRM-only contacts (Airtable sync, resets) have no messages — hide them
+  // from the inbox; they appear the moment a real message exists.
+  if(!c.lastTs) return false;
   var me=state.me&&state.me.user?state.me.user:"";
   if(chatsCache.filter==="mine") return (c.assignedTo||null)===me;
   if(chatsCache.filter==="unassigned") return !c.assignedTo;
@@ -671,6 +674,7 @@ async function detailTick(full){
   if(chatState.phone!==phone || !el("bubWrap")) return; // navigated away meanwhile
   if(full) el("bubWrap").innerHTML="";
   chatState.contact=d.contact||{};
+  chatState.campaignName=d.campaignName||null;
   renderChatHeader(d.now);
   appendMessages(d.messages||[], full);
   renderPendingCards(d.pending||[]);
@@ -683,17 +687,21 @@ async function detailTick(full){
 function renderChatHeader(nowSec){
   var head=el("chatHead"); if(!head) return;
   var c=chatState.contact||{};
-  // One-time ad attribution card (which ad brought this lead in).
+  // Attribution card: our campaign name + the ad's headline/creative/id.
+  // (Meta's webhook only sends the ad ID + headline/body — Ads-Manager ad-set
+  // and ad NAMES aren't included; the campaign pill comes from our matching.)
   var adCard=el("adCard");
   if(adCard){
     var ad=null;
     try{ ad=c.ad_ref?JSON.parse(c.ad_ref):null; }catch(e){ ad=null; }
-    if(ad && (ad.headline||ad.body)){
-      var thumb=ad.thumbnailUrl?'<img src="'+esc(ad.thumbnailUrl)+'" loading="lazy" onerror="this.remove()">':"";
-      adCard.innerHTML='<div class="adcard">'+thumb+'<div>📣 Llegó por el anuncio'
-        +(ad.headline?': <b>'+esc(ad.headline)+'</b>':'')
-        +(ad.body?'<div>'+esc(String(ad.body).slice(0,140))+'</div>':'')
-        +'</div></div>';
+    var camp=chatState.campaignName||null;
+    if(camp || (ad && (ad.headline||ad.body||ad.sourceId))){
+      var thumb=(ad&&ad.thumbnailUrl)?'<img src="'+esc(ad.thumbnailUrl)+'" loading="lazy" onerror="this.remove()">':"";
+      var line1='📣 '+(camp?'<b>'+esc(camp)+'</b>':'Anuncio');
+      var line2=(ad&&ad.headline)?'<div><b>'+esc(ad.headline)+'</b></div>':'';
+      var line3=(ad&&ad.body)?'<div>'+esc(String(ad.body).slice(0,120))+'</div>':'';
+      var line4=(ad&&ad.sourceId)?'<div style="opacity:.7">ad '+esc(ad.sourceId)+'</div>':'';
+      adCard.innerHTML='<div class="adcard">'+thumb+'<div>'+line1+line2+line3+line4+'</div></div>';
     }else{ adCard.innerHTML=""; }
   }
   var isMobile=!window.matchMedia("(min-width:768px)").matches;
