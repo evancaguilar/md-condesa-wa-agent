@@ -10,21 +10,40 @@ export interface InboundReferral {
   headline: string | null;
   body: string | null;
   ctwaClid: string | null;
+  /** Ad creative preview (fbcdn urls), when Meta includes them. */
+  thumbnailUrl: string | null;
+  imageUrl: string | null;
+  videoUrl: string | null;
 }
+
+export type InboundKind =
+  | "text"
+  | "button"
+  | "interactive"
+  | "audio"
+  | "image"
+  | "video"
+  | "document"
+  | "sticker"
+  | "other";
 
 export interface InboundEvent {
   type: "inbound";
   wamid: string;
   from: string; // sender phone, digits only
   ts: number; // epoch seconds
-  body: string; // extracted text (from text / button / interactive; empty for audio)
-  kind: "text" | "button" | "interactive" | "audio" | "other";
+  body: string; // extracted text (text/button/interactive; caption for media; empty for audio)
+  kind: InboundKind;
   /** WhatsApp profile (push) name from the webhook's contacts rider, if any. */
   profileName?: string;
   /** Present when the message arrived from a click-to-WhatsApp ad. */
   referral?: InboundReferral;
-  /** Present for voice notes / audio (kind:'audio'): the Graph media id + mime. */
-  media?: { mediaId: string; mimeType: string | null };
+  /** Present for any media message (audio/image/video/document/sticker). */
+  media?: {
+    mediaId: string;
+    mimeType: string | null;
+    filename?: string | null;
+  };
 }
 
 export interface StatusEvent {
@@ -53,6 +72,15 @@ export type WebhookEvent =
   | EchoEvent
   | AppStateSyncEvent;
 
+interface RawMedia {
+  id?: string;
+  mime_type?: string;
+  caption?: string;
+  filename?: string;
+  voice?: boolean;
+  animated?: boolean;
+}
+
 interface RawMessage {
   id?: string;
   from?: string;
@@ -66,8 +94,12 @@ interface RawMessage {
     button_reply?: { id?: string; title?: string };
     list_reply?: { id?: string; title?: string };
   };
-  audio?: { id?: string; mime_type?: string; voice?: boolean };
-  voice?: { id?: string; mime_type?: string };
+  audio?: RawMedia;
+  voice?: RawMedia;
+  image?: RawMedia;
+  video?: RawMedia;
+  document?: RawMedia;
+  sticker?: RawMedia;
   referral?: {
     source_url?: string;
     source_type?: string;
@@ -75,6 +107,9 @@ interface RawMessage {
     headline?: string;
     body?: string;
     ctwa_clid?: string;
+    thumbnail_url?: string;
+    image_url?: string;
+    video_url?: string;
   };
 }
 
@@ -83,7 +118,7 @@ function toEpoch(ts: string | undefined): number {
   return Number.isFinite(n) ? n : Math.floor(Date.now() / 1000);
 }
 
-/** Extracts a text body from any inbound message shape. */
+/** Extracts a text body from any inbound message shape (caption for media). */
 function extractBody(m: RawMessage): { body: string; kind: InboundEvent["kind"] } {
   if (m.type === "text" && m.text?.body) return { body: m.text.body, kind: "text" };
   if (m.type === "button" && m.button)
@@ -95,14 +130,26 @@ function extractBody(m: RawMessage): { body: string; kind: InboundEvent["kind"] 
   // Voice notes / audio: no text body — the pipeline transcribes from media.id.
   if ((m.type === "audio" || m.type === "voice") && (m.audio?.id || m.voice?.id))
     return { body: "", kind: "audio" };
+  if (m.type === "image" && m.image?.id)
+    return { body: m.image.caption ?? "", kind: "image" };
+  if (m.type === "video" && m.video?.id)
+    return { body: m.video.caption ?? "", kind: "video" };
+  if (m.type === "document" && m.document?.id)
+    return { body: m.document.caption ?? "", kind: "document" };
+  if (m.type === "sticker" && m.sticker?.id) return { body: "", kind: "sticker" };
   return { body: "", kind: "other" };
 }
 
-/** Pulls the audio media {mediaId, mimeType} for a voice/audio message, if any. */
+/** Pulls the media {mediaId, mimeType, filename} for any media message. */
 function extractMedia(m: RawMessage): InboundEvent["media"] | undefined {
-  const a = m.audio ?? m.voice;
+  const a =
+    m.audio ?? m.voice ?? m.image ?? m.video ?? m.document ?? m.sticker;
   if (!a?.id) return undefined;
-  return { mediaId: a.id, mimeType: a.mime_type ?? null };
+  return {
+    mediaId: a.id,
+    mimeType: a.mime_type ?? null,
+    filename: a.filename ?? null,
+  };
 }
 
 /** Maps a raw referral rider to the normalized InboundReferral, or undefined. */
@@ -116,6 +163,9 @@ function extractReferral(m: RawMessage): InboundReferral | undefined {
     headline: r.headline ?? null,
     body: r.body ?? null,
     ctwaClid: r.ctwa_clid ?? null,
+    thumbnailUrl: r.thumbnail_url ?? null,
+    imageUrl: r.image_url ?? null,
+    videoUrl: r.video_url ?? null,
   };
 }
 

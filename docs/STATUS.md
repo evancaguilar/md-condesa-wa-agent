@@ -45,7 +45,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts);
 ALTER TABLE contacts ADD COLUMN assigned_to TEXT;
 ```
 - [ ] After migration: Inicio → Usuarios → create `fer` + `vale`; they log in on their phones.
-- R2 next (media in/out: photos from leads, attach button) then R3 (✓✓ ticks via status webhooks + template picker once templates/payment exist). Plan: ~/.claude/plans/i-want-to-go-ancient-milner.md
+**R2 shipped (2026-08-03, same day):** media + ad-context.
+- Inbound image/video/document/sticker now parsed + stored (caption = body, else placeholder; `meta {type, mediaId, mimeType, filename}`) and rendered in the chat (img inline, video/audio players, 📄 doc link) via the auth-gated proxy `GET /admin/api/media/:id` (Graph 2-hop, streamed). Voice notes keep the transcript AND are playable.
+- **Ad context is visible**: each inbound that carried a CTWA referral shows "📣 Respondió a un anuncio: <headline>" (+ creative thumbnail when Meta sends one) on the bubble (`meta.adRef`), and the chat header shows the contact's original attribution card ("📣 Llegó por el anuncio…", `contacts.ad_ref`, now also storing thumbnailUrl). So "quiero más información" from a kids ad is identifiable at a glance.
+- 📎 attach in the composer: jpg/png/webp, mp4, pdf (≤16MB) → `POST .../send-media` (multipart) → Graph /media upload → send; same idempotency token + indefinite-pause takeover as text sends; logs `out_human` with `meta.by`.
+- R3 next (✓✓ ticks via status webhooks + template picker once templates/payment exist). Plan: ~/.claude/plans/i-want-to-go-ancient-milner.md
 
 ### Open items (post-go-live)
 

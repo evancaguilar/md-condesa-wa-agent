@@ -78,16 +78,26 @@ export interface InboundMessage {
   phone: string;
   body: string;
   ts: number;
+  /** Message kind from the parser ("text"|"audio"|"image"|...). Absent = text-ish. */
+  kind?: string;
   /** WhatsApp profile (push) name from the webhook, if present. */
   profileName?: string;
   /** Click-to-WhatsApp ad referral rider (parsed from the webhook), if present. */
   referral?: InboundReferral;
-  /** Voice-note / audio media to transcribe (kind:'audio'), if present. */
-  media?: { mediaId: string; mimeType: string | null };
+  /** Media rider (audio/image/video/document/sticker), if present. */
+  media?: { mediaId: string; mimeType: string | null; filename?: string | null };
 }
 
 /** Failure body stored when a voice note can't be transcribed. */
 const VOICE_FAIL_BODY = "[nota de voz — no se pudo transcribir]";
+
+/** Placeholder bodies for visual media (shown in transcripts + brain history). */
+const MEDIA_PLACEHOLDER: Record<string, string> = {
+  image: "[imagen]",
+  video: "[video]",
+  document: "[documento]",
+  sticker: "[sticker]",
+};
 
 export async function processInbound(
   env: Env,
@@ -95,22 +105,43 @@ export async function processInbound(
   ports: Ports,
   msg: InboundMessage,
 ): Promise<void> {
-  // 0. Voice notes: fetch the media + transcribe BEFORE dedupe so the stored
-  // message body is the transcript. Whisper/media failures degrade to a marker
-  // body (the brain then goes low-confidence / asks them to write it). Never
-  // throws — media.ts swallows all errors to null.
+  // 0. Media pre-processing BEFORE dedupe so the stored row is complete.
+  // Voice notes: fetch + transcribe (failures degrade to a marker body — the
+  // brain then goes low-confidence / asks them to write it; never throws).
+  // Visual media (image/video/document/sticker): keep caption as body (or a
+  // placeholder) and stash the media id in meta so the dashboard can render it.
   let body = msg.body;
   let meta: Record<string, unknown> | null = null;
-  if (msg.media) {
+  const isAudio = msg.media && (msg.kind === "audio" || msg.kind === undefined);
+  if (msg.media && isAudio) {
     const bytes = await fetchMediaBytes(env, msg.media.mediaId);
     const transcript = bytes ? await transcribe(env, bytes) : null;
     if (transcript) {
       body = transcript;
-      meta = { voice: true };
+      meta = { voice: true, mediaId: msg.media.mediaId, mimeType: msg.media.mimeType };
     } else {
       body = VOICE_FAIL_BODY;
-      meta = { voice: true, failed: true };
+      meta = { voice: true, failed: true, mediaId: msg.media.mediaId, mimeType: msg.media.mimeType };
     }
+  } else if (msg.media && msg.kind && MEDIA_PLACEHOLDER[msg.kind]) {
+    if (!body.trim()) body = MEDIA_PLACEHOLDER[msg.kind]!;
+    meta = {
+      type: msg.kind,
+      mediaId: msg.media.mediaId,
+      mimeType: msg.media.mimeType,
+    };
+    if (msg.media.filename) meta.filename = msg.media.filename;
+  }
+  // Per-message ad context: lets the dashboard show "respondió a un anuncio"
+  // on THIS bubble (contact.ad_ref below keeps only the first attribution).
+  if (msg.referral && (msg.referral.headline || msg.referral.sourceId)) {
+    meta = meta ?? {};
+    meta.adRef = {
+      headline: msg.referral.headline,
+      body: msg.referral.body,
+      thumbnailUrl: msg.referral.thumbnailUrl ?? null,
+      sourceId: msg.referral.sourceId,
+    };
   }
 
   // 1. Dedupe: INSERT OR IGNORE; existing row ⇒ drop the event entirely.
@@ -145,6 +176,7 @@ export async function processInbound(
         body: msg.referral.body,
         sourceUrl: msg.referral.sourceUrl,
         ctwaClid: msg.referral.ctwaClid,
+        thumbnailUrl: msg.referral.thumbnailUrl ?? null,
       };
       await setContactAdRef(env.DB, msg.phone, JSON.stringify(adRef));
     }

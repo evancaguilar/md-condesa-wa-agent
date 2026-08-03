@@ -238,3 +238,107 @@ test("emits a status event and ignores app_state_sync payload content", () => {
   assert.equal(events[0]?.type, "status");
   assert.equal(events[1]?.type, "app_state_sync");
 });
+
+// ---- R2: media messages (image/video/document/sticker) ----
+
+function mediaPayload(msg: Record<string, unknown>): unknown {
+  return {
+    entry: [
+      { changes: [{ field: "messages", value: { messages: [msg] } }] },
+    ],
+  };
+}
+
+test("parses an inbound image with caption + media id", () => {
+  const ev = parseWebhook(
+    mediaPayload({
+      from: "5215512345678",
+      id: "wamid.IMG1",
+      timestamp: "1720200400",
+      type: "image",
+      image: { id: "MEDIA_IMG_1", mime_type: "image/jpeg", caption: "mi lesión" },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(ev.kind, "image");
+  assert.equal(ev.body, "mi lesión");
+  assert.equal(ev.media?.mediaId, "MEDIA_IMG_1");
+  assert.equal(ev.media?.mimeType, "image/jpeg");
+});
+
+test("parses an inbound image without caption (empty body)", () => {
+  const ev = parseWebhook(
+    mediaPayload({
+      from: "5215512345678",
+      id: "wamid.IMG2",
+      timestamp: "1720200401",
+      type: "image",
+      image: { id: "MEDIA_IMG_2", mime_type: "image/png" },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(ev.kind, "image");
+  assert.equal(ev.body, "");
+  assert.equal(ev.media?.mediaId, "MEDIA_IMG_2");
+});
+
+test("parses an inbound document with filename", () => {
+  const ev = parseWebhook(
+    mediaPayload({
+      from: "5215512345678",
+      id: "wamid.DOC1",
+      timestamp: "1720200402",
+      type: "document",
+      document: {
+        id: "MEDIA_DOC_1",
+        mime_type: "application/pdf",
+        filename: "certificado.pdf",
+      },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(ev.kind, "document");
+  assert.equal(ev.media?.filename, "certificado.pdf");
+});
+
+test("parses an inbound video and sticker", () => {
+  const vid = parseWebhook(
+    mediaPayload({
+      from: "521", id: "wamid.VID1", timestamp: "1", type: "video",
+      video: { id: "MEDIA_VID_1", mime_type: "video/mp4", caption: "mira" },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(vid.kind, "video");
+  assert.equal(vid.body, "mira");
+  const st = parseWebhook(
+    mediaPayload({
+      from: "521", id: "wamid.ST1", timestamp: "1", type: "sticker",
+      sticker: { id: "MEDIA_ST_1", mime_type: "image/webp" },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(st.kind, "sticker");
+  assert.equal(st.media?.mediaId, "MEDIA_ST_1");
+});
+
+test("referral carries the ad creative thumbnail/image/video urls", () => {
+  const ev = parseWebhook(
+    mediaPayload({
+      from: "5215512345678",
+      id: "wamid.ADTHUMB",
+      timestamp: "1720200500",
+      type: "text",
+      text: { body: "Quiero más información" },
+      referral: {
+        source_url: "https://fb.me/xyz",
+        source_type: "ad",
+        source_id: "120210000000099999",
+        headline: "Clases para niños",
+        body: "Primera clase gratis",
+        thumbnail_url: "https://scontent.fbcdn.net/thumb.jpg",
+        image_url: "https://scontent.fbcdn.net/full.jpg",
+        ctwa_clid: "CLID123",
+      },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(ev.referral?.thumbnailUrl, "https://scontent.fbcdn.net/thumb.jpg");
+  assert.equal(ev.referral?.imageUrl, "https://scontent.fbcdn.net/full.jpg");
+  assert.equal(ev.referral?.videoUrl, null);
+  assert.equal(ev.referral?.headline, "Clases para niños");
+});

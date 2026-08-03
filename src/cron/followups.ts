@@ -436,7 +436,15 @@ export async function syncBookings(
 
     // Result watcher (independent of the trial datetime).
     if (rec.result) {
-      await processResult(env, deps, rec.id, phone, rec.result, rec.name ?? null);
+      await processResult(
+        env,
+        deps,
+        rec.id,
+        phone,
+        rec.result,
+        rec.name ?? null,
+        rec.trialDateTimeIso,
+      );
     }
   }
   await kvSet(env.DB, "airtable_sync_cursor", new Date(nowSec() * 1000).toISOString());
@@ -451,6 +459,11 @@ export async function syncBookings(
  *  - "se inscribio" → set status=student, cancel ALL pending followups, send a
  *    warm welcome (free-form if window open, else human_followup template
  *    fallback; failure → Slack).
+ *
+ * Messages only go out when the trial date is TODAY (CDMX). Old records get
+ * their modified-time bumped whenever the contact writes in again (lead-sync
+ * touches the row), which re-surfaces months-old results here — those still get
+ * status/cancel/marker treatment, silently, so no ghost welcomes.
  */
 async function processResult(
   env: Env,
@@ -459,6 +472,7 @@ async function processResult(
   phone: string,
   rawResult: string,
   name: string | null,
+  trialDateTimeIso: string | null,
 ): Promise<void> {
   const action = classifyResult(rawResult);
   if (!action) return;
@@ -468,6 +482,13 @@ async function processResult(
   const marker = `${action}`;
   if (already === marker) return; // acted on this record+value already
 
+  const trialEpoch = trialDateTimeIso
+    ? Math.floor(Date.parse(trialDateTimeIso) / 1000)
+    : NaN;
+  const sendReaction =
+    Number.isFinite(trialEpoch) &&
+    cdmxDateStr(trialEpoch) === cdmxDateStr(nowSec());
+
   await upsertContact(env.DB, { phone, name });
   const contact = await getContact(env.DB, phone);
   const lang = contact?.lang ?? "es";
@@ -475,6 +496,10 @@ async function processResult(
 
   if (action === "no_show") {
     await cancelFollowups(env.DB, phone); // all kinds
+    if (!sendReaction) {
+      await kvSet(env.DB, kvKey, marker);
+      return;
+    }
     const link = CLIENT.links.booking;
     const body = renderCopy(
       lang === "en" ? CLIENT.copy.noShowEn : CLIENT.copy.noShowEs,
@@ -501,6 +526,10 @@ async function processResult(
     // enrolled
     await setContactStatus(env.DB, phone, "student");
     await cancelFollowups(env.DB, phone); // all kinds; student stops marketing
+    if (!sendReaction) {
+      await kvSet(env.DB, kvKey, marker);
+      return;
+    }
     const body = renderCopy(
       lang === "en" ? CLIENT.copy.welcomeEn : CLIENT.copy.welcomeEs,
       { who, link: CLIENT.links.schedule },

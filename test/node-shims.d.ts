@@ -21,6 +21,18 @@ declare class TextEncoder {
   encode(input?: string): Uint8Array;
 }
 
+// Minimal Blob/FormData ambients (Node v24 has them at runtime; wa.ts uses
+// them for the media upload path and is pulled into the test build by
+// cron/followups.ts).
+declare class Blob {
+  readonly size: number;
+  readonly type: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+declare class FormData {
+  append(name: string, value: unknown, filename?: string): void;
+}
+
 declare const crypto: {
   subtle: SubtleCrypto;
   getRandomValues<T extends ArrayBufferView>(array: T): T;

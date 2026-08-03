@@ -100,3 +100,106 @@ export async function sendStaffText(
     },
   };
 }
+
+// ---- staff media send (R2: dashboard attachments) ----
+
+export interface StaffMediaInput {
+  kind: "image" | "video" | "document";
+  mediaId: string; // already uploaded via wa.uploadMedia
+  caption?: string;
+  filename?: string;
+}
+
+export interface StaffMediaDeps {
+  sendMedia(
+    env: Env,
+    phone: string,
+    kind: StaffMediaInput["kind"],
+    mediaId: string,
+    opts: {
+      caption?: string;
+      filename?: string;
+      direction: "out_human";
+      metaExtra: Record<string, unknown>;
+    },
+  ): Promise<string>;
+  isWindowClosed(err: unknown): boolean;
+  postNote(env: Env, text: string): Promise<void>;
+}
+
+const KIND_LABEL: Record<StaffMediaInput["kind"], string> = {
+  image: "una imagen 📷",
+  video: "un video 🎬",
+  document: "un documento 📄",
+};
+
+/**
+ * Sends a staff-attached media message. Identical semantics to sendStaffText:
+ * token claimed BEFORE the Graph send (at-most-once), then the takeover triad.
+ */
+export async function sendStaffMedia(
+  env: Env,
+  phone: string,
+  input: StaffMediaInput,
+  byUsername: string,
+  clientToken: string,
+  deps: StaffMediaDeps,
+): Promise<StaffSendResult> {
+  const caption = (input.caption ?? "").trim();
+  if (caption.length > STAFF_TEXT_MAX) return { ok: false, reason: "too_long" };
+
+  const contact = await getContact(env.DB, phone);
+  if (!contact) return { ok: false, reason: "no_contact" };
+
+  const claimed = await kvSetIfAbsent(
+    env.DB,
+    `staff_send:${phone}:${clientToken}`,
+    String(Math.floor(Date.now() / 1000)),
+  );
+  if (!claimed) return { ok: false, reason: "duplicate" };
+
+  let wamid: string;
+  try {
+    wamid = await deps.sendMedia(env, phone, input.kind, input.mediaId, {
+      caption: caption || undefined,
+      filename: input.filename,
+      direction: "out_human",
+      metaExtra: { by: byUsername },
+    });
+  } catch (err) {
+    if (deps.isWindowClosed(err)) return { ok: false, reason: "window_closed" };
+    throw err;
+  }
+
+  await setHumanOverride(env.DB, phone, STAFF_TAKEOVER_HOURS);
+  await cancelPendingApprovals(env.DB, phone, "taken_over");
+  try {
+    await deps.postNote(
+      env,
+      `🧑‍💻 ${byUsername} envió ${KIND_LABEL[input.kind]} desde el panel a ${phone}${caption ? `: «${caption.slice(0, 200)}»` : ""}`,
+    );
+  } catch (err) {
+    console.error("staff-media slack note failed", err);
+  }
+
+  const placeholder =
+    input.kind === "image" ? "[imagen]" : input.kind === "video" ? "[video]" : "[documento]";
+  const meta: Record<string, unknown> = {
+    type: input.kind,
+    mediaId: input.mediaId,
+    by: byUsername,
+  };
+  if (caption) meta.caption = caption;
+  if (input.filename) meta.filename = input.filename;
+  return {
+    ok: true,
+    message: {
+      wamid,
+      phone,
+      direction: "out_human",
+      body: caption || placeholder,
+      ts: Math.floor(Date.now() / 1000),
+      meta: JSON.stringify(meta),
+    },
+  };
+}

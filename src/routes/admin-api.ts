@@ -69,8 +69,16 @@ import {
   updateAdminUser,
   setAssignedToSoft,
 } from "../db/queries-admin.js";
-import { sendStaffText } from "../services/staff-send.js";
-import { markRead, sendText, WindowClosedError } from "../services/wa.js";
+import { sendStaffMedia, sendStaffText } from "../services/staff-send.js";
+import {
+  markRead,
+  sendMedia,
+  sendText,
+  uploadMedia,
+  WindowClosedError,
+  type OutboundMediaKind,
+} from "../services/wa.js";
+import { fetchMediaResponse } from "../services/media.js";
 import { parseRule, ruleSummaryEs } from "../services/airtable-rules.js";
 import { assembleOverlay, estimateTokens } from "../brain/overlay.js";
 import { normalizeText, matchCampaign, firstReplyFor } from "../pipeline/campaigns.js";
@@ -263,8 +271,24 @@ export async function handleAdminApi(
   if (path === "/admin/api/conversations" && method === "GET") {
     return handleConversationsList(env, url);
   }
+  // ---- media proxy (auth-gated; resolves Graph media ids to bytes) ----
+  const mediaMatch = path.match(/^\/admin\/api\/media\/(\d+)$/);
+  if (mediaMatch && method === "GET") {
+    const got = await fetchMediaResponse(env, mediaMatch[1]!);
+    if (!got) return json({ error: "media_unavailable" }, 404);
+    const headers = new Headers();
+    headers.set(
+      "content-type",
+      got.mimeType ?? got.res.headers.get("content-type") ?? "application/octet-stream",
+    );
+    const len = got.res.headers.get("content-length");
+    if (len) headers.set("content-length", len);
+    headers.set("cache-control", "private, max-age=3600");
+    return new Response(got.res.body, { status: 200, headers });
+  }
+
   const convoMatch = path.match(
-    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read))?$/,
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|send-media))?$/,
   );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
@@ -275,6 +299,9 @@ export async function handleAdminApi(
     if (sub === "status" && method === "POST") return handleStatus(req, env, phone);
     if (sub === "send" && method === "POST") {
       return handleStaffSend(req, env, ports, phone, session);
+    }
+    if (sub === "send-media" && method === "POST") {
+      return handleStaffSendMedia(req, env, ports, phone, session);
     }
     if (sub === "assign" && method === "POST") {
       return handleAssign(req, env, phone);
@@ -565,6 +592,75 @@ async function handleStaffSend(
     return json({ error: result.reason }, 400);
   }
   // Everything else uses the approvalJson convention: HTTP 200 union.
+  return json(result);
+}
+
+// ---- staff media send (multipart: file + token + caption?) ----
+
+const MEDIA_MAX_BYTES = 16 * 1024 * 1024; // WA image limit; videos/docs also capped here (v1)
+const MEDIA_KIND_BY_MIME: { re: RegExp; kind: OutboundMediaKind }[] = [
+  { re: /^image\/(jpeg|png|webp)$/i, kind: "image" },
+  { re: /^video\/(mp4|3gpp)$/i, kind: "video" },
+  { re: /^application\/pdf$/i, kind: "document" },
+];
+
+async function handleStaffSendMedia(
+  req: Request,
+  env: Env,
+  ports: Ports,
+  phone: string,
+  session: Session,
+): Promise<Response> {
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return json({ error: "multipart_required" }, 400);
+  }
+  const token = String(form.get("token") ?? "").trim();
+  if (!token || token.length > 128) return json({ error: "token_required" }, 400);
+  const caption = String(form.get("caption") ?? "");
+  // Duck-typed file check (workers-types' FormDataEntryValue lacks File).
+  const entry = form.get("file") as unknown;
+  const file = entry as Blob & { name?: string; type: string; size: number };
+  const isFileLike =
+    typeof entry === "object" &&
+    entry !== null &&
+    typeof (entry as Blob).arrayBuffer === "function";
+  if (!isFileLike) return json({ error: "file_required" }, 400);
+  if (file.size > MEDIA_MAX_BYTES) return json({ error: "file_too_large" }, 400);
+  const match = MEDIA_KIND_BY_MIME.find((m) => m.re.test(file.type));
+  if (!match) return json({ error: "unsupported_type" }, 400);
+
+  const fname = file.name || "archivo";
+  let mediaId: string;
+  try {
+    mediaId = await uploadMedia(env, file, fname);
+  } catch (err) {
+    console.error("staff media upload failed", err);
+    return json({ error: "upload_failed" }, 502);
+  }
+
+  const result = await sendStaffMedia(
+    env,
+    phone,
+    {
+      kind: match.kind,
+      mediaId,
+      caption,
+      filename: match.kind === "document" ? fname : undefined,
+    },
+    session.user,
+    token,
+    {
+      sendMedia: (e, p, k, id, opts) => sendMedia(e, p, k, id, opts),
+      isWindowClosed: (err) => err instanceof WindowClosedError,
+      postNote: (_e, text) => ports.slack.postNote(text),
+    },
+  );
+  if (!result.ok && result.reason === "too_long") {
+    return json({ error: "too_long" }, 400);
+  }
   return json(result);
 }
 

@@ -80,6 +80,8 @@ export interface AdRef {
   body: string | null;
   sourceUrl: string | null;
   ctwaClid: string | null;
+  /** Ad creative thumbnail (fbcdn url), when Meta included it. Optional — older rows lack it. */
+  thumbnailUrl?: string | null;
 }
 
 // ---- Admin dashboard: knowledge-base overlay + campaigns ----

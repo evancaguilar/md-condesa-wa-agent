@@ -12,7 +12,7 @@ interface Response {
 interface RequestInit {
   method?: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: string | FormData;
 }
 
 declare function fetch(input: string, init?: RequestInit): Promise<Response>;

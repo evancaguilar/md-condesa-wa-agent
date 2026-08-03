@@ -388,7 +388,7 @@ test("syncBookings: future booking cancels nudge_* rows", async () => {
   assert.equal(nudgeCancelForBooking, true);
 });
 
-test("syncBookings: 'No asistió' result → cancels all followups, sends reschedule, marks kv once", async () => {
+test("syncBookings: 'No asistió' result (trial today) → cancels all followups, sends reschedule, marks kv once", async () => {
   stubFetchOk();
   let cancelledAll = false;
   let kvMark: string | null = null;
@@ -410,7 +410,13 @@ test("syncBookings: 'No asistió' result → cancels all followups, sends resche
   const fakeAirtable = {
     async listRecentBookings() {
       return [
-        { id: "recNS", phone: "5512345678", name: "Ana", trialDateTimeIso: null, result: "No asistió" },
+        {
+          id: "recNS",
+          phone: "5512345678",
+          name: "Ana",
+          trialDateTimeIso: new Date().toISOString(),
+          result: "No asistió",
+        },
       ];
     },
   };
@@ -419,7 +425,7 @@ test("syncBookings: 'No asistió' result → cancels all followups, sends resche
   assert.equal(kvMark, "no_show");
 });
 
-test("syncBookings: 'Se inscribió' result → sets student, marks kv enrolled", async () => {
+test("syncBookings: 'Se inscribió' result (trial today) → sets student, sends welcome, marks kv enrolled", async () => {
   stubFetchOk();
   let setStudent = false;
   let kvMark: string | null = null;

@@ -38,6 +38,33 @@ export async function fetchMediaBytes(
   }
 }
 
+/**
+ * Resolve a Graph media id to a streamable Response (for the dashboard media
+ * proxy). Same two hops as fetchMediaBytes but returns the raw binary Response
+ * plus the mime type from hop 1, without buffering. Null on any failure.
+ */
+export async function fetchMediaResponse(
+  env: Env,
+  mediaId: string,
+): Promise<{ res: Response; mimeType: string | null } | null> {
+  try {
+    const metaRes = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`,
+      { headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}` } },
+    );
+    if (!metaRes.ok) return null;
+    const meta = (await metaRes.json()) as { url?: string; mime_type?: string };
+    if (!meta.url) return null;
+    const binRes = await fetch(meta.url, {
+      headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}` },
+    });
+    if (!binRes.ok) return null;
+    return { res: binRes, mimeType: meta.mime_type ?? null };
+  } catch {
+    return null;
+  }
+}
+
 /** Pulls a transcript string out of the various Whisper response shapes. */
 function extractText(out: unknown): string | null {
   if (!out || typeof out !== "object") return null;

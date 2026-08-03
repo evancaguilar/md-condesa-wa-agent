@@ -136,6 +136,90 @@ export async function sendVideo(
   return wamid;
 }
 
+// ---- staff media (dashboard inbox attachments) ----
+
+/** Media kinds the dashboard can send. */
+export type OutboundMediaKind = "image" | "video" | "document";
+
+/**
+ * Uploads a file to the number's Graph /media endpoint. Returns the media id.
+ * FormData per Cloud API: messaging_product=whatsapp + the file blob.
+ */
+export async function uploadMedia(
+  env: Env,
+  file: Blob,
+  filename: string,
+): Promise<string> {
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("file", file, filename);
+  const res = await fetch(graphUrl(env, "media"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}` },
+    body: form,
+  });
+  const data = (await res.json()) as { id?: string; error?: { message?: string } };
+  if (!res.ok || !data.id) {
+    throw new Error(
+      `WA media upload failed (${res.status}): ${data.error?.message ?? "no id returned"}`,
+    );
+  }
+  return data.id;
+}
+
+/**
+ * Sends an uploaded media object (by id) as image/video/document. Same 24h
+ * window guard as sendText. Records the row with the caption (or a
+ * placeholder) as body and {type, mediaId, caption, filename} meta.
+ */
+export async function sendMedia(
+  env: Env,
+  phone: string,
+  kind: OutboundMediaKind,
+  mediaId: string,
+  opts?: {
+    caption?: string;
+    filename?: string;
+    direction?: MessageDirection;
+    metaExtra?: Record<string, unknown>;
+  },
+): Promise<string> {
+  const contact = await getContact(env.DB, phone);
+  const last = contact?.last_inbound_at ?? 0;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (nowSec - last >= WINDOW_SECONDS) {
+    throw new WindowClosedError(phone);
+  }
+  const mediaObj: Record<string, unknown> = { id: mediaId };
+  if (opts?.caption) mediaObj.caption = opts.caption;
+  if (kind === "document" && opts?.filename) mediaObj.filename = opts.filename;
+  const wamid = await post(env, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: phone,
+    type: kind,
+    [kind]: mediaObj,
+  });
+  const placeholder =
+    kind === "image" ? "[imagen]" : kind === "video" ? "[video]" : "[documento]";
+  const meta: Record<string, unknown> = {
+    type: kind,
+    mediaId,
+    ...(opts?.metaExtra ?? {}),
+  };
+  if (opts?.caption) meta.caption = opts.caption;
+  if (opts?.filename) meta.filename = opts.filename;
+  await recordOutbound(
+    env,
+    phone,
+    wamid,
+    opts?.caption || placeholder,
+    meta,
+    opts?.direction ?? "out_bot",
+  );
+  return wamid;
+}
+
 /** Default booking-confirmation video (already live). Overridable via env. */
 export const DEFAULT_BOOKING_VIDEO_URL =
   "https://mdcondesa.com/media/confirmar-reserva.mp4";

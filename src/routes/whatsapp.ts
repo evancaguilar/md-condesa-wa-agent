@@ -79,6 +79,7 @@ async function onInbound(
     phone: ev.from,
     body: ev.body,
     ts: ev.ts,
+    kind: ev.kind,
     profileName: ev.profileName,
     referral: ev.referral,
     media: ev.media,

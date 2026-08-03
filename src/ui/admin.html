@@ -166,6 +166,14 @@ pre.base{white-space:pre-wrap;word-break:break-word;background:var(--panel2);bor
 .pendcard .lbl{font-size:11px;font-weight:700;color:var(--amber,#f0b140);margin-bottom:4px}
 .lrow.unread .nm::before{content:"●";color:var(--gold);margin-right:6px;font-size:11px;vertical-align:1px}
 .lrow.unread .pv{color:var(--text);font-weight:600}
+.bub img.med{max-width:100%;max-height:320px;border-radius:8px;display:block;margin:2px 0;cursor:pointer}
+.bub video.med{max-width:100%;max-height:320px;border-radius:8px;display:block;margin:2px 0}
+.bub audio.med{width:220px;max-width:100%;display:block;margin:2px 0}
+.bub .doc{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);border-radius:8px;padding:6px 10px;margin:2px 0;color:inherit;text-decoration:none;font-size:13px}
+.adctx{font-size:11px;background:rgba(90,140,255,.14);border-left:3px solid var(--blue,#5a8cff);border-radius:6px;padding:5px 8px;margin-bottom:5px;display:flex;gap:8px;align-items:center}
+.adctx img{width:34px;height:34px;object-fit:cover;border-radius:6px;flex:none}
+.adcard{font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex:none}
+.adcard img{width:38px;height:38px;object-fit:cover;border-radius:6px;flex:none}
 .filterbar{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .filterbar .chip{cursor:pointer;user-select:none}
 .filterbar .chip.on{background:var(--gold);color:#181a1f;font-weight:700}
@@ -627,16 +635,22 @@ async function openChat(phone){
   if(isMobile){ list.classList.add("hidden"); }
   det.innerHTML='<div class="chatshell">'
     +'<div class="dhead" id="chatHead"></div>'
+    +'<div id="adCard"></div>'
     +'<div id="pauseBanner"></div>'
     +'<div class="transcript" id="bubWrap"><div class="loading"><span class="spin"></span></div></div>'
     +'<div id="pendWrap"></div>'
     +'<div class="row" style="flex-wrap:wrap;margin-top:8px;flex:none" id="convoActions"></div>'
-    +'<div class="composer" id="chatComposer"><textarea class="field" id="chatTa" placeholder="Escribe un mensaje…"></textarea>'
+    +'<div class="composer" id="chatComposer">'
+    +'<button class="btn" id="chatAttach" title="Adjuntar imagen, video o PDF" style="flex:none">📎</button>'
+    +'<input type="file" id="chatFile" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" style="display:none">'
+    +'<textarea class="field" id="chatTa" placeholder="Escribe un mensaje…"></textarea>'
     +'<button class="btn gold" id="chatSend">Enviar</button></div>'
     +'<div class="windowhint hidden" id="windowHint">Ventana de 24h cerrada — se reabre cuando el lead escriba.</div>'
     +'</div>';
   var ta=el("chatTa");
   el("chatSend").onclick=sendChatMsg;
+  el("chatAttach").onclick=function(){ el("chatFile").click(); };
+  el("chatFile").onchange=function(){ sendChatMedia(); };
   ta.addEventListener("keydown",function(ev){
     var desktop=window.matchMedia("(min-width:768px)").matches;
     if(ev.key==="Enter" && !ev.shiftKey && (desktop || ev.ctrlKey || ev.metaKey)){
@@ -669,6 +683,19 @@ async function detailTick(full){
 function renderChatHeader(nowSec){
   var head=el("chatHead"); if(!head) return;
   var c=chatState.contact||{};
+  // One-time ad attribution card (which ad brought this lead in).
+  var adCard=el("adCard");
+  if(adCard){
+    var ad=null;
+    try{ ad=c.ad_ref?JSON.parse(c.ad_ref):null; }catch(e){ ad=null; }
+    if(ad && (ad.headline||ad.body)){
+      var thumb=ad.thumbnailUrl?'<img src="'+esc(ad.thumbnailUrl)+'" loading="lazy" onerror="this.remove()">':"";
+      adCard.innerHTML='<div class="adcard">'+thumb+'<div>📣 Llegó por el anuncio'
+        +(ad.headline?': <b>'+esc(ad.headline)+'</b>':'')
+        +(ad.body?'<div>'+esc(String(ad.body).slice(0,140))+'</div>':'')
+        +'</div></div>';
+    }else{ adCard.innerHTML=""; }
+  }
   var isMobile=!window.matchMedia("(min-width:768px)").matches;
   var me=state.me&&state.me.user?state.me.user:"";
   var assigned=c.assigned_to||null;
@@ -818,6 +845,55 @@ async function sendChatMsg(){
   renderChatHeader(); // paused state changed (takeover)
   loadChats();
 }
+async function sendChatMedia(){
+  var phone=chatState.phone; if(!phone || chatState.sending) return;
+  var input=el("chatFile"); if(!input || !input.files || !input.files.length) return;
+  var file=input.files[0];
+  input.value=""; // allow re-selecting the same file later
+  if(file.size>16*1024*1024){ toast("Archivo demasiado grande (máx 16MB)","err"); return; }
+  var ta=el("chatTa");
+  var caption=ta?ta.value:"";
+  chatState.sending=true;
+  var send=el("chatSend"), attach=el("chatAttach");
+  if(send) send.disabled=true;
+  if(attach){ attach.disabled=true; attach.textContent="⏳"; }
+  var fd=new FormData();
+  fd.append("file",file,file.name||"archivo");
+  fd.append("token",newToken());
+  if(caption.trim()) fd.append("caption",caption);
+  var r=null, failed=false;
+  try{
+    var res=await fetch("/admin/api/conversations/"+encodeURIComponent(phone)+"/send-media",
+      {method:"POST",credentials:"same-origin",body:fd});
+    if(res.status===401){ showLogin(); return; }
+    r=await res.json().catch(function(){return null;});
+    if(!res.ok){
+      failed=true;
+      var err=(r&&r.error)||"";
+      if(err==="unsupported_type") toast("Tipo no soportado (jpg, png, webp, mp4, pdf)","err");
+      else if(err==="file_too_large") toast("Archivo demasiado grande (máx 16MB)","err");
+      else if(err==="upload_failed") toast("No se pudo subir el archivo","err");
+      else toast("No se pudo enviar el archivo","err");
+    }
+  }catch(e){ failed=true; toast("Sin conexión. Intenta de nuevo.","err"); }
+  chatState.sending=false;
+  if(send) send.disabled=false;
+  if(attach){ attach.disabled=false; attach.textContent="📎"; }
+  if(failed || !r) return;
+  if(r.ok===false){
+    if(r.reason==="window_closed"){
+      chatState.windowOpen=false;
+      if(ta) ta.disabled=true;
+      if(el("windowHint")) el("windowHint").classList.remove("hidden");
+      toast("Ventana de 24h cerrada","err");
+    }else if(r.reason!=="duplicate") toast("No se pudo enviar","err");
+    return;
+  }
+  if(ta) ta.value="";
+  if(r.message){ appendMessages([r.message], true); }
+  renderChatHeader();
+  loadChats();
+}
 async function assignConvo(phone,user){
   try{
     await api("/conversations/"+encodeURIComponent(phone)+"/assign",{method:"POST",body:{user:user||null}});
@@ -826,21 +902,50 @@ async function assignConvo(phone,user){
     renderChatHeader(); loadChats();
   }catch(e){ toast("No se pudo asignar","err"); }
 }
-function isVoiceMsg(msg){
-  if(!msg||!msg.meta) return false;
-  try{ return JSON.parse(msg.meta).voice===true; }catch(e){ return false; }
+function msgMeta(msg){
+  if(!msg||!msg.meta) return {};
+  try{ var m=JSON.parse(msg.meta); return (m&&typeof m==="object")?m:{}; }catch(e){ return {}; }
 }
-function msgBy(msg){
-  if(!msg||!msg.meta) return "";
-  try{ var b=JSON.parse(msg.meta).by; return b?String(b):""; }catch(e){ return ""; }
+function isVoiceMsg(msg){ return msgMeta(msg).voice===true; }
+function msgBy(msg){ var b=msgMeta(msg).by; return b?String(b):""; }
+function mediaProxy(id){ return "/admin/api/media/"+encodeURIComponent(id); }
+function mediaHtml(meta){
+  if(!meta || !meta.mediaId) return "";
+  var src=mediaProxy(meta.mediaId);
+  if(meta.type==="image"||meta.type==="sticker"){
+    return '<img class="med" loading="lazy" src="'+esc(src)+'" onclick="window.open(this.src)"'
+      +(meta.type==="sticker"?' style="max-height:120px"':'')+'>';
+  }
+  if(meta.type==="video") return '<video class="med" controls preload="metadata" src="'+esc(src)+'"></video>';
+  if(meta.voice===true && !meta.failed) return '<audio class="med" controls preload="none" src="'+esc(src)+'"></audio>';
+  if(meta.type==="document"){
+    return '<a class="doc" href="'+esc(src)+'" target="_blank" rel="noopener">📄 '+esc(meta.filename||"Documento")+'</a>';
+  }
+  return "";
+}
+function adCtxHtml(meta){
+  var ad=meta&&meta.adRef;
+  if(!ad || (!ad.headline && !ad.body)) return "";
+  var thumb=ad.thumbnailUrl?'<img src="'+esc(ad.thumbnailUrl)+'" loading="lazy" onerror="this.remove()">':"";
+  return '<div class="adctx">'+thumb+'<div>📣 Respondió a un anuncio'
+    +(ad.headline?': <b>'+esc(ad.headline)+'</b>':'')
+    +(ad.body?'<div style="opacity:.8">'+esc(String(ad.body).slice(0,120))+'</div>':'')
+    +'</div></div>';
 }
 function bubbleHtml(msg){
   var dir=msg.direction, cls="in", who="";
   if(dir==="out_bot"){ cls="bot"; }
   else if(dir==="out_human"){ cls="human"; var by=msgBy(msg); who='<div class="who">🙋 '+esc(by||"equipo")+'</div>'; }
   else if(dir==="out_human_echo"){ cls="human"; who='<div class="who">🙋 tú</div>'; }
-  var mic=isVoiceMsg(msg)?"🎤 ":"";
-  return '<div class="bub '+cls+'">'+who+mic+esc(msg.body||"")+'<div class="ts">'+esc(clockTime(msg.ts))+'</div></div>';
+  var meta=msgMeta(msg);
+  var mic=(meta.voice===true)?"🎤 ":"";
+  var media=mediaHtml(meta);
+  var body=msg.body||"";
+  // Media bubbles: don't duplicate the caption placeholder under the element.
+  if(media && /^\[(imagen|video|documento|sticker)\]$/.test(body)) body="";
+  return '<div class="bub '+cls+'">'+adCtxHtml(meta)+who+media
+    +(body?mic+esc(body):"")
+    +'<div class="ts">'+esc(clockTime(msg.ts))+'</div></div>';
 }
 async function pauseConvo(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/pause",{method:"POST",body:{}});
