@@ -24,6 +24,29 @@
 
 Disconnected + removed as partner. Before disconnecting we exported all contacts: **~6,019 WhatsApp contacts (name, phone, subscribed date) in `~/Downloads/manychat-master.csv`** + Google Sheet "ManyChat Export". Tags were NOT exportable (ManyChat has no bulk tag export; API phone-lookup can't see WhatsApp IDs). Blast idea parked — if revived: needs approved marketing template + payment method + throttled sender (not built).
 
+### Dashboard inbox v1 (shipped 2026-08-03, same day as go-live)
+
+The /admin Chats view is now a WhatsApp-style live inbox — the human reply surface for the API-only sales number: 5s polling, real scroll pane, composer (staff replies log as `direction:"out_human"` with `meta.by`), inline pending-draft cards (Aprobar/Editar/Descartar in-chat), unread dots + tab badge + title flash + beep (mute 🔔/🔕), per-chat assignment (Asignarme/Liberar + Míos/Sin asignar filters), read-marks to the lead (blue ticks) on open. **A staff reply pauses the bot on that conversation INDEFINITELY (1-year override) until ▶ Reanudar** — amber banner shows in-chat (Evan's decision). Sends are idempotent (client token claimed in kv pre-send; 24h-window closed → composer disabled with hint).
+
+**Per-user accounts:** login now takes usuario+contraseña. `admin_users` table (PBKDF2-SHA256 100k), cookie v2 carries the username (old sessions force one re-login). Master `ADMIN_PASSWORD` = permanent break-glass, logs in as evan/owner only (cannot impersonate staff). Owner-only Usuarios view (Inicio → 👥 card): create fer/vale, reset passwords, disable. Dashboard approvals post attribution notes to Slack ("por <user> desde el panel").
+
+- [ ] ⚠️ **D1 migration (inbox v1)** — Evan pastes in D1 console (also mirrored at the end of schema.sql). Until it runs: only evan (master password) can log in, assignment is a silent no-op, everything else works:
+```sql
+CREATE TABLE IF NOT EXISTS admin_users(
+  username TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  pass_salt TEXT NOT NULL,
+  pass_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'staff',
+  disabled INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts);
+ALTER TABLE contacts ADD COLUMN assigned_to TEXT;
+```
+- [ ] After migration: Inicio → Usuarios → create `fer` + `vale`; they log in on their phones.
+- R2 next (media in/out: photos from leads, attach button) then R3 (✓✓ ticks via status webhooks + template picker once templates/payment exist). Plan: ~/.claude/plans/i-want-to-go-ancient-milner.md
+
 ### Open items (post-go-live)
 
 - [ ] ⚠️ **Payment method on WABA 1582515279931864** — blocked earlier by a shared-credit-line error on the old WABA; without it, template sends (d2–d5 drips, anti-no-show out-of-window, any blast) silently fail. In-window free-form replies are unaffected.

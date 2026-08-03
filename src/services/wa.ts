@@ -1,7 +1,7 @@
 // Meta Graph API (WhatsApp Cloud) client. Every send records to outbound_wamids
 // (echo detection) + messages, and returns the wamid.
 
-import type { Env } from "../types.js";
+import type { Env, MessageDirection } from "../types.js";
 import { getContact, recordOutboundWamid, insertMessageIfNew } from "../db/queries.js";
 
 const GRAPH_VERSION = "v21.0";
@@ -50,16 +50,23 @@ async function recordOutbound(
   wamid: string,
   body: string,
   meta: unknown,
+  direction: MessageDirection = "out_bot",
 ): Promise<void> {
   await recordOutboundWamid(env.DB, wamid);
   await insertMessageIfNew(env.DB, {
     wamid,
     phone,
-    direction: "out_bot",
+    direction,
     body,
     ts: Math.floor(Date.now() / 1000),
     meta: JSON.stringify(meta),
   });
+}
+
+/** Options for sendText. Staff sends pass direction:"out_human" + {by}. */
+export interface SendTextOpts {
+  direction?: MessageDirection;
+  metaExtra?: Record<string, unknown>;
 }
 
 /**
@@ -70,6 +77,7 @@ export async function sendText(
   env: Env,
   phone: string,
   body: string,
+  opts?: SendTextOpts,
 ): Promise<string> {
   const contact = await getContact(env.DB, phone);
   const last = contact?.last_inbound_at ?? 0;
@@ -84,7 +92,14 @@ export async function sendText(
     type: "text",
     text: { preview_url: false, body },
   });
-  await recordOutbound(env, phone, wamid, body, { type: "text" });
+  await recordOutbound(
+    env,
+    phone,
+    wamid,
+    body,
+    { type: "text", ...(opts?.metaExtra ?? {}) },
+    opts?.direction ?? "out_bot",
+  );
   return wamid;
 }
 

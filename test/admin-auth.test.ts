@@ -1,14 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  authenticateLogin,
   buildSetCookie,
   decideLoginRateLimit,
+  hashPassword,
+  isValidUsername,
+  newSaltHex,
   parseCookies,
   recordFailedLogin,
   RL_MAX_FAILS,
-  signAdminCookie,
+  signAdminCookieV2,
   timingSafeEqual,
-  verifyAdminCookie,
+  verifyAdminCookieV2,
+  verifyPassword,
+  type AdminUserRow,
 } from "../src/routes/admin-auth.js";
 
 const SECRET = "test_admin_secret";
@@ -18,55 +24,202 @@ function cookieHeader(value: string): string {
   return `md_admin=${value}`;
 }
 
-// ---- cookie sign / verify round-trip ----
+// ---- v2 cookie sign / verify round-trip ----
 
-test("signAdminCookie / verifyAdminCookie round-trip a valid, unexpired cookie", async () => {
-  const exp = NOW + 3600;
-  const value = await signAdminCookie(SECRET, exp);
-  assert.ok(/^\d+\.[0-9a-f]{64}$/.test(value), "value is <exp>.<hexhmac>");
-  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(value), NOW), true);
+test("signAdminCookieV2 / verifyAdminCookieV2 round-trip a valid cookie", async () => {
+  const value = await signAdminCookieV2(SECRET, "fer", NOW + 3600);
+  assert.ok(
+    /^v2\.fer\.\d+\.[0-9a-f]{64}$/.test(value),
+    "value is v2.<user>.<exp>.<hexhmac>",
+  );
+  const session = await verifyAdminCookieV2(SECRET, cookieHeader(value), NOW);
+  assert.deepEqual(session, { user: "fer" });
 });
 
-test("verifyAdminCookie rejects a tampered signature", async () => {
-  const exp = NOW + 3600;
-  const value = await signAdminCookie(SECRET, exp);
-  const [expPart, mac] = value.split(".");
-  // Flip the last hex nibble of the MAC.
-  const lastChar = mac!.slice(-1);
-  const flipped = lastChar === "0" ? "1" : "0";
-  const tampered = `${expPart}.${mac!.slice(0, -1)}${flipped}`;
-  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(tampered), NOW), false);
+test("verifyAdminCookieV2 rejects a tampered username segment", async () => {
+  const value = await signAdminCookieV2(SECRET, "fer", NOW + 3600);
+  const forged = value.replace(".fer.", ".evan.");
+  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(forged), NOW), null);
 });
 
-test("verifyAdminCookie rejects a tampered expiry (exp not covered by sig)", async () => {
-  const exp = NOW + 3600;
-  const value = await signAdminCookie(SECRET, exp);
-  const [, mac] = value.split(".");
-  // Keep a valid-looking MAC but swap in a far-future exp; sig won't match.
-  const forged = `${NOW + 999999}.${mac}`;
-  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(forged), NOW), false);
+test("verifyAdminCookieV2 rejects a tampered signature", async () => {
+  const value = await signAdminCookieV2(SECRET, "vale", NOW + 3600);
+  const last = value.slice(-1);
+  const tampered = value.slice(0, -1) + (last === "0" ? "1" : "0");
+  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(tampered), NOW), null);
 });
 
-test("verifyAdminCookie rejects an expired cookie", async () => {
-  const exp = NOW - 10; // already expired
-  const value = await signAdminCookie(SECRET, exp);
-  // Signature is valid but exp <= now ⇒ reject.
-  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(value), NOW), false);
+test("verifyAdminCookieV2 rejects a tampered expiry", async () => {
+  const value = await signAdminCookieV2(SECRET, "evan", NOW + 3600);
+  const parts = value.split(".");
+  parts[2] = String(NOW + 999_999);
+  assert.equal(
+    await verifyAdminCookieV2(SECRET, cookieHeader(parts.join(".")), NOW),
+    null,
+  );
 });
 
-test("verifyAdminCookie rejects a cookie signed with the wrong secret", async () => {
-  const exp = NOW + 3600;
-  const value = await signAdminCookie("other_secret", exp);
-  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(value), NOW), false);
+test("verifyAdminCookieV2 rejects an expired cookie", async () => {
+  const value = await signAdminCookieV2(SECRET, "evan", NOW - 10);
+  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(value), NOW), null);
 });
 
-test("verifyAdminCookie rejects missing / malformed cookies", async () => {
-  assert.equal(await verifyAdminCookie(SECRET, null, NOW), false);
-  assert.equal(await verifyAdminCookie(SECRET, "", NOW), false);
-  assert.equal(await verifyAdminCookie(SECRET, "other=1", NOW), false);
-  assert.equal(await verifyAdminCookie(SECRET, "md_admin=garbage", NOW), false);
-  assert.equal(await verifyAdminCookie(SECRET, "md_admin=123", NOW), false);
-  assert.equal(await verifyAdminCookie(SECRET, "md_admin=.abc", NOW), false);
+test("verifyAdminCookieV2 rejects the wrong secret", async () => {
+  const value = await signAdminCookieV2("other_secret", "evan", NOW + 3600);
+  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(value), NOW), null);
+});
+
+test("verifyAdminCookieV2 rejects legacy v1 and malformed values", async () => {
+  // Legacy v1 format: <exp>.<mac>
+  assert.equal(
+    await verifyAdminCookieV2(SECRET, cookieHeader(`${NOW + 3600}.deadbeef`), NOW),
+    null,
+  );
+  assert.equal(await verifyAdminCookieV2(SECRET, null, NOW), null);
+  assert.equal(await verifyAdminCookieV2(SECRET, "", NOW), null);
+  assert.equal(await verifyAdminCookieV2(SECRET, "md_admin=garbage", NOW), null);
+  assert.equal(
+    await verifyAdminCookieV2(SECRET, "md_admin=v2.evan.123", NOW),
+    null,
+  );
+  assert.equal(
+    await verifyAdminCookieV2(SECRET, "md_admin=v3.evan.123.abc", NOW),
+    null,
+  );
+  // Invalid username charset (dot split makes this structurally off anyway).
+  assert.equal(
+    await verifyAdminCookieV2(SECRET, "md_admin=v2.EVAN.123.abc", NOW),
+    null,
+  );
+});
+
+// ---- usernames ----
+
+test("isValidUsername charset and length rules", () => {
+  assert.equal(isValidUsername("evan"), true);
+  assert.equal(isValidUsername("fer-2"), true);
+  assert.equal(isValidUsername("vale_g"), true);
+  assert.equal(isValidUsername(""), false);
+  assert.equal(isValidUsername("Evan"), false); // uppercase
+  assert.equal(isValidUsername("with.dot"), false); // dots break the cookie format
+  assert.equal(isValidUsername("con espacio"), false);
+  assert.equal(isValidUsername("a".repeat(33)), false);
+});
+
+// ---- password hashing ----
+
+test("hashPassword is deterministic per salt and differs across salts", async () => {
+  const h1 = await hashPassword("hunter22", "aabbccdd", 1000);
+  const h2 = await hashPassword("hunter22", "aabbccdd", 1000);
+  const h3 = await hashPassword("hunter22", "ddccbbaa", 1000);
+  assert.equal(h1, h2);
+  assert.notEqual(h1, h3);
+  assert.ok(/^[0-9a-f]{64}$/.test(h1), "32-byte hex output");
+});
+
+test("verifyPassword accepts the right password and rejects the wrong one", async () => {
+  const salt = newSaltHex();
+  assert.ok(/^[0-9a-f]{32}$/.test(salt), "16-byte hex salt");
+  const hash = await hashPassword("segura123", salt);
+  assert.equal(await verifyPassword("segura123", salt, hash), true);
+  assert.equal(await verifyPassword("segura124", salt, hash), false);
+});
+
+test("newSaltHex produces distinct salts", () => {
+  assert.notEqual(newSaltHex(), newSaltHex());
+});
+
+// ---- authenticateLogin decision matrix ----
+
+async function makeRow(
+  username: string,
+  password: string,
+  over: Partial<AdminUserRow> = {},
+): Promise<AdminUserRow> {
+  const salt = newSaltHex();
+  return {
+    username,
+    display_name: username,
+    pass_salt: salt,
+    pass_hash: await hashPassword(password, salt),
+    role: "staff",
+    disabled: 0,
+    ...over,
+  };
+}
+
+test("authenticateLogin: enabled row + right password wins", async () => {
+  const row = await makeRow("fer", "pw-de-fer1");
+  const d = await authenticateLogin({
+    username: "fer",
+    password: "pw-de-fer1",
+    userRow: row,
+    masterMatches: false,
+  });
+  assert.deepEqual(d, { ok: true, user: "fer", role: "staff" });
+});
+
+test("authenticateLogin: wrong password fails", async () => {
+  const row = await makeRow("fer", "pw-de-fer1");
+  const d = await authenticateLogin({
+    username: "fer",
+    password: "nope",
+    userRow: row,
+    masterMatches: false,
+  });
+  assert.deepEqual(d, { ok: false });
+});
+
+test("authenticateLogin: disabled row fails even with master password", async () => {
+  const row = await makeRow("fer", "pw-de-fer1", { disabled: 1 });
+  const d = await authenticateLogin({
+    username: "fer",
+    password: "whatever",
+    userRow: row,
+    masterMatches: true, // master pw provided — must NOT grant fer
+  });
+  assert.deepEqual(d, { ok: false });
+});
+
+test("authenticateLogin: master + empty username → evan/owner (break-glass)", async () => {
+  const d = await authenticateLogin({
+    username: "",
+    password: "the-master",
+    userRow: null,
+    masterMatches: true,
+  });
+  assert.deepEqual(d, { ok: true, user: "evan", role: "owner" });
+});
+
+test("authenticateLogin: master + username evan → evan/owner even if row pw wrong", async () => {
+  const row = await makeRow("evan", "evans-own-pw", { role: "owner" });
+  const d = await authenticateLogin({
+    username: "evan",
+    password: "the-master", // not evan's row password
+    userRow: row,
+    masterMatches: true,
+  });
+  assert.deepEqual(d, { ok: true, user: "evan", role: "owner" });
+});
+
+test("authenticateLogin: master CANNOT impersonate other staff", async () => {
+  const d = await authenticateLogin({
+    username: "fer",
+    password: "the-master",
+    userRow: null, // fer row missing (pre-migration)
+    masterMatches: true,
+  });
+  assert.deepEqual(d, { ok: false });
+});
+
+test("authenticateLogin: unknown username without master fails", async () => {
+  const d = await authenticateLogin({
+    username: "mallory",
+    password: "x",
+    userRow: null,
+    masterMatches: false,
+  });
+  assert.deepEqual(d, { ok: false });
 });
 
 // ---- parseCookies ----

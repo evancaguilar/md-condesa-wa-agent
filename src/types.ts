@@ -162,7 +162,9 @@ export interface AirtableRule {
   updated_at: number;
 }
 
-export type MessageDirection = "in" | "out_bot" | "out_human_echo";
+// out_human = staff reply sent from the admin dashboard inbox (meta.by = username);
+// out_human_echo = legacy coexistence echo (human replied from the WA Business app).
+export type MessageDirection = "in" | "out_bot" | "out_human_echo" | "out_human";
 
 /** Row of the `messages` table. */
 export interface StoredMessage {

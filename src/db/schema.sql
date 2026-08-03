@@ -93,3 +93,22 @@ CREATE TABLE IF NOT EXISTS airtable_rules(
   last_error TEXT,                        -- last Airtable apply error (amber chip); NULL when healthy
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
+
+-- ---- Dashboard inbox v1 (staff accounts + live Chats; 2026-08-03) ----
+-- Prod migration (Evan pastes in D1 console): the CREATEs + index + ALTER below.
+-- The ALTER errors with "duplicate column" on rerun — harmless, ignore it.
+-- Code fail-softs pre-migration (getAdminUserSoft / setAssignedToSoft).
+
+CREATE TABLE IF NOT EXISTS admin_users(
+  username TEXT PRIMARY KEY,            -- lowercase /^[a-z0-9_-]{1,32}$/
+  display_name TEXT NOT NULL,
+  pass_salt TEXT NOT NULL,              -- 16 random bytes hex
+  pass_hash TEXT NOT NULL,              -- PBKDF2-SHA256(pw, salt, 100000) hex
+  role TEXT NOT NULL DEFAULT 'staff',   -- 'owner' | 'staff'
+  disabled INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts);
+
+ALTER TABLE contacts ADD COLUMN assigned_to TEXT;  -- staff username owning the convo (nullable)

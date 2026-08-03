@@ -9,8 +9,10 @@ declare module "node:assert/strict" {
   const assert: {
     (value: unknown, message?: string): void;
     equal(actual: unknown, expected: unknown, message?: string): void;
+    notEqual(actual: unknown, expected: unknown, message?: string): void;
     deepEqual(actual: unknown, expected: unknown, message?: string): void;
     ok(value: unknown, message?: string): void;
+    rejects(block: () => Promise<unknown>, error?: RegExp | Error): Promise<void>;
   };
   export default assert;
 }
@@ -21,12 +23,13 @@ declare class TextEncoder {
 
 declare const crypto: {
   subtle: SubtleCrypto;
+  getRandomValues<T extends ArrayBufferView>(array: T): T;
 };
 interface SubtleCrypto {
   importKey(
     format: string,
     keyData: ArrayBufferView,
-    algorithm: { name: string; hash: string },
+    algorithm: { name: string; hash: string } | string,
     extractable: boolean,
     keyUsages: string[],
   ): Promise<CryptoKey>;
@@ -35,6 +38,17 @@ interface SubtleCrypto {
     key: CryptoKey,
     data: ArrayBufferView,
   ): Promise<ArrayBuffer>;
+  deriveBits(
+    algorithm: {
+      name: string;
+      hash: string;
+      salt: ArrayBufferView;
+      iterations: number;
+    },
+    baseKey: CryptoKey,
+    length: number,
+  ): Promise<ArrayBuffer>;
+  digest(algorithm: string, data: ArrayBufferView): Promise<ArrayBuffer>;
 }
 interface CryptoKey {
   readonly __brand: "CryptoKey";

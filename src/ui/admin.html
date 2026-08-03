@@ -156,6 +156,25 @@ pre.base{white-space:pre-wrap;word-break:break-word;background:var(--panel2);bor
 .composer{display:flex;gap:8px;margin-top:10px}
 .composer textarea{flex:1;min-height:44px;max-height:120px}
 
+/* chats live inbox */
+.chatshell{display:flex;flex-direction:column;height:calc(100dvh - 120px - var(--tabh));min-height:320px}
+.chatshell .transcript{flex:1;overflow-y:auto;min-height:0;padding:6px 2px}
+.chatshell .composer{margin-top:8px;flex:none}
+.pausebanner{background:rgba(240,177,64,.12);border:1px solid var(--amber,#f0b140);color:var(--amber,#f0b140);
+  border-radius:10px;padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:8px;flex:none}
+.pendcard{border:1px solid var(--amber,#f0b140);border-radius:12px;padding:10px 12px;margin:8px 0;background:rgba(240,177,64,.07);flex:none}
+.pendcard .lbl{font-size:11px;font-weight:700;color:var(--amber,#f0b140);margin-bottom:4px}
+.lrow.unread .nm::before{content:"●";color:var(--gold);margin-right:6px;font-size:11px;vertical-align:1px}
+.lrow.unread .pv{color:var(--text);font-weight:600}
+.filterbar{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.filterbar .chip{cursor:pointer;user-select:none}
+.filterbar .chip.on{background:var(--gold);color:#181a1f;font-weight:700}
+.windowhint{font-size:12px;color:var(--muted);margin-top:6px}
+@media(min-width:768px){
+  .chatshell{height:calc(100vh - 150px)}
+  .pane-2 .list.chatlist{max-height:calc(100vh - 150px);overflow-y:auto;position:sticky;top:20px}
+}
+
 /* desktop */
 @media(min-width:768px){
   :root{--tabh:0px}
@@ -186,6 +205,7 @@ pre.base{white-space:pre-wrap;word-break:break-word;background:var(--panel2);bor
     <div class="card">
       <div class="logo">MD CONDESA</div>
       <div class="muted sm" style="margin-bottom:16px">Panel de administración</div>
+      <input id="loginUser" class="field" type="text" placeholder="Usuario (opcional)" autocomplete="username" autocapitalize="none" style="text-align:center;margin-bottom:10px">
       <input id="loginPw" class="field" type="password" placeholder="Contraseña" autocomplete="current-password" style="text-align:center">
       <button id="loginBtn" class="btn gold" style="width:100%;margin-top:14px">Entrar</button>
       <div id="loginErr" class="sm" style="color:var(--red);margin-top:10px;min-height:18px"></div>
@@ -312,25 +332,31 @@ var TABS=[
   {id:"campanas", icon:"📣",label:"Camp"},
   {id:"probar",   icon:"🧪",label:"Probar"}
 ];
-var state={ pendingCount:0, poll:null };
+var state={ pendingCount:0, poll:null, me:null, unreadCount:0 };
+var BASE_TITLE=document.title||"MD Condesa";
 
 function currentHash(){ var h=(location.hash||"#inicio").replace(/^#/,""); return h.split("/")[0]||"inicio"; }
 
 // ---------- shell / nav ----------
+function tabBadge(t){
+  if(t.badge && state.pendingCount>0) return '<span class="badge">'+state.pendingCount+'</span>';
+  if(t.id==="chats" && state.unreadCount>0) return '<span class="badge">'+state.unreadCount+'</span>';
+  return "";
+}
 function renderNav(){
   var active=currentHash();
   var side=el("side");
-  side.innerHTML='<div class="brand">MD CONDESA</div>'+TABS.map(function(t){
-    var badge=(t.badge && state.pendingCount>0)?'<span class="badge">'+state.pendingCount+'</span>':"";
-    return '<button class="nav'+(t.id===active?" on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+badge+'</button>';
+  var who=state.me?'<div class="muted sm" style="padding:4px 12px 10px">🙋 '+esc(state.me.displayName||state.me.user||"")+'</div>':"";
+  side.innerHTML='<div class="brand">MD CONDESA</div>'+who+TABS.map(function(t){
+    return '<button class="nav'+(t.id===active?" on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+tabBadge(t)+'</button>';
   }).join("")+'<div style="flex:1"></div><button class="nav" data-logout="1"><span class="ic">🚪</span>Salir</button>';
   var tabs=el("tabs");
   tabs.innerHTML=TABS.map(function(t){
-    var badge=(t.badge && state.pendingCount>0)?'<span class="badge">'+state.pendingCount+'</span>':"";
-    return '<button class="'+(t.id===active?"on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+badge+'</button>';
+    return '<button class="'+(t.id===active?"on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+tabBadge(t)+'</button>';
   }).join("");
   qa("[data-go]").forEach(function(b){ b.onclick=function(){ location.hash="#"+b.getAttribute("data-go"); }; });
   qa("[data-logout]").forEach(function(b){ b.onclick=doLogout; });
+  document.title = state.unreadCount>0 ? "("+state.unreadCount+") "+BASE_TITLE : BASE_TITLE;
 }
 function updateBadges(){ renderNav(); }
 
@@ -370,18 +396,21 @@ function showLogin(){
   setTimeout(function(){ try{el("loginPw").focus();}catch(e){} },50);
 }
 async function doLogin(){
+  var user=(el("loginUser").value||"").trim();
   var pw=el("loginPw").value;
   var errEl=el("loginErr");
   errEl.textContent="";
   el("loginBtn").disabled=true;
   try{
-    await api("/login",{method:"POST",body:{password:pw}});
+    var body={password:pw};
+    if(user) body.username=user;
+    await api("/login",{method:"POST",body:body});
     el("loginBtn").disabled=false;
     await boot();
   }catch(e){
     el("loginBtn").disabled=false;
     if(e.status===429) errEl.textContent="Demasiados intentos, espera 15 minutos";
-    else if(e.status===401 || e.status===400) errEl.textContent="Contraseña incorrecta";
+    else if(e.status===401 || e.status===400) errEl.textContent="Usuario o contraseña incorrectos";
     else if(e.status===0) errEl.textContent="Sin conexión. Intenta de nuevo.";
     else errEl.textContent="No se pudo entrar. Intenta de nuevo.";
   }
@@ -421,11 +450,16 @@ async function loadInicio(silent){
       +stat(o.convosWeek!=null?o.convosWeek:"–","Esta semana")
       +'<div class="stat tap" id="pendStat"><div class="n">'+(o.pendingCount||0)+'</div><div class="l">Pendientes →</div></div>'
       +'</div>';
+  if(state.me && state.me.role==="owner"){
+    html+='<div class="card between tap" id="usersCard" style="margin-top:12px"><div><div style="font-weight:700">👥 Usuarios del panel</div>'
+      +'<div class="muted sm">Cuentas de evan, fer y vale</div></div><div class="muted">→</div></div>';
+  }
   body.innerHTML=html;
 
   el("botBig").onclick=function(){ toggleBot(botOn); };
   el("twToggle").onchange=function(){ setTrainingWheels(this.checked); };
   el("pendStat").onclick=function(){ location.hash="#aprobaciones"; };
+  if(el("usersCard")) el("usersCard").onclick=function(){ location.hash="#usuarios"; };
 }
 function stat(n,l){ return '<div class="stat"><div class="n">'+esc(String(n))+'</div><div class="l">'+esc(l)+'</div></div>'; }
 async function toggleBot(currentlyOn){
@@ -446,35 +480,128 @@ async function setTrainingWheels(on){
   }catch(e){ toast("No se pudo cambiar el modo supervisión","err"); loadInicio(); }
 }
 
-// ---------- CHATS ----------
-var chatsCache={items:[],openPhone:null};
+// ---------- CHATS (live inbox) ----------
+var chatsCache={items:[],openPhone:null,firstLoad:true,filter:(function(){try{return localStorage.getItem("md_chatfilter")||"all";}catch(e){return "all";}})()};
+var chatState={phone:null,lastTs:0,seen:{},lastDay:"",pendKey:"",contact:null,windowOpen:true,tick:0,sending:false};
+
+function readMap(){ try{ return JSON.parse(localStorage.getItem("md_read")||"{}"); }catch(e){ return {}; } }
+function markReadLocal(phone,ts){
+  if(!phone||!ts) return;
+  var m=readMap();
+  if((m[phone]||0)>=ts) return;
+  m[phone]=ts;
+  try{ localStorage.setItem("md_read",JSON.stringify(m)); }catch(e){}
+}
+function isMuted(){ try{ return localStorage.getItem("md_mute")==="1"; }catch(e){ return false; } }
+var audioCtx=null;
+function beep(){
+  if(isMuted()) return;
+  try{
+    var C=window.AudioContext||window.webkitAudioContext;
+    if(!C) return;
+    if(!audioCtx) audioCtx=new C();
+    var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.frequency.value=880; o.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(0.06,audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,audioCtx.currentTime+0.18);
+    o.start(); o.stop(audioCtx.currentTime+0.2);
+  }catch(e){}
+}
+function newToken(){
+  try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(e){}
+  return "t"+Date.now()+"-"+Math.floor(Math.random()*1e9);
+}
+
 VIEWS.chats=function(){
   var m=el("main");
-  m.innerHTML='<div id="chatsView"><h1>Chats</h1><div class="pane-2">'
-    +'<div class="list" id="chatList"><div class="loading"><span class="spin"></span></div></div>'
+  chatState.phone=null;
+  var muted=isMuted();
+  m.innerHTML='<div id="chatsView"><div class="between"><h1>Chats</h1>'
+    +'<button class="btn sm" id="muteBtn" title="Sonido de nuevos mensajes">'+(muted?"🔕":"🔔")+'</button></div>'
+    +'<div class="filterbar" id="chatFilters"></div>'
+    +'<div class="pane-2">'
+    +'<div class="list chatlist" id="chatList"><div class="loading"><span class="spin"></span></div></div>'
     +'<div class="detail" id="chatDetail"></div></div></div>';
+  el("muteBtn").onclick=function(){
+    var next=!isMuted();
+    try{ localStorage.setItem("md_mute",next?"1":"0"); }catch(e){}
+    el("muteBtn").textContent=next?"🔕":"🔔";
+  };
+  renderChatFilters();
+  chatsCache.firstLoad=true;
   loadChats();
+  startPoll(chatsTick,5000);
 };
+function renderChatFilters(){
+  var bar=el("chatFilters"); if(!bar) return;
+  var me=state.me&&state.me.user?state.me.user:"";
+  var opts=[{id:"all",l:"Todos"},{id:"mine",l:"Míos"},{id:"unassigned",l:"Sin asignar"}];
+  bar.innerHTML=opts.map(function(o){
+    return '<span class="chip'+(chatsCache.filter===o.id?" on":"")+'" data-f="'+o.id+'">'+o.l+'</span>';
+  }).join("");
+  qa("#chatFilters .chip").forEach(function(c){
+    c.onclick=function(){
+      chatsCache.filter=c.getAttribute("data-f");
+      try{ localStorage.setItem("md_chatfilter",chatsCache.filter); }catch(e){}
+      renderChatFilters(); renderChatList();
+    };
+  });
+}
+function chatsTick(){
+  chatState.tick++;
+  if(chatState.phone && el("bubWrap")){ detailTick(false); }
+  if(!chatState.phone || chatState.tick%2===0){ loadChats(); }
+}
 async function loadChats(){
   var list=el("chatList"); if(!list) return;
   var data;
   try{ data=await api("/conversations?limit=100&offset=0"); }
-  catch(e){ list.innerHTML='<div class="card muted">No se pudieron cargar los chats.</div>'; return; }
+  catch(e){ if(chatsCache.firstLoad && el("chatList")) list.innerHTML='<div class="card muted">No se pudieron cargar los chats.</div>'; return; }
+  if(!el("chatList")) return;
+  var prevUnread=state.unreadCount;
   chatsCache.items=data.items||[];
-  if(!chatsCache.items.length){ list.innerHTML='<div class="card muted">Sin conversaciones todavía.</div>'; return; }
-  list.innerHTML=chatsCache.items.map(function(c){
+  var rm=readMap(), unread=0;
+  chatsCache.items.forEach(function(c){
+    if(c.lastDirection==="in" && c.lastTs && c.lastTs>(rm[c.phone]||0)) unread++;
+  });
+  state.unreadCount=unread;
+  if(unread>prevUnread && !chatsCache.firstLoad){ beep(); }
+  renderNav();
+  renderChatList();
+  if(chatsCache.firstLoad){
+    chatsCache.firstLoad=false;
+    if(window.matchMedia("(min-width:768px)").matches && chatsCache.items.length && !chatState.phone){
+      openChat(chatsCache.openPhone || chatsCache.items[0].phone);
+    }
+  }
+}
+function chatFilterFn(c){
+  var me=state.me&&state.me.user?state.me.user:"";
+  if(chatsCache.filter==="mine") return (c.assignedTo||null)===me;
+  if(chatsCache.filter==="unassigned") return !c.assignedTo;
+  return true;
+}
+function renderChatList(){
+  var list=el("chatList"); if(!list) return;
+  var items=chatsCache.items.filter(chatFilterFn);
+  if(!items.length){
+    list.innerHTML='<div class="card muted">'+(chatsCache.items.length?"Nada con este filtro.":"Sin conversaciones todavía.")+'</div>';
+    return;
+  }
+  var keepScroll=list.scrollTop;
+  var rm=readMap();
+  list.innerHTML=items.map(function(c){
     var chips=convoChips(c);
-    var sel=(c.phone===chatsCache.openPhone)?" sel":"";
-    return '<button class="lrow'+sel+'" data-phone="'+esc(c.phone)+'">'
+    var sel=(c.phone===chatState.phone)?" sel":"";
+    var unread=(c.lastDirection==="in" && c.lastTs && c.lastTs>(rm[c.phone]||0))?" unread":"";
+    return '<button class="lrow'+sel+unread+'" data-phone="'+esc(c.phone)+'">'
       +'<div class="top"><span class="nm">'+esc(nameOr(c.name,c.phone))+'</span><span class="tm">'+esc(relTime(c.lastTs))+'</span></div>'
       +'<div class="pv">'+esc(c.lastBody||"")+'</div>'
       +(chips?'<div class="chips" style="margin-top:6px">'+chips+'</div>':"")
       +'</button>';
   }).join("");
   qa("#chatList .lrow").forEach(function(b){ b.onclick=function(){ openChat(b.getAttribute("data-phone")); }; });
-  if(window.matchMedia("(min-width:768px)").matches && !el("chatDetail").innerHTML.trim()){
-    openChat(chatsCache.openPhone || chatsCache.items[0].phone);
-  }
+  list.scrollTop=keepScroll;
 }
 function convoChips(c){
   var out=[];
@@ -484,78 +611,260 @@ function convoChips(c){
   else out.push('<span class="chip">Lead</span>');
   if(c.paused) out.push('<span class="chip red">⏸ Pausado</span>');
   if(c.pendingCount>0) out.push('<span class="chip gold">⏳ Pendiente</span>');
+  if(c.assignedTo) out.push('<span class="chip blue">@'+esc(c.assignedTo)+'</span>');
   if(c.campaignName) out.push('<span class="chip blue">📣 '+esc(c.campaignName)+'</span>');
   return out.join("");
 }
+
+// Renders the chat SHELL once; messages/pending/header refresh via detailTick.
 async function openChat(phone){
   chatsCache.openPhone=phone;
+  chatState={phone:phone,lastTs:0,seen:{},lastDay:"",pendKey:"",contact:null,windowOpen:true,tick:chatState.tick,sending:false};
   qa("#chatList .lrow").forEach(function(b){ b.classList.toggle("sel",b.getAttribute("data-phone")===phone); });
   var isMobile=!window.matchMedia("(min-width:768px)").matches;
   var det=el("chatDetail");
   var list=el("chatList");
   if(isMobile){ list.classList.add("hidden"); }
-  det.innerHTML='<div class="loading"><span class="spin"></span></div>';
+  det.innerHTML='<div class="chatshell">'
+    +'<div class="dhead" id="chatHead"></div>'
+    +'<div id="pauseBanner"></div>'
+    +'<div class="transcript" id="bubWrap"><div class="loading"><span class="spin"></span></div></div>'
+    +'<div id="pendWrap"></div>'
+    +'<div class="row" style="flex-wrap:wrap;margin-top:8px;flex:none" id="convoActions"></div>'
+    +'<div class="composer" id="chatComposer"><textarea class="field" id="chatTa" placeholder="Escribe un mensaje…"></textarea>'
+    +'<button class="btn gold" id="chatSend">Enviar</button></div>'
+    +'<div class="windowhint hidden" id="windowHint">Ventana de 24h cerrada — se reabre cuando el lead escriba.</div>'
+    +'</div>';
+  var ta=el("chatTa");
+  el("chatSend").onclick=sendChatMsg;
+  ta.addEventListener("keydown",function(ev){
+    var desktop=window.matchMedia("(min-width:768px)").matches;
+    if(ev.key==="Enter" && !ev.shiftKey && (desktop || ev.ctrlKey || ev.metaKey)){
+      ev.preventDefault(); sendChatMsg();
+    }
+  });
+  await detailTick(true);
+}
+async function detailTick(full){
+  var phone=chatState.phone; if(!phone) return;
+  var qs= (!full && chatState.lastTs>0) ? ("?since="+chatState.lastTs) : "";
   var d;
-  try{ d=await api("/conversations/"+encodeURIComponent(phone)); }
-  catch(e){ det.innerHTML='<div class="card muted">No se pudo cargar la conversación.</div>'; return; }
-  var contact=d.contact||{};
-  var msgs=d.messages||[];
-  var paused=contact.human_override_until && (contact.human_override_until*1 > Date.now()/1000);
-  var head='<div class="dhead">'
-    +(isMobile?'<button class="backbtn mobile-only" id="chatBack">←</button>':'')
-    +'<div><div style="font-weight:800;font-size:18px">'+esc(nameOr(contact.name,contact.phone))+'</div>'
-    +'<div class="muted sm">'+esc(fmtPhone(contact.phone))+'</div></div></div>';
-  var parts=[], lastDay="";
-  for(var mi=0; mi<msgs.length; mi++){
-    var dk=cdmxDayKey(msgs[mi].ts);
-    if(dk && dk!==lastDay){ parts.push('<div class="daysep">'+esc(cdmxDayLabel(msgs[mi].ts))+'</div>'); lastDay=dk; }
-    parts.push(bubbleHtml(msgs[mi]));
+  try{ d=await api("/conversations/"+encodeURIComponent(phone)+qs); }
+  catch(e){
+    if(full && el("bubWrap")) el("bubWrap").innerHTML='<div class="card muted">No se pudo cargar la conversación.</div>';
+    return;
   }
-  var bubbles='<div class="transcript">'+parts.join("")+'</div>';
-  var actions='<div class="row" style="flex-wrap:wrap;margin-top:12px">';
-  if(paused) actions+='<button class="btn green sm" id="resumeBtn">▶ Reanudar</button>';
-  else actions+='<button class="btn sm" id="pauseBtn">⏸ Pausar bot aquí</button>';
-  if(contact.status!=="student") actions+='<button class="btn gold sm" id="studentBtn">🎓 Marcar como alumno</button>';
-  actions+='<button class="btn red sm" id="resetBtn">🧹 Reiniciar (prueba)</button>';
-  actions+='</div>';
-  det.innerHTML=head+bubbles+actions;
-  if(el("chatBack")) el("chatBack").onclick=function(){ el("chatList").classList.remove("hidden"); det.innerHTML=""; };
-  if(el("pauseBtn")) el("pauseBtn").onclick=function(){ pauseConvo(phone); };
-  if(el("resumeBtn")) el("resumeBtn").onclick=function(){ resumeConvo(phone); };
-  if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(phone); };
-  if(el("resetBtn")) el("resetBtn").onclick=function(){ resetConvo(phone); };
-  var tr=q(".transcript",det); if(tr) tr.scrollTop=tr.scrollHeight;
+  if(chatState.phone!==phone || !el("bubWrap")) return; // navigated away meanwhile
+  if(full) el("bubWrap").innerHTML="";
+  chatState.contact=d.contact||{};
+  renderChatHeader(d.now);
+  appendMessages(d.messages||[], full);
+  renderPendingCards(d.pending||[]);
+  // Mark read locally (badge) + blue ticks to the lead on open.
+  if(chatState.lastTs){
+    markReadLocal(phone, chatState.lastTs);
+    if(full){ api("/conversations/"+encodeURIComponent(phone)+"/read",{method:"POST"}).catch(function(){}); }
+  }
+}
+function renderChatHeader(nowSec){
+  var head=el("chatHead"); if(!head) return;
+  var c=chatState.contact||{};
+  var isMobile=!window.matchMedia("(min-width:768px)").matches;
+  var me=state.me&&state.me.user?state.me.user:"";
+  var assigned=c.assigned_to||null;
+  head.innerHTML=(isMobile?'<button class="backbtn mobile-only" id="chatBack">←</button>':'')
+    +'<div style="min-width:0"><div style="font-weight:800;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(nameOr(c.name,c.phone))+'</div>'
+    +'<div class="muted sm">'+esc(fmtPhone(c.phone))+(assigned?' · @'+esc(assigned):'')+'</div></div>';
+  if(el("chatBack")) el("chatBack").onclick=function(){
+    el("chatList").classList.remove("hidden");
+    el("chatDetail").innerHTML="";
+    chatState.phone=null;
+    loadChats();
+  };
+  var now= nowSec || Math.floor(Date.now()/1000);
+  var paused=c.human_override_until && (c.human_override_until*1 > now);
+  var banner=el("pauseBanner");
+  if(banner){
+    banner.innerHTML= paused
+      ? '<div class="pausebanner"><span>⏸️ Bot en pausa — el equipo lleva esta conversación.</span><button class="btn green sm" id="bannerResume">▶ Reanudar bot</button></div>'
+      : "";
+    if(el("bannerResume")) el("bannerResume").onclick=function(){ resumeConvo(chatState.phone); };
+  }
+  chatState.windowOpen=!!(c.last_inbound_at && (now - c.last_inbound_at*1) < 86400);
+  var ta=el("chatTa"), send=el("chatSend"), hint=el("windowHint");
+  if(ta && send && hint){
+    ta.disabled=!chatState.windowOpen;
+    send.disabled=!chatState.windowOpen || chatState.sending;
+    hint.classList.toggle("hidden",chatState.windowOpen);
+  }
+  var acts=el("convoActions");
+  if(acts){
+    var html="";
+    if(paused) html+='<button class="btn green sm" id="resumeBtn">▶ Reanudar</button>';
+    else html+='<button class="btn sm" id="pauseBtn">⏸ Pausar bot</button>';
+    if(assigned===me && me) html+='<button class="btn sm" id="assignBtn" data-user="">Liberar</button>';
+    else html+='<button class="btn sm" id="assignBtn" data-user="'+esc(me)+'">🙋 Asignarme</button>';
+    if(c.status!=="student") html+='<button class="btn gold sm" id="studentBtn">🎓 Alumno</button>';
+    html+='<button class="btn red sm" id="resetBtn">🧹 Reiniciar</button>';
+    acts.innerHTML=html;
+    if(el("pauseBtn")) el("pauseBtn").onclick=function(){ pauseConvo(chatState.phone); };
+    if(el("resumeBtn")) el("resumeBtn").onclick=function(){ resumeConvo(chatState.phone); };
+    if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(chatState.phone); };
+    if(el("resetBtn")) el("resetBtn").onclick=function(){ resetConvo(chatState.phone); };
+    if(el("assignBtn")) el("assignBtn").onclick=function(){
+      var u=el("assignBtn").getAttribute("data-user")||null;
+      assignConvo(chatState.phone,u);
+    };
+  }
+}
+function appendMessages(msgs,forcePin){
+  var wrap=el("bubWrap"); if(!wrap) return;
+  var fresh=[];
+  for(var i=0;i<msgs.length;i++){
+    var m=msgs[i];
+    if(!m || !m.wamid || chatState.seen[m.wamid]) continue;
+    chatState.seen[m.wamid]=1;
+    fresh.push(m);
+  }
+  if(!fresh.length) return;
+  var atBottom=forcePin || (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40);
+  var html="";
+  for(var j=0;j<fresh.length;j++){
+    var dk=cdmxDayKey(fresh[j].ts);
+    if(dk && dk!==chatState.lastDay){ html+='<div class="daysep">'+esc(cdmxDayLabel(fresh[j].ts))+'</div>'; chatState.lastDay=dk; }
+    html+=bubbleHtml(fresh[j]);
+    if(fresh[j].ts>chatState.lastTs) chatState.lastTs=fresh[j].ts;
+  }
+  wrap.insertAdjacentHTML("beforeend",html);
+  if(atBottom) wrap.scrollTop=wrap.scrollHeight;
+}
+function renderPendingCards(pending){
+  var wrap=el("pendWrap"); if(!wrap) return;
+  var key=pending.map(function(p){return p.id;}).join(",");
+  if(key===chatState.pendKey) return; // don't stomp an open edit box
+  chatState.pendKey=key;
+  if(!pending.length){ wrap.innerHTML=""; return; }
+  wrap.innerHTML=pending.map(function(p){
+    return '<div class="pendcard" id="pend-'+p.id+'">'
+      +'<div class="lbl">🟡 Borrador del bot pendiente</div>'
+      +'<div style="font-size:14px;white-space:pre-wrap;word-break:break-word">'+esc(p.draft||"")+'</div>'
+      +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'
+      +'<button class="btn green sm" data-pa="approve">✅ Aprobar</button>'
+      +'<button class="btn sm" data-pa="edit">✏️ Editar</button>'
+      +'<button class="btn red sm" data-pa="discard">🗑 Descartar</button></div>'
+      +'<div class="editbox hidden" style="margin-top:8px"><textarea class="field ta">'+esc(p.draft||"")+'</textarea>'
+      +'<button class="btn gold sm sendedit" style="margin-top:6px">Enviar</button></div>'
+      +'</div>';
+  }).join("");
+  pending.forEach(function(p){
+    var card=el("pend-"+p.id); if(!card) return;
+    qa("[data-pa]",card).forEach(function(b){
+      var a=b.getAttribute("data-pa");
+      b.onclick=async function(){
+        if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); return; }
+        var st=await resolveApprovalApi(p.id,a);
+        pendResultToast(st,a);
+        card.remove(); chatState.pendKey="";
+        detailTick(false); refreshOverviewSilent();
+      };
+    });
+    q(".sendedit",card).onclick=async function(){
+      var txt=q(".ta",card).value;
+      if(!txt.trim()){ toast("Escribe una respuesta","err"); return; }
+      var st=await resolveApprovalApi(p.id,"edit",txt);
+      pendResultToast(st,"edit");
+      card.remove(); chatState.pendKey="";
+      detailTick(false); refreshOverviewSilent();
+    };
+  });
+}
+function pendResultToast(st,action){
+  if(st==="ok") toast(action==="discard"?"Descartada":"Enviada","ok");
+  else if(st==="not_pending") toast("Ya resuelta (Slack u otro usuario)");
+  else if(st==="window_closed") toast("Ventana de 24h cerrada","err");
+  else toast("No se pudo procesar","err");
+}
+async function sendChatMsg(){
+  var phone=chatState.phone; if(!phone || chatState.sending) return;
+  var ta=el("chatTa"); if(!ta) return;
+  var text=ta.value;
+  if(!text.trim()) return;
+  chatState.sending=true;
+  var send=el("chatSend"); if(send) send.disabled=true;
+  var token=newToken();
+  var r;
+  try{
+    r=await api("/conversations/"+encodeURIComponent(phone)+"/send",{method:"POST",body:{text:text,token:token}});
+  }catch(e){
+    chatState.sending=false; if(send) send.disabled=false;
+    if(e.data && e.data.error==="too_long") toast("Mensaje demasiado largo (máx 4096)","err");
+    else toast("No se pudo enviar. Intenta de nuevo.","err");
+    return;
+  }
+  chatState.sending=false; if(send) send.disabled=false;
+  if(r && r.ok===false){
+    if(r.reason==="window_closed"){
+      chatState.windowOpen=false;
+      if(ta){ ta.disabled=true; }
+      if(el("windowHint")) el("windowHint").classList.remove("hidden");
+      toast("Ventana de 24h cerrada","err");
+    }else if(r.reason==="duplicate"){ /* already sent — the poll will show it */ }
+    else if(r.reason==="no_contact"){ toast("Contacto no encontrado","err"); }
+    else toast("No se pudo enviar","err");
+    return;
+  }
+  ta.value="";
+  if(r && r.message){ appendMessages([r.message], true); }
+  renderChatHeader(); // paused state changed (takeover)
+  loadChats();
+}
+async function assignConvo(phone,user){
+  try{
+    await api("/conversations/"+encodeURIComponent(phone)+"/assign",{method:"POST",body:{user:user||null}});
+    if(chatState.contact) chatState.contact.assigned_to=user||null;
+    toast(user?"Chat asignado a "+user:"Chat liberado","ok");
+    renderChatHeader(); loadChats();
+  }catch(e){ toast("No se pudo asignar","err"); }
 }
 function isVoiceMsg(msg){
   if(!msg||!msg.meta) return false;
   try{ return JSON.parse(msg.meta).voice===true; }catch(e){ return false; }
 }
+function msgBy(msg){
+  if(!msg||!msg.meta) return "";
+  try{ var b=JSON.parse(msg.meta).by; return b?String(b):""; }catch(e){ return ""; }
+}
 function bubbleHtml(msg){
   var dir=msg.direction, cls="in", who="";
   if(dir==="out_bot"){ cls="bot"; }
+  else if(dir==="out_human"){ cls="human"; var by=msgBy(msg); who='<div class="who">🙋 '+esc(by||"equipo")+'</div>'; }
   else if(dir==="out_human_echo"){ cls="human"; who='<div class="who">🙋 tú</div>'; }
   var mic=isVoiceMsg(msg)?"🎤 ":"";
   return '<div class="bub '+cls+'">'+who+mic+esc(msg.body||"")+'<div class="ts">'+esc(clockTime(msg.ts))+'</div></div>';
 }
 async function pauseConvo(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/pause",{method:"POST",body:{}});
-    toast("Bot pausado en esta conversación","ok"); openChat(phone); loadChats(); }
+    toast("Bot pausado en esta conversación","ok"); detailTick(false); renderChatHeader(); loadChats(); }
   catch(e){ toast("No se pudo pausar","err"); }
 }
 async function resumeConvo(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/resume",{method:"POST"});
-    toast("Bot reanudado","ok"); openChat(phone); loadChats(); }
+    toast("Bot reanudado","ok");
+    if(chatState.contact) chatState.contact.human_override_until=null;
+    renderChatHeader(); loadChats(); }
   catch(e){ toast("No se pudo reanudar","err"); }
 }
 async function markStudent(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/status",{method:"POST",body:{status:"student"}});
-    toast("Marcado como alumno","ok"); openChat(phone); loadChats(); }
+    toast("Marcado como alumno","ok");
+    if(chatState.contact) chatState.contact.status="student";
+    renderChatHeader(); loadChats(); }
   catch(e){ toast("No se pudo actualizar","err"); }
 }
 async function resetConvo(phone){
   if(!confirm("¿Borrar TODO el historial y estado de este número? El bot lo tratará como lead nuevo (bienvenida de campaña incluida). Solo para pruebas.")) return;
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/reset",{method:"POST",body:{}});
-    toast("Conversación reiniciada","ok"); el("chatDetail").innerHTML=""; loadChats(); }
+    toast("Conversación reiniciada","ok"); el("chatDetail").innerHTML=""; chatState.phone=null; loadChats(); }
   catch(e){ toast("No se pudo reiniciar","err"); }
 }
 
@@ -616,24 +925,119 @@ function removeCard(id){
   if(b && !qa(".card",b).length){ b.innerHTML='<div class="card center muted" style="padding:40px 16px">🎉 No hay nada pendiente.</div>'; }
   state.pendingCount=Math.max(0,state.pendingCount-1); updateBadges();
 }
-async function resolveAppr(id,kind,text){
+// Shared approval transport: returns "ok" | "not_pending" | "window_closed" | "error".
+// Used by the Aprobaciones view AND the inline draft cards in Chats.
+async function resolveApprovalApi(id,kind,text){
   var path="/approvals/"+id+"/"+kind;
   var opts= kind==="edit" ? {method:"POST",body:{text:text}} : {method:"POST"};
   try{
     var r=await api(path,opts);
-    if(r && r.ok===false){
-      if(r.reason==="not_pending"){ toast("Ya resuelta (probablemente desde Slack)"); removeCard(id); }
-      else if(r.reason==="window_closed"){ toast("Ventana de 24h cerrada","err"); removeCard(id); }
-      else { toast("No se pudo procesar","err"); }
-      return;
-    }
+    if(r && r.ok===false) return r.reason==="not_pending"||r.reason==="window_closed" ? r.reason : "error";
+    return "ok";
+  }catch(e){
+    if(e.data && (e.data.reason==="not_pending"||e.data.reason==="window_closed")) return e.data.reason;
+    return "error";
+  }
+}
+async function resolveAppr(id,kind,text){
+  var st=await resolveApprovalApi(id,kind,text);
+  if(st==="ok"){
     toast(kind==="discard"?"Descartada":(kind==="edit"?"Respuesta enviada":"Aprobada y enviada"),"ok");
     removeCard(id);
-  }catch(e){
-    if(e.data && e.data.reason==="not_pending"){ toast("Ya resuelta (probablemente desde Slack)"); removeCard(id); }
-    else if(e.data && e.data.reason==="window_closed"){ toast("Ventana de 24h cerrada","err"); removeCard(id); }
-    else toast("No se pudo procesar","err");
+  }else if(st==="not_pending"){ toast("Ya resuelta (probablemente desde Slack)"); removeCard(id); }
+  else if(st==="window_closed"){ toast("Ventana de 24h cerrada","err"); removeCard(id); }
+  else toast("No se pudo procesar","err");
+}
+
+// ---------- USUARIOS (owner-only) ----------
+VIEWS.usuarios=function(){
+  if(!state.me || state.me.role!=="owner"){ location.hash="#inicio"; return; }
+  var m=el("main");
+  m.innerHTML='<h1>Usuarios</h1>'
+    +'<div class="card"><div style="font-weight:700;margin-bottom:8px">Nuevo usuario</div>'
+    +'<input id="nuUser" class="field" placeholder="usuario (ej. fer)" autocapitalize="none" style="margin-bottom:8px">'
+    +'<input id="nuName" class="field" placeholder="Nombre para mostrar" style="margin-bottom:8px">'
+    +'<input id="nuPw" class="field" type="password" placeholder="Contraseña (mín. 8)" style="margin-bottom:8px">'
+    +'<button id="nuBtn" class="btn gold" style="width:100%">Crear usuario</button></div>'
+    +'<div id="usersBody"><div class="loading"><span class="spin"></span></div></div>';
+  el("nuBtn").onclick=createUser;
+  loadUsers();
+};
+async function loadUsers(){
+  var body=el("usersBody"); if(!body) return;
+  var data;
+  try{ data=await api("/users"); }
+  catch(e){ body.innerHTML='<div class="card muted">No se pudieron cargar los usuarios.</div>'; return; }
+  if(!el("usersBody")) return;
+  var items=data.items||[];
+  if(!items.length){
+    body.innerHTML='<div class="card muted">Sin usuarios todavía. Crea fer y vale arriba. (Tu acceso maestro sigue funcionando siempre.)</div>';
+    return;
   }
+  body.innerHTML=items.map(function(u){
+    return '<div class="card" id="user-'+esc(u.username)+'">'
+      +'<div class="between"><div><span style="font-weight:700">'+esc(u.displayName)+'</span> <span class="muted sm">@'+esc(u.username)+'</span></div>'
+      +'<div class="chips">'+(u.role==="owner"?'<span class="chip gold">Owner</span>':'<span class="chip">Staff</span>')
+      +(u.disabled?'<span class="chip red">Desactivado</span>':"")+'</div></div>'
+      +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'
+      +'<button class="btn sm" data-ua="pw">🔑 Nueva contraseña</button>'
+      +(u.disabled
+        ? '<button class="btn green sm" data-ua="enable">Reactivar</button>'
+        : '<button class="btn red sm" data-ua="disable">Desactivar</button>')
+      +'</div>'
+      +'<div class="editbox hidden" style="margin-top:8px"><input class="field npw" type="password" placeholder="Nueva contraseña (mín. 8)">'
+      +'<button class="btn gold sm setpw" style="margin-top:6px">Guardar</button></div>'
+      +'</div>';
+  }).join("");
+  items.forEach(function(u){ wireUserCard(u); });
+}
+function wireUserCard(u){
+  var card=el("user-"+u.username); if(!card) return;
+  qa("[data-ua]",card).forEach(function(b){
+    var a=b.getAttribute("data-ua");
+    b.onclick=async function(){
+      if(a==="pw"){ q(".editbox",card).classList.toggle("hidden"); return; }
+      var disabled=(a==="disable");
+      if(disabled && !confirm("¿Desactivar a "+u.username+"? No podrá entrar al panel.")) return;
+      try{
+        await api("/users/"+encodeURIComponent(u.username),{method:"PUT",body:{disabled:disabled}});
+        toast(disabled?"Usuario desactivado":"Usuario reactivado","ok");
+        loadUsers();
+      }catch(e){
+        if(e.data && e.data.error==="cannot_disable_self") toast("No puedes desactivarte a ti mismo","err");
+        else toast("No se pudo actualizar","err");
+      }
+    };
+  });
+  q(".setpw",card).onclick=async function(){
+    var pw=q(".npw",card).value;
+    if(pw.length<8){ toast("Mínimo 8 caracteres","err"); return; }
+    try{
+      await api("/users/"+encodeURIComponent(u.username),{method:"PUT",body:{password:pw}});
+      toast("Contraseña actualizada","ok");
+      q(".editbox",card).classList.add("hidden");
+    }catch(e){ toast("No se pudo actualizar","err"); }
+  };
+}
+async function createUser(){
+  var user=(el("nuUser").value||"").trim().toLowerCase();
+  var name=(el("nuName").value||"").trim();
+  var pw=el("nuPw").value;
+  if(!/^[a-z0-9_-]{1,32}$/.test(user)){ toast("Usuario inválido (minúsculas, sin espacios)","err"); return; }
+  if(pw.length<8){ toast("Contraseña: mínimo 8 caracteres","err"); return; }
+  el("nuBtn").disabled=true;
+  try{
+    await api("/users",{method:"POST",body:{username:user,displayName:name||user,password:pw}});
+    toast("Usuario creado","ok");
+    el("nuUser").value=""; el("nuName").value=""; el("nuPw").value="";
+    loadUsers();
+  }catch(e){
+    if(e.data && e.data.error==="users_table_missing") toast("Falta pegar la migración de usuarios en D1","err");
+    else if(e.data && e.data.error==="duplicate_user") toast("Ese usuario ya existe","err");
+    else if(e.data && e.data.error==="password_too_short") toast("Contraseña: mínimo 8 caracteres","err");
+    else toast("No se pudo crear","err");
+  }
+  el("nuBtn").disabled=false;
 }
 
 // ---------- KB ----------
@@ -1091,11 +1495,12 @@ async function sandboxSend(){
 // ---------- wire login controls ----------
 el("loginBtn").onclick=doLogin;
 el("loginPw").addEventListener("keydown",function(e){ if(e.key==="Enter") doLogin(); });
+el("loginUser").addEventListener("keydown",function(e){ if(e.key==="Enter") el("loginPw").focus(); });
 
 // ---------- BOOT ----------
 async function boot(){
   try{
-    await api("/me");
+    state.me=await api("/me");
   }catch(e){
     showLogin(); return;
   }

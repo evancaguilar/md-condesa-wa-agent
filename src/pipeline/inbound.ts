@@ -526,7 +526,12 @@ async function queueApproval(
   const contextText = history
     .slice(-6)
     .map((m) => {
-      const who = m.direction === "in" ? "👤" : "🤖";
+      const who =
+        m.direction === "in"
+          ? "👤"
+          : m.direction === "out_human" || m.direction === "out_human_echo"
+            ? "🧑"
+            : "🤖";
       const mic = isVoiceMeta(m.meta) ? "🎤 " : "";
       return `${who} ${mic}${m.body}`;
     })

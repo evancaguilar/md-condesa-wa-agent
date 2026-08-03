@@ -466,6 +466,142 @@ export async function clearHumanOverride(
     .run();
 }
 
+/**
+ * Best-effort write of contacts.assigned_to. Pre-migration (column absent)
+ * this is a silent no-op — soft-fail like setCampaignFirstReplySoft.
+ */
+export async function setAssignedToSoft(
+  db: D1Database,
+  phone: string,
+  username: string | null,
+): Promise<void> {
+  try {
+    await db
+      .prepare(
+        `UPDATE contacts SET assigned_to = ?2, updated_at = ?3 WHERE phone = ?1`,
+      )
+      .bind(phone, username, now())
+      .run();
+  } catch (err) {
+    if (/no such column/i.test(String(err))) return;
+    throw err;
+  }
+}
+
+// ---- admin_users (staff accounts; fail-soft pre-migration) ----
+
+export interface AdminUserDbRow {
+  username: string;
+  display_name: string;
+  pass_salt: string;
+  pass_hash: string;
+  role: string;
+  disabled: number;
+  created_at: number;
+  updated_at: number;
+}
+
+/** Loads one staff user. Pre-migration (table absent) ⇒ null, like listAirtableRules. */
+export async function getAdminUserSoft(
+  db: D1Database,
+  username: string,
+): Promise<AdminUserDbRow | null> {
+  try {
+    const row = await db
+      .prepare(`SELECT * FROM admin_users WHERE username = ?1`)
+      .bind(username)
+      .first<AdminUserDbRow>();
+    return row ?? null;
+  } catch (err) {
+    if (/no such table/i.test(String(err))) return null;
+    throw err;
+  }
+}
+
+/** All staff users, oldest first. Pre-migration ⇒ []. */
+export async function listAdminUsersSoft(db: D1Database): Promise<AdminUserDbRow[]> {
+  try {
+    const { results } = await db
+      .prepare(`SELECT * FROM admin_users ORDER BY created_at ASC`)
+      .all<AdminUserDbRow>();
+    return results;
+  } catch (err) {
+    if (/no such table/i.test(String(err))) return [];
+    throw err;
+  }
+}
+
+/**
+ * Creates a staff user. Pre-migration the missing table surfaces as a typed
+ * `users_table_missing` error so the route can 409 with a clear message
+ * instead of a 500.
+ */
+export async function createAdminUser(
+  db: D1Database,
+  input: {
+    username: string;
+    displayName: string;
+    passSalt: string;
+    passHash: string;
+    role: string;
+  },
+): Promise<void> {
+  try {
+    await db
+      .prepare(
+        `INSERT INTO admin_users(username, display_name, pass_salt, pass_hash, role, disabled, created_at, updated_at)
+         VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6)`,
+      )
+      .bind(
+        input.username,
+        input.displayName,
+        input.passSalt,
+        input.passHash,
+        input.role,
+        now(),
+      )
+      .run();
+  } catch (err) {
+    if (/no such table/i.test(String(err))) {
+      throw new Error("users_table_missing");
+    }
+    throw err;
+  }
+}
+
+/** Partial update of a staff user (display name, password salt+hash, disabled). */
+export async function updateAdminUser(
+  db: D1Database,
+  username: string,
+  patch: {
+    displayName?: string;
+    passSalt?: string;
+    passHash?: string;
+    disabled?: boolean;
+  },
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE admin_users SET
+         display_name = COALESCE(?2, display_name),
+         pass_salt    = COALESCE(?3, pass_salt),
+         pass_hash    = COALESCE(?4, pass_hash),
+         disabled     = COALESCE(?5, disabled),
+         updated_at   = ?6
+       WHERE username = ?1`,
+    )
+    .bind(
+      username,
+      patch.displayName ?? null,
+      patch.passSalt ?? null,
+      patch.passHash ?? null,
+      patch.disabled === undefined ? null : patch.disabled ? 1 : 0,
+      now(),
+    )
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
 // ---- followups: cancel by kind ----
 
 /**
@@ -551,6 +687,8 @@ export interface ConversationRow {
   humanOverrideUntil: number | null;
   pendingCount: number;
   campaignName: string | null;
+  /** Absent pre-migration (contacts.assigned_to column) — consumers `?? null`. */
+  assignedTo?: string | null;
 }
 
 /**
@@ -563,37 +701,49 @@ export async function listConversations(
   limit: number,
   offset: number,
 ): Promise<ConversationRow[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT
-         c.phone                         AS phone,
-         c.name                          AS name,
-         c.status                        AS status,
-         c.human_override_until          AS humanOverrideUntil,
-         lm.body                         AS lastBody,
-         lm.ts                           AS lastTs,
-         lm.direction                    AS lastDirection,
-         COALESCE(pa.pendingCount, 0)    AS pendingCount,
-         camp.name                       AS campaignName
-       FROM contacts c
-       LEFT JOIN (
-         SELECT m.phone, m.body, m.ts, m.direction
-         FROM messages m
-         JOIN (
-           SELECT phone, MAX(ts) AS maxTs FROM messages GROUP BY phone
-         ) last ON last.phone = m.phone AND last.maxTs = m.ts
-       ) lm ON lm.phone = c.phone
-       LEFT JOIN (
-         SELECT phone, COUNT(*) AS pendingCount
-         FROM pending_approvals WHERE status = 'pending' GROUP BY phone
-       ) pa ON pa.phone = c.phone
-       LEFT JOIN campaigns camp ON camp.id = c.campaign_id
-       ORDER BY COALESCE(lm.ts, c.updated_at) DESC
-       LIMIT ?1 OFFSET ?2`,
-    )
-    .bind(limit, offset)
-    .all<ConversationRow>();
-  return results;
+  // assigned_to referenced only in the primary variant so the pre-migration
+  // fallback (column absent fails at prepare time) keeps the list working.
+  const sqlFor = (withAssigned: boolean): string =>
+    `SELECT
+       c.phone                         AS phone,
+       c.name                          AS name,
+       c.status                        AS status,
+       c.human_override_until          AS humanOverrideUntil,
+       ${withAssigned ? "c.assigned_to                   AS assignedTo," : ""}
+       lm.body                         AS lastBody,
+       lm.ts                           AS lastTs,
+       lm.direction                    AS lastDirection,
+       COALESCE(pa.pendingCount, 0)    AS pendingCount,
+       camp.name                       AS campaignName
+     FROM contacts c
+     LEFT JOIN (
+       SELECT m.phone, m.body, m.ts, m.direction
+       FROM messages m
+       JOIN (
+         SELECT phone, MAX(ts) AS maxTs FROM messages GROUP BY phone
+       ) last ON last.phone = m.phone AND last.maxTs = m.ts
+     ) lm ON lm.phone = c.phone
+     LEFT JOIN (
+       SELECT phone, COUNT(*) AS pendingCount
+       FROM pending_approvals WHERE status = 'pending' GROUP BY phone
+     ) pa ON pa.phone = c.phone
+     LEFT JOIN campaigns camp ON camp.id = c.campaign_id
+     ORDER BY COALESCE(lm.ts, c.updated_at) DESC
+     LIMIT ?1 OFFSET ?2`;
+  try {
+    const { results } = await db
+      .prepare(sqlFor(true))
+      .bind(limit, offset)
+      .all<ConversationRow>();
+    return results;
+  } catch (err) {
+    if (!/no such column/i.test(String(err))) throw err;
+    const { results } = await db
+      .prepare(sqlFor(false))
+      .bind(limit, offset)
+      .all<ConversationRow>();
+    return results;
+  }
 }
 
 export interface EditRow {

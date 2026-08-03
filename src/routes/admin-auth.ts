@@ -1,11 +1,16 @@
 // Pure, dependency-free auth primitives for the /admin dashboard: a signed
-// session cookie (HMAC-SHA256 over `admin:<exp>`), cookie parsing/building, and
-// a sliding-window login rate limiter. WebCrypto + plain arithmetic only, no
-// Worker-only globals, so it is unit-testable under `node --test`.
+// per-user session cookie (v2: HMAC-SHA256 over `admin:v2:<user>:<exp>`),
+// PBKDF2 password hashing for staff accounts, cookie parsing/building, the
+// pure login decision, and a sliding-window login rate limiter. WebCrypto +
+// plain arithmetic only, no Worker-only globals, so it is unit-testable under
+// `node --test`.
 //
 // The constant-time compare mirrors timingSafeEqual from routes/verify.ts.
 
 const COOKIE_NAME = "md_admin";
+
+/** PBKDF2 iteration count — Cloudflare Workers caps PBKDF2 at exactly 100k. */
+export const PBKDF2_ITERATIONS = 100_000;
 
 // ---- constant-time compare (same convention as routes/verify.ts) ----
 
@@ -45,48 +50,157 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-// ---- signed session cookie ----
+// ---- usernames ----
 
 /**
- * Signs a session cookie value. The payload is the expiry epoch (seconds); the
- * signature is HMAC-SHA256 over `admin:<exp>`. Value format: `<exp>.<hexhmac>`.
+ * Valid staff usernames: lowercase alphanumerics plus `_`/`-`, 1–32 chars.
+ * Dots are deliberately excluded — the cookie value is dot-delimited.
  */
-export async function signAdminCookie(
-  secret: string,
-  expEpoch: number,
-): Promise<string> {
-  const exp = String(Math.floor(expEpoch));
-  const mac = await hmacSha256Hex(secret, `admin:${exp}`);
-  return `${exp}.${mac}`;
+export function isValidUsername(u: string): boolean {
+  return /^[a-z0-9_-]{1,32}$/.test(u);
+}
+
+// ---- password hashing (PBKDF2-SHA256, WebCrypto only) ----
+
+/** 16 random bytes as lowercase hex — a fresh per-user password salt. */
+export function newSaltHex(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return hex;
 }
 
 /**
- * Verifies the `md_admin` cookie from a Cookie header. Returns true only when
- * the signature is valid (constant-time) AND the expiry is still in the future
- * relative to `now` (seconds). Any parse/format problem ⇒ false.
+ * PBKDF2-SHA256(password, salt, 100k) → 32-byte lowercase hex. The salt is the
+ * hex string's raw bytes (encoded as UTF-8) — stable and portable across
+ * Workers and Node without extra decoding.
  */
-export async function verifyAdminCookie(
+export async function hashPassword(
+  password: string,
+  saltHex: string,
+  iterations: number = PBKDF2_ITERATIONS,
+): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: enc.encode(saltHex), iterations },
+    key,
+    256,
+  );
+  const bytes = new Uint8Array(bits);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return hex;
+}
+
+/** Constant-time verify of a password against a stored salt+hash pair. */
+export async function verifyPassword(
+  password: string,
+  saltHex: string,
+  expectedHashHex: string,
+): Promise<boolean> {
+  const got = await hashPassword(password, saltHex);
+  return timingSafeEqual(hexToBytes(got), hexToBytes(expectedHashHex));
+}
+
+// ---- pure login decision ----
+
+/** Shape of an admin_users row as the login/auth paths need it. */
+export interface AdminUserRow {
+  username: string;
+  display_name: string;
+  pass_salt: string;
+  pass_hash: string;
+  role: string; // 'owner' | 'staff'
+  disabled: number; // 0|1
+}
+
+export type LoginDecision =
+  | { ok: true; user: string; role: string }
+  | { ok: false };
+
+/**
+ * The whole login policy, pure. Rules:
+ * - A present, enabled user row authenticates by PBKDF2 password.
+ * - The master password (ADMIN_PASSWORD) authenticates ONLY the empty username
+ *   or "evan" — the permanent break-glass — and yields evan/owner. It can
+ *   never impersonate other staff, and a disabled non-evan row stays locked
+ *   out even with the master password.
+ * `masterMatches` is computed by the caller (route) so this stays sync-free of
+ * env access; pass the result of the timing-safe compare.
+ */
+export async function authenticateLogin(input: {
+  username: string; // already trimmed + lowercased; "" = legacy login
+  password: string;
+  userRow: AdminUserRow | null;
+  masterMatches: boolean;
+}): Promise<LoginDecision> {
+  const { username, password, userRow, masterMatches } = input;
+
+  if (userRow && !userRow.disabled) {
+    const ok = await verifyPassword(password, userRow.pass_salt, userRow.pass_hash);
+    if (ok) return { ok: true, user: userRow.username, role: userRow.role };
+  }
+
+  // Break-glass: master password logs in as evan/owner only.
+  if (masterMatches && (username === "" || username === "evan")) {
+    return { ok: true, user: "evan", role: "owner" };
+  }
+
+  return { ok: false };
+}
+
+// ---- signed session cookie (v2: carries the username) ----
+
+/**
+ * Signs a v2 session cookie. Value format:
+ * `v2.<user>.<exp>.<hexhmac>` where the MAC is HMAC-SHA256 over
+ * `admin:v2:<user>:<exp>`, keyed by ADMIN_PASSWORD. Legacy (v1) cookies are
+ * rejected by the verifier — one forced re-login at rollout.
+ */
+export async function signAdminCookieV2(
+  secret: string,
+  user: string,
+  expEpoch: number,
+): Promise<string> {
+  const exp = String(Math.floor(expEpoch));
+  const mac = await hmacSha256Hex(secret, `admin:v2:${user}:${exp}`);
+  return `v2.${user}.${exp}.${mac}`;
+}
+
+/**
+ * Verifies the `md_admin` v2 cookie. Returns `{user}` only when the format is
+ * v2, the username charset is valid, the signature matches (constant-time,
+ * checked before freshness so validity isn't leaked via the expiry
+ * short-circuit) AND the expiry is in the future. Anything else ⇒ null.
+ */
+export async function verifyAdminCookieV2(
   secret: string,
   cookieHeader: string | null,
   now: number,
-): Promise<boolean> {
+): Promise<{ user: string } | null> {
   const cookies = parseCookies(cookieHeader);
   const value = cookies[COOKIE_NAME];
-  if (!value) return false;
+  if (!value) return null;
 
-  const dot = value.indexOf(".");
-  if (dot <= 0) return false;
-  const expStr = value.slice(0, dot);
-  const providedMac = value.slice(dot + 1);
-  if (!/^\d+$/.test(expStr) || !providedMac) return false;
+  const parts = value.split(".");
+  if (parts.length !== 4) return null;
+  const [ver, user, expStr, providedMac] = parts as [string, string, string, string];
+  if (ver !== "v2" || !isValidUsername(user)) return null;
+  if (!/^\d+$/.test(expStr) || !providedMac) return null;
 
   const exp = parseInt(expStr, 10);
-  const expectedMac = await hmacSha256Hex(secret, `admin:${expStr}`);
-  // Constant-time compare of the signatures first (don't leak validity via the
-  // expiry short-circuit), then the freshness check.
+  const expectedMac = await hmacSha256Hex(secret, `admin:v2:${user}:${expStr}`);
   const macOk = timingSafeEqual(hexToBytes(expectedMac), hexToBytes(providedMac));
-  if (!macOk) return false;
-  return exp > now;
+  if (!macOk) return null;
+  return exp > now ? { user } : null;
 }
 
 /** Parses a Cookie header into a name→value map. Tolerant of stray whitespace. */

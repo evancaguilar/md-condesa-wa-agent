@@ -15,12 +15,17 @@ import type {
   StoredMessage,
 } from "../types.js";
 import {
+  authenticateLogin,
   buildSetCookie,
   decideLoginRateLimit,
+  hashPassword,
+  isValidUsername,
+  newSaltHex,
   recordFailedLogin,
-  signAdminCookie,
+  signAdminCookieV2,
   timingSafeEqual,
-  verifyAdminCookie,
+  verifyAdminCookieV2,
+  type AdminUserRow,
 } from "./admin-auth.js";
 import {
   isBotEnabled,
@@ -29,6 +34,7 @@ import {
   getContact,
   recentMessages,
   getPendingApprovals,
+  newestInboundWamid,
   setContactStatus,
   setHumanOverride,
   accrueUsage,
@@ -57,7 +63,14 @@ import {
   getAirtableRule,
   updateAirtableRule,
   deleteAirtableRule,
+  getAdminUserSoft,
+  listAdminUsersSoft,
+  createAdminUser,
+  updateAdminUser,
+  setAssignedToSoft,
 } from "../db/queries-admin.js";
+import { sendStaffText } from "../services/staff-send.js";
+import { markRead, sendText, WindowClosedError } from "../services/wa.js";
 import { parseRule, ruleSummaryEs } from "../services/airtable-rules.js";
 import { assembleOverlay, estimateTokens } from "../brain/overlay.js";
 import { normalizeText, matchCampaign, firstReplyFor } from "../pipeline/campaigns.js";
@@ -179,19 +192,56 @@ export async function handleAdminApi(
   }
 
   // ---- auth gate (everything else) ----
-  const authed = await verifyAdminCookie(
+  const cookieSession = await verifyAdminCookieV2(
     env.ADMIN_PASSWORD,
     req.headers.get("cookie"),
     nowSec(),
   );
-  if (!authed) return json({ error: "unauthorized" }, 401);
+  if (!cookieSession) return json({ error: "unauthorized" }, 401);
+
+  // Per-request user lookup: makes "disable user" effective immediately.
+  // Pre-migration (table absent) only evan's break-glass session exists.
+  const userRow = await getAdminUserSoft(env.DB, cookieSession.user);
+  let session: Session;
+  if (userRow) {
+    if (userRow.disabled) return json({ error: "unauthorized" }, 401);
+    session = {
+      user: userRow.username,
+      role: userRow.role === "owner" ? "owner" : "staff",
+      displayName: userRow.display_name,
+    };
+  } else if (cookieSession.user === "evan") {
+    session = { user: "evan", role: "owner", displayName: "Evan" };
+  } else {
+    return json({ error: "unauthorized" }, 401); // deleted/unknown user
+  }
 
   // ---- session ----
   if (path === "/admin/api/logout" && method === "POST") {
     return jsonWithCookie({ ok: true }, buildSetCookie("", 0));
   }
   if (path === "/admin/api/me" && method === "GET") {
-    return json({ ok: true });
+    return json({
+      ok: true,
+      user: session.user,
+      displayName: session.displayName,
+      role: session.role,
+    });
+  }
+
+  // ---- staff users (owner-only) ----
+  if (path === "/admin/api/users" && method === "GET") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    return handleUsersList(env);
+  }
+  if (path === "/admin/api/users" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    return handleUserCreate(req, env);
+  }
+  const userMatch = path.match(/^\/admin\/api\/users\/([a-z0-9_-]+)$/);
+  if (userMatch && method === "PUT") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    return handleUserUpdate(req, env, userMatch[1]!, session);
   }
 
   // ---- overview ----
@@ -213,14 +263,28 @@ export async function handleAdminApi(
   if (path === "/admin/api/conversations" && method === "GET") {
     return handleConversationsList(env, url);
   }
-  const convoMatch = path.match(/^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset))?$/);
+  const convoMatch = path.match(
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read))?$/,
+  );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
     const sub = convoMatch[3];
-    if (!sub && method === "GET") return handleConversationDetail(env, phone);
+    if (!sub && method === "GET") return handleConversationDetail(env, phone, url);
     if (sub === "pause" && method === "POST") return handlePause(req, env, phone);
     if (sub === "resume" && method === "POST") return handleResume(env, phone);
     if (sub === "status" && method === "POST") return handleStatus(req, env, phone);
+    if (sub === "send" && method === "POST") {
+      return handleStaffSend(req, env, ports, phone, session);
+    }
+    if (sub === "assign" && method === "POST") {
+      return handleAssign(req, env, phone);
+    }
+    if (sub === "read" && method === "POST") {
+      // Blue ticks to the lead: mark their newest inbound as read. Best-effort.
+      const wamid = await newestInboundWamid(env.DB, phone);
+      if (wamid) ctx.waitUntil(markRead(env, wamid));
+      return json({ ok: true });
+    }
     if (sub === "reset" && method === "POST") {
       // Testing tool: wipe history + claims so the phone acts like a new lead.
       await resetConversation(env.DB, phone);
@@ -237,12 +301,23 @@ export async function handleAdminApi(
   if (apprMatch && method === "POST") {
     const id = Number(apprMatch[1]);
     const action = apprMatch[2]!;
-    if (action === "approve") return approvalJson(await approveAndSend(env, id));
-    if (action === "edit") {
+    let result: ApprovalResult;
+    if (action === "approve") result = await approveAndSend(env, id);
+    else if (action === "edit") {
       const body = await readJson<{ text?: string }>(req);
-      return approvalJson(await editAndSend(env, id, body.text ?? ""));
+      result = await editAndSend(env, id, body.text ?? "");
+    } else result = await discardApproval(env, id);
+    if (result.ok) {
+      // Attribution: who resolved it from the panel (Slack card stays generic).
+      const verb =
+        action === "approve" ? "aprobada" : action === "edit" ? "editada" : "descartada";
+      ctx.waitUntil(
+        ports.slack
+          .postNote(`✅ Aprobación #${id} ${verb} por ${session.user} desde el panel`)
+          .catch(() => {}),
+      );
     }
-    return approvalJson(await discardApproval(env, id));
+    return approvalJson(result);
   }
 
   // ---- KB ----
@@ -310,6 +385,14 @@ export async function handleAdminApi(
   return json({ error: "not_found" }, 404);
 }
 
+// ---- session shape (derived per request from the v2 cookie + admin_users) ----
+
+interface Session {
+  user: string;
+  role: "owner" | "staff";
+  displayName: string;
+}
+
 // ---- login ----
 
 async function handleLogin(req: Request, env: Env): Promise<Response> {
@@ -325,20 +408,174 @@ async function handleLogin(req: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: "rate_limited" }, 429);
   }
 
-  const body = await readJson<{ password?: string }>(req);
+  const body = await readJson<{ username?: string; password?: string }>(req);
   const provided = body.password ?? "";
+  const usernameRaw = (body.username ?? "").trim().toLowerCase();
+  // Invalid charset is treated as unknown-user (still constant-shaped flow).
+  const username = isValidUsername(usernameRaw) ? usernameRaw : usernameRaw === "" ? "" : " ";
 
+  // Master-password compare (break-glass; SHA-256 both sides + timing-safe).
   const providedHash = await sha256Hex(provided);
   const expectedHash = await sha256Hex(env.ADMIN_PASSWORD);
-  const ok = timingSafeEqual(hexToBytes(providedHash), hexToBytes(expectedHash));
+  const masterMatches = timingSafeEqual(
+    hexToBytes(providedHash),
+    hexToBytes(expectedHash),
+  );
 
-  if (!ok) {
+  const dbRow = username && username !== " "
+    ? await getAdminUserSoft(env.DB, username)
+    : null;
+  const userRow: AdminUserRow | null = dbRow
+    ? {
+        username: dbRow.username,
+        display_name: dbRow.display_name,
+        pass_salt: dbRow.pass_salt,
+        pass_hash: dbRow.pass_hash,
+        role: dbRow.role,
+        disabled: dbRow.disabled,
+      }
+    : null;
+
+  const decision2 = await authenticateLogin({
+    username: username === " " ? "invalid" : username,
+    password: provided,
+    userRow,
+    masterMatches,
+  });
+
+  if (!decision2.ok) {
     await kvSet(env.DB, rlKey, recordFailedLogin(state, now));
     return json({ ok: false, error: "invalid" }, 401);
   }
 
-  const cookieValue = await signAdminCookie(env.ADMIN_PASSWORD, now + THIRTY_DAYS);
-  return jsonWithCookie({ ok: true }, buildSetCookie(cookieValue, THIRTY_DAYS));
+  const cookieValue = await signAdminCookieV2(
+    env.ADMIN_PASSWORD,
+    decision2.user,
+    now + THIRTY_DAYS,
+  );
+  return jsonWithCookie(
+    { ok: true, user: decision2.user, role: decision2.role },
+    buildSetCookie(cookieValue, THIRTY_DAYS),
+  );
+}
+
+// ---- staff users (owner-only handlers) ----
+
+async function handleUsersList(env: Env): Promise<Response> {
+  const rows = await listAdminUsersSoft(env.DB);
+  return json({
+    items: rows.map((r) => ({
+      username: r.username,
+      displayName: r.display_name,
+      role: r.role,
+      disabled: !!r.disabled,
+      createdAt: r.created_at,
+    })),
+  });
+}
+
+async function handleUserCreate(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{
+    username?: string;
+    displayName?: string;
+    password?: string;
+    role?: string;
+  }>(req);
+  const username = (body.username ?? "").trim().toLowerCase();
+  const displayName = (body.displayName ?? "").trim() || username;
+  const password = body.password ?? "";
+  const role = body.role === "owner" ? "owner" : "staff";
+  if (!isValidUsername(username)) return json({ error: "invalid_username" }, 400);
+  if (password.length < 8) return json({ error: "password_too_short" }, 400);
+  const salt = newSaltHex();
+  const hash = await hashPassword(password, salt);
+  try {
+    await createAdminUser(env.DB, {
+      username,
+      displayName,
+      passSalt: salt,
+      passHash: hash,
+      role,
+    });
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes("users_table_missing")) {
+      return json({ error: "users_table_missing" }, 409);
+    }
+    if (/unique|constraint/i.test(msg)) return json({ error: "duplicate_user" }, 409);
+    throw err;
+  }
+  return json({ ok: true });
+}
+
+async function handleUserUpdate(
+  req: Request,
+  env: Env,
+  username: string,
+  session: Session,
+): Promise<Response> {
+  const body = await readJson<{
+    displayName?: string;
+    password?: string;
+    disabled?: boolean;
+  }>(req);
+  if (body.disabled === true && username === session.user) {
+    return json({ error: "cannot_disable_self" }, 400);
+  }
+  const patch: Parameters<typeof updateAdminUser>[2] = {};
+  if (typeof body.displayName === "string" && body.displayName.trim()) {
+    patch.displayName = body.displayName.trim();
+  }
+  if (typeof body.password === "string" && body.password) {
+    if (body.password.length < 8) return json({ error: "password_too_short" }, 400);
+    patch.passSalt = newSaltHex();
+    patch.passHash = await hashPassword(body.password, patch.passSalt);
+  }
+  if (typeof body.disabled === "boolean") patch.disabled = body.disabled;
+  const found = await updateAdminUser(env.DB, username, patch);
+  if (!found) return json({ error: "not_found" }, 404);
+  return json({ ok: true });
+}
+
+// ---- staff send (dashboard inbox composer) ----
+
+async function handleStaffSend(
+  req: Request,
+  env: Env,
+  ports: Ports,
+  phone: string,
+  session: Session,
+): Promise<Response> {
+  const body = await readJson<{ text?: string; token?: string }>(req);
+  const token = (body.token ?? "").trim();
+  if (!token || token.length > 128) return json({ error: "token_required" }, 400);
+  const result = await sendStaffText(
+    env,
+    phone,
+    body.text ?? "",
+    session.user,
+    token,
+    {
+      sendText: (e, p, b, opts) => sendText(e, p, b, opts),
+      isWindowClosed: (err) => err instanceof WindowClosedError,
+      postNote: (_e, text) => ports.slack.postNote(text),
+    },
+  );
+  if (!result.ok && (result.reason === "empty" || result.reason === "too_long")) {
+    return json({ error: result.reason }, 400);
+  }
+  // Everything else uses the approvalJson convention: HTTP 200 union.
+  return json(result);
+}
+
+// ---- assignment ----
+
+async function handleAssign(req: Request, env: Env, phone: string): Promise<Response> {
+  const body = await readJson<{ user?: string | null }>(req);
+  const raw = typeof body.user === "string" ? body.user.trim().toLowerCase() : null;
+  const user = raw && isValidUsername(raw) ? raw : null;
+  await setAssignedToSoft(env.DB, phone, user);
+  return json({ ok: true, assignedTo: user });
 }
 
 // ---- overview ----
@@ -399,18 +636,27 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
     paused: (r.humanOverrideUntil ?? 0) > now,
     pendingCount: r.pendingCount,
     campaignName: r.campaignName,
+    assignedTo: r.assignedTo ?? null,
   }));
-  return json({ items });
+  return json({ items, now });
 }
 
-async function handleConversationDetail(env: Env, phone: string): Promise<Response> {
+async function handleConversationDetail(
+  env: Env,
+  phone: string,
+  url: URL,
+): Promise<Response> {
+  // ?since=<epoch> → incremental poll (inclusive; SPA dedupes by wamid).
+  const sinceRaw = Number(url.searchParams.get("since"));
+  const since =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
   const [contact, messages, pending] = await Promise.all([
     getContact(env.DB, phone),
-    recentMessages(env.DB, phone, 100),
+    recentMessages(env.DB, phone, 100, since),
     getPendingApprovals(env.DB, phone),
   ]);
   if (!contact) return json({ error: "not_found" }, 404);
-  return json({ contact, messages, pending });
+  return json({ contact, messages, pending, now: nowSec() });
 }
 
 async function handlePause(req: Request, env: Env, phone: string): Promise<Response> {
