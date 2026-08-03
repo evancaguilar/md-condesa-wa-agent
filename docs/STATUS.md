@@ -1,6 +1,56 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-07-11**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-03**.
+
+## 🟢 LIVE (2026-08-03) — read this first
+
+**THE AGENT IS LIVE ON THE SALES NUMBER.** Full loop verified end-to-end on 2026-08-03: lead messages +52 1 56 4199 2274 → worker → Claude brain → Slack #wa-leads card (campaign attribution working, real ad lead captured same day) → Aprobar → reply delivered. TRAINING_WHEELS=1 (every reply needs approval).
+
+### Current number topology (changed a LOT on 2026-08-03 — trust this, not older sections)
+
+- **SALES (bot): +52 1 56 4199 2274** — phone-number-id **`1159187097288000`**, on WABA **1582515279931864** ("MD Self Defense Condesa WhatsApp Business App" — ManyChat's first-attempt WABA, now ours; app 2215578122600171 subscribed; NO ManyChat partner). Pure Cloud API number — NOT in any phone app, and cannot be put back in one without deregistering (coexistence re-entry has a 1–2 month cooldown). Two-step PIN: **152683**. Registered + verified 2026-08-03. Display name "MD Self Defense Condesa" (was in review at go-live; sends worked anyway).
+- **SUPPORT (humans): +52 55 3426 0813** — on the academy phone in WA Business app. Was BANNED ~2026-07-28 (bulk group-adds — NEVER bulk-add to groups, invite links only); appeal WON same day. Its Cloud API registration dropped during the ban and it is now SMB-classified (app-linked) → API sends give #133010 and /register is blocked ("SMB businesses"). It stays human-only until/unless we build embedded-signup coexistence (phase 2, maybe never).
+- **DEAD/DEBRIS:** WABA 890463570149597 (coexistence WABA from the eSIM ManyChat era) was DESTROYED when the app account was deleted — its phone-number-id 1208573689006666 is gone; +52 1 55 4132 7197 (first abandoned eSIM) sits Offline on WABA 1582515279931864; WABA 1895136994223683 holds unknown unverified number +52 1 55 2497 9988. Old real WABA 2227852814309146 holds only the banned-then-unbanned 0813.
+
+### How we got here (2026-08-03, the cutover saga — lessons inline)
+
+1. Meta App Review APPROVED (all three permissions Advanced Access). Access Verification had approved earlier.
+2. Removing ManyChat as WABA **partner** (Partners tab) was required even after their disconnect — leftover partner grant caused #200 on sends while management calls worked.
+3. Coexistence numbers CANNOT be API-registered (`Register endpoint is not available for SMB businesses`). Meta's documented escape: delete the account in the phone app, then /register. **BUT deleting the app account also destroyed the coexistence-created WABA** — the number came off Meta entirely and had to be re-added (SMS verify) to another WABA. Cost: ~2.5 weeks of app chat history on the eSIM number.
+4. "Add phone number" was greyed out on WABA 2227852814309146 (likely due to the banned number on it) — used WABA 1582515279931864 instead, which worked fine.
+5. Brain `api_error` at first live test = Anthropic credits ran out. Topped up; consider auto-reload — this failure is silent except for fallback holding-line replies.
+
+### ManyChat is GONE (2026-08-03)
+
+Disconnected + removed as partner. Before disconnecting we exported all contacts: **~6,019 WhatsApp contacts (name, phone, subscribed date) in `~/Downloads/manychat-master.csv`** + Google Sheet "ManyChat Export". Tags were NOT exportable (ManyChat has no bulk tag export; API phone-lookup can't see WhatsApp IDs). Blast idea parked — if revived: needs approved marketing template + payment method + throttled sender (not built).
+
+### Open items (post-go-live)
+
+- [ ] ⚠️ **Payment method on WABA 1582515279931864** — blocked earlier by a shared-credit-line error on the old WABA; without it, template sends (d2–d5 drips, anti-no-show out-of-window, any blast) silently fail. In-window free-form replies are unaffected.
+- [ ] ⚠️ **Submit templates** (docs/template-submission.md) under WABA **1582515279931864** (templates are WABA-scoped; the pack was aimed at the old WABA).
+- [ ] Un-pause CTWA ads (paused during cutover 2026-08-03; they already point at 2274 — no edits needed). May already be done.
+- [ ] Anthropic auto-reload ON (avoid silent brain outage).
+- [ ] Watch display-name review status for 2274; watch quality rating (starts UNKNOWN).
+- [ ] Old contact backfill: manychat-master.csv → Airtable (leads 7/16–8/03 missing from CRM).
+- [ ] Phase 2 backlog: two-number send routing, support bot on 0813 (needs coexistence build), IG/FB DM adapter, EN templates.
+- [ ] Old-number spam-ban lesson is now a standing team rule: **never bulk-add students to WhatsApp groups; invite links/QR only.**
+
+## ⚡ PREVIOUS SITUATION (2026-07-18) — historical, superseded above
+
+**App Review SUBMITTED** (2026-07-15) for `whatsapp_business_messaging` + `whatsapp_business_management` + `public_profile` on app 2215578122600171. Both required videos attached (msg-send via API + template creation in WhatsApp Manager), API test calls show **Completed**, own-business reviewer note included. Status: **In review** — Meta quotes "most within 20 days" but clean own-business submissions usually land in 1–5 business days. Business Support ticket filed in parallel (WABA 2227852814309146, own-business #200, expedite request).
+
+**ManyChat involuntarily disconnected from the real number** (2026-07-18). When we subscribed our app to the real WABA, ManyChat's link to +52 55 3426 0813 broke and **will not reconnect** — its onboarding wizard throws `#2388002 "failed to check phone number eligibility"` because the number is already registered to the Cloud API under our WABA with our app subscribed. The number itself is **healthy**: WABA 2227852814309146, status Connected, quality rating back to **High**. So: we still RECEIVE every lead (worker webhooks → Slack + Airtable, name + campaign captured), but neither ManyChat nor our app can SEND until App Review lands. Effectively the receive-side cutover happened early; only send permission is missing.
+
+### New TWO-NUMBER architecture (decided 2026-07-18)
+
+Turning the disruption into the sales/support split Evan already wanted (~100 sales convos/day were drowning student-support messages like "left my gloves at the academy"):
+
+- **NEW number = permanent SALES number.** Onboard a genuinely fresh MX number (new SIM/eSIM/virtual, never had WhatsApp recently) into **ManyChat** now → restores sales coverage in ~1 day (fresh onboarding has no eligibility conflict). Point all active CTWA ad campaigns at this new number (per-campaign in Ads Manager; **ad IDs stay the same**, so worker campaign-matching keeps working post-cutover untouched). When App Review lands, cut the NEW number over to the worker (add to a WABA we control → subscribe our app → set `WA_PHONE_NUMBER_ID`). ManyChat's role ends there.
+- **OLD number (+52 55 3426 0813) = STUDENT SUPPORT number.** Already registered under our WABA with our app receiving webhooks; existing students already have it saved = perfect support audience. Bot can answer support there in phase 2, or staff handles it.
+
+End-state: sales + support separated at the number level, both eventually on the worker. Two-number *send* support in the worker is a modest phase-2 code change (today it handles one send number via `WA_PHONE_NUMBER_ID`).
+
+**Caveats logged:** (1) ManyChat leads on the new number won't flow into our Airtable/Slack pipeline until cutover (same as old ManyChat days; backfill later or rewire MC's own Airtable push). (2) In-flight leads on the old number keep replying there — cover manually for a few days, volume decays fast once ads move. (3) Do NOT touch the old number registration or app 2215578122600171 while App Review is in flight. (4) Keep review pressure on: update support ticket noting the business number has no automated-reply capability (operational-impact tickets get escalated).
 
 ## Where we are
 
@@ -29,8 +79,10 @@ Recent fixes (2026-07-08/09): stale pending approvals auto-supersede when the le
 - [ ] Create the 4 campaigns in /admin → Campañas (Curso de Verano, Baby Fight Club, Kids, Reto) with trigger phrase, ad id(s), info, and first reply. Active Meta ad ids pulled 2026-07-11: Curso de Verano = 120248879929990518, 120248879930930518, 120248879925940518, 120248879928990518; Kids = 120245400639450518, 120245400692660518, 120245396039730518, 120245400408310518, 120245400081370518, 120245400540790518, 120245197707210518, 120245198063240518, 120245197395390518, 120244434754400518; Reto = 120244947083620518, 120244434043620518, 120244433794140518. **Baby Fight Club has NO active ads right now** — confirm with Evan. Prefilled phrases must come from Ads Manager (not exposed via API).
 - [ ] Confirm WA_ACCESS_TOKEN is the permanent System User token (temp tokens 401 after ~24h).
 - [ ] Submit WhatsApp templates (docs/template-submission.md — 24 copy-paste-ready; source docs/templates.md) — Evan chose to do this NOW, pre-cutover, so d2–d5 drips work from day one.
-- [ ] ⚠️ **CUTOVER 95% DONE — blocked ONLY on Meta App Review** (as of 2026-07-12 ~10:30 CST). Everything else verified working in production: real-number webhooks → worker (subscribed_apps ✅ on real WABA `2227852814309146`), campaigns matching real ad leads, cards in Slack. Sends from the real number fail with `(#200) permissions on behalf of this WABA` because the app (`MD Condesa WA Agent`, id 2215578122600171, published, owned by the same MD portfolio) has `whatsapp_business_messaging` at **Standard access** — new apps must pass the "Tech Provider" App Review for production sends even for their own business. Proof: identical token sends fine via the TEST number (`1208228772369686`) and fails via the real one (`919322911268999`). Token verified clean in the Access Token Debugger (System User waagentsystem, messaging+management, granular = all objects, never expires). Remaining: Evan records 2 review videos (msg send via test number + template creation via API) → submit → typically 1–3 days; support ticket in parallel. `WA_PHONE_NUMBER_ID` currently = real number id `919322911268999`; flip to test id temporarily to record video 1. ManyChat still ON and covering leads until approval lands; do NOT approve stale Slack cards for leads ManyChat already answered. Ignore the second duplicate app id 1327983355704061 (empty shell). NOTE: WABA payment method is ManyChat's credit line — add own card before disconnecting ManyChat.
-- [ ] ManyChat → real-number cutover (docs/cutover-runbook.md) — final flip after App Review approval, Evan triggers.
+- [ ] ⚠️ **Blocked on Meta App Review** — SUBMITTED 2026-07-15 (see CURRENT SITUATION at top). Root cause was `whatsapp_business_messaging` at **Standard access**; new apps must pass App Review for production sends even for their own business. Proof on record: identical token sends fine via TEST number (`1208228772369686`), fails via real one (`919322911268999`) with `(#200) permissions on behalf of this WABA`. Token verified clean (System User waagentsystem, messaging+management, granular = all objects, never expires). `WA_PHONE_NUMBER_ID` is set in the **Cloudflare dashboard** (Settings → Variables), NOT wrangler.jsonc — currently = real number id `919322911268999`; takes effect on next request, no redeploy. Ignore duplicate app id 1327983355704061 (empty shell).
+- [ ] **Onboard NEW sales number into ManyChat + repoint ads** (two-number plan, see top) — restores sales coverage while App Review pends. Fresh number only.
+- [ ] After approval: cut the NEW sales number over to the worker (add to controlled WABA → subscribe app → set `WA_PHONE_NUMBER_ID`). NOTE: add own payment method to the WABA before relying on template sends (was ManyChat's credit line).
+- [ ] Phase-2 code: two-number *send* support in the worker (sales vs. student-support routing); old number +52 55 3426 0813 becomes the support line.
 
 ## Known bugs / next work
 
