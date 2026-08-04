@@ -24,7 +24,8 @@ import {
   sendTemplate,
   sendBookingVideo,
   WindowClosedError,
-} from "../services/wa.js";
+} from "../services/send.js";
+import { channelOf, displayContact } from "../services/channel.js";
 import type { CronSlackDeps } from "./deps.js";
 import {
   clampToWindow,
@@ -188,19 +189,27 @@ async function processOne(
       await markFollowup(env.DB, f.id, "sent");
       return;
 
-    case "day_before":
-      await sendTemplate(env, f.phone, tpl("trial_reminder_day_before", lang), lang, [
-        bodyParams([name]),
-      ]);
-      await markFollowup(env.DB, f.id, "sent");
+    case "day_before": {
+      const outcome = await sendReminder(env, deps, f.phone, {
+        template: "trial_reminder_day_before",
+        lang,
+        params: [name],
+        freeform: messengerReminderText("day_before", name, lang),
+      });
+      await markFollowup(env.DB, f.id, outcome);
       return;
+    }
 
-    case "same_day":
-      await sendTemplate(env, f.phone, tpl("trial_reminder_same_day", lang), lang, [
-        bodyParams([name]),
-      ]);
-      await markFollowup(env.DB, f.id, "sent");
+    case "same_day": {
+      const outcome = await sendReminder(env, deps, f.phone, {
+        template: "trial_reminder_same_day",
+        lang,
+        params: [name],
+        freeform: messengerReminderText("same_day", name, lang),
+      });
+      await markFollowup(env.DB, f.id, outcome);
       return;
+    }
 
     case "attendance_check":
       await deps.slack.postAttendanceCheck({ phone: f.phone, name, recordId });
@@ -225,10 +234,13 @@ async function processOne(
         return;
       }
       if (att === "no") {
-        await sendTemplate(env, f.phone, tpl("no_show_followup", lang), lang, [
-          bodyParams([name]),
-        ]);
-        await markFollowup(env.DB, f.id, "sent");
+        const outcome = await sendReminder(env, deps, f.phone, {
+          template: "no_show_followup",
+          lang,
+          params: [name],
+          freeform: messengerReminderText("no_show", name, lang),
+        });
+        await markFollowup(env.DB, f.id, outcome);
         return;
       }
       // absent attendance signal → reschedule once (+12h), then give up
@@ -284,7 +296,13 @@ async function processOne(
         campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
       });
       if (res.outcome === "template_missing") {
-        await noteTemplateMissing(env, deps, f.phone, res.template);
+        // On IG/FB "template_missing" really means the 7-day Meta window closed
+        // (the facade's sendTemplate throws — no templates on those channels).
+        if (channelOf(f.phone) !== "wa") {
+          await noteMessengerWindowClosed(env, deps, f.phone, f.kind);
+        } else {
+          await noteTemplateMissing(env, deps, f.phone, res.template);
+        }
         await markFollowup(env.DB, f.id, "cancelled");
       } else {
         await markFollowup(env.DB, f.id, res.outcome);
@@ -366,10 +384,15 @@ async function processOne(
         await markFollowup(env.DB, f.id, "cancelled");
         return;
       }
-      await sendTemplate(env, f.phone, tpl("reengage_lead", lang), lang, [
-        bodyParams([name]),
-      ]);
-      await markFollowup(env.DB, f.id, "sent");
+      {
+        const outcome = await sendReminder(env, deps, f.phone, {
+          template: "reengage_lead",
+          lang,
+          params: [name],
+          freeform: messengerReminderText("reengage", name, lang),
+        });
+        await markFollowup(env.DB, f.id, outcome);
+      }
       return;
 
     default:
@@ -390,6 +413,8 @@ async function sendTrialConfirm(
     await sendText(env, phone, text);
   } catch (err) {
     if (err instanceof WindowClosedError) {
+      // IG/FB: no template escape — the 7d window is closed, nothing to send.
+      if (channelOf(phone) !== "wa") throw err;
       await sendTemplate(env, phone, tpl("trial_confirm", lang), lang, [
         bodyParams([name]),
       ]);
@@ -399,6 +424,92 @@ async function sendTrialConfirm(
     throw err;
   }
   await sendBookingVideo(env, phone); // after the free-form confirmation
+}
+
+/**
+ * Template-first reminder that stays correct on IG/FB, where templates don't
+ * exist: WA sends the template (unchanged behavior, throws bubble to the
+ * caller's retry machinery); IG/FB send equivalent free-form copy — the send
+ * facade auto-applies the HUMAN_AGENT tag between 24h and 7d — and a closed
+ * 7-day window becomes 'cancelled' plus one throttled Slack note.
+ */
+async function sendReminder(
+  env: Env,
+  deps: { slack: Pick<CronSlackDeps, "postNote"> },
+  phone: string,
+  opts: { template: string; lang: string; params: string[]; freeform: string },
+): Promise<"sent" | "cancelled"> {
+  if (channelOf(phone) === "wa") {
+    await sendTemplate(env, phone, tpl(opts.template, opts.lang), opts.lang, [
+      bodyParams(opts.params),
+    ]);
+    return "sent";
+  }
+  try {
+    await sendText(env, phone, opts.freeform);
+    return "sent";
+  } catch (err) {
+    if (err instanceof WindowClosedError) {
+      await noteMessengerWindowClosed(env, deps, phone, opts.template);
+      return "cancelled";
+    }
+    throw err;
+  }
+}
+
+/**
+ * Pure. Free-form stand-in copy for the WA reminder templates, used on IG/FB.
+ * No prices/schedule — just warm nudges (source-of-truth rule).
+ */
+export function messengerReminderText(
+  kind: "day_before" | "same_day" | "no_show" | "reengage",
+  name: string,
+  lang: string,
+): string {
+  const who = name ? ` ${name.split(/\s+/)[0] ?? ""}` : "";
+  if (kind === "no_show") {
+    return renderCopy(
+      lang === "en" ? CLIENT.copy.noShowEn : CLIENT.copy.noShowEs,
+      { who, link: CLIENT.links.booking },
+    );
+  }
+  const gym = CLIENT.shortName;
+  if (lang === "en") {
+    switch (kind) {
+      case "day_before":
+        return `Hi${who}! Quick reminder — your trial class at ${gym} is tomorrow 🥋 See you there!`;
+      case "same_day":
+        return `Hi${who}! Today's the day — your trial class at ${gym} 🥋 See you soon!`;
+      default:
+        return `Hi${who}! Still thinking about trying a class at ${gym}? Write us and we'll set it up 🥋`;
+    }
+  }
+  switch (kind) {
+    case "day_before":
+      return `¡Hola${who}! Recordatorio rápido — mañana es tu clase de prueba en ${gym} 🥋 ¡Te esperamos!`;
+    case "same_day":
+      return `¡Hola${who}! Hoy es tu clase de prueba en ${gym} 🥋 ¡Nos vemos!`;
+    default:
+      return `¡Hola${who}! ¿Sigues con ganas de probar una clase en ${gym}? Escríbenos y la agendamos 🥋`;
+  }
+}
+
+/**
+ * At most ONE Slack note per CDMX day about IG/FB sends dropped because the
+ * 7-day Meta window closed (kv `msgr_window_note:<YYYY-MM-DD>`).
+ */
+async function noteMessengerWindowClosed(
+  env: Env,
+  deps: { slack: Pick<CronSlackDeps, "postNote"> },
+  phone: string,
+  what: string,
+): Promise<void> {
+  const dayKey = `msgr_window_note:${cdmxDateStr(nowSec())}`;
+  if (await kvGet(env.DB, dayKey)) return;
+  await kvSet(env.DB, dayKey, "1");
+  await deps.slack.postNote(
+    `Seguimiento (${what}) a ${displayContact(phone)} omitido: en IG/FB no hay plantillas y la ventana de 7 días de Meta ya cerró. Solo el lead puede reabrir la conversación.`,
+  );
 }
 
 /**
@@ -586,14 +697,18 @@ async function processResult(
       await sendText(env, phone, body);
     } catch (err) {
       if (err instanceof WindowClosedError) {
-        try {
-          await sendTemplate(env, phone, tpl("no_show_followup", lang), lang, [
-            bodyParams([name ?? ""]),
-          ]);
-        } catch (tErr) {
-          await deps.slack.postNote(
-            `No pude enviar reagenda a ${phone} (plantilla no_show_followup falló): ${String(tErr)}`,
-          );
+        if (channelOf(phone) !== "wa") {
+          await noteMessengerWindowClosed(env, deps, phone, "no_show_followup");
+        } else {
+          try {
+            await sendTemplate(env, phone, tpl("no_show_followup", lang), lang, [
+              bodyParams([name ?? ""]),
+            ]);
+          } catch (tErr) {
+            await deps.slack.postNote(
+              `No pude enviar reagenda a ${phone} (plantilla no_show_followup falló): ${String(tErr)}`,
+            );
+          }
         }
       } else {
         throw err;
@@ -615,14 +730,18 @@ async function processResult(
       await sendText(env, phone, body);
     } catch (err) {
       if (err instanceof WindowClosedError) {
-        try {
-          await sendTemplate(env, phone, tpl("human_followup", lang), lang, [
-            bodyParams([name ?? ""]),
-          ]);
-        } catch (tErr) {
-          await deps.slack.postNote(
-            `No pude enviar bienvenida a ${phone} (plantilla human_followup falló): ${String(tErr)}`,
-          );
+        if (channelOf(phone) !== "wa") {
+          await noteMessengerWindowClosed(env, deps, phone, "human_followup");
+        } else {
+          try {
+            await sendTemplate(env, phone, tpl("human_followup", lang), lang, [
+              bodyParams([name ?? ""]),
+            ]);
+          } catch (tErr) {
+            await deps.slack.postNote(
+              `No pude enviar bienvenida a ${phone} (plantilla human_followup falló): ${String(tErr)}`,
+            );
+          }
         }
       } else {
         throw err;

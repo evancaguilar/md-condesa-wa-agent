@@ -267,8 +267,22 @@ async function api(path,opts){
   return data;
 }
 
+// Channel helpers: IG/FB contacts live in the phone column as "ig:<id>"/"fb:<id>".
+function chanOf(p){ var s=String(p||""); return s.slice(0,3)==="ig:"?"ig":(s.slice(0,3)==="fb:"?"fb":"wa"); }
+function chanChip(p){
+  var ch=chanOf(p);
+  if(ch==="ig") return '<span class="chip" style="background:#E1306C;color:#fff">IG</span>';
+  if(ch==="fb") return '<span class="chip blue">FB</span>';
+  return "";
+}
 function fmtPhone(p){
   if(!p) return "";
+  var ch=chanOf(p);
+  if(ch!=="wa"){
+    var raw=String(p).slice(3);
+    var short=raw.length>10?raw.slice(0,5)+"…"+raw.slice(-4):raw;
+    return (ch==="ig"?"IG ":"FB ")+short;
+  }
   var d=String(p).replace(/\D/g,"");
   if(d.length>=12 && d.slice(0,2)==="52"){
     var rest=d.slice(2);
@@ -632,6 +646,8 @@ function renderChatList(){
 }
 function convoChips(c){
   var out=[];
+  var cch=chanChip(c.phone);
+  if(cch) out.push(cch);
   var st=c.status;
   if(st==="student") out.push('<span class="chip gold">🎓 Alumno</span>');
   else if(st==="opted_out") out.push('<span class="chip red">🚫 Baja</span>');
@@ -748,7 +764,7 @@ function renderChatHeader(nowSec){
   var assigned=c.assigned_to||null;
   head.innerHTML=(isMobile?'<button class="backbtn mobile-only" id="chatBack">←</button>':'')
     +'<div style="min-width:0"><div style="font-weight:800;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(nameOr(c.name,c.phone))+'</div>'
-    +'<div class="muted sm">'+esc(fmtPhone(c.phone))+(assigned?' · @'+esc(assigned):'')+'</div></div>';
+    +'<div class="muted sm">'+chanChip(c.phone)+' '+esc(fmtPhone(c.phone))+(assigned?' · @'+esc(assigned):'')+'</div></div>';
   if(el("chatBack")) el("chatBack").onclick=backToChatList;
   var now= nowSec || Math.floor(Date.now()/1000);
   var paused=c.human_override_until && (c.human_override_until*1 > now);
@@ -759,7 +775,11 @@ function renderChatHeader(nowSec){
       : "";
     if(el("bannerResume")) el("bannerResume").onclick=function(){ resumeConvo(chatState.phone); };
   }
-  chatState.windowOpen=!!(c.last_inbound_at && (now - c.last_inbound_at*1) < 86400);
+  // IG/FB: the backend can send with the HUMAN_AGENT tag up to 7 días after
+  // the last inbound (no 24h template cutoff like WA), so the composer stays
+  // open that long.
+  var winSecs=chanOf(c.phone)!=="wa"?7*86400:86400;
+  chatState.windowOpen=!!(c.last_inbound_at && (now - c.last_inbound_at*1) < winSecs);
   var ta=el("chatTa"), send=el("chatSend"), hint=el("windowHint");
   if(ta && send && hint){
     ta.disabled=!chatState.windowOpen;
@@ -1074,6 +1094,7 @@ async function sendChatMedia(){
       failed=true;
       var err=(r&&r.error)||"";
       if(err==="unsupported_type") toast("Tipo no soportado (jpg, png, webp, mp4, pdf)","err");
+      else if(err==="channel_unsupported") toast("Adjuntos aún no soportados en IG/FB — solo texto","err");
       else if(err==="file_too_large") toast("Archivo demasiado grande (máx 16MB)","err");
       else if(err==="upload_failed") toast("No se pudo subir el archivo","err");
       else toast("No se pudo enviar el archivo","err");
@@ -1134,8 +1155,12 @@ function isVoiceMsg(msg){ return msgMeta(msg).voice===true; }
 function msgBy(msg){ var b=msgMeta(msg).by; return b?String(b):""; }
 function mediaProxy(id){ return "/admin/api/media/"+encodeURIComponent(id); }
 function mediaHtml(meta){
-  if(!meta || !meta.mediaId) return "";
-  var src=mediaProxy(meta.mediaId);
+  if(!meta) return "";
+  // WA media goes through the authed proxy; IG/FB attachments are direct CDN
+  // urls (they expire after a while — accepted v1 limitation).
+  var src=meta.mediaId?mediaProxy(meta.mediaId)
+    :(meta.mediaUrl && /^https:\/\//.test(String(meta.mediaUrl))?String(meta.mediaUrl):"");
+  if(!src) return "";
   if(meta.type==="image"||meta.type==="sticker"){
     return '<img class="med" loading="lazy" src="'+esc(src)+'" onclick="window.open(this.src)"'
       +(meta.type==="sticker"?' style="max-height:120px"':'')+'>';

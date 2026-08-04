@@ -19,7 +19,7 @@ import {
   setContactStatus,
   setHumanOverride,
 } from "../db/queries.js";
-import { sendText, sendBookingVideo, WindowClosedError } from "../services/wa.js";
+import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
 import { armNudges } from "../cron/nudges.js";
 import {
   markApprovedCard,

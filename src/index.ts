@@ -66,7 +66,10 @@ export default {
     const url = new URL(req.url);
     const { pathname } = url;
 
-    if (pathname === "/webhook/whatsapp") {
+    // /webhook/meta is an alias for the Messenger/Instagram products (same
+    // Meta app → same verify token + signature; the parser dispatches on the
+    // payload's `object` field, so one handler serves all three channels).
+    if (pathname === "/webhook/whatsapp" || pathname === "/webhook/meta") {
       if (req.method === "GET") return handleVerify(req, env);
       if (req.method === "POST")
         return handleWebhook(req, env, ctx, makePorts(env));

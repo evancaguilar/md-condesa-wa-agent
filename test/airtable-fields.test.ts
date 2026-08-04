@@ -5,8 +5,10 @@ import {
   buildLeadFields,
   schemaSummary,
   leadsMap,
+  normalizeMxPhone,
   phoneMatchFormula,
   classifyResult,
+  sourceValueFor,
   DEFAULT_LEADS_MAP,
   type BaseSchema,
 } from "../src/services/airtable.js";
@@ -176,4 +178,36 @@ test("schemaSummary respects the token cap by dropping trailing fields", () => {
   const lineCount = capped.split("\n").length;
   assert.ok(lineCount < 200, "should drop fields past the cap");
   assert.ok(lineCount >= 1, "should keep at least one field");
+});
+
+// ---- IG/FB namespaced contact ids (channel guards) ----
+
+test("normalizeMxPhone passes namespaced IG/FB ids through untouched", () => {
+  // Stripping non-digits would turn these into fake phones whose last 10
+  // digits could cross-match (and corrupt) a real lead's CRM row.
+  assert.equal(normalizeMxPhone("ig:1784140000000999"), "ig:1784140000000999");
+  assert.equal(normalizeMxPhone("fb:24500000000000777"), "fb:24500000000000777");
+  // Real phones keep the existing behavior.
+  assert.equal(normalizeMxPhone("+52 55 1234 5678"), "5215512345678");
+});
+
+test("sourceValueFor picks the Canal value by channel", () => {
+  const map = { ...DEFAULT_LEADS_MAP, sourceValue: "WA", sourceValueIg: "IG", sourceValueFb: "FB" };
+  assert.equal(sourceValueFor("5215512345678", map), "WA");
+  assert.equal(sourceValueFor("ig:123", map), "IG");
+  assert.equal(sourceValueFor("fb:456", map), "FB");
+  // Unset IG/FB overrides fall back to the hardcoded defaults, never to WA.
+  const bare = { ...DEFAULT_LEADS_MAP, sourceValue: "WA" };
+  assert.equal(sourceValueFor("ig:123", bare), "IG");
+  assert.equal(sourceValueFor("fb:456", bare), "FB");
+});
+
+test("buildLeadFields stores IG ids verbatim with per-channel Canal", () => {
+  const map = { ...DEFAULT_LEADS_MAP, sourceValueIg: "IG" };
+  const f = buildLeadFields(null, { phone: "ig:1784140000000999" }, map);
+  assert.equal(f[map.phone], "ig:1784140000000999"); // no "+" prefix
+  assert.equal(f[map.source], "IG");
+  const wa = buildLeadFields(null, { phone: "5215512345678" }, map);
+  assert.equal(wa[map.phone], "+5215512345678");
+  assert.equal(wa[map.source], map.sourceValue);
 });

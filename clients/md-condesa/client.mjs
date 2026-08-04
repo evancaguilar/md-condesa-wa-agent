@@ -28,6 +28,10 @@ export default {
     nudges: true,
     airtableSync: true,
     safety: false,
+    // IG/FB DM channels ship dark until Meta App Review round 2 approves the
+    // Messenger/Instagram permissions — flip only with Evan's OK.
+    instagram: false,
+    messenger: false,
   },
   // Real Leads-table columns (base appcX38TBVltyxHR6). The CRM predates the
   // bot and its automations depend on these Spanish names — never rename them.
@@ -36,6 +40,10 @@ export default {
     name: "Nombre de Lead",
     source: "Canal",
     sourceValue: "WA",
+    // Evan must add these options to the Canal select before flipping the
+    // IG/FB feature flags (a missing option fails the sync loudly, not as WA).
+    sourceValueIg: "IG",
+    sourceValueFb: "FB",
     ad: "Ad",
     campaign: "Campaña",
     trialDateTime: "Fecha Clase Prueba",

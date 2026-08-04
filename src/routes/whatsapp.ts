@@ -13,6 +13,15 @@ import {
   upsertContact,
 } from "../db/queries.js";
 import { processInbound } from "../pipeline/inbound.js";
+import { channelOf, displayContact, type Channel } from "../services/channel.js";
+import { CLIENT } from "../client.gen.js";
+
+/** Deploy-dark gate: IG/FB events are dropped until the client flag is on. */
+function channelEnabled(ch: Channel): boolean {
+  if (ch === "ig") return CLIENT.features.instagram === true;
+  if (ch === "fb") return CLIENT.features.messenger === true;
+  return true;
+}
 
 export async function handleVerify(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -58,6 +67,14 @@ async function processEvents(
   const events = parseWebhook(payload);
   for (const ev of events) {
     try {
+      const contactId =
+        ev.type === "inbound" ? ev.from : ev.type === "echo" ? ev.to : null;
+      if (contactId !== null && !channelEnabled(channelOf(contactId))) {
+        console.log(
+          `[webhook] ${channelOf(contactId)} channel disabled; dropping ${ev.type} from ${contactId}`,
+        );
+        continue;
+      }
       if (ev.type === "inbound") await onInbound(env, ctx, ports, ev);
       else if (ev.type === "echo") await onEcho(env, ports, ev);
       // statuses + app_state_sync: log only (already normalized; nothing to do).
@@ -112,7 +129,9 @@ async function onEcho(env: Env, ports: Ports, ev: EchoEvent): Promise<void> {
     minute: "2-digit",
     timeZone: "America/Mexico_City",
   }).format(new Date(until * 1000));
+  const source =
+    channelOf(phone) === "wa" ? "desde el teléfono" : "desde la bandeja de la página";
   await ports.slack.postNote(
-    `Evan respondió desde el teléfono (${phone}) — bot en pausa hasta ${hhmm}.`,
+    `Evan respondió ${source} (${displayContact(phone)}) — bot en pausa hasta ${hhmm}.`,
   );
 }

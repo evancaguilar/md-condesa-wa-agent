@@ -93,7 +93,8 @@ import {
   uploadMedia,
   WindowClosedError,
   type OutboundMediaKind,
-} from "../services/wa.js";
+} from "../services/send.js";
+import { channelOf } from "../services/channel.js";
 import { fetchMediaResponse } from "../services/media.js";
 import { flagOptOutInAirtable } from "../services/lead-sync.js";
 import { parseRule, ruleSummaryEs } from "../services/airtable-rules.js";
@@ -343,7 +344,7 @@ export async function handleAdminApi(
     if (sub === "read" && method === "POST") {
       // Blue ticks to the lead: mark their newest inbound as read. Best-effort.
       const wamid = await newestInboundWamid(env.DB, phone);
-      if (wamid) ctx.waitUntil(markRead(env, wamid));
+      if (wamid) ctx.waitUntil(markRead(env, wamid, phone));
       // Shared (team-wide) read marker; no-op pre-migration.
       await setReadAtSoft(env.DB, phone, nowSec());
       return json({ ok: true });
@@ -771,6 +772,11 @@ async function handleStaffSendMedia(
   if (file.size > MEDIA_MAX_BYTES) return json({ error: "file_too_large" }, 400);
   const match = MEDIA_KIND_BY_MIME.find((m) => m.re.test(file.type));
   if (!match) return json({ error: "unsupported_type" }, 400);
+  // IG/FB contacts: media attachments are WA-only in v1 — reject before the
+  // (WA-specific) Graph media upload burns a request.
+  if (channelOf(phone) !== "wa") {
+    return json({ error: "channel_unsupported" }, 400);
+  }
 
   const fname = file.name || "archivo";
   let mediaId: string;

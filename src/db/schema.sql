@@ -1,7 +1,7 @@
 -- D1 schema for the MD Condesa WhatsApp agent. Idempotent.
 
 CREATE TABLE IF NOT EXISTS contacts(
-  phone TEXT PRIMARY KEY,            -- digits only, e.g. 5215512345678
+  phone TEXT PRIMARY KEY,            -- WA: digits only (5215512345678); IG/FB DMs: namespaced id "ig:<IGSID>" / "fb:<PSID>" (see src/services/channel.ts)
   name TEXT, lang TEXT DEFAULT 'es',
   status TEXT DEFAULT 'lead',        -- lead|student|opted_out
   qualification TEXT,                -- JSON {discipline, audience:'kid'|'adult', goal, name}
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS contacts(
 );
 
 CREATE TABLE IF NOT EXISTS messages(
-  wamid TEXT PRIMARY KEY,            -- INSERT OR IGNORE = webhook-retry dedupe
+  wamid TEXT PRIMARY KEY,            -- INSERT OR IGNORE = webhook-retry dedupe; WA wamid.* or IG/FB mid (m_* / aWd*)
   phone TEXT, direction TEXT,        -- in|out_bot|out_human_echo
   body TEXT, ts INTEGER, meta TEXT
 );

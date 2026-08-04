@@ -59,10 +59,15 @@ import {
 } from "./campaigns.js";
 import { isOptOut } from "./opt-out.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
-import { sendText, sendBookingVideo, WindowClosedError } from "../services/wa.js";
+import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
+import { channelOf } from "../services/channel.js";
 import { bookingApprovalKey, awaitingReplyKey } from "../services/approvals.js";
 import { CLIENT } from "../client.gen.js";
-import { fetchMediaBytes, transcribe } from "../services/media.js";
+import {
+  fetchMediaBytes,
+  fetchMediaBytesFromUrl,
+  transcribe,
+} from "../services/media.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
@@ -88,8 +93,14 @@ export interface InboundMessage {
   profileName?: string;
   /** Click-to-WhatsApp ad referral rider (parsed from the webhook), if present. */
   referral?: InboundReferral;
-  /** Media rider (audio/image/video/document/sticker), if present. */
-  media?: { mediaId: string; mimeType: string | null; filename?: string | null };
+  /** Media rider (audio/image/video/document/sticker), if present. WA media
+   *  carries a Graph mediaId; IG/FB attachments carry a direct CDN mediaUrl. */
+  media?: {
+    mediaId?: string;
+    mediaUrl?: string;
+    mimeType: string | null;
+    filename?: string | null;
+  };
 }
 
 /** Failure body stored when a voice note can't be transcribed. */
@@ -118,22 +129,30 @@ export async function processInbound(
   let meta: Record<string, unknown> | null = null;
   const isAudio = msg.media && (msg.kind === "audio" || msg.kind === undefined);
   if (msg.media && isAudio) {
-    const bytes = await fetchMediaBytes(env, msg.media.mediaId);
+    const bytes = msg.media.mediaId
+      ? await fetchMediaBytes(env, msg.media.mediaId)
+      : msg.media.mediaUrl
+        ? await fetchMediaBytesFromUrl(msg.media.mediaUrl)
+        : null;
     const transcript = bytes ? await transcribe(env, bytes) : null;
+    const mediaRef = msg.media.mediaId
+      ? { mediaId: msg.media.mediaId }
+      : { mediaUrl: msg.media.mediaUrl };
     if (transcript) {
       body = transcript;
-      meta = { voice: true, mediaId: msg.media.mediaId, mimeType: msg.media.mimeType };
+      meta = { voice: true, ...mediaRef, mimeType: msg.media.mimeType };
     } else {
       body = VOICE_FAIL_BODY;
-      meta = { voice: true, failed: true, mediaId: msg.media.mediaId, mimeType: msg.media.mimeType };
+      meta = { voice: true, failed: true, ...mediaRef, mimeType: msg.media.mimeType };
     }
   } else if (msg.media && msg.kind && MEDIA_PLACEHOLDER[msg.kind]) {
     if (!body.trim()) body = MEDIA_PLACEHOLDER[msg.kind]!;
     meta = {
       type: msg.kind,
-      mediaId: msg.media.mediaId,
       mimeType: msg.media.mimeType,
     };
+    if (msg.media.mediaId) meta.mediaId = msg.media.mediaId;
+    if (msg.media.mediaUrl) meta.mediaUrl = msg.media.mediaUrl;
     if (msg.media.filename) meta.filename = msg.media.filename;
   }
   // Per-message ad context: lets the dashboard show "respondió a un anuncio"
@@ -428,6 +447,7 @@ export async function processInbound(
   const cdmx = cdmxNow();
   const brainCtx: ConvoContext = {
     phone: msg.phone,
+    channel: channelOf(msg.phone),
     contact: fresh,
     history,
     nowCdmx: cdmx.iso,

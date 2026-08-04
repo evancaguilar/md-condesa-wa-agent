@@ -2,6 +2,23 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-04**.
 
+### IG/FB DM adapter (shipped DARK 2026-08-04 — flags off, plan: ~/.claude/plans/now-that-the-app-replicated-cat.md)
+
+The bot can now answer **Instagram DMs + Facebook Messenger** through the same pipeline (brain → training-wheels approval → reply on the right channel). Everything ships behind `features.instagram` / `features.messenger` in clients/md-condesa/client.mjs (**both false** — IG/FB webhook events are logged + dropped until flipped). WA behavior unchanged; 380 tests green.
+
+How it works: IG/FB contacts live in the existing `phone` column as namespaced ids (`ig:<IGSID>` / `fb:<PSID>`, zero D1 migration); the webhook parser dispatches on the payload's `object` field (same endpoint — `/webhook/meta` is an alias of `/webhook/whatsapp`, same verify token + app secret since the products share app 2215578122600171); sends go through the new `src/services/send.ts` facade → `messenger.ts` (`POST /<FB_PAGE_ID>/messages`, page token). **No templates on IG/FB**: 24h–7d sends auto-use the HUMAN_AGENT tag (needs its own App Review permission), >7d = cancelled + one throttled Slack note; cron reminders send free-form equivalents (`messengerReminderText`). Airtable syncs IG/FB leads with exact-string identity + Canal=IG/FB (the last-10-digit fuzzy match is guarded — an unguarded IG id could have cross-matched and corrupted a real lead's row; that guard is live NOW regardless of flags). Dashboard shows IG/FB chips, renders CDN media (urls expire — accepted v1), composer stays open 7d on IG/FB, attachments are WA-only v1.
+
+### ⚠️ Evan's checklist (IG/FB — Meta console, in order)
+
+- [ ] Confirm @mdcondesa (IG professional) is linked to the academy's **FB Page** (Page ↔ IG link; separate axis from the IG↔WhatsApp-0813 pending decision below, which does NOT block IG DMs).
+- [ ] App 2215578122600171 → add **Messenger** + **Instagram** products. Webhooks callback: `https://md-condesa-wa-agent.evancaguilar.workers.dev/webhook/meta`, verify token = the existing `WA_VERIFY_TOKEN`. Subscribe fields on BOTH products: `messages`, `messaging_postbacks`, `message_echoes` (echoes = replying from the IG/page inbox pauses the bot; without them it double-answers).
+- [ ] Subscribe the **Page** to the app; generate a **Page access token** (page-scoped — NOT the WABA system-user token) with `pages_messaging` + `instagram_manage_messages`.
+- [ ] Cloudflare dashboard (local wrangler = wrong account): add secrets **`PAGE_ACCESS_TOKEN`** and **`FB_PAGE_ID`**.
+- [ ] Airtable: add **`IG`** and **`FB`** options to the Canal select (missing option = loud daily sync-failure note, never a wrong "WA").
+- [ ] Tester phase: flip `features.instagram/messenger: true` in client.mjs → `npm run build` → push. App still in Standard Access ⇒ only app-role testers' DMs arrive; TRAINING_WHEELS gates every reply anyway. Verify: text round-trip IG+FB, voice note transcribed, echo takeover from the IG inbox, full booking (Canal=IG row + anti-no-show armed), timestamps sane.
+- [ ] **App Review round 2**: `instagram_manage_messages`, `pages_messaging` + the **Human Agent** permission (7-day tag; until approved >24h sends degrade into the WindowClosed→approval path). Screencast the tester flow. Per the 2026-07 lesson: after submitting, hunt ALL Meta surfaces for undismissed forms — silence = a form waiting somewhere, not a slow queue.
+- [ ] Approved → real IG/FB users flow in automatically (flags already on from tester phase). Watch Slack sync notes + cancelled-followup counts the first week.
+
 ### Inbox v2 (shipped 2026-08-04 morning — 4 commits, 10be1ad..1a0aaa7)
 
 The /admin Chats inbox is now a team tool. Built via multi-agent workflow + 3-verifier adversarial pass (which caught 1 real BLOCKER pre-push — the verify-fixes commit).
@@ -114,7 +131,7 @@ ALTER TABLE contacts ADD COLUMN assigned_to TEXT;
 - [ ] Anthropic auto-reload ON (avoid silent brain outage).
 - [ ] Watch display-name review status for 2274; watch quality rating (starts UNKNOWN).
 - [ ] Old contact backfill: manychat-master.csv → Airtable (leads 7/16–8/03 missing from CRM).
-- [ ] Phase 2 backlog: two-number send routing, support bot on 0813 (needs coexistence build), IG/FB DM adapter, EN templates.
+- [ ] Phase 2 backlog: two-number send routing, support bot on 0813 (needs coexistence build), ~~IG/FB DM adapter~~ (shipped dark 2026-08-04, see top), EN templates.
 - [ ] Old-number spam-ban lesson is now a standing team rule: **never bulk-add students to WhatsApp groups; invite links/QR only.**
 
 ## ⚡ PREVIOUS SITUATION (2026-07-18) — historical, superseded above

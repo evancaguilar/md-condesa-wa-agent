@@ -1,0 +1,20 @@
+{
+  "object": "page",
+  "entry": [
+    {
+      "id": "108000000000001",
+      "time": 1720200200000,
+      "messaging": [
+        {
+          "sender": { "id": "24500000000000777" },
+          "recipient": { "id": "108000000000001" },
+          "timestamp": 1720200200999,
+          "message": {
+            "mid": "m_FB_MESSAGE_1",
+            "text": "Hola, ¿tienen clases de box?"
+          }
+        }
+      ]
+    }
+  ]
+}

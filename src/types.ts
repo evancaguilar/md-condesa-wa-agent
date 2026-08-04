@@ -23,6 +23,10 @@ export interface Env {
   WA_PHONE_NUMBER_ID: string;
   WA_VERIFY_TOKEN: string;
   ANTHROPIC_API_KEY: string;
+  /** Page-scoped token for IG/FB Messenger sends. Optional: unset until the
+   *  Meta Messenger/Instagram products are configured — non-WA sends fail
+   *  soft with a descriptive error, WA is unaffected. */
+  PAGE_ACCESS_TOKEN?: string;
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
   AIRTABLE_PAT: string;
@@ -38,6 +42,8 @@ export interface Env {
   HUMAN_SNOOZE_HOURS: string; // stringified integer, default "8"
   /** Booking-confirmation video URL. Defaults in code (DEFAULT_BOOKING_VIDEO_URL). */
   BOOKING_VIDEO_URL?: string;
+  /** Facebook Page id backing Messenger + IG DMs. Optional (see PAGE_ACCESS_TOKEN). */
+  FB_PAGE_ID?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;
@@ -244,6 +250,9 @@ export interface Followup {
 /** Everything the brain needs for one turn. Assembled by the inbound pipeline. */
 export interface ConvoContext {
   phone: string;
+  /** Conversation channel ("wa" default). IG/FB lets the brain avoid saying
+   *  "te escribimos por WhatsApp" to an Instagram lead. */
+  channel?: "wa" | "ig" | "fb";
   contact: Contact;
   history: StoredMessage[]; // oldest → newest, already capped
   nowCdmx: string; // ISO 8601 in America/Mexico_City

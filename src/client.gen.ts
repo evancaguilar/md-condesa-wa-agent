@@ -53,6 +53,8 @@ export const CLIENT: ClientConfig = {
     "name": "Nombre de Lead",
     "source": "Canal",
     "sourceValue": "WA",
+    "sourceValueIg": "IG",
+    "sourceValueFb": "FB",
     "ad": "Ad",
     "campaign": "Campaña",
     "trialDateTime": "Fecha Clase Prueba",

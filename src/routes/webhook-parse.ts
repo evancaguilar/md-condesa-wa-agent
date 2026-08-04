@@ -38,9 +38,12 @@ export interface InboundEvent {
   profileName?: string;
   /** Present when the message arrived from a click-to-WhatsApp ad. */
   referral?: InboundReferral;
-  /** Present for any media message (audio/image/video/document/sticker). */
+  /** Present for any media message (audio/image/video/document/sticker).
+   *  WhatsApp media carries a Graph mediaId (2-hop authed fetch); IG/FB
+   *  attachments carry a direct CDN mediaUrl instead. Exactly one is set. */
   media?: {
-    mediaId: string;
+    mediaId?: string;
+    mediaUrl?: string;
     mimeType: string | null;
     filename?: string | null;
   };
@@ -169,13 +172,188 @@ function extractReferral(m: RawMessage): InboundReferral | undefined {
   };
 }
 
+// ---- Messenger Platform (Instagram DMs + Facebook Messenger) ----
+//
+// IG/FB webhooks use a different envelope than WhatsApp: object:"instagram"|
+// "page", entry[].messaging[] with {sender.id, recipient.id, timestamp(ms!),
+// message|postback|referral}. Contact ids are namespaced ("ig:<IGSID>" /
+// "fb:<PSID>") so the rest of the system can treat them as opaque strings in
+// the same `phone` column (see services/channel.ts).
+
+interface RawMessengerAttachment {
+  type?: string; // image | video | audio | file | story_mention | share | fallback | reel | ...
+  payload?: { url?: string; title?: string };
+}
+
+interface RawMessengerReferral {
+  ref?: string;
+  source?: string;
+  type?: string;
+  ad_id?: string;
+  ads_context_data?: {
+    ad_title?: string;
+    photo_url?: string;
+    video_url?: string;
+  };
+}
+
+interface RawMessagingItem {
+  sender?: { id?: string };
+  recipient?: { id?: string };
+  timestamp?: number;
+  message?: {
+    mid?: string;
+    text?: string;
+    is_echo?: boolean;
+    attachments?: RawMessengerAttachment[];
+    referral?: RawMessengerReferral;
+  };
+  postback?: {
+    mid?: string;
+    title?: string;
+    payload?: string;
+    referral?: RawMessengerReferral;
+  };
+  referral?: RawMessengerReferral; // messaging_referrals (ig.me / m.me links)
+  read?: unknown;
+  delivery?: unknown;
+}
+
+/** Epoch normalizer for messaging[] items: Messenger timestamps are ms. */
+function toEpochMs(ts: number | undefined): number {
+  if (typeof ts !== "number" || !Number.isFinite(ts)) {
+    return Math.floor(Date.now() / 1000);
+  }
+  // Defensive: >= 1e11 can only be milliseconds (seconds are ~1.7e9).
+  return ts >= 1e11 ? Math.floor(ts / 1000) : Math.floor(ts);
+}
+
+function mapMessengerReferral(
+  r: RawMessengerReferral | undefined,
+): InboundReferral | undefined {
+  if (!r) return undefined;
+  return {
+    sourceUrl: r.ref ?? null,
+    sourceType: r.type ?? r.source ?? null,
+    sourceId: r.ad_id ?? null,
+    headline: r.ads_context_data?.ad_title ?? null,
+    body: null,
+    ctwaClid: null,
+    thumbnailUrl: r.ads_context_data?.photo_url ?? null,
+    imageUrl: r.ads_context_data?.photo_url ?? null,
+    videoUrl: r.ads_context_data?.video_url ?? null,
+  };
+}
+
+const MESSENGER_KIND: Record<string, InboundKind> = {
+  image: "image",
+  video: "video",
+  audio: "audio",
+  file: "document",
+};
+
+function parseMessengerEvents(
+  prefix: "ig:" | "fb:",
+  entries: { messaging?: RawMessagingItem[] }[],
+): WebhookEvent[] {
+  const events: WebhookEvent[] = [];
+  for (const entry of entries) {
+    for (const item of entry.messaging ?? []) {
+      const ts = toEpochMs(item.timestamp);
+
+      if (item.message?.is_echo) {
+        // Sent from the page/IG inbox (or our own API — filtered later via
+        // outbound_wamids, same as WA echoes).
+        events.push({
+          type: "echo",
+          wamid: item.message.mid ?? "",
+          to: item.recipient?.id ? prefix + item.recipient.id : "",
+          ts,
+          body: item.message.text ?? "",
+        });
+        continue;
+      }
+
+      const from = item.sender?.id ? prefix + item.sender.id : "";
+
+      if (item.message) {
+        const m = item.message;
+        let body = m.text ?? "";
+        let kind: InboundKind = "text";
+        let media: InboundEvent["media"] | undefined;
+        const att = (m.attachments ?? [])[0];
+        if (att) {
+          kind = MESSENGER_KIND[att.type ?? ""] ?? "other";
+          if (kind !== "other" && att.payload?.url) {
+            media = { mediaUrl: att.payload.url, mimeType: null, filename: null };
+          }
+          if (!body && kind === "other") {
+            body =
+              att.type === "story_mention"
+                ? "[mención en historia]"
+                : att.type === "share" || att.type === "reel"
+                  ? "[contenido compartido]"
+                  : "[adjunto no soportado]";
+          }
+        } else if (!m.text) {
+          kind = "other";
+        }
+        const ev: InboundEvent = {
+          type: "inbound",
+          wamid: m.mid ?? "",
+          from,
+          ts,
+          body,
+          kind,
+        };
+        const referral = mapMessengerReferral(m.referral ?? item.referral);
+        if (referral) ev.referral = referral;
+        if (media) ev.media = media;
+        events.push(ev);
+        continue;
+      }
+
+      if (item.postback) {
+        const p = item.postback;
+        const ev: InboundEvent = {
+          type: "inbound",
+          wamid: p.mid ?? "",
+          from,
+          ts,
+          body: p.title ?? p.payload ?? "",
+          kind: "button",
+        };
+        const referral = mapMessengerReferral(p.referral ?? item.referral);
+        if (referral) ev.referral = referral;
+        events.push(ev);
+        continue;
+      }
+
+      // read / delivery / reactions: nothing to do.
+    }
+  }
+  return events;
+}
+
 /**
- * Parses a webhook envelope into normalized events. `field` on each change tells
- * us the subscription: `messages` (inbound/status), `smb_message_echoes` (echo),
- * `smb_app_state_sync` (coexistence sync).
+ * Parses a webhook envelope into normalized events. WhatsApp payloads
+ * (object:"whatsapp_business_account") use entry[].changes[]; `field` on each
+ * change tells us the subscription: `messages` (inbound/status),
+ * `smb_message_echoes` (echo), `smb_app_state_sync` (coexistence sync).
+ * Instagram/Messenger payloads (object:"instagram"|"page") use
+ * entry[].messaging[] and normalize into the same event union with
+ * channel-prefixed contact ids.
  */
 export function parseWebhook(payload: unknown): WebhookEvent[] {
   const events: WebhookEvent[] = [];
+  const objectType = (payload as { object?: string } | null)?.object;
+  if (objectType === "instagram" || objectType === "page") {
+    const root = payload as { entry?: { messaging?: RawMessagingItem[] }[] };
+    return parseMessengerEvents(
+      objectType === "instagram" ? "ig:" : "fb:",
+      root.entry ?? [],
+    );
+  }
   const root = payload as {
     entry?: {
       changes?: {

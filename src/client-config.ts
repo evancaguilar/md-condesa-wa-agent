@@ -62,6 +62,10 @@ export interface ClientFeatures {
   airtableSync: boolean;
   /** Crisis-safety gate (see SafetyConfig). */
   safety: boolean;
+  /** Instagram DM channel (Meta Messenger Platform). Optional: absent = off. */
+  instagram?: boolean;
+  /** Facebook Messenger channel. Optional: absent = off. */
+  messenger?: boolean;
 }
 
 /**
@@ -77,6 +81,10 @@ export interface AirtableLeadsMap {
   source: string;
   /** Value written to `source` for bot-originated leads (fill-if-empty). */
   sourceValue: string;
+  /** `source` value for Instagram-DM leads (defaults to "IG" in code). */
+  sourceValueIg?: string;
+  /** `source` value for Facebook-Messenger leads (defaults to "FB" in code). */
+  sourceValueFb?: string;
   ad: string;
   campaign: string;
   trialDateTime: string;

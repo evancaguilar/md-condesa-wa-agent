@@ -65,6 +65,24 @@ export async function fetchMediaResponse(
   }
 }
 
+/**
+ * Fetch media bytes from a direct CDN url (IG/FB webhook attachments — they
+ * arrive as pre-signed urls, no Graph auth involved). Null on any failure,
+ * never throws — same contract as fetchMediaBytes.
+ */
+export async function fetchMediaBytesFromUrl(
+  url: string,
+): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    return new Uint8Array(buf);
+  } catch {
+    return null;
+  }
+}
+
 /** Pulls a transcript string out of the various Whisper response shapes. */
 function extractText(out: unknown): string | null {
   if (!out || typeof out !== "object") return null;

@@ -25,7 +25,8 @@ import {
   setHumanOverride,
   isBotEnabled,
 } from "../db/queries.js";
-import { sendTemplate, sendText, WindowClosedError } from "./wa.js";
+import { sendTemplate, sendText, WindowClosedError } from "./send.js";
+import { channelOf } from "./channel.js";
 import {
   adAttributionLine,
   decideTimeout,
@@ -489,7 +490,8 @@ export function markTakenOverCard(env: Env, a: PendingApproval): Promise<void> {
   return updateResolvedCard(env, a, "🙋 *Tomaste el control* — bot en pausa", a.draft);
 }
 export function markExpiredCard(env: Env, a: PendingApproval, windowClosed: boolean): Promise<void> {
-  const extra = windowClosed
+  // Templates are WA-only: an IG/FB card never offers the template button.
+  const extra = windowClosed && channelOf(a.phone) === "wa"
     ? { text: "📨 Enviar plantilla human_followup", actionId: `send_template|${a.id}` }
     : undefined;
   return updateResolvedCard(env, a, "⌛ *Expirada* (sin respuesta a tiempo)", a.draft, extra);
@@ -513,14 +515,17 @@ export function markSupersededCard(
     a.draft,
   );
 }
-/** Window closed on approve/edit: swap the card to offer the template button. */
+/** Window closed on approve/edit: swap the card to offer the template button
+ *  (WA only — IG/FB have no templates; their card is informational). */
 export function markWindowClosedCard(env: Env, a: PendingApproval): Promise<void> {
   return updateResolvedCard(
     env,
     a,
     "🔒 *Ventana cerrada* — no se pudo enviar texto libre",
     a.draft,
-    { text: "📨 Enviar plantilla human_followup", actionId: `send_template|${a.id}` },
+    channelOf(a.phone) === "wa"
+      ? { text: "📨 Enviar plantilla human_followup", actionId: `send_template|${a.id}` }
+      : undefined,
   );
 }
 

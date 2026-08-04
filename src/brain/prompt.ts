@@ -84,12 +84,20 @@ export function buildContextBlock(ctx: ConvoContext): string {
     ? "24h window OPEN (free-form replies allowed)"
     : "24h window CLOSED (only template messages until the lead writes again)";
 
+  const channelLine =
+    ctx.channel === "ig"
+      ? "channel: Instagram DM — el lead te escribe por Instagram, NO por WhatsApp; nunca digas que le escribes por WhatsApp."
+      : ctx.channel === "fb"
+        ? "channel: Facebook Messenger — el lead te escribe por Messenger, NO por WhatsApp; nunca digas que le escribes por WhatsApp."
+        : null;
+
   const lines = [
     "<context>",
     `now (America/Mexico_City): ${ctx.nowCdmx}`,
     `weekday: ${ctx.weekday}`,
     `local time (12h): ${to12h(ctx.nowCdmx)}`,
     `contact: { ${known.join(", ")} }`,
+    ...(channelLine ? [channelLine] : []),
     windowLine,
     "Resolve any relative date ('hoy', 'mañana', 'el sábado') against `now`/`weekday` above.",
     "The timestamp is 24h ISO. Any class time LATER today than `now` is still bookable for TODAY (e.g. at 01:49 it is 1:49 AM — today's 7:00 AM class has NOT passed).",

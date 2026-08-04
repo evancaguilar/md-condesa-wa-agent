@@ -7,6 +7,7 @@ import type { AirtableLeadsMap } from "../client-config.js";
 import { CLIENT } from "../client.gen.js";
 import { cdmxIso } from "../cron/time.js";
 import { kvGet, kvSet } from "../db/queries.js";
+import { channelOf } from "./channel.js";
 
 const API = "https://api.airtable.com/v0";
 const MAX_429_RETRIES = 4;
@@ -57,6 +58,22 @@ export function leadsMap(): AirtableLeadsMap {
   return { ...DEFAULT_LEADS_MAP, ...(CLIENT.airtableLeads ?? {}) };
 }
 
+/**
+ * Value for the `source` (Canal) column by contact channel. IG/FB fall back to
+ * "IG"/"FB" when the client map doesn't override them — Evan must add those
+ * options to the Canal select; until then the write fails and surfaces via the
+ * existing sync-failure Slack note (fail-soft, never a silent wrong "WA").
+ */
+export function sourceValueFor(
+  contactId: string,
+  map: AirtableLeadsMap = leadsMap(),
+): string {
+  const ch = channelOf(contactId);
+  if (ch === "ig") return map.sourceValueIg ?? "IG";
+  if (ch === "fb") return map.sourceValueFb ?? "FB";
+  return map.sourceValue;
+}
+
 /** The configured result field name: env override > client map > default. */
 export function resultFieldName(env: Env): string {
   return env.AIRTABLE_RESULT_FIELD || leadsMap().result;
@@ -100,6 +117,11 @@ export interface StudentRecord {
  * insert the 1. Idempotent for already-normalized input.
  */
 export function normalizeMxPhone(raw: string): string {
+  // Namespaced IG/FB contact ids ("ig:<IGSID>" / "fb:<PSID>") are NOT phones:
+  // pass them through untouched. Stripping non-digits here would turn an IG id
+  // into a fake phone whose last 10 digits can cross-match (and corrupt) a real
+  // lead's CRM row.
+  if (channelOf(raw || "") !== "wa") return raw;
   let d = (raw || "").replace(/\D/g, "");
   if (d.startsWith("00")) d = d.slice(2);
   if (d.length === 10) return `521${d}`; // bare local mobile
@@ -179,7 +201,7 @@ export async function bookTrial(
   if (input.childName && isEmpty(cur?.[m.childName])) {
     fields[m.childName] = input.childName;
   }
-  if (isEmpty(cur?.[m.source])) fields[m.source] = m.sourceValue;
+  if (isEmpty(cur?.[m.source])) fields[m.source] = sourceValueFor(phone, m);
   if (input.ad && isEmpty(cur?.[m.ad])) fields[m.ad] = input.ad;
 
   const res = await upsertLead(env, phone, fields, fields, current);
@@ -192,6 +214,8 @@ export async function bookTrial(
  * digits, so legacy rows in any format ("(556) 979-4387", "55 4019 4997") match.
  */
 function storedPhone(normalized: string): string {
+  // IG/FB namespaced ids are stored verbatim (no "+"); reads use exact match.
+  if (channelOf(normalized) !== "wa") return normalized;
   return `+${normalized}`;
 }
 
@@ -363,13 +387,22 @@ export async function findLeadByPhone(
   env: Env,
   phone: string,
 ): Promise<AirtableRecord | null> {
-  const digits = normalizeMxPhone(phone).replace(/\D/g, "");
-  if (!digits) return null;
   const m = leadsMap();
-  const formula =
-    digits.length >= 10
-      ? phoneMatchFormula(m.phone, digits.slice(-10))
-      : `{${m.phone}}&""="${digits}"`;
+  let formula: string;
+  if (channelOf(phone) !== "wa") {
+    // IG/FB contact id: EXACT string match only. The last-10-digit fuzzy match
+    // below would let a numeric IGSID cross-match a real lead's phone row.
+    // IGSIDs/PSIDs are numeric — anything else is malformed, don't query.
+    if (!/^(ig|fb):\d+$/.test(phone)) return null;
+    formula = `{${m.phone}}&""="${phone}"`;
+  } else {
+    const digits = normalizeMxPhone(phone).replace(/\D/g, "");
+    if (!digits) return null;
+    formula =
+      digits.length >= 10
+        ? phoneMatchFormula(m.phone, digits.slice(-10))
+        : `{${m.phone}}&""="${digits}"`;
+  }
   const url = new URL(baseUrl(env, env.AIRTABLE_TRIALS_TABLE));
   url.searchParams.set("filterByFormula", formula);
   url.searchParams.set("pageSize", "1");
@@ -438,8 +471,9 @@ export function buildLeadFields(
   input: LeadFieldsInput,
   map: AirtableLeadsMap = leadsMap(),
 ): Record<string, unknown> {
-  const f: Record<string, unknown> = { [map.phone]: `+${input.phone}` };
-  if (isEmpty(current?.[map.source])) f[map.source] = map.sourceValue;
+  const f: Record<string, unknown> = { [map.phone]: storedPhone(input.phone) };
+  if (isEmpty(current?.[map.source]))
+    f[map.source] = sourceValueFor(input.phone, map);
   const name = (input.name ?? "").trim();
   if (name && isEmpty(current?.[map.name])) f[map.name] = name;
   const ad = (input.ad ?? "").trim();

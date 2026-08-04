@@ -7,11 +7,13 @@ import { getContact, recordOutboundWamid, insertMessageIfNew } from "../db/queri
 const GRAPH_VERSION = "v21.0";
 const WINDOW_SECONDS = 24 * 3600;
 
-/** Thrown by sendText when the 24h customer-service window is closed. */
+/** Thrown by sendText when the 24h customer-service window is closed.
+ *  `message` override lets non-WA channels state their own escape hatch
+ *  (IG/FB have no templates — see services/messenger.ts). */
 export class WindowClosedError extends Error {
   readonly phone: string;
-  constructor(phone: string) {
-    super(`24h window closed for ${phone}; a template message is required`);
+  constructor(phone: string, message?: string) {
+    super(message ?? `24h window closed for ${phone}; a template message is required`);
     this.name = "WindowClosedError";
     this.phone = phone;
   }

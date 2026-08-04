@@ -30,6 +30,7 @@ import {
   disarmAutoMode,
 } from "../services/auto-mode.js";
 import { OptedOutError } from "../services/wa.js";
+import { ChannelCapabilityError } from "../services/channel.js";
 import {
   approveAndSend,
   discardApproval,
@@ -166,6 +167,11 @@ async function onSendTemplate(env: Env, id: number): Promise<void> {
     // and staff keep clicking. Say so once, leave the card as-is.
     if (err instanceof OptedOutError) {
       await postNote(env, `🚫 Plantilla NO enviada a ${a.phone}: el contacto está dado de baja.`);
+      return;
+    }
+    // Legacy card for an IG/FB contact (button suppressed on new cards).
+    if (err instanceof ChannelCapabilityError) {
+      await postNote(env, `🚫 Plantilla NO enviada a ${a.phone}: no hay plantillas en IG/FB.`);
       return;
     }
     throw err;
