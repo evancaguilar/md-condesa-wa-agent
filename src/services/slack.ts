@@ -275,7 +275,10 @@ export async function postDraft(
   }
   const adLine = adAttributionLine(contact?.ad_ref ?? null, campaignName);
   const blocks = draftBlocks(a, name, hoursLeft, reason, adLine);
-  return postMessage(env, blocks, `Nueva respuesta por aprobar — ${a.phone}`);
+  // <!here> so action-required cards ping even with the channel muted to
+  // "Mentions only"; FYI posts (postNote/postBookingFyi) stay silent.
+  blocks.unshift(context("<!here>"));
+  return postMessage(env, blocks, `<!here> Nueva respuesta por aprobar — ${a.phone}`);
 }
 
 /** Plain informational note to the channel. */
@@ -305,7 +308,7 @@ export async function postAttendanceCheck(
   recordId: string,
 ): Promise<string> {
   const blocks = [
-    section(`🥋 *¿Llegó ${name}?*\n${phone}`),
+    section(`<!here> 🥋 *¿Llegó ${name}?*\n${phone}`),
     {
       type: "actions",
       block_id: `attendance_${recordId}`,
@@ -315,7 +318,7 @@ export async function postAttendanceCheck(
       ],
     },
   ];
-  return postMessage(env, blocks, `¿Llegó ${name}?`);
+  return postMessage(env, blocks, `<!here> ¿Llegó ${name}?`);
 }
 
 /** Re-ping with <!here> for a still-pending approval (cron timeout path). */
