@@ -68,6 +68,7 @@ import {
   fetchMediaBytesFromUrl,
   transcribe,
 } from "../services/media.js";
+import { lookupAdMeta } from "../services/ad-meta.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
@@ -245,22 +246,40 @@ export async function processInbound(
     return;
   }
 
-  // 3b. Campaign tagging. Precedence: exact ad-id → ad-creative keywords
-  // (campaigns.ad_keywords vs the referral's headline+body) → trigger phrase
-  // on the message body. The keyword tier covers brand-new ads whose ids
-  // nobody registered; when it (or the trigger tier) matches a referral, the
-  // new ad id is AUTO-LEARNED into the campaign's ad_id list so future clicks
-  // match exactly and the dashboard shows the real ids — Evan mints new ads
-  // ~daily, so manual id registration doesn't scale. Only active campaigns.
+  // 3b. Campaign tagging. Precedence: trigger phrase (designed prefill — one
+  // ad's several ice-breaker prefills can route to DIFFERENT campaigns) →
+  // exact ad-id → ad keywords vs creative text + Ads-Manager ad name / Meta
+  // campaign name (Graph API lookup, kv-cached, fail-soft). The keyword tier
+  // covers brand-new ads whose ids nobody registered AND prefills Meta
+  // rewrote/localized; a keyword/trigger match on a referral AUTO-LEARNS the
+  // new ad id into the campaign — Evan mints new ads ~daily, manual id
+  // registration doesn't scale. Only active campaigns.
   const activeCampaigns = await getActiveCampaigns(env.DB);
   let matchedCampaign: Campaign | null = null;
   if (activeCampaigns.length > 0) {
+    let adMetaNorm = "";
+    if (msg.referral?.sourceId) {
+      const adMeta = await lookupAdMeta(env, msg.referral.sourceId);
+      if (adMeta) {
+        adMetaNorm = normalizeText(
+          `${adMeta.name ?? ""} ${adMeta.campaignName ?? ""}`,
+        );
+      }
+    }
     const match = matchCampaignTiered({
       sourceId: msg.referral?.sourceId,
-      adTextNorm: adTextForMatch(msg.referral),
+      adTextNorm: [adTextForMatch(msg.referral), adMetaNorm]
+        .filter(Boolean)
+        .join(" "),
       bodyNorm: normalizeText(body),
       campaigns: activeCampaigns,
     });
+    // A fresh ad click that matches NOTHING must also CLEAR any stale campaign
+    // tag — otherwise the brain answers with the old campaign's info (seen
+    // live: a mananas-999 click still branded as Reto from a July attribution).
+    if (match === null && msg.referral) {
+      await setContactCampaign(env.DB, msg.phone, null);
+    }
     if (match !== null) {
       matchedCampaign = activeCampaigns.find((c) => c.id === match.id) ?? null;
       await setContactCampaign(env.DB, msg.phone, match.id);
@@ -430,8 +449,17 @@ export async function processInbound(
 
   // The clicked ad's own text rides along even when it isn't mapped to any
   // campaign, so the brain can still infer program/audience from the creative.
+  // Prefer THIS message's referral (the ad the lead just clicked) over the
+  // stored contact.ad_ref, which keeps the FIRST-ever attribution for the CRM:
+  // a returning lead clicking a NEW ad must not be briefed with the old one.
   let adRef: ConvoContext["adRef"];
-  if (fresh.ad_ref) {
+  if (msg.referral && (msg.referral.headline || msg.referral.body)) {
+    adRef = {
+      headline: msg.referral.headline ?? null,
+      body: msg.referral.body ?? null,
+      sourceId: msg.referral.sourceId ?? null,
+    };
+  } else if (fresh.ad_ref) {
     try {
       const r = JSON.parse(fresh.ad_ref) as AdRef;
       adRef = {

@@ -2,6 +2,16 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-04**.
 
+### Attribution v2: trigger-first precedence + ad-name lookup + staleness fixes (2026-08-04, later)
+
+Root-caused the "mananas-999 ad answered as Reto Gladiador" incident (Evan's own test click): (1) Meta LOCALIZED the prefill (English phone ⇒ "Hello! Can I get more info on this?") so the Spanish trigger never matched; (2) the new mananas campaigns had no keywords/ad-ids; (3) the contact carried a STALE July Reto attribution (campaign_id + ad_ref) that the brain was briefed with. Fixes:
+
+- **Precedence reordered: trigger phrase FIRST**, then exact ad-id, then keywords. One ad's several ice-breaker prefills can route to DIFFERENT campaigns (mananas "probar" vs "inscribirse"), so the designed phrase must outrank the shared ad id.
+- **Ad-name tier**: `lookupAdMeta` (src/services/ad-meta.ts) resolves referral ad id → Ads-Manager ad name + Meta campaign name via Graph API (kv-cached `ad_meta:<id>`, miss retries daily, fail-soft). Normalized name feeds the keyword matcher — keyword `mananas 999` matches ad "mananas-999 cafe comparison". Token: optional `ADS_ACCESS_TOKEN` secret (needs ads_read), falls back to WA_ACCESS_TOKEN — if the WA system-user token lacks ad-account access the tier silently skips; add the secret to enable it.
+- **Fresh `<ad_info>`**: the brain now sees THIS click's referral, not the contact's first-ever ad_ref (CRM keeps first-touch).
+- **Stale-tag clear**: a referral click matching NO campaign clears contact.campaign_id instead of leaving the old campaign's info to mislead the brain.
+- [ ] Optional (Evan): create a Meta token with ads_read on act_1334257084455191 and `wrangler secret put ADS_ACCESS_TOKEN` (or Cloudflare dashboard) if the WA token turns out not to cover ad lookups — check for `ad_meta:*` kv rows or the 🎯 line correctness after the next new-ad click.
+
 ### IG/FB DM adapter (shipped DARK 2026-08-04 — flags off, plan: ~/.claude/plans/now-that-the-app-replicated-cat.md)
 
 The bot can now answer **Instagram DMs + Facebook Messenger** through the same pipeline (brain → training-wheels approval → reply on the right channel). Everything ships behind `features.instagram` / `features.messenger` in clients/md-condesa/client.mjs (**both false** — IG/FB webhook events are logged + dropped until flipped). WA behavior unchanged; 380 tests green.

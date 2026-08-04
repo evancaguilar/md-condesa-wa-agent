@@ -484,7 +484,7 @@ export async function setRuleLastError(
 export async function setContactCampaign(
   db: D1Database,
   phone: string,
-  campaignId: number,
+  campaignId: number | null,
 ): Promise<void> {
   await db
     .prepare(

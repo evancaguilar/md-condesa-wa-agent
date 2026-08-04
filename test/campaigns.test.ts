@@ -285,26 +285,40 @@ test("first campaign in list order wins a shared keyword (id DESC = newest)", ()
 
 // ---- matchCampaignTiered --------------------------------------------------
 
-test("tiered: exact ad_id beats keywords and trigger", () => {
-  const byId = campaign({ id: 3, ad_id: "111" });
-  const byKw = campaign({ id: 4, ad_keywords: "reto" });
+test("tiered: trigger phrase beats ad_id and keywords (ice-breaker routing)", () => {
+  // One ad (id 111) registered to campaign 3, but the lead sent campaign 5's
+  // designed prefill — the phrase must win so several prefills on the SAME ad
+  // can route to different campaigns.
+  const byId = campaign({ id: 3, ad_id: "111", trigger_norm: "quiero probar primero" });
+  const byTrigger = campaign({ id: 5, trigger_norm: "quiero inscribirme ya" });
   const m = matchCampaignTiered({
     sourceId: "111",
     adTextNorm: "el reto gladiador",
-    bodyNorm: "curso de defensa",
+    bodyNorm: "quiero inscribirme ya por favor",
+    campaigns: [byId, byTrigger],
+  });
+  assert.deepEqual(m, { id: 5, kind: "trigger" });
+});
+
+test("tiered: exact ad_id beats keywords when no trigger matches", () => {
+  const byId = campaign({ id: 3, ad_id: "111", trigger_norm: "frase a" });
+  const byKw = campaign({ id: 4, ad_keywords: "reto", trigger_norm: "frase b" });
+  const m = matchCampaignTiered({
+    sourceId: "111",
+    adTextNorm: "el reto gladiador",
+    bodyNorm: "hola quiero informacion",
     campaigns: [byKw, byId],
   });
   assert.deepEqual(m, { id: 3, kind: "ad_id" });
 });
 
-test("tiered: keywords beat trigger phrase", () => {
-  const byKw = campaign({ id: 4, ad_keywords: "reto" });
-  const byTrigger = campaign({ id: 5, trigger_norm: "curso de defensa" });
+test("tiered: keywords match when neither trigger nor ad_id do", () => {
+  const byKw = campaign({ id: 4, ad_keywords: "reto", trigger_norm: "frase b" });
   const m = matchCampaignTiered({
     sourceId: "999",
     adTextNorm: "unete al reto",
-    bodyNorm: "curso de defensa",
-    campaigns: [byKw, byTrigger],
+    bodyNorm: "hola quiero informacion",
+    campaigns: [byKw],
   });
   assert.deepEqual(m, { id: 4, kind: "ad_text" });
 });

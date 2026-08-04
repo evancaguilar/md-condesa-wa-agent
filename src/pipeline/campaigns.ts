@@ -122,10 +122,15 @@ export interface CampaignMatch {
 
 /**
  * Full attribution precedence for one inbound message:
- *   1. exact ad-id (referral.source_id ∈ campaigns.ad_id) — strongest signal;
- *   2. ad-creative keywords (campaigns.ad_keywords vs normalized headline+body)
- *      — covers brand-new ads whose ids nobody registered yet;
- *   3. trigger phrase prefix on the message body (legacy prefilled-text match).
+ *   1. trigger phrase prefix on the message body — a designed prefill is the
+ *      strongest intent signal: one ad can offer SEVERAL prefill questions
+ *      (Meta ice breakers) that route to DIFFERENT campaigns, so the exact
+ *      phrase must outrank the ad id they share. Random typed text never
+ *      matches a designed phrase, so this tier is safe first.
+ *   2. exact ad-id (referral.source_id ∈ campaigns.ad_id).
+ *   3. ad keywords vs the ad's creative text AND its Ads-Manager name/Meta
+ *      campaign name (caller folds those into adTextNorm) — covers brand-new
+ *      ads nobody registered and prefills Meta rewrote/localized.
  */
 export function matchCampaignTiered(opts: {
   sourceId: string | null | undefined;
@@ -133,12 +138,12 @@ export function matchCampaignTiered(opts: {
   bodyNorm: string;
   campaigns: Campaign[];
 }): CampaignMatch | null {
+  const byTrigger = matchCampaign(opts.bodyNorm, opts.campaigns);
+  if (byTrigger !== null) return { id: byTrigger, kind: "trigger" };
   const byId = matchCampaignByAdId(opts.sourceId, opts.campaigns);
   if (byId !== null) return { id: byId, kind: "ad_id" };
   const byText = matchCampaignByAdText(opts.adTextNorm, opts.campaigns);
   if (byText !== null) return { id: byText, kind: "ad_text" };
-  const byTrigger = matchCampaign(opts.bodyNorm, opts.campaigns);
-  if (byTrigger !== null) return { id: byTrigger, kind: "trigger" };
   return null;
 }
 

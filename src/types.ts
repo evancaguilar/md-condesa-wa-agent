@@ -27,6 +27,9 @@ export interface Env {
    *  Meta Messenger/Instagram products are configured — non-WA sends fail
    *  soft with a descriptive error, WA is unaffected. */
   PAGE_ACCESS_TOKEN?: string;
+  /** Optional Meta token with ads_read on the ad account — enables the ad-name
+   *  attribution tier (lookupAdMeta). Falls back to WA_ACCESS_TOKEN when unset. */
+  ADS_ACCESS_TOKEN?: string;
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
   AIRTABLE_PAT: string;
