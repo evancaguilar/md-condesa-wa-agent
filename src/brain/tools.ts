@@ -42,8 +42,13 @@ const sendReply: AnthropicTool = {
         description:
           "Optional short note for the human reviewer when confidence is 'low'.",
       },
+      awaiting_reply: {
+        type: "boolean",
+        description:
+          "Is the lead left waiting for an answer? false ONLY when the lead is closing the conversation (thanks / ok / 'sería todo' / bye) and your message is a mere pleasantry — going silent after it would be natural. true whenever the lead asked something, is mid-scheduling, or expects information.",
+      },
     },
-    required: ["message", "language", "confidence"],
+    required: ["message", "language", "confidence", "awaiting_reply"],
     additionalProperties: false,
   },
 };

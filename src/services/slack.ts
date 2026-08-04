@@ -33,6 +33,7 @@ import {
   windowHoursLeft,
   type TimeoutApprovalView,
 } from "./slack-timeouts.js";
+import { awaitingReplyKey } from "./approvals.js";
 import { getCampaign } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
 
@@ -309,8 +310,18 @@ export async function postAttendanceCheck(
 }
 
 /** Re-ping with <!here> for a still-pending approval (cron timeout path). */
-export async function postHoldingPing(env: Env, approvalId: number): Promise<void> {
-  const text = `<!here> ⏳ La respuesta #${approvalId} lleva rato pendiente — ¿la revisamos?`;
+export async function postHoldingPing(
+  env: Env,
+  approvalId: number,
+  who?: { name?: string | null; phone?: string; draft?: string },
+): Promise<void> {
+  // Identify the approval — a bare "#816" is unfindable when the channel has
+  // scrolled past the card. Name + number + draft snippet locate it instantly.
+  const label = [who?.name, who?.phone].filter(Boolean).join(" · ");
+  const snippet = who?.draft
+    ? ` — «${who.draft.length > 80 ? `${who.draft.slice(0, 80)}…` : who.draft}»`
+    : "";
+  const text = `<!here> ⏳ La respuesta #${approvalId}${label ? ` para ${label}` : ""} lleva rato pendiente${snippet} — ¿la revisamos?`;
   await postMessage(env, [section(text)], text);
 }
 
@@ -460,12 +471,15 @@ export async function runApprovalTimeouts(
 
   for (const a of pending) {
     const contact = await queries.getContact(env.DB, a.phone);
+    // Brain's not-waiting marker (kv, set at queue time): "0" ⇒ skip holding.
+    const awaitingRaw = await kvGet(env.DB, awaitingReplyKey(a.id));
     const view: TimeoutApprovalView = {
       id: a.id,
       phone: a.phone,
       createdAt: a.created_at,
       holdingSent: a.holding_sent === 1,
       lastInboundAt: contact?.last_inbound_at ?? null,
+      awaitingReply: awaitingRaw === "0" ? false : undefined,
     };
     const decision = decideTimeout(view, now);
 
@@ -473,7 +487,11 @@ export async function runApprovalTimeouts(
       if (decision.kind === "hold") {
         await deps.sendText(env, a.phone, HOLDING_LINE);
         await queries.markHoldingSent(env.DB, a.id);
-        await postHoldingPing(env, a.id);
+        await postHoldingPing(env, a.id, {
+          name: contact?.name ?? null,
+          phone: a.phone,
+          draft: a.draft,
+        });
       } else if (decision.kind === "expire") {
         await queries.resolveApproval(env.DB, a.id, "expired");
         await markExpiredCard(env, a, decision.windowClosed);

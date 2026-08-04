@@ -56,7 +56,7 @@ import {
 import { isOptOut } from "./opt-out.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/wa.js";
-import { bookingApprovalKey } from "../services/approvals.js";
+import { bookingApprovalKey, awaitingReplyKey } from "../services/approvals.js";
 import { CLIENT } from "../client.gen.js";
 import { fetchMediaBytes, transcribe } from "../services/media.js";
 import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
@@ -507,7 +507,16 @@ async function routeResult(
 
   // Draft / low confidence / training wheels ⇒ Slack approval.
   const reason = result.action === "draft" ? result.reason : undefined;
-  await queueApproval(env, ports, ctx, result.message, history, reason);
+  await queueApproval(
+    env,
+    ports,
+    ctx,
+    result.message,
+    history,
+    reason,
+    false,
+    result.awaitingReply ?? true,
+  );
 }
 
 /** Persists a set_followup request as a kind:'custom' followup row. */
@@ -571,6 +580,7 @@ async function queueApproval(
   history: StoredMessage[],
   reason?: string,
   bookingOrigin = false,
+  awaitingReply = true,
 ): Promise<void> {
   const contextText = history
     .slice(-6)
@@ -609,6 +619,9 @@ async function queueApproval(
   // draft is approved/edited later. Kept off the stored context column, which is
   // rendered verbatim in Slack + the dashboard.
   if (bookingOrigin) await kvSet(env.DB, bookingApprovalKey(id), "1");
+  // Not-waiting marker (kv, like bookingOrigin): timeout cron skips the holding
+  // line for closings. Only written when false — missing key = waiting.
+  if (!awaitingReply) await kvSet(env.DB, awaitingReplyKey(id), "0");
   const slackTs = await ports.slack.postDraft({
     id,
     phone: ctx.phone,

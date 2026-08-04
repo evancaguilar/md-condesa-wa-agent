@@ -284,6 +284,8 @@ export type BrainResult =
       language: Language;
       confidence: Confidence;
       followup?: FollowupRequest;
+      /** False when the lead was just closing (thanks/ok) — nobody is waiting. */
+      awaitingReply?: boolean;
     }
   | {
       action: "draft";
@@ -292,6 +294,8 @@ export type BrainResult =
       confidence: Confidence;
       reason?: string;
       followup?: FollowupRequest;
+      /** False when the lead was just closing (thanks/ok) — nobody is waiting. */
+      awaitingReply?: boolean;
     }
   | { action: "escalate"; reason: string; summary: string }
   | ({

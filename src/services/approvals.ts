@@ -47,6 +47,16 @@ export function bookingApprovalKey(id: number): string {
   return `booking_approval:${id}`;
 }
 
+/**
+ * kv key marking an approval whose lead is NOT waiting on an answer (the brain
+ * flagged the exchange as a closing pleasantry). The timeout cron skips the
+ * holding line for these — going silent is the natural behavior. Missing key
+ * (legacy approvals, synthesized fallback drafts) = waiting, the safe default.
+ */
+export function awaitingReplyKey(id: number): string {
+  return `awaiting_reply:${id}`;
+}
+
 async function isBookingApproval(env: Env, id: number): Promise<boolean> {
   return (await kvGet(env.DB, bookingApprovalKey(id))) === "1";
 }

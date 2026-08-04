@@ -222,6 +222,12 @@ export interface TimeoutApprovalView {
   createdAt: number; // epoch seconds
   holdingSent: boolean;
   lastInboundAt: number | null; // drives window-open check
+  /**
+   * Brain's read of the room: false = the lead was closing the conversation
+   * (thanks/ok) and is NOT waiting on an answer, so the holding line would be
+   * noise. Undefined (legacy rows, fallback drafts) = waiting.
+   */
+  awaitingReply?: boolean;
 }
 
 export type TimeoutAction =
@@ -233,8 +239,8 @@ export type TimeoutAction =
  * Pure decision for a single approval. Injectable `now` (seconds).
  * - age > 12h                         ⇒ expire (windowClosed reported so the
  *                                       caller can offer the template button).
- * - age > 10min, business hours,
- *   window open, holding not yet sent ⇒ send holding line.
+ * - age > 10min, business hours, window open, holding not yet sent, and the
+ *   lead is actually waiting on an answer ⇒ send holding line.
  * - otherwise                         ⇒ none.
  */
 export function decideTimeout(a: TimeoutApprovalView, now: number): TimeoutAction {
@@ -248,7 +254,8 @@ export function decideTimeout(a: TimeoutApprovalView, now: number): TimeoutActio
     age > HOLDING_THRESHOLD_SEC &&
     !a.holdingSent &&
     windowOpen &&
-    isBusinessHours(now)
+    isBusinessHours(now) &&
+    a.awaitingReply !== false
   ) {
     return { kind: "hold", id: a.id, phone: a.phone };
   }

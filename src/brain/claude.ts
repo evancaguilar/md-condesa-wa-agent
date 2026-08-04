@@ -454,18 +454,21 @@ export function sendResult(
     language?: string;
     confidence?: string;
     escalation_reason?: string;
+    awaiting_reply?: boolean;
   };
   const language: Language = input.language === "en" ? "en" : "es";
   const confidence: Confidence = input.confidence === "high" ? "high" : "low";
   const message = unescapeNewlines(input.message ?? "");
   const fu = followup ?? undefined;
+  // Anything not an explicit false counts as waiting — the safe default.
+  const awaitingReply = input.awaiting_reply !== false;
   if (confidence === "high") {
-    return { action: "send", message, language, confidence, followup: fu };
+    return { action: "send", message, language, confidence, followup: fu, awaitingReply };
   }
   const reason = input.escalation_reason;
   return reason
-    ? { action: "draft", message, language, confidence, reason, followup: fu }
-    : { action: "draft", message, language, confidence, followup: fu };
+    ? { action: "draft", message, language, confidence, reason, followup: fu, awaitingReply }
+    : { action: "draft", message, language, confidence, followup: fu, awaitingReply };
 }
 
 function escalateResult(tu: ToolUseContent): BrainResult {

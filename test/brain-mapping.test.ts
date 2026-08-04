@@ -317,3 +317,47 @@ test("computeCost applies intro pricing across token classes", () => {
   // $2 input + $10 output + $0.20 cache read + $4 1h cache write = $16.20
   assert.ok(Math.abs(cost - 16.2) < 1e-9, `cost was ${cost}`);
 });
+
+// ---- awaiting_reply mapping (read-the-room holding-line guard) ----
+
+import { sendResult } from "../src/brain/claude.js";
+
+const sendReplyUse = (input: Record<string, unknown>) => ({
+  type: "tool_use" as const,
+  id: "tu_1",
+  name: "send_reply",
+  input,
+});
+
+test("sendResult: awaiting_reply=false maps to awaitingReply false", () => {
+  const r = sendResult(
+    sendReplyUse({
+      message: "¡Con gusto!",
+      language: "es",
+      confidence: "low",
+      awaiting_reply: false,
+    }),
+  );
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") assert.equal(r.awaitingReply, false);
+});
+
+test("sendResult: awaiting_reply omitted defaults to true (safe hold)", () => {
+  const r = sendResult(
+    sendReplyUse({ message: "Hola", language: "es", confidence: "low" }),
+  );
+  if (r.action === "draft") assert.equal(r.awaitingReply, true);
+});
+
+test("sendResult: high confidence send carries awaitingReply too", () => {
+  const r = sendResult(
+    sendReplyUse({
+      message: "Va",
+      language: "es",
+      confidence: "high",
+      awaiting_reply: false,
+    }),
+  );
+  assert.equal(r.action, "send");
+  if (r.action === "send") assert.equal(r.awaitingReply, false);
+});

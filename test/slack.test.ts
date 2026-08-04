@@ -227,6 +227,36 @@ test("decideTimeout: holding already sent ⇒ none", () => {
   assert.equal(decideTimeout(view, now).kind, "none");
 });
 
+test("decideTimeout: lead not awaiting a reply (closing pleasantry) ⇒ no hold", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000; // 10:00 CDMX
+  const view = baseView({
+    createdAt: now - 11 * 60,
+    lastInboundAt: now - 60,
+    awaitingReply: false,
+  });
+  assert.equal(decideTimeout(view, now).kind, "none");
+});
+
+test("decideTimeout: awaitingReply undefined (legacy row) ⇒ hold as before", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = baseView({
+    createdAt: now - 11 * 60,
+    lastInboundAt: now - 60,
+    awaitingReply: undefined,
+  });
+  assert.equal(decideTimeout(view, now).kind, "hold");
+});
+
+test("decideTimeout: not-awaiting draft still expires at >12h", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = baseView({
+    createdAt: now - 13 * 3600,
+    lastInboundAt: now - 60,
+    awaitingReply: false,
+  });
+  assert.equal(decideTimeout(view, now).kind, "expire");
+});
+
 test("decideTimeout: outside business hours ⇒ none (not yet expired)", () => {
   const now = Date.parse("2026-07-06T08:00:00Z") / 1000; // 02:00 CDMX
   const view = baseView({ createdAt: now - 30 * 60, lastInboundAt: now - 60 });
