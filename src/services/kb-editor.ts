@@ -98,6 +98,8 @@ export type Proposal =
       triggerPhrase: string;
       info: string;
       endsAt: number | null;
+      /** comma-separated ad-creative keyword phrases (auto-attribution). */
+      adKeywords: string | null;
     }
   | {
       kind: "airtable_rule";
@@ -207,6 +209,11 @@ const proposeCampaign = {
         type: ["integer", "null"],
         description: "Optional end date as epoch seconds; null for no end.",
       },
+      ad_keywords: {
+        type: ["string", "null"],
+        description:
+          "Optional comma-separated keyword PHRASES matched against the Meta ad's creative text (headline+body) so new ads auto-attribute to this campaign without registering ids, e.g. 'reto gladiador, reto 30 días'.",
+      },
     },
     required: ["name", "trigger_phrase", "info"],
     additionalProperties: false,
@@ -287,6 +294,10 @@ const EDITOR_TOOLS = [
   proposeAirtableRule,
 ];
 
+/** Tool subset for the edit tuner: overlay changes only — the tuner must not
+ *  invent campaigns or Airtable rules from style patterns. */
+export const TUNING_TOOLS = [proposeKbEdit, proposeKbDelete];
+
 // ---- static editor instructions (block 1, cached) -------------------------
 
 const EDITOR_INSTRUCTIONS = `Eres el asistente de edición de la base de conocimiento de ${CLIENT.businessName}. ${CLIENT.ownerName} (el dueño) te describe en español un cambio (una corrección, un dato nuevo, una promo/campaña) y tú PROPONES el cambio usando las herramientas propose_*. NUNCA aplicas nada: solo propones y el humano confirma.
@@ -332,7 +343,8 @@ function block2Text(
       : campaigns
           .map(
             (c) =>
-              `- id ${c.id} · ${c.status} · "${c.name}" · trigger: "${c.trigger_phrase}"`,
+              `- id ${c.id} · ${c.status} · "${c.name}" · trigger: "${c.trigger_phrase}"` +
+              ((c.ad_keywords ?? null) ? ` · keywords: "${c.ad_keywords}"` : ""),
           )
           .join("\n");
 
@@ -449,8 +461,9 @@ export async function runKbChat(
   return { reply, proposals };
 }
 
-/** Map one tool_use to a Proposal, enriching prev title/content from D1. */
-async function toProposal(
+/** Map one tool_use to a Proposal, enriching prev title/content from D1.
+ *  Exported for the edit tuner, which shares the proposal pipeline. */
+export async function toProposal(
   env: Env,
   tu: ToolUseContent,
 ): Promise<Proposal | null> {
@@ -501,12 +514,18 @@ async function toProposal(
     const rawEnds = input.ends_at;
     const endsAt =
       typeof rawEnds === "number" && Number.isFinite(rawEnds) ? rawEnds : null;
+    const rawKeywords = input.ad_keywords;
+    const adKeywords =
+      typeof rawKeywords === "string" && rawKeywords.trim() !== ""
+        ? rawKeywords.trim()
+        : null;
     return {
       kind: "campaign",
       name: String(input.name ?? ""),
       triggerPhrase: String(input.trigger_phrase ?? ""),
       info: String(input.info ?? ""),
       endsAt,
+      adKeywords,
     };
   }
 
@@ -711,6 +730,8 @@ async function applyCampaign(
     triggerNorm,
     info: p.info,
     endsAt: p.endsAt,
+    // Older stored/in-flight proposals predate the field — tolerate absence.
+    adKeywords: p.adKeywords ?? null,
   });
   return { ok: true, kind: "campaign", campaign };
 }
@@ -773,7 +794,7 @@ async function applyAirtableRule(
 
 // ---- usage accrual (same pricing as the brain) ----------------------------
 
-function accrueChatUsage(env: Env, u: ApiUsage | undefined): Promise<void> {
+export function accrueChatUsage(env: Env, u: ApiUsage | undefined): Promise<void> {
   const input = u?.input_tokens ?? 0;
   const output = u?.output_tokens ?? 0;
   const cacheRead = u?.cache_read_input_tokens ?? 0;

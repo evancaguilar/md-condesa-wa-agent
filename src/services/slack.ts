@@ -35,6 +35,7 @@ import {
 } from "./slack-timeouts.js";
 import { awaitingReplyKey } from "./approvals.js";
 import { getCampaign } from "../db/queries-admin.js";
+import type { Proposal } from "./kb-editor.js";
 import { CLIENT } from "../client.gen.js";
 
 export {
@@ -323,6 +324,92 @@ export async function postHoldingPing(
     : "";
   const text = `<!here> ⏳ La respuesta #${approvalId}${label ? ` para ${label}` : ""} lleva rato pendiente${snippet} — ¿la revisamos?`;
   await postMessage(env, [section(text)], text);
+}
+
+// ---- edit-tuner cards (weekly edit-pattern analysis) ----
+
+/** Truncation for tuning-card before/after quotes (Slack block cap safety). */
+function snip(text: string, max = 300): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/** Header message posted before the per-proposal tuning cards. */
+export async function postTuningSummary(
+  env: Env,
+  summary: string,
+  nEdits: number,
+  nProposals: number,
+): Promise<string> {
+  const blocks = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: "🧠 Análisis de ediciones", emoji: true },
+    },
+    section(summary || "_(sin resumen)_"),
+    context(
+      `${nEdits} ediciones analizadas · ${nProposals} propuesta(s) — revisa las tarjetas de abajo`,
+    ),
+  ];
+  return postMessage(env, blocks, "Análisis de ediciones del bot");
+}
+
+/**
+ * One tuning-proposal card with Aplicar/Descartar buttons. `key` is the kv key
+ * of the persisted TuningRecord — it rides in the action_id (verb|arg splits on
+ * the FIRST pipe, colons are safe). Returns the ts for later chat.update.
+ */
+export async function postTuningProposalCard(
+  env: Env,
+  key: string,
+  p: Proposal,
+): Promise<string> {
+  const blocks: unknown[] = [];
+  if (p.kind === "kb_edit") {
+    const title = p.sectionId === null ? `${p.title} (sección nueva)` : p.title;
+    blocks.push(section(`✏️ *Propuesta: ${title}*`));
+    if (p.prevContent) {
+      blocks.push(section(`*Antes:*\n>${quote(snip(p.prevContent))}`));
+    }
+    blocks.push(section(`*Después:*\n>${quote(snip(p.newContent))}`));
+    if (p.reason) blocks.push(context(p.reason));
+  } else if (p.kind === "kb_delete") {
+    blocks.push(
+      section(`🗑 *Propuesta: eliminar sección «${p.prevTitle ?? p.sectionId}»*`),
+    );
+    if (p.prevContent) blocks.push(section(`>${quote(snip(p.prevContent))}`));
+    if (p.reason) blocks.push(context(p.reason));
+  } else {
+    // The tuner only emits kb_edit/kb_delete; render a minimal fallback.
+    blocks.push(section(`*Propuesta (${p.kind})*`));
+  }
+  blocks.push({
+    type: "actions",
+    block_id: `tuning_${key}`,
+    elements: [
+      button("✅ Aplicar", `tune_apply|${key}`, "primary"),
+      button("🗑 Descartar", `tune_discard|${key}`),
+    ],
+  });
+  return postMessage(env, blocks, "Propuesta de ajuste del bot");
+}
+
+/** Re-render a tuning card (terminal state, warning, or error + retry). */
+export async function updateTuningCard(
+  env: Env,
+  ts: string,
+  headline: string,
+  body: string,
+  buttons?: { text: string; actionId: string; style?: "primary" | "danger" }[],
+): Promise<void> {
+  const blocks: unknown[] = [section(`${headline}\n${body}`)];
+  if (buttons && buttons.length > 0) {
+    blocks.push({
+      type: "actions",
+      block_id: `tuning_update_${ts}`,
+      elements: buttons.map((b) => button(b.text, b.actionId, b.style)),
+    });
+  }
+  await updateMessage(env, ts, blocks, headline);
 }
 
 // ---- control panel ----

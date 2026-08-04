@@ -1,12 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  adIdToLearn,
+  adTextForMatch,
   firstReplyDecision,
   firstReplyFor,
   firstReplyKey,
   matchCampaign,
   matchCampaignByAdId,
+  matchCampaignByAdText,
+  matchCampaignTiered,
   normalizeText,
+  parseAdKeywords,
 } from "../src/pipeline/campaigns.js";
 import type { Campaign } from "../src/types.js";
 
@@ -21,6 +26,7 @@ function campaign(over: Partial<Campaign> = {}): Campaign {
     ends_at: null,
     ad_id: null,
     first_reply: null,
+    ad_keywords: null,
     created_at: 0,
     updated_at: 0,
     ...over,
@@ -198,4 +204,150 @@ test("firstReplyFor returns null for an undefined campaign", () => {
 
 test("firstReplyKey shape", () => {
   assert.equal(firstReplyKey("5215512345678"), "first_reply_sent:5215512345678");
+});
+
+// ---- parseAdKeywords ------------------------------------------------------
+
+test("parseAdKeywords splits on commas preserving multi-word phrases", () => {
+  assert.deepEqual(parseAdKeywords("reto gladiador, reto 30 días"), [
+    "reto gladiador",
+    "reto 30 dias",
+  ]);
+});
+
+test("parseAdKeywords normalizes diacritics/case/punctuation", () => {
+  assert.deepEqual(parseAdKeywords("¡RETO Gladiadór!"), ["reto gladiador"]);
+});
+
+test("parseAdKeywords drops empty entries", () => {
+  assert.deepEqual(parseAdKeywords("a,, b ,"), ["a", "b"]);
+});
+
+test("parseAdKeywords tolerates null/undefined (pre-migration rows)", () => {
+  assert.deepEqual(parseAdKeywords(null), []);
+  assert.deepEqual(parseAdKeywords(undefined), []);
+});
+
+// ---- adTextForMatch -------------------------------------------------------
+
+test("adTextForMatch joins headline and body normalized", () => {
+  assert.equal(
+    adTextForMatch({ headline: "¡Agenda tu Día Gratis!", body: "Así funciona el Reto Gladiador" }),
+    "agenda tu dia gratis asi funciona el reto gladiador",
+  );
+});
+
+test("adTextForMatch handles headline-only and body-only", () => {
+  assert.equal(adTextForMatch({ headline: "Solo Titular", body: null }), "solo titular");
+  assert.equal(adTextForMatch({ headline: null, body: "solo cuerpo" }), "solo cuerpo");
+});
+
+test("adTextForMatch: no referral or no text → empty string", () => {
+  assert.equal(adTextForMatch(null), "");
+  assert.equal(adTextForMatch(undefined), "");
+  assert.equal(adTextForMatch({ headline: null, body: null }), "");
+});
+
+// ---- matchCampaignByAdText ------------------------------------------------
+
+test("keyword phrase matches inside longer creative text", () => {
+  const c = campaign({ ad_keywords: "reto gladiador" });
+  const norm = adTextForMatch({ headline: "¡Agenda tu Día Gratis!", body: "Así funciona el Reto Gladiador: tú eliges" });
+  assert.equal(matchCampaignByAdText(norm, [c]), 1);
+});
+
+test("whole-phrase guard: 'reto' does not match 'retorno'", () => {
+  const c = campaign({ ad_keywords: "reto" });
+  assert.equal(matchCampaignByAdText("retorno seguro garantizado", [c]), null);
+  assert.equal(matchCampaignByAdText("unete al reto hoy", [c]), 1);
+});
+
+test("ANY-of across the keyword list", () => {
+  const c = campaign({ ad_keywords: "muay thai kids, jiu jitsu kids" });
+  assert.equal(matchCampaignByAdText("clases de jiu jitsu kids en condesa", [c]), 1);
+});
+
+test("campaign with null/absent ad_keywords is skipped", () => {
+  const noCol = campaign();
+  delete (noCol as Partial<Campaign>).ad_keywords; // pre-migration SELECT * shape
+  assert.equal(matchCampaignByAdText("reto gladiador", [campaign(), noCol]), null);
+});
+
+test("empty ad text never matches", () => {
+  assert.equal(matchCampaignByAdText("", [campaign({ ad_keywords: "reto" })]), null);
+});
+
+test("first campaign in list order wins a shared keyword (id DESC = newest)", () => {
+  const newer = campaign({ id: 9, ad_keywords: "reto" });
+  const older = campaign({ id: 2, ad_keywords: "reto" });
+  assert.equal(matchCampaignByAdText("el reto empieza", [newer, older]), 9);
+});
+
+// ---- matchCampaignTiered --------------------------------------------------
+
+test("tiered: exact ad_id beats keywords and trigger", () => {
+  const byId = campaign({ id: 3, ad_id: "111" });
+  const byKw = campaign({ id: 4, ad_keywords: "reto" });
+  const m = matchCampaignTiered({
+    sourceId: "111",
+    adTextNorm: "el reto gladiador",
+    bodyNorm: "curso de defensa",
+    campaigns: [byKw, byId],
+  });
+  assert.deepEqual(m, { id: 3, kind: "ad_id" });
+});
+
+test("tiered: keywords beat trigger phrase", () => {
+  const byKw = campaign({ id: 4, ad_keywords: "reto" });
+  const byTrigger = campaign({ id: 5, trigger_norm: "curso de defensa" });
+  const m = matchCampaignTiered({
+    sourceId: "999",
+    adTextNorm: "unete al reto",
+    bodyNorm: "curso de defensa",
+    campaigns: [byKw, byTrigger],
+  });
+  assert.deepEqual(m, { id: 4, kind: "ad_text" });
+});
+
+test("tiered: falls through to trigger when no referral data matches", () => {
+  const m = matchCampaignTiered({
+    sourceId: null,
+    adTextNorm: "",
+    bodyNorm: "curso de defensa me interesa",
+    campaigns: [campaign()],
+  });
+  assert.deepEqual(m, { id: 1, kind: "trigger" });
+});
+
+test("tiered: nothing matches → null", () => {
+  const m = matchCampaignTiered({
+    sourceId: "42",
+    adTextNorm: "otro anuncio",
+    bodyNorm: "hola",
+    campaigns: [campaign()],
+  });
+  assert.equal(m, null);
+});
+
+// ---- adIdToLearn ----------------------------------------------------------
+
+test("adIdToLearn: keyword/trigger matches learn the source id", () => {
+  assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, "120249684011870518"), "120249684011870518");
+  assert.equal(adIdToLearn({ id: 1, kind: "trigger" }, "123"), "123");
+});
+
+test("adIdToLearn: ad_id-tier match learns nothing (already registered)", () => {
+  assert.equal(adIdToLearn({ id: 1, kind: "ad_id" }, "123"), null);
+});
+
+test("adIdToLearn: no match / no source id → null", () => {
+  assert.equal(adIdToLearn(null, "123"), null);
+  assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, null), null);
+  assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, ""), null);
+});
+
+test("adIdToLearn: malformed source ids are rejected (SQL LIKE safety)", () => {
+  assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, "12%3"), null);
+  assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, "12 3"), null);
+  assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, "a".repeat(200)), null);
 });

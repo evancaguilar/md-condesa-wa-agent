@@ -112,3 +112,10 @@ CREATE TABLE IF NOT EXISTS admin_users(
 CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts);
 
 ALTER TABLE contacts ADD COLUMN assigned_to TEXT;  -- staff username owning the convo (nullable)
+
+-- ---- Campaign ad-keyword matching (2026-08-04) ----
+-- Prod migration (Evan pastes in D1 console): the ALTER below.
+-- Rerun errors "duplicate column" — harmless, ignore it. Code fail-softs
+-- pre-migration (setCampaignAdKeywordsSoft writes; reads use `?? null`).
+
+ALTER TABLE campaigns ADD COLUMN ad_keywords TEXT;  -- comma-separated keyword PHRASES matched (normalized, whole-phrase) against the ad creative headline+body; NULL = keyword tier off for this campaign

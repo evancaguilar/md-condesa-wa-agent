@@ -2,6 +2,18 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-04**.
 
+### Keyword campaign matching + edit-learning loop (shipped 2026-08-04)
+
+**Ad-keyword matching kills the ad-id treadmill.** Campaign attribution is now three-tier (gate 3b): exact ad-id → **ad-creative keywords** (`campaigns.ad_keywords`, comma-separated phrases matched normalized/whole-phrase against the referral headline+body) → trigger phrase. A keyword/trigger match on an ad referral **auto-learns** the new ad id into the campaign's `ad_id` (race-safe append + one-time Slack note "🔗 Anuncio … vinculado"). New ads self-attribute + self-register — no more manual id entry. Campañas UI has the keywords field (create + edit, 🔑 chip); Probar has "📣 Simular anuncio" (headline/texto/ad id, no auto-learn from sandbox); the Editor's propose_campaign can set keywords.
+
+- [ ] ⚠️ **D1 migration (keywords)** — Evan pastes in D1 console (mirrored at end of src/db/schema.sql; code fail-softs until then — keyword tier inert, dashboard field a silent no-op). Also confirm the older `first_reply` ALTER ran (listed at line ~"first_reply" below):
+```sql
+ALTER TABLE campaigns ADD COLUMN ad_keywords TEXT;
+```
+- [ ] After the ALTER: add keywords to each campaign in /admin → Campañas (e.g. Reto: `reto gladiador, reto`). That supersedes the "add ad id 120249684011870518 manually" item below — the next click on any Reto ad auto-attributes and registers its id.
+
+**Edit tuner (training-wheels feedback loop) is live.** D1 `edits` (every ✏️ Editar diff) now has a consumer: `src/services/edit-tuner.ts` (+ pure `edit-tuner-core.ts`, unit-tested). Cron: inside the daily 10:00 block, self-gated to ≥6.5 days since last run AND ≥5 new edits past the kv watermark (`edit_tuner_watermark`, `edit_tuner_last_run`); analyzes the most recent ≤30 pairs (draft→final) against the current overlay, proposes ≤3 overlay edits (propose_kb_edit/delete only), posts a 🧠 summary + per-proposal Slack cards with **✅ Aplicar / 🗑 Descartar** buttons (`tune_apply|` / `tune_discard|` / `tune_force|`; records in kv `tuning_proposal:<epoch>:<n>`, double-tap claim-guarded, stale-section warning with explicit force). Apply reuses kb-editor `applyProposal` (2000-token overlay cap enforced). On-demand: **🧠 Analizar ediciones** button in the Editor tab (`POST /admin/api/kb/analyze-edits`, watermark-untouched) renders proposals in the existing chat/Confirmar UI. No migration needed (kv only).
+
 ### CTWA ads → 2274 repoint + result-watcher staleness guard (2026-08-04)
 
 **Ads were NOT all pointing at 2274** (contrary to the note below from cutover day) — at least one ad set was bound to the dead eSIM debris number **7197** (leads messaging it = black hole). Repointed via Ads Manager. The saga, for next time:

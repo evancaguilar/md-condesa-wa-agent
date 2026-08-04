@@ -123,6 +123,8 @@ export interface Campaign {
   ad_id: string | null;
   /** pre-written instant welcome; property may be ABSENT at runtime pre-migration (SELECT *) — consumers must `?? null`. */
   first_reply: string | null;
+  /** comma-separated ad-creative keyword phrases matched (normalized, whole-phrase) against referral headline+body; property may be ABSENT pre-migration — consumers must `?? null`. */
+  ad_keywords: string | null;
   created_at: number;
   updated_at: number;
 }

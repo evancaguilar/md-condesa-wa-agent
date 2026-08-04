@@ -173,6 +173,7 @@ export interface CreateCampaignInput {
   endsAt?: number | null;
   adId?: string | null;
   firstReply?: string | null;
+  adKeywords?: string | null;
 }
 
 /**
@@ -219,7 +220,60 @@ export async function createCampaign(
   const id = res.meta.last_row_id as number;
   const trimmedFirstReply = input.firstReply?.trim();
   if (trimmedFirstReply) await setCampaignFirstReplySoft(db, id, trimmedFirstReply);
+  const trimmedKeywords = input.adKeywords?.trim();
+  if (trimmedKeywords) await setCampaignAdKeywordsSoft(db, id, trimmedKeywords);
   return (await getCampaign(db, id)) as Campaign;
+}
+
+/**
+ * Best-effort write of campaigns.ad_keywords. Pre-migration (column absent)
+ * this is a silent no-op — same soft-fail contract as first_reply above.
+ */
+async function setCampaignAdKeywordsSoft(
+  db: D1Database,
+  id: number,
+  adKeywords: string | null,
+): Promise<void> {
+  try {
+    await db
+      .prepare(`UPDATE campaigns SET ad_keywords = ?2, updated_at = ?3 WHERE id = ?1`)
+      .bind(id, adKeywords, now())
+      .run();
+  } catch (err) {
+    if (/no such column/i.test(String(err))) return;
+    throw err;
+  }
+}
+
+/**
+ * Atomically append a learned Meta ad id to campaigns.ad_id (comma-separated).
+ * ONE guarded UPDATE → race-safe under D1's serialized writes: of two
+ * concurrent inbounds from the same new ad, one appends and the loser's WHERE
+ * no-ops (meta.changes = 0). The replace() chain normalizes the mixed
+ * comma/whitespace separators matchCampaignByAdId accepts into commas so the
+ * duplicate guard is token-exact (a shorter id being a prefix of a longer one
+ * can't false-positive). sourceId is pre-validated by adIdToLearn (alnum/_/-
+ * only) so the LIKE needs no ESCAPE. Returns true when the id was appended.
+ */
+export async function appendCampaignAdId(
+  db: D1Database,
+  id: number,
+  sourceId: string,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE campaigns
+         SET ad_id = CASE WHEN ad_id IS NULL OR trim(ad_id) = ''
+                          THEN ?2 ELSE rtrim(ad_id) || ', ' || ?2 END,
+             updated_at = ?3
+       WHERE id = ?1
+         AND (',' || replace(replace(replace(coalesce(ad_id, ''), char(9), ','),
+                                     char(10), ','), ' ', ',') || ',')
+             NOT LIKE '%,' || ?2 || ',%'`,
+    )
+    .bind(id, sourceId, now())
+    .run();
+  return ((res.meta.changes as number | undefined) ?? 0) > 0;
 }
 
 export interface UpdateCampaignInput {
@@ -231,6 +285,7 @@ export interface UpdateCampaignInput {
   endsAt?: number | null;
   adId?: string | null;
   firstReply?: string | null;
+  adKeywords?: string | null;
 }
 
 /**
@@ -276,6 +331,9 @@ export async function updateCampaign(
     .run();
   if ("firstReply" in input) {
     await setCampaignFirstReplySoft(db, id, input.firstReply ?? null);
+  }
+  if ("adKeywords" in input) {
+    await setCampaignAdKeywordsSoft(db, id, input.adKeywords ?? null);
   }
   return getCampaign(db, id);
 }
@@ -747,6 +805,7 @@ export async function listConversations(
 }
 
 export interface EditRow {
+  id: number;
   phone: string;
   draft: string;
   final: string;
@@ -757,11 +816,46 @@ export interface EditRow {
 export async function listEdits(db: D1Database, limit: number): Promise<EditRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT phone, draft, final, ts FROM edits ORDER BY id DESC LIMIT ?1`,
+      `SELECT id, phone, draft, final, ts FROM edits ORDER BY id DESC LIMIT ?1`,
     )
     .bind(limit)
     .all<EditRow>();
   return results;
+}
+
+/**
+ * Edits with id > afterId for the edit tuner. Takes the MOST RECENT `limit`
+ * past the watermark, returned in chronological order so the model reads the
+ * conversation-style pairs oldest → newest.
+ */
+export async function editsAfter(
+  db: D1Database,
+  afterId: number,
+  limit: number,
+): Promise<EditRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, phone, draft, final, ts FROM edits
+       WHERE id > ?1 ORDER BY id DESC LIMIT ?2`,
+    )
+    .bind(afterId, limit)
+    .all<EditRow>();
+  return results.reverse();
+}
+
+/** Count + high-water id of edits past the watermark (cheap tuner gate check). */
+export async function countEditsAfter(
+  db: D1Database,
+  afterId: number,
+): Promise<{ count: number; maxId: number }> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count, COALESCE(MAX(id), 0) AS maxId
+       FROM edits WHERE id > ?1`,
+    )
+    .bind(afterId)
+    .first<{ count: number; maxId: number }>();
+  return { count: row?.count ?? 0, maxId: row?.maxId ?? 0 };
 }
 
 export interface StatsOverview {

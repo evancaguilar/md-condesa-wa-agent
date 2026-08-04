@@ -54,6 +54,7 @@ import {
   getCampaign,
   listConversations,
   listEdits,
+  editsAfter,
   statsOverview,
   getTrainingWheels,
   clearHumanOverride,
@@ -81,7 +82,12 @@ import {
 import { fetchMediaResponse } from "../services/media.js";
 import { parseRule, ruleSummaryEs } from "../services/airtable-rules.js";
 import { assembleOverlay, estimateTokens } from "../brain/overlay.js";
-import { normalizeText, matchCampaign, firstReplyFor } from "../pipeline/campaigns.js";
+import {
+  adTextForMatch,
+  firstReplyFor,
+  matchCampaignTiered,
+  normalizeText,
+} from "../pipeline/campaigns.js";
 import {
   approveAndSend,
   editAndSend,
@@ -89,6 +95,7 @@ import {
   type ApprovalResult,
 } from "../services/approvals.js";
 import { runKbChat, applyProposal } from "../services/kb-editor.js";
+import { runEditAnalysis } from "../services/edit-tuner.js";
 import { createBrainWithKb, makeOverlayLoader } from "../brain/index.js";
 import { updateControlPanel } from "../services/slack.js";
 import { KB } from "../kb.js";
@@ -373,6 +380,16 @@ export async function handleAdminApi(
   }
   if (path === "/admin/api/kb/confirm" && method === "POST") {
     return handleKbConfirm(req, env);
+  }
+  // On-demand edit-pattern analysis (Editor tab "🧠 Analizar ediciones").
+  // Read-only wrt the tuner: does NOT touch the cron watermark.
+  if (path === "/admin/api/kb/analyze-edits" && method === "POST") {
+    const edits = await editsAfter(env.DB, 0, 30);
+    if (edits.length === 0) {
+      return json({ reply: "No hay ediciones registradas todavía.", proposals: [] });
+    }
+    const r = await runEditAnalysis(env, edits);
+    return json({ reply: r.summary, proposals: r.proposals });
   }
 
   // ---- campaigns ----
@@ -1022,6 +1039,7 @@ async function handleCampaignCreate(req: Request, env: Env): Promise<Response> {
     endsAt?: number | null;
     adId?: string | null;
     firstReply?: string | null;
+    adKeywords?: string | null;
   }>(req);
   const name = (body.name ?? "").trim();
   const trigger = (body.trigger ?? "").trim();
@@ -1029,6 +1047,7 @@ async function handleCampaignCreate(req: Request, env: Env): Promise<Response> {
   if (!name || !trigger) return json({ error: "name_and_trigger_required" }, 400);
   const adId = typeof body.adId === "string" ? body.adId.trim() || null : null;
   const firstReply = typeof body.firstReply === "string" ? body.firstReply.trim() || null : null;
+  const adKeywords = typeof body.adKeywords === "string" ? body.adKeywords.trim() || null : null;
 
   const triggerNorm = normalizeText(trigger);
   // Duplicate trigger (normalized) → 409. Check before insert; the unique index
@@ -1047,6 +1066,7 @@ async function handleCampaignCreate(req: Request, env: Env): Promise<Response> {
       endsAt: body.endsAt ?? null,
       adId,
       firstReply,
+      adKeywords,
     });
     return json({ campaign });
   } catch (err) {
@@ -1068,6 +1088,7 @@ async function handleCampaignUpdate(req: Request, env: Env, id: number): Promise
     status?: string;
     adId?: string | null;
     firstReply?: string | null;
+    adKeywords?: string | null;
   }>(req);
 
   let triggerNorm: string | undefined;
@@ -1099,6 +1120,9 @@ async function handleCampaignUpdate(req: Request, env: Env, id: number): Promise
   }
   if ("firstReply" in body) {
     update.firstReply = typeof body.firstReply === "string" ? body.firstReply.trim() || null : null;
+  }
+  if ("adKeywords" in body) {
+    update.adKeywords = typeof body.adKeywords === "string" ? body.adKeywords.trim() || null : null;
   }
 
   try {
@@ -1204,8 +1228,22 @@ function cdmxNow(): CdmxNow {
  * hits Airtable.
  */
 async function handleSandbox(req: Request, env: Env): Promise<Response> {
-  const body = await readJson<{ messages?: { role?: string; body?: string }[] }>(req);
+  const body = await readJson<{
+    messages?: { role?: string; body?: string }[];
+    referral?: { sourceId?: string; headline?: string; body?: string } | null;
+  }>(req);
   const turns = Array.isArray(body.messages) ? body.messages : [];
+  // Optional simulated ad referral ("Simular anuncio" in Probar). Cleaned to
+  // nulls so empty inputs behave exactly like no referral.
+  const rawRef = body.referral;
+  const referral =
+    rawRef && (rawRef.sourceId?.trim() || rawRef.headline?.trim() || rawRef.body?.trim())
+      ? {
+          sourceId: rawRef.sourceId?.trim() || null,
+          headline: rawRef.headline?.trim() || null,
+          body: rawRef.body?.trim() || null,
+        }
+      : null;
 
   // Build history oldest→newest with descending fake timestamps (newest = now).
   const base = nowSec();
@@ -1223,18 +1261,25 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
 
   const cdmx = cdmxNow();
 
-  // Mirror the pipeline's campaign matching so campaigns are testable in Probar:
-  // if ANY user turn matches an active campaign trigger, attach its info.
+  // Mirror the pipeline's tiered campaign matching so campaigns are testable in
+  // Probar: exact ad-id → ad-creative keywords (simulated referral) → trigger
+  // phrase on any user turn. NO auto-learn from the sandbox — zero side effects.
   let campaign: ConvoContext["campaign"];
   let firstReplyCandidate: string | null = null;
   try {
     const active = await getActiveCampaigns(env.DB);
     if (active.length > 0) {
+      const adTextNorm = adTextForMatch(referral);
       for (const t of turns) {
         if (t.role !== "user") continue;
-        const id = matchCampaign(normalizeText(t.body ?? ""), active);
-        if (id !== null) {
-          const c = active.find((x) => x.id === id);
+        const match = matchCampaignTiered({
+          sourceId: referral?.sourceId,
+          adTextNorm,
+          bodyNorm: normalizeText(t.body ?? ""),
+          campaigns: active,
+        });
+        if (match !== null) {
+          const c = active.find((x) => x.id === match.id);
           if (c) {
             campaign = { name: c.name, info: c.info };
             // Instant-reply gate mirrors gate 5c: only fires when this is the
@@ -1278,6 +1323,10 @@ async function handleSandbox(req: Request, env: Env): Promise<Response> {
     windowOpen: true,
     trainingWheels: false,
     ...(campaign ? { campaign } : {}),
+    // Simulated referral also feeds <ad_info> so Probar mirrors the live prompt.
+    ...(referral
+      ? { adRef: { headline: referral.headline, body: referral.body, sourceId: referral.sourceId } }
+      : {}),
   };
 
   const brain = createBrainWithKb({

@@ -536,6 +536,11 @@ export async function kvSetIfAbsent(
   return (res.meta.changes ?? 0) > 0;
 }
 
+/** Remove a kv row (e.g. releasing a claim so a failed apply can be retried). */
+export async function kvDelete(db: D1Database, key: string): Promise<void> {
+  await db.prepare(`DELETE FROM kv WHERE key = ?1`).bind(key).run();
+}
+
 /**
  * Atomic timestamp claim: wins when the key is absent OR its stored epoch is at
  * least `minAgeSeconds` old (then bumps it to `nowSec`). The cooldown primitive

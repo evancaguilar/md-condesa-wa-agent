@@ -14,6 +14,7 @@ import { getPendingApprovals } from "../db/queries.js";
 import { makeAirtablePort } from "../services/airtable.js";
 import { runDueFollowups, syncBookings, syncStudents } from "./followups.js";
 import { runBudgetReport } from "./budget.js";
+import { maybeRunEditTuning } from "../services/edit-tuner.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
 import { kvGet, kvSet } from "../db/queries.js";
@@ -72,6 +73,8 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       }
       await safe("budgetReport", () => runBudgetReport(env, cronDeps, nowEpoch));
       await safe("ensureControlPanel", () => cronDeps.ensureControlPanel(env));
+      // Edit tuner: self-gated to ~weekly + ≥5 new edits since its watermark.
+      await safe("editTuning", () => maybeRunEditTuning(env, cronDeps, nowEpoch));
     }
   }
 }

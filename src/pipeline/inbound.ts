@@ -37,6 +37,7 @@ import {
 } from "../db/queries.js";
 import { flagOptOutInAirtable, syncLead } from "../services/lead-sync.js";
 import {
+  appendCampaignAdId,
   getActiveCampaigns,
   getCampaign,
   getTrainingWheels,
@@ -46,11 +47,12 @@ import {
 } from "../db/queries-admin.js";
 import {
   FIRST_REPLY_RESEND_COOLDOWN_SECONDS,
+  adIdToLearn,
+  adTextForMatch,
   firstReplyDecision,
   firstReplyFor,
   firstReplyKey,
-  matchCampaign,
-  matchCampaignByAdId,
+  matchCampaignTiered,
   normalizeText,
 } from "./campaigns.js";
 import { isOptOut } from "./opt-out.js";
@@ -216,20 +218,47 @@ export async function processInbound(
     return;
   }
 
-  // 3b. Campaign tagging. Precedence: an ad-id match (referral.source_id →
-  // campaigns.ad_id) wins over a trigger-phrase match, because a click-to-
-  // WhatsApp lead is attributed by the ad it clicked, not its prefilled text.
-  // Only active, in-flight campaigns are considered.
+  // 3b. Campaign tagging. Precedence: exact ad-id → ad-creative keywords
+  // (campaigns.ad_keywords vs the referral's headline+body) → trigger phrase
+  // on the message body. The keyword tier covers brand-new ads whose ids
+  // nobody registered; when it (or the trigger tier) matches a referral, the
+  // new ad id is AUTO-LEARNED into the campaign's ad_id list so future clicks
+  // match exactly and the dashboard shows the real ids — Evan mints new ads
+  // ~daily, so manual id registration doesn't scale. Only active campaigns.
   const activeCampaigns = await getActiveCampaigns(env.DB);
   let matchedCampaign: Campaign | null = null;
   if (activeCampaigns.length > 0) {
-    const campaignId =
-      matchCampaignByAdId(msg.referral?.sourceId, activeCampaigns) ??
-      matchCampaign(normalizeText(body), activeCampaigns);
-    if (campaignId !== null) {
-      matchedCampaign =
-        activeCampaigns.find((c) => c.id === campaignId) ?? null;
-      await setContactCampaign(env.DB, msg.phone, campaignId);
+    const match = matchCampaignTiered({
+      sourceId: msg.referral?.sourceId,
+      adTextNorm: adTextForMatch(msg.referral),
+      bodyNorm: normalizeText(body),
+      campaigns: activeCampaigns,
+    });
+    if (match !== null) {
+      matchedCampaign = activeCampaigns.find((c) => c.id === match.id) ?? null;
+      await setContactCampaign(env.DB, msg.phone, match.id);
+      // Auto-learn: best-effort, off the reply path; the Slack note fires only
+      // on a real append (once per new ad, not per message).
+      const learnId = adIdToLearn(match, msg.referral?.sourceId);
+      if (learnId !== null && matchedCampaign) {
+        const campaignName = matchedCampaign.name;
+        ctx.waitUntil(
+          appendCampaignAdId(env.DB, match.id, learnId)
+            .then((learned) =>
+              learned
+                ? ports.slack.postNote(
+                    `🔗 Anuncio ${learnId} vinculado automáticamente a la campaña «${campaignName}» (coincidió por el texto del anuncio).`,
+                  )
+                : undefined,
+            )
+            .catch((err) =>
+              console.error(
+                `[inbound] ad-id auto-learn failed (campaign ${match.id}):`,
+                err,
+              ),
+            ),
+        );
+      }
     }
   }
 

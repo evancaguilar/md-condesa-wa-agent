@@ -30,6 +30,10 @@ import {
   markStudentFromApproval,
   takeoverApproval,
 } from "../services/approvals.js";
+import {
+  applyTuningProposal,
+  discardTuningProposal,
+} from "../services/edit-tuner.js";
 
 export async function handleSlackInteractive(
   req: Request,
@@ -103,6 +107,12 @@ async function dispatchAction(env: Env, action: ParsedAction): Promise<void> {
         return await onAttendance(env, action.arg, true);
       case "attended_no":
         return await onAttendance(env, action.arg, false);
+      case "tune_apply":
+        return await applyTuningProposal(env, action.arg ?? "");
+      case "tune_force":
+        return await applyTuningProposal(env, action.arg ?? "", true);
+      case "tune_discard":
+        return await discardTuningProposal(env, action.arg ?? "");
       default:
         return;
     }

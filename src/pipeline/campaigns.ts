@@ -68,6 +68,99 @@ export function matchCampaignByAdId(
 }
 
 /**
+ * Split a comma-separated ad-keyword list into normalized keyword phrases.
+ * Commas ONLY (unlike ad_id's comma/whitespace split) so multi-word phrases
+ * like "reto gladiador" survive. Absent/undefined raw (pre-migration
+ * SELECT * rows lack the column) → [].
+ */
+export function parseAdKeywords(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((k) => normalizeText(k))
+    .filter((k) => k !== "");
+}
+
+/**
+ * Normalized ad creative text for keyword matching: headline + body run
+ * through `normalizeText`. No referral / no text → "".
+ */
+export function adTextForMatch(
+  referral: { headline?: string | null; body?: string | null } | null | undefined,
+): string {
+  if (!referral) return "";
+  const joined = `${referral.headline ?? ""} ${referral.body ?? ""}`;
+  return normalizeText(joined);
+}
+
+/**
+ * First campaign with ANY keyword phrase contained in the normalized ad text.
+ * Space-padded whole-phrase containment so keyword "reto" matches "unete al
+ * reto gladiador" but NOT "retorno seguro". Campaign order = caller's list
+ * order (getActiveCampaigns is id DESC ⇒ newest campaign wins ties, same
+ * rule as trigger matching).
+ */
+export function matchCampaignByAdText(
+  adTextNorm: string,
+  campaigns: Campaign[],
+): number | null {
+  if (!adTextNorm) return null;
+  const padded = ` ${adTextNorm} `;
+  for (const c of campaigns) {
+    const keywords = parseAdKeywords(c.ad_keywords ?? null);
+    if (keywords.some((k) => padded.includes(` ${k} `))) return c.id;
+  }
+  return null;
+}
+
+export type CampaignMatchKind = "ad_id" | "ad_text" | "trigger";
+
+export interface CampaignMatch {
+  id: number;
+  kind: CampaignMatchKind;
+}
+
+/**
+ * Full attribution precedence for one inbound message:
+ *   1. exact ad-id (referral.source_id ∈ campaigns.ad_id) — strongest signal;
+ *   2. ad-creative keywords (campaigns.ad_keywords vs normalized headline+body)
+ *      — covers brand-new ads whose ids nobody registered yet;
+ *   3. trigger phrase prefix on the message body (legacy prefilled-text match).
+ */
+export function matchCampaignTiered(opts: {
+  sourceId: string | null | undefined;
+  adTextNorm: string;
+  bodyNorm: string;
+  campaigns: Campaign[];
+}): CampaignMatch | null {
+  const byId = matchCampaignByAdId(opts.sourceId, opts.campaigns);
+  if (byId !== null) return { id: byId, kind: "ad_id" };
+  const byText = matchCampaignByAdText(opts.adTextNorm, opts.campaigns);
+  if (byText !== null) return { id: byText, kind: "ad_text" };
+  const byTrigger = matchCampaign(opts.bodyNorm, opts.campaigns);
+  if (byTrigger !== null) return { id: byTrigger, kind: "trigger" };
+  return null;
+}
+
+/** Sane Meta ad-id token — also guards the auto-learn SQL LIKE below against
+ *  wildcards/separators smuggled in hostile referral data. */
+const AD_ID_TOKEN = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * The ad id worth auto-appending to the matched campaign's ad_id list, or
+ * null. Only keyword/trigger-tier matches learn (an ad_id-tier match is
+ * already registered), and only a sane token qualifies.
+ */
+export function adIdToLearn(
+  match: CampaignMatch | null,
+  sourceId: string | null | undefined,
+): string | null {
+  if (!match || match.kind === "ad_id") return null;
+  if (!sourceId || !AD_ID_TOKEN.test(sourceId)) return null;
+  return sourceId;
+}
+
+/**
  * The instant canned welcome for a brand-new ad lead, or null when none applies:
  * no campaign, the lead already has an outbound message (mid-conversation trigger
  * typing, or human already replied), or the campaign's first_reply is unset/blank.
