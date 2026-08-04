@@ -17,6 +17,21 @@ export class WindowClosedError extends Error {
   }
 }
 
+/**
+ * Thrown by sendTemplate when the contact is opted out (baja). Templates are
+ * proactive by construction, so this guard is the universal backstop for every
+ * proactive path — present and future (drips, broadcasts). Only a caller that
+ * has an explicit human-authorized reason passes {force:true}.
+ */
+export class OptedOutError extends Error {
+  readonly phone: string;
+  constructor(phone: string) {
+    super(`${phone} is opted out (baja); proactive sends are blocked`);
+    this.name = "OptedOutError";
+    this.phone = phone;
+  }
+}
+
 interface WaSendResponse {
   messages?: { id: string }[];
   error?: { message: string; code: number };
@@ -238,14 +253,22 @@ export async function sendBookingVideo(env: Env, phone: string): Promise<void> {
   }
 }
 
-/** Template send (allowed even when the window is closed). */
+/**
+ * Template send (allowed even when the window is closed). Throws OptedOutError
+ * for an opted-out contact unless {force:true} — see OptedOutError.
+ */
 export async function sendTemplate(
   env: Env,
   phone: string,
   name: string,
   lang: string,
   components?: unknown[],
+  opts?: { force?: boolean },
 ): Promise<string> {
+  if (opts?.force !== true) {
+    const contact = await getContact(env.DB, phone);
+    if (contact?.status === "opted_out") throw new OptedOutError(phone);
+  }
   const template: Record<string, unknown> = {
     name,
     language: { code: lang },

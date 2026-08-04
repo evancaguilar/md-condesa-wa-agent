@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "node tools/compile-kb.mjs",
+    "build": "node tools/compile-kb.mjs && node tools/gen-rev.mjs",
     "deploy": "CLIENT=md-condesa node tools/compile-kb.mjs && wrangler deploy",
     "deploy:client": "node tools/deploy-client.mjs",
     "prechat": "node tools/compile-kb.mjs",

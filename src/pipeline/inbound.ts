@@ -14,6 +14,7 @@ import type {
 } from "../types.js";
 import {
   cancelFollowups,
+  cancelPendingApprovals,
   createApproval,
   getContact,
   getPendingApprovals,
@@ -202,6 +203,8 @@ export async function processInbound(
   if (isOptOut(body)) {
     await setContactStatus(env.DB, msg.phone, "opted_out");
     await cancelFollowups(env.DB, msg.phone, "skipped_optout");
+    // A draft queued before the baja must not stay approvable in Slack/panel.
+    await cancelPendingApprovals(env.DB, msg.phone, "discarded");
     ctx.waitUntil(flagOptOutInAirtable(env, msg.phone));
     await ports.slack.postNote(
       `🚫 ${msg.phone} se dio de baja (opt-out). Seguimientos cancelados.`,

@@ -12,6 +12,7 @@ import {
   clearHumanOverride,
 } from "../db/queries-admin.js";
 import {
+  getContact,
   insertEdit,
   kvGet,
   resolveApproval,
@@ -32,10 +33,11 @@ import {
 /** Result of an approval flow. `ok:false` carries a machine-readable reason. */
 export type ApprovalResult =
   | { ok: true }
-  | { ok: false; reason: "not_pending" | "window_closed" };
+  | { ok: false; reason: "not_pending" | "window_closed" | "opted_out" };
 
 const NOT_PENDING: ApprovalResult = { ok: false, reason: "not_pending" };
 const WINDOW_CLOSED: ApprovalResult = { ok: false, reason: "window_closed" };
+const OPTED_OUT: ApprovalResult = { ok: false, reason: "opted_out" };
 
 /**
  * kv key marking an approval as a booking-confirmation draft. The pipeline sets
@@ -77,6 +79,10 @@ async function loadApproval(
  * is downgraded to `expired` and the card swapped to offer the template button.
  * On any OTHER send error the claim is reverted to `pending` and the error is
  * rethrown so the caller surfaces it.
+ *
+ * Defensive baja check first: the inbound gate already discards pending drafts
+ * on opt-out, so reaching here means a race (or a manual baja) — the draft dies
+ * as `discarded` rather than being sent.
  */
 async function claimAndSend(
   env: Env,
@@ -87,6 +93,14 @@ async function claimAndSend(
 ): Promise<ApprovalResult> {
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
+
+  const contact = await getContact(env.DB, a.phone);
+  if (contact?.status === "opted_out") {
+    const claimed = await claimApproval(env.DB, id, "discarded");
+    if (!claimed) return NOT_PENDING;
+    await markDiscardedCard(env, a);
+    return OPTED_OUT;
+  }
 
   const won = await claimApproval(env.DB, id, claimedStatus, finalText);
   if (!won) return NOT_PENDING; // lost the race (already resolved elsewhere)

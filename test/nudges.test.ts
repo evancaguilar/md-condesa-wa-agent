@@ -529,6 +529,97 @@ test("syncBookings: result with NO trial date → acts silently, NO send", async
   assert.equal(sent, false);
 });
 
+test("syncBookings: 'Se inscribió' for an opted-out lead → bookkeeping only, status stays opted_out", async () => {
+  let sent = false;
+  (globalThis as { fetch: unknown }).fetch = async () => {
+    sent = true;
+    return { ok: true, status: 200, async json() { return { messages: [{ id: "w" }] }; }, async text() { return ""; } };
+  };
+  let setStudent = false;
+  let cancelledAll = false;
+  let kvMark: string | null = null;
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.includes("SELECT value FROM kv")) {
+      if (String(binds[0]).startsWith("resultado:")) return { first: null };
+      return { first: { value: "2026-01-01T00:00:00Z" } };
+    }
+    if (sql.startsWith("UPDATE contacts SET status") && binds[1] === "student") setStudent = true;
+    if (sql.startsWith("UPDATE followups SET status") && !sql.includes("kind IN"))
+      cancelledAll = true;
+    if (sql.includes("SELECT * FROM contacts"))
+      return {
+        first: contact({ status: "opted_out", last_inbound_at: Math.floor(Date.now() / 1000) }),
+      };
+    if (sql.startsWith("INSERT INTO kv")) {
+      if (String(binds[0]).startsWith("resultado:")) kvMark = String(binds[1]);
+      return {};
+    }
+    return {};
+  });
+  const fakeAirtable = {
+    async listRecentBookings() {
+      return [
+        {
+          id: "recBaja",
+          phone: "5512345678",
+          name: "Ana",
+          trialDateTimeIso: new Date().toISOString(),
+          result: "Se inscribió",
+        },
+      ];
+    },
+  };
+  await syncBookings(envWith(db), fakeAirtable);
+  assert.equal(setStudent, false, "opted_out must not be overwritten by student");
+  assert.equal(cancelledAll, true, "followups still cancelled");
+  assert.equal(kvMark, "enrolled", "act-once marker still written");
+  assert.equal(sent, false, "no welcome to a lead who asked for baja");
+});
+
+test("syncBookings: 'No asistió' for an opted-out lead → cancels + marks, no reschedule send", async () => {
+  let sent = false;
+  (globalThis as { fetch: unknown }).fetch = async () => {
+    sent = true;
+    return { ok: true, status: 200, async json() { return { messages: [{ id: "w" }] }; }, async text() { return ""; } };
+  };
+  let cancelledAll = false;
+  let kvMark: string | null = null;
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.includes("SELECT value FROM kv")) {
+      if (String(binds[0]).startsWith("resultado:")) return { first: null };
+      return { first: { value: "2026-01-01T00:00:00Z" } };
+    }
+    if (sql.startsWith("UPDATE followups SET status") && !sql.includes("kind IN"))
+      cancelledAll = true;
+    if (sql.includes("SELECT * FROM contacts"))
+      return {
+        first: contact({ status: "opted_out", last_inbound_at: Math.floor(Date.now() / 1000) }),
+      };
+    if (sql.startsWith("INSERT INTO kv")) {
+      if (String(binds[0]).startsWith("resultado:")) kvMark = String(binds[1]);
+      return {};
+    }
+    return {};
+  });
+  const fakeAirtable = {
+    async listRecentBookings() {
+      return [
+        {
+          id: "recBajaNS",
+          phone: "5512345678",
+          name: "Ana",
+          trialDateTimeIso: new Date().toISOString(),
+          result: "No asistió",
+        },
+      ];
+    },
+  };
+  await syncBookings(envWith(db), fakeAirtable);
+  assert.equal(cancelledAll, true);
+  assert.equal(kvMark, "no_show");
+  assert.equal(sent, false);
+});
+
 test("syncBookings: result already acted (kv marker matches) → no re-send", async () => {
   let sent = false;
   (globalThis as { fetch: unknown }).fetch = async () => {

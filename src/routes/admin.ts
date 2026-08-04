@@ -1,6 +1,10 @@
 import type { Env } from "../types.js";
 import { isBotEnabled } from "../db/queries.js";
 import { KB } from "../kb.js";
+// Source-tree hash from tools/gen-rev.mjs (refreshed by `npm run build`).
+// kbVersion only moves when KB content moves, so code-only deploys need this
+// to be verifiable at all.
+import { REV } from "../rev.gen.js";
 
 // Parsed once per isolate from the compiled KB's header comment. Lets /health
 // prove WHICH knowledge base a deploy is actually serving (deploys have failed
@@ -23,5 +27,6 @@ export async function handleHealth(env: Env): Promise<Response> {
     dbOk,
     botEnabled,
     kbVersion: KB_VERSION,
+    rev: REV,
   });
 }

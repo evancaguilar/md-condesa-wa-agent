@@ -493,10 +493,14 @@ async function processResult(
   const contact = await getContact(env.DB, phone);
   const lang = contact?.lang ?? "es";
   const who = name ? ` ${name.split(/\s+/)[0] ?? ""}` : "";
+  // Baja beats everything Airtable says: bookkeeping still runs (cancel + kv
+  // marker, so this record is never re-processed) but nothing goes out, and the
+  // enrolled branch does NOT overwrite status — opted_out wins.
+  const optedOut = contact?.status === "opted_out";
 
   if (action === "no_show") {
     await cancelFollowups(env.DB, phone); // all kinds
-    if (!sendReaction) {
+    if (optedOut || !sendReaction) {
       await kvSet(env.DB, kvKey, marker);
       return;
     }
@@ -524,9 +528,9 @@ async function processResult(
     }
   } else {
     // enrolled
-    await setContactStatus(env.DB, phone, "student");
+    if (!optedOut) await setContactStatus(env.DB, phone, "student");
     await cancelFollowups(env.DB, phone); // all kinds; student stops marketing
-    if (!sendReaction) {
+    if (optedOut || !sendReaction) {
       await kvSet(env.DB, kvKey, marker);
       return;
     }

@@ -29,6 +29,8 @@ import {
 } from "./admin-auth.js";
 import {
   isBotEnabled,
+  cancelFollowups,
+  cancelPendingApprovals,
   kvGet,
   kvSet,
   getContact,
@@ -80,6 +82,7 @@ import {
   type OutboundMediaKind,
 } from "../services/wa.js";
 import { fetchMediaResponse } from "../services/media.js";
+import { flagOptOutInAirtable } from "../services/lead-sync.js";
 import { parseRule, ruleSummaryEs } from "../services/airtable-rules.js";
 import { assembleOverlay, estimateTokens } from "../brain/overlay.js";
 import {
@@ -303,7 +306,9 @@ export async function handleAdminApi(
     if (!sub && method === "GET") return handleConversationDetail(env, phone, url);
     if (sub === "pause" && method === "POST") return handlePause(req, env, phone);
     if (sub === "resume" && method === "POST") return handleResume(env, phone);
-    if (sub === "status" && method === "POST") return handleStatus(req, env, phone);
+    if (sub === "status" && method === "POST") {
+      return handleStatus(req, env, phone, ports, session);
+    }
     if (sub === "send" && method === "POST") {
       return handleStaffSend(req, env, ports, phone, session);
     }
@@ -797,10 +802,57 @@ async function handleResume(env: Env, phone: string): Promise<Response> {
   return json({ ok: true });
 }
 
-async function handleStatus(req: Request, env: Env, phone: string): Promise<Response> {
+/**
+ * Manual status change from the dashboard. Setting `opted_out` is the human
+ * equivalent of the inbound baja gate (a lead who says it by phone, or a
+ * phrase the exact-match gate missed) and mirrors its side effects. Clearing it
+ * does NOT untag Airtable — removing the Baja tag stays a manual call.
+ */
+async function handleStatus(
+  req: Request,
+  env: Env,
+  phone: string,
+  ports: Ports,
+  session: Session,
+): Promise<Response> {
   const body = await readJson<{ status?: string }>(req);
-  const status = body.status === "student" ? "student" : "lead";
+  const status =
+    body.status === "student" || body.status === "opted_out" ? body.status : "lead";
+  const before = await getContact(env.DB, phone);
   await setContactStatus(env.DB, phone, status);
+
+  if (status === "opted_out" && before?.status !== "opted_out") {
+    await cancelFollowups(env.DB, phone, "skipped_optout");
+    await cancelPendingApprovals(env.DB, phone, "discarded");
+    try {
+      await flagOptOutInAirtable(env, phone);
+    } catch (err) {
+      console.error("manual opt-out airtable flag failed", err);
+    }
+    await kvSet(
+      env.DB,
+      `optout_manual:${phone}`,
+      JSON.stringify({ by: session.user, ts: nowSec(), dir: "set" }),
+    );
+    try {
+      await ports.slack.postNote(`🚫 ${phone} marcado como baja por ${session.user}`);
+    } catch (err) {
+      console.error("manual opt-out slack note failed", err);
+    }
+  } else if (status !== "opted_out" && before?.status === "opted_out") {
+    await kvSet(
+      env.DB,
+      `optout_manual:${phone}`,
+      JSON.stringify({ by: session.user, ts: nowSec(), dir: "clear" }),
+    );
+    try {
+      await ports.slack.postNote(
+        `↩️ ${phone} ya no está marcado como baja (${session.user}). La etiqueta Baja en Airtable se quita a mano.`,
+      );
+    } catch (err) {
+      console.error("manual opt-out slack note failed", err);
+    }
+  }
   return json({ ok: true });
 }
 

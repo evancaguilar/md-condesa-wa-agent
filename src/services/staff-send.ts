@@ -24,8 +24,19 @@ export type StaffSendResult =
   | { ok: true; message: StoredMessage }
   | {
       ok: false;
-      reason: "empty" | "too_long" | "no_contact" | "duplicate" | "window_closed";
+      reason:
+        | "empty"
+        | "too_long"
+        | "no_contact"
+        | "duplicate"
+        | "window_closed"
+        | "opted_out";
     };
+
+/** Staff sends to an opted-out lead need an explicit override (force:true). */
+export interface StaffSendOpts {
+  force?: boolean;
+}
 
 export interface StaffSendDeps {
   sendText(
@@ -51,6 +62,7 @@ export async function sendStaffText(
   byUsername: string,
   clientToken: string,
   deps: StaffSendDeps,
+  opts?: StaffSendOpts,
 ): Promise<StaffSendResult> {
   const text = rawText.trim();
   if (!text) return { ok: false, reason: "empty" };
@@ -58,6 +70,10 @@ export async function sendStaffText(
 
   const contact = await getContact(env.DB, phone);
   if (!contact) return { ok: false, reason: "no_contact" };
+  // Checked before the token claim so an override retry isn't burned.
+  if (contact.status === "opted_out" && opts?.force !== true) {
+    return { ok: false, reason: "opted_out" };
+  }
 
   const claimed = await kvSetIfAbsent(
     env.DB,
@@ -144,12 +160,16 @@ export async function sendStaffMedia(
   byUsername: string,
   clientToken: string,
   deps: StaffMediaDeps,
+  opts?: StaffSendOpts,
 ): Promise<StaffSendResult> {
   const caption = (input.caption ?? "").trim();
   if (caption.length > STAFF_TEXT_MAX) return { ok: false, reason: "too_long" };
 
   const contact = await getContact(env.DB, phone);
   if (!contact) return { ok: false, reason: "no_contact" };
+  if (contact.status === "opted_out" && opts?.force !== true) {
+    return { ok: false, reason: "opted_out" };
+  }
 
   const claimed = await kvSetIfAbsent(
     env.DB,
