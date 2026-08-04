@@ -2,6 +2,18 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-04**.
 
+### CTWA ads → 2274 repoint + result-watcher staleness guard (2026-08-04)
+
+**Ads were NOT all pointing at 2274** (contrary to the note below from cutover day) — at least one ad set was bound to the dead eSIM debris number **7197** (leads messaging it = black hole). Repointed via Ads Manager. The saga, for next time:
+
+- The Page-level "Connect WhatsApp number" OTP dialog (Page settings) can **NEVER** accept 2274 — it only verifies numbers running the WhatsApp/WA Business *phone app*; a pure Cloud API number always errors "isn't associated with a WhatsApp account". That's expected, not a problem. **NEVER click "create a new account" there** — it would register the number in the app and destroy the Cloud API registration (1–2 month re-entry cooldown).
+- Working path: WhatsApp Manager → 2274 → Profile → Social accounts → connect the FB Page, then facebook.com/settings?tab=linked_whatsapp → **Set as Primary**. After that (plus a hard refresh + a few min of propagation), the Ads Manager ad-set "Message destination" dropdown lists Cloud API numbers — pick **+52 1 56 4199 2274 (Cloud API number)**. Ad IDs don't change on edit, so campaign attribution is untouched.
+- **Legacy ad sets freeze their WhatsApp binding at creation.** Some old ad sets keep showing the "You'll need WhatsApp Business" wizard even after the Page fix (new ad sets in the same campaign show the dropdown fine). Try: Manual destination → uncheck WhatsApp → save → re-check. If the wizard persists, rebuild: new ad set + duplicate the ads into it → **new ad IDs** → APPEND them to the campaign's ad-id list in /admin → Campañas (keep the old IDs listed so late-tapping leads still match).
+- Dropdown number cheat-sheet: 2274 = bot (sales, correct). 0813 = humans/support (never for ads). 7197 = dead debris. +1 555… = Meta test number.
+- **IG ↔ WhatsApp pending decision:** @mdcondesa Instagram is still linked to 0813's WA Business app (that's why "Connect Instagram" for 2274 errors "already connected to another WhatsApp account"). NOT needed for ads (Page connection covers IG placements); it only controls the IG-profile WhatsApp button. Moving it to 2274 = first disconnect on the academy phone (WA Business app → Business tools → Facebook e Instagram), then connect in WhatsApp Manager. Evan's call, unhurried.
+
+**Result-watcher staleness guard** (code rode along inside commit 85a451b "R2: media in/out"): `processResult` now only sends the welcome/no-show reaction when the record's Trial DateTime is **same-day CDMX**; older or dateless records still get status=student/cancel/KV-marker treatment silently. Root cause: lead-sync bumps an old Airtable row's modified time whenever that contact writes in again → syncBookings re-surfaced months-old "Se inscribió" results → ghost "¡Bienvenid@ a la familia!" (happened to Valeria Nava, Feb enrollee, 2026-08-03). Each pre-guard record could still fire at most once; guard is live as of the 2026-08-03 20:19 deploy.
+
 ### Ad-context awareness (shipped 2026-08-04)
 
 - **Brain sees the clicked ad**: the contact's `ad_ref` (headline + creative text) now rides into the per-turn `<context>` as an `<ad_info>` block, even when the ad id isn't mapped to any campaign — the model infers program/audience from the creative (e.g. Reto Gladiador ⇒ adult) instead of asking "¿para ti o para un peque?".
@@ -62,7 +74,7 @@ ALTER TABLE contacts ADD COLUMN assigned_to TEXT;
 
 - [ ] ⚠️ **Payment method on WABA 1582515279931864** — blocked earlier by a shared-credit-line error on the old WABA; without it, template sends (d2–d5 drips, anti-no-show out-of-window, any blast) silently fail. In-window free-form replies are unaffected.
 - [ ] ⚠️ **Submit templates** (docs/template-submission.md) under WABA **1582515279931864** (templates are WABA-scoped; the pack was aimed at the old WABA).
-- [ ] Un-pause CTWA ads (paused during cutover 2026-08-03; they already point at 2274 — no edits needed). May already be done.
+- [ ] CTWA repoint to 2274 (2026-08-04, see section at top): most ad sets repointed + re-live; **verify every remaining active ad set's WhatsApp number** (at least one legacy ad set was stuck on the connect wizard — toggle destination or rebuild; a rebuild's new ad IDs must be appended in /admin → Campañas).
 - [ ] Anthropic auto-reload ON (avoid silent brain outage).
 - [ ] Watch display-name review status for 2274; watch quality rating (starts UNKNOWN).
 - [ ] Old contact backfill: manychat-master.csv → Airtable (leads 7/16–8/03 missing from CRM).
