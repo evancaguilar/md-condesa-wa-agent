@@ -342,7 +342,7 @@ var TABS=[
   {id:"campanas", icon:"📣",label:"Camp"},
   {id:"probar",   icon:"🧪",label:"Probar"}
 ];
-var state={ pendingCount:0, poll:null, me:null, unreadCount:0 };
+var state={ pendingCount:0, poll:null, me:null, unreadCount:0, staff:[] };
 var BASE_TITLE=document.title||"MD Condesa";
 
 function currentHash(){ var h=(location.hash||"#inicio").replace(/^#/,""); return h.split("/")[0]||"inicio"; }
@@ -502,6 +502,18 @@ function markReadLocal(phone,ts){
   m[phone]=ts;
   try{ localStorage.setItem("md_read",JSON.stringify(m)); }catch(e){}
 }
+function unmarkReadLocal(phone){
+  if(!phone) return;
+  var m=readMap();
+  if(!(phone in m)) return;
+  delete m[phone];
+  try{ localStorage.setItem("md_read",JSON.stringify(m)); }catch(e){}
+}
+// Shared (team-wide) readAt wins; the localStorage map is the pre-migration fallback.
+function isUnread(c,rm){
+  if(c.lastDirection!=="in" || !c.lastTs) return false;
+  return c.lastTs > (c.readAt!=null ? c.readAt : ((rm||{})[c.phone]||0));
+}
 function isMuted(){ try{ return localStorage.getItem("md_mute")==="1"; }catch(e){ return false; } }
 var audioCtx=null;
 function beep(){
@@ -545,7 +557,7 @@ VIEWS.chats=function(){
 function renderChatFilters(){
   var bar=el("chatFilters"); if(!bar) return;
   var me=state.me&&state.me.user?state.me.user:"";
-  var opts=[{id:"all",l:"Todos"},{id:"mine",l:"Míos"},{id:"unassigned",l:"Sin asignar"}];
+  var opts=[{id:"all",l:"Todos"},{id:"mine",l:"Míos"},{id:"unassigned",l:"Sin asignar"},{id:"unread",l:"No leídos"}];
   bar.innerHTML=opts.map(function(o){
     return '<span class="chip'+(chatsCache.filter===o.id?" on":"")+'" data-f="'+o.id+'">'+o.l+'</span>';
   }).join("");
@@ -571,9 +583,7 @@ async function loadChats(){
   var prevUnread=state.unreadCount;
   chatsCache.items=data.items||[];
   var rm=readMap(), unread=0;
-  chatsCache.items.forEach(function(c){
-    if(c.lastDirection==="in" && c.lastTs && c.lastTs>(rm[c.phone]||0)) unread++;
-  });
+  chatsCache.items.forEach(function(c){ if(isUnread(c,rm)) unread++; });
   state.unreadCount=unread;
   if(unread>prevUnread && !chatsCache.firstLoad){ beep(); }
   renderNav();
@@ -585,28 +595,29 @@ async function loadChats(){
     }
   }
 }
-function chatFilterFn(c){
+function chatFilterFn(c,rm){
   // CRM-only contacts (Airtable sync, resets) have no messages — hide them
   // from the inbox; they appear the moment a real message exists.
   if(!c.lastTs) return false;
   var me=state.me&&state.me.user?state.me.user:"";
   if(chatsCache.filter==="mine") return (c.assignedTo||null)===me;
   if(chatsCache.filter==="unassigned") return !c.assignedTo;
+  if(chatsCache.filter==="unread") return isUnread(c,rm);
   return true;
 }
 function renderChatList(){
   var list=el("chatList"); if(!list) return;
-  var items=chatsCache.items.filter(chatFilterFn);
+  var rm=readMap();
+  var items=chatsCache.items.filter(function(c){ return chatFilterFn(c,rm); });
   if(!items.length){
     list.innerHTML='<div class="card muted">'+(chatsCache.items.length?"Nada con este filtro.":"Sin conversaciones todavía.")+'</div>';
     return;
   }
   var keepScroll=list.scrollTop;
-  var rm=readMap();
   list.innerHTML=items.map(function(c){
     var chips=convoChips(c);
     var sel=(c.phone===chatState.phone)?" sel":"";
-    var unread=(c.lastDirection==="in" && c.lastTs && c.lastTs>(rm[c.phone]||0))?" unread":"";
+    var unread=isUnread(c,rm)?" unread":"";
     return '<button class="lrow'+sel+unread+'" data-phone="'+esc(c.phone)+'">'
       +'<div class="top"><span class="nm">'+esc(nameOr(c.name,c.phone))+'</span><span class="tm">'+esc(relTime(c.lastTs))+'</span></div>'
       +'<div class="pv">'+esc(c.lastBody||"")+'</div>'
@@ -707,17 +718,11 @@ function renderChatHeader(nowSec){
     }else{ adCard.innerHTML=""; }
   }
   var isMobile=!window.matchMedia("(min-width:768px)").matches;
-  var me=state.me&&state.me.user?state.me.user:"";
   var assigned=c.assigned_to||null;
   head.innerHTML=(isMobile?'<button class="backbtn mobile-only" id="chatBack">←</button>':'')
     +'<div style="min-width:0"><div style="font-weight:800;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(nameOr(c.name,c.phone))+'</div>'
     +'<div class="muted sm">'+esc(fmtPhone(c.phone))+(assigned?' · @'+esc(assigned):'')+'</div></div>';
-  if(el("chatBack")) el("chatBack").onclick=function(){
-    el("chatList").classList.remove("hidden");
-    el("chatDetail").innerHTML="";
-    chatState.phone=null;
-    loadChats();
-  };
+  if(el("chatBack")) el("chatBack").onclick=backToChatList;
   var now= nowSec || Math.floor(Date.now()/1000);
   var paused=c.human_override_until && (c.human_override_until*1 > now);
   var banner=el("pauseBanner");
@@ -739,20 +744,36 @@ function renderChatHeader(nowSec){
     var html="";
     if(paused) html+='<button class="btn green sm" id="resumeBtn">▶ Reanudar</button>';
     else html+='<button class="btn sm" id="pauseBtn">⏸ Pausar bot</button>';
-    if(assigned===me && me) html+='<button class="btn sm" id="assignBtn" data-user="">Liberar</button>';
-    else html+='<button class="btn sm" id="assignBtn" data-user="'+esc(me)+'">🙋 Asignarme</button>';
+    html+=assignSelectHtml(assigned);
+    html+='<button class="btn sm" id="unreadBtn">📩 No leído</button>';
     if(c.status!=="student") html+='<button class="btn gold sm" id="studentBtn">🎓 Alumno</button>';
     html+='<button class="btn red sm" id="resetBtn">🧹 Reiniciar</button>';
-    acts.innerHTML=html;
-    if(el("pauseBtn")) el("pauseBtn").onclick=function(){ pauseConvo(chatState.phone); };
-    if(el("resumeBtn")) el("resumeBtn").onclick=function(){ resumeConvo(chatState.phone); };
-    if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(chatState.phone); };
-    if(el("resetBtn")) el("resetBtn").onclick=function(){ resetConvo(chatState.phone); };
-    if(el("assignBtn")) el("assignBtn").onclick=function(){
-      var u=el("assignBtn").getAttribute("data-user")||null;
-      assignConvo(chatState.phone,u);
-    };
+    // Rebuild only when something actually changed: detailTick polls every few
+    // seconds and an innerHTML rewrite would slam an open <select> shut.
+    if(acts.__html!==html){
+      acts.__html=html;
+      acts.innerHTML=html;
+      if(el("pauseBtn")) el("pauseBtn").onclick=function(){ pauseConvo(chatState.phone); };
+      if(el("resumeBtn")) el("resumeBtn").onclick=function(){ resumeConvo(chatState.phone); };
+      if(el("unreadBtn")) el("unreadBtn").onclick=function(){ markUnreadConvo(chatState.phone); };
+      if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(chatState.phone); };
+      if(el("resetBtn")) el("resetBtn").onclick=function(){ resetConvo(chatState.phone); };
+      if(el("assignSel")) el("assignSel").onchange=function(){
+        assignConvo(chatState.phone, el("assignSel").value||null);
+      };
+    }
   }
+}
+function assignSelectHtml(assigned){
+  var list=(state.staff&&state.staff.length)?state.staff.slice():[];
+  if(!list.length && state.me && state.me.user) list.push({user:state.me.user,displayName:state.me.displayName});
+  // Keep a disabled/unknown assignee visible so a re-render can't silently steal the chat.
+  if(assigned && !list.some(function(s){ return s.user===assigned; })) list.push({user:assigned});
+  var opts='<option value=""'+(assigned?"":" selected")+'>— Sin asignar —</option>';
+  opts+=list.map(function(s){
+    return '<option value="'+esc(s.user)+'"'+(s.user===assigned?" selected":"")+'>'+esc(s.displayName||s.user)+'</option>';
+  }).join("");
+  return '<select class="field sm" id="assignSel" style="width:auto;margin-top:0;min-height:36px;padding:7px 11px">'+opts+'</select>';
 }
 function appendMessages(msgs,forcePin){
   var wrap=el("bubWrap"); if(!wrap) return;
@@ -903,6 +924,27 @@ async function sendChatMedia(){
   if(r.message){ appendMessages([r.message], true); }
   renderChatHeader();
   loadChats();
+}
+async function loadStaff(){
+  try{
+    var d=await api("/staff");
+    state.staff=(d&&d.items&&d.items.length)?d.items:[{user:(state.me&&state.me.user)||""}];
+  }catch(e){ state.staff=[{user:(state.me&&state.me.user)||""}]; }
+}
+function backToChatList(){
+  el("chatList").classList.remove("hidden");
+  el("chatDetail").innerHTML="";
+  chatState.phone=null;
+  loadChats();
+}
+async function markUnreadConvo(phone){
+  try{
+    await api("/conversations/"+encodeURIComponent(phone)+"/unread",{method:"POST"});
+    unmarkReadLocal(phone);
+    toast("Marcado como no leído","ok");
+    // Closing the detail: an open chat's poll would mark it read again.
+    backToChatList();
+  }catch(e){ toast("No se pudo marcar como no leído","err"); }
 }
 async function assignConvo(phone,user){
   try{
@@ -1270,7 +1312,10 @@ async function revertRev(id){
 var editorHist=[]; // {role, content, proposals?}
 VIEWS.editor=function(){
   var m=el("main");
-  m.innerHTML='<div class="between"><h1>Editor con IA</h1><button class="btn sm" id="edAnalyze">🧠 Analizar ediciones</button></div>'
+  m.innerHTML='<details class="collapsible" id="edHistDetails" style="margin-bottom:12px">'
+    +'<summary>📝 Historial de ediciones (borrador → final)</summary>'
+    +'<div id="edHistBody" style="margin-top:8px"></div></details>'
+    +'<div class="between"><h1>Editor con IA</h1><button class="btn sm" id="edAnalyze">🧠 Analizar ediciones</button></div>'
     +'<div class="muted sm" style="margin-bottom:10px">Pídele a la IA cambios a la base. Cada propuesta la confirmas tú.</div>'
     +'<div id="edThread"></div>'
     +'<div class="composer"><textarea id="edInput" class="field" placeholder="Ej: agrega los precios de niños"></textarea>'
@@ -1279,7 +1324,39 @@ VIEWS.editor=function(){
   el("edSend").onclick=editorSend;
   el("edAnalyze").onclick=editorAnalyzeEdits;
   el("edInput").addEventListener("keydown",function(e){ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)) editorSend(); });
+  edHistLoaded=false;
+  el("edHistDetails").ontoggle=function(){ if(this.open && !edHistLoaded) loadEditHistory(); };
 };
+var edHistLoaded=false;
+async function loadEditHistory(){
+  edHistLoaded=true;
+  var body=el("edHistBody"); if(!body) return;
+  body.innerHTML='<div class="loading"><span class="spin"></span></div>';
+  var d;
+  try{ d=await api("/edits?limit=100"); }
+  catch(e){
+    if(el("edHistBody")) el("edHistBody").innerHTML='<div class="muted sm">No se pudo cargar el historial.</div>';
+    toast("Error al cargar el historial de ediciones","err");
+    edHistLoaded=false;
+    return;
+  }
+  if(!el("edHistBody")) return;
+  var items=d.items||[];
+  if(!items.length){ body.innerHTML='<div class="muted sm">Sin ediciones todavía.</div>'; return; }
+  body.innerHTML=items.map(editHistCard).join("");
+  qa("#edHistBody [data-phone]").forEach(function(b){ b.onclick=function(){ goToChat(b.getAttribute("data-phone")); }; });
+}
+function editHistCard(r){
+  return '<div class="card" style="margin-top:8px">'
+    +'<div class="between"><span class="chip blue" data-phone="'+esc(r.phone)+'" style="cursor:pointer">'+esc(r.phone)+'</span>'
+    +'<span class="muted sm">'+esc(fmtDate(r.ts))+' '+esc(clockTime(r.ts))+'</span></div>'
+    +lineDiff(r.draft,r.final)
+    +'</div>';
+}
+function goToChat(phone){
+  chatsCache.openPhone=phone;
+  location.hash="#chats";
+}
 function renderEditorThread(){
   var t=el("edThread"); if(!t) return;
   if(!editorHist.length){ t.innerHTML='<div class="muted sm center" style="padding:16px">Sin mensajes todavía.</div>'; return; }
@@ -1656,6 +1733,7 @@ async function boot(){
   }catch(e){
     showLogin(); return;
   }
+  await loadStaff();
   if(!location.hash) location.hash="#inicio";
   await refreshOverviewSilent();
   route();

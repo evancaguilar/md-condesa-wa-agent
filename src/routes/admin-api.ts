@@ -71,6 +71,7 @@ import {
   createAdminUser,
   updateAdminUser,
   setAssignedToSoft,
+  setReadAtSoft,
 } from "../db/queries-admin.js";
 import { sendStaffMedia, sendStaffText } from "../services/staff-send.js";
 import {
@@ -261,6 +262,10 @@ export async function handleAdminApi(
     if (session.role !== "owner") return json({ error: "forbidden" }, 403);
     return handleUserUpdate(req, env, userMatch[1]!, session);
   }
+  // Assignment picker needs the roster; any session, names only (no role/hash).
+  if (path === "/admin/api/staff" && method === "GET") {
+    return handleStaffList(env, session);
+  }
 
   // ---- overview ----
   if (path === "/admin/api/overview" && method === "GET") {
@@ -298,7 +303,7 @@ export async function handleAdminApi(
   }
 
   const convoMatch = path.match(
-    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|send-media))?$/,
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media))?$/,
   );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
@@ -322,6 +327,13 @@ export async function handleAdminApi(
       // Blue ticks to the lead: mark their newest inbound as read. Best-effort.
       const wamid = await newestInboundWamid(env.DB, phone);
       if (wamid) ctx.waitUntil(markRead(env, wamid));
+      // Shared (team-wide) read marker; no-op pre-migration.
+      await setReadAtSoft(env.DB, phone, nowSec());
+      return json({ ok: true });
+    }
+    if (sub === "unread" && method === "POST") {
+      // 0 (not NULL) so the marker beats any per-browser localStorage read map.
+      await setReadAtSoft(env.DB, phone, 0);
       return json({ ok: true });
     }
     if (sub === "reset" && method === "POST") {
@@ -521,6 +533,21 @@ async function handleUsersList(env: Env): Promise<Response> {
       createdAt: r.created_at,
     })),
   });
+}
+
+async function handleStaffList(env: Env, session: Session): Promise<Response> {
+  let items: { user: string; displayName: string }[] = [];
+  try {
+    const rows = await listAdminUsersSoft(env.DB);
+    items = rows
+      .filter((r) => !r.disabled)
+      .map((r) => ({ user: r.username, displayName: r.display_name }));
+  } catch {
+    items = [];
+  }
+  // Pre-migration (admin_users absent) the picker still needs one option.
+  if (!items.length) items = [{ user: session.user, displayName: session.displayName }];
+  return json({ items });
 }
 
 async function handleUserCreate(req: Request, env: Env): Promise<Response> {
@@ -755,6 +782,7 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
     pendingCount: r.pendingCount,
     campaignName: r.campaignName,
     assignedTo: r.assignedTo ?? null,
+    readAt: r.readAt ?? null,
   }));
   return json({ items, now });
 }

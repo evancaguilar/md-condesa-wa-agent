@@ -547,6 +547,23 @@ export async function setAssignedToSoft(
   }
 }
 
+/** Shared read marker: `ts` = seconds read, 0 = explicitly marked unread. */
+export async function setReadAtSoft(
+  db: D1Database,
+  phone: string,
+  ts: number,
+): Promise<void> {
+  try {
+    await db
+      .prepare(`UPDATE contacts SET read_at = ?2, updated_at = ?3 WHERE phone = ?1`)
+      .bind(phone, ts, now())
+      .run();
+  } catch (err) {
+    if (/no such column/i.test(String(err))) return;
+    throw err;
+  }
+}
+
 // ---- admin_users (staff accounts; fail-soft pre-migration) ----
 
 export interface AdminUserDbRow {
@@ -748,6 +765,8 @@ export interface ConversationRow {
   campaignName: string | null;
   /** Absent pre-migration (contacts.assigned_to column) — consumers `?? null`. */
   assignedTo?: string | null;
+  /** Absent pre-migration (contacts.read_at column) — consumers `?? null`. */
+  readAt?: number | null;
 }
 
 /**
@@ -760,15 +779,17 @@ export async function listConversations(
   limit: number,
   offset: number,
 ): Promise<ConversationRow[]> {
-  // assigned_to referenced only in the primary variant so the pre-migration
-  // fallback (column absent fails at prepare time) keeps the list working.
-  const sqlFor = (withAssigned: boolean): string =>
+  // Optional columns are added per tier so each pre-migration fallback (an
+  // absent column fails at prepare time) keeps the list working: 2 =
+  // assigned_to + read_at, 1 = assigned_to only, 0 = base (today's minimum).
+  const sqlFor = (tier: number): string =>
     `SELECT
        c.phone                         AS phone,
        c.name                          AS name,
        c.status                        AS status,
        c.human_override_until          AS humanOverrideUntil,
-       ${withAssigned ? "c.assigned_to                   AS assignedTo," : ""}
+       ${tier >= 1 ? "c.assigned_to                   AS assignedTo," : ""}
+       ${tier >= 2 ? "c.read_at                       AS readAt," : ""}
        lm.body                         AS lastBody,
        lm.ts                           AS lastTs,
        lm.direction                    AS lastDirection,
@@ -789,20 +810,19 @@ export async function listConversations(
      LEFT JOIN campaigns camp ON camp.id = c.campaign_id
      ORDER BY COALESCE(lm.ts, c.updated_at) DESC
      LIMIT ?1 OFFSET ?2`;
-  try {
-    const { results } = await db
-      .prepare(sqlFor(true))
-      .bind(limit, offset)
-      .all<ConversationRow>();
-    return results;
-  } catch (err) {
-    if (!/no such column/i.test(String(err))) throw err;
-    const { results } = await db
-      .prepare(sqlFor(false))
-      .bind(limit, offset)
-      .all<ConversationRow>();
-    return results;
-  }
+  const run = async (tier: number): Promise<ConversationRow[]> => {
+    try {
+      const { results } = await db
+        .prepare(sqlFor(tier))
+        .bind(limit, offset)
+        .all<ConversationRow>();
+      return results;
+    } catch (err) {
+      if (tier === 0 || !/no such column/i.test(String(err))) throw err;
+      return run(tier - 1);
+    }
+  };
+  return run(2);
 }
 
 export interface EditRow {

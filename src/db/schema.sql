@@ -119,3 +119,11 @@ ALTER TABLE contacts ADD COLUMN assigned_to TEXT;  -- staff username owning the 
 -- pre-migration (setCampaignAdKeywordsSoft writes; reads use `?? null`).
 
 ALTER TABLE campaigns ADD COLUMN ad_keywords TEXT;  -- comma-separated keyword PHRASES matched (normalized, whole-phrase) against the ad creative headline+body; NULL = keyword tier off for this campaign
+
+-- ---- Shared (team-wide) read/unread for the Chats inbox (2026-08-04) ----
+-- Prod migration (Evan pastes in D1 console): the ALTER below.
+-- Rerun errors "duplicate column" — harmless, ignore it. Code fail-softs
+-- pre-migration (setReadAtSoft writes; listConversations drops the column
+-- and the dashboard falls back to its per-browser localStorage read map).
+
+ALTER TABLE contacts ADD COLUMN read_at INTEGER;  -- unix seconds the team last marked the convo read; 0 = explicitly marked unread, NULL = never read from the panel
