@@ -179,6 +179,15 @@ export async function processInbound(
   });
   if (!inserted) return;
 
+  // Reactions (👍/❤️ on one of our messages): stored above so the dashboard
+  // shows "[reaccionó ❤️]", but they end here — no brain/approval (a reaction
+  // needs no reply), and no touchLastInbound (a reaction does NOT reopen the
+  // 24h service window, so counting it would fake an open window).
+  if (msg.kind === "reaction") {
+    await upsertContact(env.DB, { phone: msg.phone });
+    return;
+  }
+
   await upsertContact(env.DB, { phone: msg.phone });
   // WhatsApp push name → contact.name, fill-if-empty only (never overwrite a
   // real name learned in conversation). Gives Airtable a name from message #1,

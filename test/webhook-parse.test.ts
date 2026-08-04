@@ -462,3 +462,78 @@ test("referral carries the ad creative thumbnail/image/video urls", () => {
   assert.equal(ev.referral?.videoUrl, null);
   assert.equal(ev.referral?.headline, "Clases para niños");
 });
+
+// ---- reactions + previously-invisible types --------------------------------
+
+function waPayload(message: Record<string, unknown>): unknown {
+  return {
+    entry: [
+      { changes: [{ field: "messages", value: { messages: [message] } }] },
+    ],
+  };
+}
+
+test("a reaction parses as kind 'reaction' with the emoji in the body", () => {
+  const ev = parseWebhook(
+    waPayload({
+      from: "5215512345678",
+      id: "wamid.REACT_1",
+      timestamp: "1720200400",
+      type: "reaction",
+      reaction: { message_id: "wamid.SOME_OUT", emoji: "❤️" },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(ev.kind, "reaction");
+  assert.equal(ev.body, "[reaccionó ❤️]");
+});
+
+test("a removed reaction (empty emoji) still gets a visible body", () => {
+  const ev = parseWebhook(
+    waPayload({
+      from: "5215512345678",
+      id: "wamid.REACT_2",
+      timestamp: "1720200401",
+      type: "reaction",
+      reaction: { message_id: "wamid.SOME_OUT" },
+    }),
+  )[0] as InboundEvent;
+  assert.equal(ev.kind, "reaction");
+  assert.equal(ev.body, "[quitó su reacción]");
+});
+
+test("location and contacts messages get placeholder bodies (kind 'other')", () => {
+  const loc = parseWebhook(
+    waPayload({
+      from: "5215512345678",
+      id: "wamid.LOC_1",
+      timestamp: "1720200402",
+      type: "location",
+    }),
+  )[0] as InboundEvent;
+  assert.equal(loc.kind, "other");
+  assert.equal(loc.body, "[ubicación compartida]");
+
+  const con = parseWebhook(
+    waPayload({
+      from: "5215512345678",
+      id: "wamid.CON_1",
+      timestamp: "1720200403",
+      type: "contacts",
+    }),
+  )[0] as InboundEvent;
+  assert.equal(con.kind, "other");
+  assert.equal(con.body, "[contacto compartido]");
+});
+
+test("an unknown message type never yields an empty body", () => {
+  const ev = parseWebhook(
+    waPayload({
+      from: "5215512345678",
+      id: "wamid.UNK_1",
+      timestamp: "1720200404",
+      type: "some_future_type",
+    }),
+  )[0] as InboundEvent;
+  assert.equal(ev.kind, "other");
+  assert.equal(ev.body, "[mensaje no soportado]");
+});

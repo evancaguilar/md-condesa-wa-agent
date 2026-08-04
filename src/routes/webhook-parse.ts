@@ -25,6 +25,7 @@ export type InboundKind =
   | "video"
   | "document"
   | "sticker"
+  | "reaction"
   | "other";
 
 export interface InboundEvent {
@@ -103,6 +104,7 @@ interface RawMessage {
   video?: RawMedia;
   document?: RawMedia;
   sticker?: RawMedia;
+  reaction?: { message_id?: string; emoji?: string };
   referral?: {
     source_url?: string;
     source_type?: string;
@@ -140,7 +142,20 @@ function extractBody(m: RawMessage): { body: string; kind: InboundEvent["kind"] 
   if (m.type === "document" && m.document?.id)
     return { body: m.document.caption ?? "", kind: "document" };
   if (m.type === "sticker" && m.sticker?.id) return { body: "", kind: "sticker" };
-  return { body: "", kind: "other" };
+  // Reactions (👍/❤️ on one of our messages): keep the emoji so the dashboard
+  // shows something instead of an empty bubble; the pipeline stores it and
+  // stops (no brain, no approval — a reaction needs no reply). An empty emoji
+  // means the reaction was REMOVED.
+  if (m.type === "reaction") {
+    const emoji = (m.reaction?.emoji ?? "").trim();
+    return {
+      body: emoji ? `[reaccionó ${emoji}]` : "[quitó su reacción]",
+      kind: "reaction",
+    };
+  }
+  if (m.type === "location") return { body: "[ubicación compartida]", kind: "other" };
+  if (m.type === "contacts") return { body: "[contacto compartido]", kind: "other" };
+  return { body: "[mensaje no soportado]", kind: "other" };
 }
 
 /** Pulls the media {mediaId, mimeType, filename} for any media message. */
