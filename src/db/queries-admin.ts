@@ -1020,7 +1020,7 @@ export async function listStaffLater(
     .prepare(
       `SELECT id, due_at AS dueAt, status, note FROM followups
        WHERE phone = ?1 AND kind = 'staff_later'
-         AND (status = 'scheduled' OR (status = 'cancelled' AND created_at >= ?2))
+         AND (status = 'scheduled' OR (status = 'cancelled' AND due_at >= ?2))
        ORDER BY due_at ASC LIMIT ?3`,
     )
     .bind(phone, cancelledSince, limit)

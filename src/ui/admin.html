@@ -511,6 +511,9 @@ function unmarkReadLocal(phone){
 }
 // Shared (team-wide) readAt wins; the localStorage map is the pre-migration fallback.
 function isUnread(c,rm){
+  // readAt===0 = someone explicitly tapped "No leído" — flag it even when the
+  // newest message is ours (the whole point is a follow-up reminder).
+  if(c.readAt===0) return true;
   if(c.lastDirection!=="in" || !c.lastTs) return false;
   return c.lastTs > (c.readAt!=null ? c.readAt : ((rm||{})[c.phone]||0));
 }
@@ -711,10 +714,14 @@ async function detailTick(full){
   appendMessages(d.messages||[], full);
   renderPendingCards(d.pending||[]);
   renderScheduledCards(d.scheduled||[]);
-  // Mark read locally (badge) + blue ticks to the lead on open.
+  // Mark read locally (badge) + blue ticks to the lead on open. The shared
+  // read_at watermark must also advance while the chat stays OPEN — otherwise
+  // an inbound that arrives mid-conversation leaves the chat flagged unread
+  // team-wide until someone reopens it.
   if(chatState.lastTs){
     markReadLocal(phone, chatState.lastTs);
-    if(full){ api("/conversations/"+encodeURIComponent(phone)+"/read",{method:"POST"}).catch(function(){}); }
+    var newIn=(d.messages||[]).some(function(m){return m.direction==="in";});
+    if(full || newIn){ api("/conversations/"+encodeURIComponent(phone)+"/read",{method:"POST"}).catch(function(){}); }
   }
 }
 function renderChatHeader(nowSec){
@@ -942,6 +949,13 @@ async function scheduleChatMsg(){
     if(err==="too_long") toast("Mensaje demasiado largo (máx 4096)","err");
     else if(err==="bad_due_at") toast("Fecha fuera de rango (máx 14 días)","err");
     else if(err==="no_contact") toast("Contacto no encontrado","err");
+    else if(err==="opted_out") toast("Contacto dado de baja — no se programan mensajes","err");
+    else if(err==="token_reused"){
+      // A prior submit DID land server-side with different text. Reset the
+      // token so the next tap queues fresh; the card below shows what's queued.
+      chatState.laterToken=null; chatState.schedKey=""; detailTick(false);
+      toast("Ya había un mensaje programado con otro texto — revisa la tarjeta 🕐","err");
+    }
     else toast("No se pudo programar","err");
     return;
   }
@@ -963,7 +977,7 @@ function renderScheduledCards(list){
   wrap.innerHTML=list.map(function(s){
     var head= s.status==="scheduled"
       ? '🕐 Programado para '+esc(schedWhen(s.dueAt))+(s.by?' · @'+esc(s.by):'')
-      : '🚫 Cancelado (el lead escribió primero)';
+      : '🚫 Cancelado — no enviado';
     var btn= s.status==="scheduled"
       ? '<button class="btn red sm" data-sa="cancel">🗑 Cancelar</button>'
       : '<button class="btn sm" data-sa="reuse">📋 Usar en composer</button>';
@@ -996,6 +1010,7 @@ function pendResultToast(st,action){
   if(st==="ok") toast(action==="discard"?"Descartada":"Enviada","ok");
   else if(st==="not_pending") toast("Ya resuelta (Slack u otro usuario)");
   else if(st==="window_closed") toast("Ventana de 24h cerrada","err");
+  else if(st==="opted_out") toast("Contacto dado de baja — borrador descartado","err");
   else toast("No se pudo procesar","err");
 }
 async function sendChatMsg(){
@@ -1024,6 +1039,7 @@ async function sendChatMsg(){
       toast("Ventana de 24h cerrada","err");
     }else if(r.reason==="duplicate"){ /* already sent — the poll will show it */ }
     else if(r.reason==="no_contact"){ toast("Contacto no encontrado","err"); }
+    else if(r.reason==="opted_out"){ toast("Contacto dado de baja — no se envían mensajes","err"); }
     else toast("No se pudo enviar","err");
     return;
   }
@@ -1188,14 +1204,20 @@ VIEWS.aprobaciones=function(){
   loadApprovals();
   startPoll(loadApprovals,30000);
 };
+var apprKey="";
 async function loadApprovals(){
   var body=el("apprBody"); if(!body) return;
   var data;
   try{ data=await api("/approvals"); }
-  catch(e){ if(el("apprBody")) body.innerHTML='<div class="card muted">No se pudieron cargar las aprobaciones.</div>'; return; }
+  catch(e){ if(el("apprBody")) body.innerHTML='<div class="card muted">No se pudieron cargar las aprobaciones.</div>'; apprKey=""; return; }
   if(!el("apprBody")) return;
   var items=data.items||[];
   state.pendingCount=items.length; updateBadges();
+  // Same-content guard as the chats pendcards: the 30s poll must not rebuild
+  // the DOM under an open edit box / in-flight 🪄 rewrite.
+  var key=items.map(function(it){return it.id;}).join(",");
+  if(key===apprKey) return;
+  apprKey=key;
   if(!items.length){ body.innerHTML='<div class="card center muted" style="padding:40px 16px">🎉 No hay nada pendiente.</div>'; return; }
   body.innerHTML=items.map(apprCard).join("");
   items.forEach(function(it){ wireApprCard(it); });
@@ -1249,10 +1271,10 @@ async function resolveApprovalApi(id,kind,text){
   var opts= kind==="edit" ? {method:"POST",body:{text:text}} : {method:"POST"};
   try{
     var r=await api(path,opts);
-    if(r && r.ok===false) return r.reason==="not_pending"||r.reason==="window_closed" ? r.reason : "error";
+    if(r && r.ok===false) return r.reason==="not_pending"||r.reason==="window_closed"||r.reason==="opted_out" ? r.reason : "error";
     return "ok";
   }catch(e){
-    if(e.data && (e.data.reason==="not_pending"||e.data.reason==="window_closed")) return e.data.reason;
+    if(e.data && (e.data.reason==="not_pending"||e.data.reason==="window_closed"||e.data.reason==="opted_out")) return e.data.reason;
     return "error";
   }
 }

@@ -17,6 +17,13 @@ import {
 /** WA Cloud API text body limit. */
 export const STAFF_TEXT_MAX = 4096;
 
+/** kv key that makes a staff send at-most-once. Exported so the cron can
+ *  release a claim after a DEFINITE Graph failure (nothing was sent) and let
+ *  the retry actually resend. */
+export function staffSendClaimKey(phone: string, clientToken: string): string {
+  return `staff_send:${phone}:${clientToken}`;
+}
+
 /** "Until Reanudar": setHumanOverride takes hours; a year is effectively ∞. */
 export const STAFF_TAKEOVER_HOURS = 24 * 365;
 
@@ -77,7 +84,7 @@ export async function sendStaffText(
 
   const claimed = await kvSetIfAbsent(
     env.DB,
-    `staff_send:${phone}:${clientToken}`,
+    staffSendClaimKey(phone, clientToken),
     String(Math.floor(Date.now() / 1000)),
   );
   if (!claimed) return { ok: false, reason: "duplicate" };
@@ -212,7 +219,7 @@ export async function sendStaffMedia(
 
   const claimed = await kvSetIfAbsent(
     env.DB,
-    `staff_send:${phone}:${clientToken}`,
+    staffSendClaimKey(phone, clientToken),
     String(Math.floor(Date.now() / 1000)),
   );
   if (!claimed) return { ok: false, reason: "duplicate" };

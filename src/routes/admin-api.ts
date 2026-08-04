@@ -653,7 +653,10 @@ async function handleStaffSend(
 ): Promise<Response> {
   const body = await readJson<{ text?: string; token?: string }>(req);
   const token = (body.token ?? "").trim();
-  if (!token || token.length > 128) return json({ error: "token_required" }, 400);
+  // 'later:' is the scheduled-send claim namespace — an immediate send using it
+  // would burn a scheduled row's at-most-once key into a fake 'sent'.
+  if (!token || token.length > 128 || token.startsWith("later:"))
+    return json({ error: "token_required" }, 400);
   const result = await sendStaffText(
     env,
     phone,
@@ -702,7 +705,11 @@ async function handleSendLater(
   ) {
     return json({ error: "bad_due_at" }, 400);
   }
-  if (!(await getContact(env.DB, phone))) return json({ error: "no_contact" }, 404);
+  const contact = await getContact(env.DB, phone);
+  if (!contact) return json({ error: "no_contact" }, 404);
+  // Mirror the immediate-send rule: a queued message to a baja'd lead would
+  // only be silently swallowed at fire time — reject it while a human is here.
+  if (contact.status === "opted_out") return json({ error: "opted_out" }, 409);
   const clamped = shiftOutOfQuiet(dueAt);
   // INSERT OR IGNORE on UNIQUE(phone, kind, airtable_record_id): a double submit
   // carrying the same client token is a no-op, never a second queued message.
@@ -713,7 +720,19 @@ async function handleSendLater(
     airtableRecordId: `later:${token}`,
     note: staffLaterNote(text, session.user),
   });
-  return json({ ok: true, dueAt: clamped });
+  // A reused token after a lost response may carry NEW text/time while the OLD
+  // row is what fires — confirm what is actually queued, or refuse the mismatch.
+  const row = await env.DB.prepare(
+    `SELECT due_at AS dueAt, note FROM followups
+     WHERE phone = ?1 AND kind = 'staff_later' AND airtable_record_id = ?2`,
+  )
+    .bind(phone, `later:${token}`)
+    .first<{ dueAt: number; note: string | null }>();
+  const queued = row ? parseStaffLaterNote(row.note) : null;
+  if (row && queued && queued.text !== text) {
+    return json({ error: "token_reused" }, 409);
+  }
+  return json({ ok: true, dueAt: row?.dueAt ?? clamped });
 }
 
 // ---- staff media send (multipart: file + token + caption?) ----
@@ -992,8 +1011,16 @@ async function handleStatus(
   session: Session,
 ): Promise<Response> {
   const body = await readJson<{ status?: string }>(req);
-  const status =
-    body.status === "student" || body.status === "opted_out" ? body.status : "lead";
+  // Strict whitelist: a malformed value must NOT coerce to "lead" — that would
+  // silently clear a baja.
+  if (
+    body.status !== "student" &&
+    body.status !== "opted_out" &&
+    body.status !== "lead"
+  ) {
+    return json({ error: "bad_status" }, 400);
+  }
+  const status = body.status;
   const before = await getContact(env.DB, phone);
   await setContactStatus(env.DB, phone, status);
 

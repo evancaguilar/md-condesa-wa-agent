@@ -29,6 +29,7 @@ import {
   autoModeEndLabel,
   disarmAutoMode,
 } from "../services/auto-mode.js";
+import { OptedOutError } from "../services/wa.js";
 import {
   approveAndSend,
   discardApproval,
@@ -158,7 +159,17 @@ async function onSendTemplate(env: Env, id: number): Promise<void> {
   // We recorded the phone on the card via the approval; look it up broadly.
   const a = await loadResolved(env, id);
   if (!a) return;
-  await sendHumanFollowupTemplate(env, a.phone);
+  try {
+    await sendHumanFollowupTemplate(env, a.phone);
+  } catch (err) {
+    // Blocked by the baja backstop: without feedback the button looks broken
+    // and staff keep clicking. Say so once, leave the card as-is.
+    if (err instanceof OptedOutError) {
+      await postNote(env, `🚫 Plantilla NO enviada a ${a.phone}: el contacto está dado de baja.`);
+      return;
+    }
+    throw err;
+  }
   await markApprovedCard(env, a, "[plantilla human_followup enviada]");
 }
 

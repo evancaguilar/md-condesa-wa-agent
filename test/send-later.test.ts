@@ -83,6 +83,7 @@ interface Recorder {
   marks: { id: unknown; status: unknown }[];
   reschedules: { id: unknown; dueAt: unknown }[];
   notes: string[];
+  kvDeletes: string[];
 }
 
 /** Scripts the fake DB for one due staff_later row. */
@@ -90,8 +91,22 @@ function scenario(opts: {
   row?: Partial<Followup>;
   contact?: Record<string, unknown>;
   claimWins?: boolean;
+  /** Make the Graph send throw (transient failure) after a won claim. */
+  sendThrows?: boolean;
 }): { env: Env; rec: Recorder; slack: { postNote(t: string): Promise<void>; postAttendanceCheck(): Promise<void> } } {
-  const rec: Recorder = { marks: [], reschedules: [], notes: [] };
+  const rec: Recorder = { marks: [], reschedules: [], notes: [], kvDeletes: [] };
+  if (opts.sendThrows) {
+    (globalThis as { fetch: unknown }).fetch = async () => ({
+      ok: false,
+      status: 500,
+      async json() {
+        return { error: { message: "transient" } };
+      },
+      async text() {
+        return "transient";
+      },
+    });
+  }
   const { db } = fakeDb((sql, binds) => {
     if (sql.includes("SELECT * FROM followups WHERE status = 'scheduled'")) {
       return { all: [laterRow(opts.row)] };
@@ -101,6 +116,10 @@ function scenario(opts: {
     }
     if (sql.includes("INSERT OR IGNORE INTO kv")) {
       return { changes: opts.claimWins === false ? 0 : 1 };
+    }
+    if (sql.includes("DELETE FROM kv")) {
+      rec.kvDeletes.push(String(binds[0]));
+      return {};
     }
     if (sql.includes("UPDATE followups SET status = ?2")) {
       rec.marks.push({ id: binds[0], status: binds[1] });
@@ -243,7 +262,10 @@ test("staff_later: closed 24h window → cancelled + loud Slack note, no throw",
   assert.ok(/ventana de 24h cerrada/i.test(rec.notes[0]!));
 });
 
-test("staff_later: burned idempotency claim (duplicate) → marked sent", async () => {
+test("staff_later: burned idempotency claim (duplicate) → marked sent + LOUD Slack note", async () => {
+  // Post claim-release-on-failure, a surviving claim means a send that landed
+  // (concurrent tick / crash between claim and release) — but it must never be
+  // silent: staff get a note telling them to verify the chat.
   failFetch();
   const { env, rec, slack } = scenario({
     row: { created_at: DAYTIME - 30 },
@@ -252,7 +274,27 @@ test("staff_later: burned idempotency claim (duplicate) → marked sent", async 
   });
   await atClock(DAYTIME, () => runDueFollowups(env, { slack }));
   assert.deepEqual(rec.marks, [{ id: 7, status: "sent" }]);
-  assert.equal(rec.notes.length, 0);
+  assert.equal(rec.notes.length, 1);
+  assert.ok(/duplicado/.test(rec.notes[0]!));
+});
+
+test("staff_later: transient Graph failure releases the claim so the retry resends", async () => {
+  // The BLOCKER this guards: claim burned before the Graph call + transient
+  // 5xx used to launder into duplicate→'sent' with no delivery. Now the catch
+  // deletes the claim; the row stays scheduled (bumpAttempts) for a real retry.
+  failFetch();
+  const { env, rec, slack } = scenario({
+    row: { created_at: DAYTIME - 30 },
+    contact: { last_inbound_at: DAYTIME - 600 },
+    sendThrows: true,
+  });
+  await atClock(DAYTIME, () => runDueFollowups(env, { slack }));
+  // No 'sent'/'cancelled' mark — handleSendFailure re-arms the row.
+  assert.ok(!rec.marks.some((m) => m.status === "sent"));
+  assert.ok(
+    rec.kvDeletes.some((k) => k.startsWith("staff_send:")),
+    "claim must be released on definite failure",
+  );
 });
 
 test("staff_later: in-window send → out_human message, takeover note, marked sent", async () => {

@@ -12,6 +12,7 @@ import {
   dueFollowups,
   kvGet,
   kvSet,
+  kvDelete,
   getContact,
   upsertContact,
   setContactStatus,
@@ -49,7 +50,7 @@ import {
   type NudgeKind,
   type ExtendedKind,
 } from "./nudges.js";
-import { parseStaffLaterNote, sendStaffText } from "../services/staff-send.js";
+import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../services/staff-send.js";
 import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
 
@@ -126,8 +127,10 @@ export async function scheduleTrialSequence(
 
 // ---- attempt tracking (in the note field: "...|attempts:N") ----
 
+// End-anchored: staff_later notes carry free staff text that may itself
+// contain "attempts:N" — only the suffix bumpAttempts appends may ever match.
 function readAttempts(note: string | null): number {
-  const m = /attempts:(\d+)/.exec(note ?? "");
+  const m = /\|?attempts:(\d+)$/.exec(note ?? "");
   return m ? Number(m[1]) : 0;
 }
 
@@ -136,7 +139,7 @@ async function bumpAttempts(
   f: Followup,
 ): Promise<number> {
   const n = readAttempts(f.note) + 1;
-  const base = (f.note ?? "").replace(/\s*\|?attempts:\d+/, "");
+  const base = (f.note ?? "").replace(/\s*\|?attempts:\d+$/, "");
   const note = base ? `${base}|attempts:${n}` : `attempts:${n}`;
   await env.DB.prepare(`UPDATE followups SET note = ?2 WHERE id = ?1`)
     .bind(f.id, note)
@@ -311,22 +314,34 @@ async function processOne(
         await rescheduleRow(env, f, next8am(nowSec()));
         return;
       }
-      // clientToken derives from the row id, so a retry after a transient
-      // failure re-claims the same kv key: at-most-once, never a double send.
-      const res = await sendStaffText(
-        env,
-        f.phone,
-        later.text,
-        later.by,
-        `later:${f.id}`,
-        {
+      // clientToken derives from the row id. On a DEFINITE Graph failure the
+      // claim is released below so the retry actually resends — kvSetIfAbsent
+      // can never re-claim a burned key on its own. Residual double-send risk
+      // only on an ambiguous network timeout where the message DID land; that
+      // beats the alternative (failure laundered into a silent fake 'sent').
+      const token = `later:${f.id}`;
+      let res;
+      try {
+        res = await sendStaffText(env, f.phone, later.text, later.by, token, {
           sendText: (e, p, b, opts) => sendText(e, p, b, opts),
           isWindowClosed: (err) => err instanceof WindowClosedError,
           postNote: (_e, text) => deps.slack.postNote(text),
-        },
-      );
-      // 'duplicate' = the claim was burned by a send that already landed.
-      if (res.ok || res.reason === "duplicate") {
+        });
+      } catch (err) {
+        await kvDelete(env.DB, staffSendClaimKey(f.phone, token));
+        throw err; // handleSendFailure bumps attempts; next tick resends
+      }
+      if (res.ok) {
+        await markFollowup(env.DB, f.id, "sent");
+        return;
+      }
+      // 'duplicate' = the claim survived a prior attempt, which (post claim-
+      // release) means a send that landed — a concurrent tick, or a crash
+      // between claim and release. Mark sent but never silently.
+      if (res.reason === "duplicate") {
+        await deps.slack.postNote(
+          `🕐 Envío programado #${f.id} a ${f.phone}: reclamo duplicado — marcado como enviado; verifica el chat en el panel.`,
+        );
         await markFollowup(env.DB, f.id, "sent");
         return;
       }
@@ -437,8 +452,11 @@ async function rescheduleRow(
   f: Followup,
   dueAt: number,
 ): Promise<void> {
+  // status guard: a cancel (staff tap or lead-inbound) that lands between the
+  // due-row load and this write must win — never resurrect a cancelled row.
   await env.DB.prepare(
-    `UPDATE followups SET due_at = ?2, status = 'scheduled' WHERE id = ?1`,
+    `UPDATE followups SET due_at = ?2, status = 'scheduled'
+     WHERE id = ?1 AND status = 'scheduled'`,
   )
     .bind(f.id, dueAt)
     .run();
