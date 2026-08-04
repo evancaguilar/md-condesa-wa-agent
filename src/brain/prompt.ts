@@ -108,7 +108,25 @@ export function buildContextBlock(ctx: ConvoContext): string {
     );
   }
 
+  // The Meta ad the lead clicked (click-to-WhatsApp referral). Included even
+  // when the ad isn't mapped to a campaign, so the model can still infer which
+  // program/promo — and whether it's for adults or kids — from the creative.
+  if (ctx.adRef && (ctx.adRef.headline || ctx.adRef.body)) {
+    lines.push("<ad_info>", "El lead llegó tocando este anuncio de Meta:");
+    if (ctx.adRef.headline) lines.push(`titular: ${ctx.adRef.headline}`);
+    if (ctx.adRef.body) lines.push(`texto: ${truncate(ctx.adRef.body, 400)}`);
+    lines.push(
+      "Deduce con la base de conocimiento a qué programa o promoción corresponde este anuncio (y si es para adultos o para niños). No preguntes lo que el anuncio ya deja claro.",
+      "</ad_info>",
+    );
+  }
+
   return lines.join("\n");
+}
+
+/** Caps ad body text so a long creative can't bloat the per-turn context. */
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 }
 
 /** "…T01:49…" → "1:49 AM" (the 24h ISO hour confuses models at edge hours). */

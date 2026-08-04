@@ -140,3 +140,56 @@ test("campaign present → <campaign_info> with name and info", () => {
   // The campaign block comes after the closed context block.
   assert.ok(block.indexOf("</context>") < block.indexOf("<campaign_info>"));
 });
+
+// ---- ad-referral context block --------------------------------------------
+
+test("no adRef → no <ad_info> block", () => {
+  const block = buildContextBlock(ctx());
+  assert.ok(!block.includes("<ad_info>"));
+});
+
+test("adRef with only sourceId (no text) → no <ad_info> block", () => {
+  const block = buildContextBlock(
+    ctx({ adRef: { headline: null, body: null, sourceId: "120249684011870518" } }),
+  );
+  assert.ok(!block.includes("<ad_info>"));
+});
+
+test("adRef present → <ad_info> with headline, body and inference instruction", () => {
+  const block = buildContextBlock(
+    ctx({
+      adRef: {
+        headline: "¡Agenda tu Día Gratis!",
+        body: "Así funciona el Reto Gladiador: tú eliges tu compromiso",
+        sourceId: "120249684011870518",
+      },
+    }),
+  );
+  assert.ok(block.includes("<ad_info>"));
+  assert.ok(block.includes("titular: ¡Agenda tu Día Gratis!"));
+  assert.ok(block.includes("Reto Gladiador"));
+  assert.ok(block.includes("No preguntes lo que el anuncio ya deja claro."));
+  assert.ok(block.includes("</ad_info>"));
+  assert.ok(block.indexOf("</context>") < block.indexOf("<ad_info>"));
+});
+
+test("adRef long body is truncated to keep the per-turn context small", () => {
+  const block = buildContextBlock(
+    ctx({ adRef: { headline: "H", body: "x".repeat(1000), sourceId: null } }),
+  );
+  const line = block.split("\n").find((l) => l.startsWith("texto: "))!;
+  assert.ok(line.length <= "texto: ".length + 400);
+  assert.ok(line.endsWith("…"));
+});
+
+test("campaign and adRef together → both blocks, campaign first", () => {
+  const block = buildContextBlock(
+    ctx({
+      campaign: { name: "Reto Gladiador", info: "Programa para adultos" },
+      adRef: { headline: "¡Agenda tu Día Gratis!", body: null, sourceId: "123" },
+    }),
+  );
+  assert.ok(block.includes("<campaign_info>"));
+  assert.ok(block.includes("<ad_info>"));
+  assert.ok(block.indexOf("<campaign_info>") < block.indexOf("<ad_info>"));
+});

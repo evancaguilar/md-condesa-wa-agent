@@ -1,6 +1,13 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-03**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-04**.
+
+### Ad-context awareness (shipped 2026-08-04)
+
+- **Brain sees the clicked ad**: the contact's `ad_ref` (headline + creative text) now rides into the per-turn `<context>` as an `<ad_info>` block, even when the ad id isn't mapped to any campaign — the model infers program/audience from the creative (e.g. Reto Gladiador ⇒ adult) instead of asking "¿para ti o para un peque?".
+- **Slack draft card shows attribution**: `🎯 Campaña: <name>` (or `_sin asignar_` when an ad lead has no campaign match — the cue to add that ad id in /admin → Campañas) + `📣 Anuncio: headline — «body snippet» (ad id)`.
+- **Adults with a usable WA profile name skip name confirmation**: persona rule — if `<context>` already carries a real-looking `name`, book_trial uses it directly and goes straight to the confirmation message; only ask when the name is missing or junk (emojis/numbers/handles).
+- [ ] ⚠️ Ad id `120249684011870518` (¡Agenda tu Día Gratis! / Reto Gladiador) was NOT matched to a campaign on 2026-08-03 (lead Ricardo) — add it to the Reto campaign's ad ids in /admin → Campañas so the canned first-reply + campaign info fire.
 
 ## 🟢 LIVE (2026-08-03) — read this first
 

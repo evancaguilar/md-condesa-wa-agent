@@ -372,6 +372,22 @@ export async function processInbound(
     if (camp) campaign = { name: camp.name, info: camp.info };
   }
 
+  // The clicked ad's own text rides along even when it isn't mapped to any
+  // campaign, so the brain can still infer program/audience from the creative.
+  let adRef: ConvoContext["adRef"];
+  if (fresh.ad_ref) {
+    try {
+      const r = JSON.parse(fresh.ad_ref) as AdRef;
+      adRef = {
+        headline: r.headline ?? null,
+        body: r.body ?? null,
+        sourceId: r.sourceId ?? null,
+      };
+    } catch {
+      // malformed ad_ref must never block the reply path
+    }
+  }
+
   const cdmx = cdmxNow();
   const brainCtx: ConvoContext = {
     phone: msg.phone,
@@ -382,6 +398,7 @@ export async function processInbound(
     windowOpen,
     trainingWheels,
     campaign,
+    adRef,
   };
 
   const result = await ports.brain.respond(brainCtx);

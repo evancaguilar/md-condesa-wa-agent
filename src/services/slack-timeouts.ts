@@ -267,3 +267,47 @@ export function windowHoursLeft(lastInboundAt: number | null, now: number): numb
 // lead was mid-scheduling, so the copy must only promise a human reply.
 export const HOLDING_LINE =
   "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí.";
+
+// ---- ad/campaign attribution line (draft-approval card) ----
+
+/**
+ * Builds the attribution context line for a draft card from the contact's raw
+ * ad_ref JSON + the matched campaign's name. Shows the campaign when one is
+ * assigned, "_sin asignar_" when the lead came from an ad that no campaign
+ * claims (Evan's cue to map the ad id in Campañas), the ad headline with a
+ * snippet of the creative text, and the ad id. Null when there's nothing to
+ * show (no referral and no campaign). Tolerant of malformed JSON.
+ */
+export function adAttributionLine(
+  adRef: string | null,
+  campaignName: string | null,
+): string | null {
+  let headline = "";
+  let body = "";
+  let id = "";
+  if (adRef) {
+    try {
+      const r = JSON.parse(adRef) as {
+        headline?: string | null;
+        body?: string | null;
+        sourceId?: string | null;
+      };
+      headline = (r.headline ?? "").trim();
+      body = (r.body ?? "").trim();
+      id = (r.sourceId ?? "").trim();
+    } catch {
+      // malformed ad_ref → treat as no ad
+    }
+  }
+  const hasAd = Boolean(headline || body || id);
+  const parts: string[] = [];
+  if (campaignName) parts.push(`🎯 Campaña: *${campaignName}*`);
+  else if (hasAd) parts.push("🎯 Campaña: _sin asignar_");
+  if (hasAd) {
+    let ad = `📣 Anuncio: ${headline || id}`;
+    if (body) ad += ` — «${body.length > 90 ? `${body.slice(0, 89)}…` : body}»`;
+    if (headline && id) ad += ` (${id})`;
+    parts.push(ad);
+  }
+  return parts.length > 0 ? parts.join("\n") : null;
+}

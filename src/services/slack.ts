@@ -27,11 +27,13 @@ import {
 } from "../db/queries.js";
 import { sendTemplate, sendText, WindowClosedError } from "./wa.js";
 import {
+  adAttributionLine,
   decideTimeout,
   HOLDING_LINE,
   windowHoursLeft,
   type TimeoutApprovalView,
 } from "./slack-timeouts.js";
+import { getCampaign } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
 
 export {
@@ -251,7 +253,17 @@ export async function postDraft(
   const now = Math.floor(Date.now() / 1000);
   const hoursLeft = windowHoursLeft(contact?.last_inbound_at ?? null, now);
   const reason = extractReason(a.context);
-  const adLine = adContextLine(contact?.ad_ref ?? null);
+  // Campaign attribution for the card header. Best-effort: a lookup failure
+  // must never block posting the draft.
+  let campaignName: string | null = null;
+  if (contact?.campaign_id != null) {
+    try {
+      campaignName = (await getCampaign(env.DB, contact.campaign_id))?.name ?? null;
+    } catch {
+      // leave campaignName null
+    }
+  }
+  const adLine = adAttributionLine(contact?.ad_ref ?? null, campaignName);
   const blocks = draftBlocks(a, name, hoursLeft, reason, adLine);
   return postMessage(env, blocks, `Nueva respuesta por aprobar — ${a.phone}`);
 }
@@ -489,21 +501,6 @@ export function makeSlackPort(env: Env): SlackPort {
 }
 
 // ---- internal ----
-
-/**
- * Builds the "📣 Anuncio: …" context line from a contact's ad_ref JSON, or null
- * when there's no referral. Prefers the ad headline, falling back to source_id.
- */
-function adContextLine(adRef: string | null): string | null {
-  if (!adRef) return null;
-  try {
-    const r = JSON.parse(adRef) as { headline?: string | null; sourceId?: string | null };
-    const label = (r.headline ?? "").trim() || (r.sourceId ?? "").trim();
-    return label ? `📣 Anuncio: ${label}` : null;
-  } catch {
-    return null;
-  }
-}
 
 /** The brain stashes its escalation reason in the approval context JSON. */
 function extractReason(context: string | null): string | null {

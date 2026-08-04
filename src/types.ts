@@ -244,6 +244,9 @@ export interface ConvoContext {
   windowOpen: boolean; // true if within the 24h customer-service window
   trainingWheels: boolean; // true ⇒ every reply routes through approval
   campaign?: { name: string; info: string }; // present when the lead arrived via a campaign
+  /** Parsed contacts.ad_ref — the Meta ad the lead clicked, when known. Lets the
+   *  brain infer program/audience even when the ad isn't mapped to a campaign. */
+  adRef?: { headline: string | null; body: string | null; sourceId: string | null };
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */

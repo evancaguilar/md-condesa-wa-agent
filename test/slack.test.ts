@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  adAttributionLine,
   decideTimeout,
   hmacSha256Hex,
   isBusinessHours,
@@ -263,4 +264,54 @@ test("windowHoursLeft: rounds up, floors at 0", () => {
   assert.equal(windowHoursLeft(now - 23.2 * 3600, now), 1);
   assert.equal(windowHoursLeft(now - 25 * 3600, now), 0);
   assert.equal(windowHoursLeft(null, now), 0);
+});
+
+// ---- ad/campaign attribution line ----
+
+test("adAttributionLine: no ad, no campaign → null", () => {
+  assert.equal(adAttributionLine(null, null), null);
+});
+
+test("adAttributionLine: malformed ad_ref JSON → treated as no ad", () => {
+  assert.equal(adAttributionLine("{bad json", null), null);
+  assert.equal(adAttributionLine("{bad json", "Reto Gladiador"), "🎯 Campaña: *Reto Gladiador*");
+});
+
+test("adAttributionLine: campaign + full ad → campaign, headline, snippet, id", () => {
+  const adRef = JSON.stringify({
+    headline: "¡Agenda tu Día Gratis!",
+    body: "Te premiamos por cumplir tu propia meta. Así funciona el Reto Gladiador",
+    sourceId: "120249684011870518",
+  });
+  const line = adAttributionLine(adRef, "Reto Gladiador")!;
+  assert.ok(line.includes("🎯 Campaña: *Reto Gladiador*"));
+  assert.ok(line.includes("📣 Anuncio: ¡Agenda tu Día Gratis!"));
+  assert.ok(line.includes("Te premiamos por cumplir"));
+  assert.ok(line.includes("(120249684011870518)"));
+});
+
+test("adAttributionLine: ad without campaign → flags 'sin asignar'", () => {
+  const adRef = JSON.stringify({ headline: "¡Agenda tu Día Gratis!", sourceId: "123" });
+  const line = adAttributionLine(adRef, null)!;
+  assert.ok(line.includes("🎯 Campaña: _sin asignar_"));
+  assert.ok(line.includes("📣 Anuncio: ¡Agenda tu Día Gratis! (123)"));
+});
+
+test("adAttributionLine: campaign only (trigger-phrase match, no ad) → campaign alone", () => {
+  assert.equal(adAttributionLine(null, "Promo verano"), "🎯 Campaña: *Promo verano*");
+});
+
+test("adAttributionLine: long ad body is snipped to ~90 chars", () => {
+  const adRef = JSON.stringify({ headline: "H", body: "y".repeat(300), sourceId: null });
+  const line = adAttributionLine(adRef, null)!;
+  const m = /«([^»]*)»/.exec(line)!;
+  assert.ok(m[1]!.length <= 90);
+  assert.ok(m[1]!.endsWith("…"));
+});
+
+test("adAttributionLine: id-only ad_ref falls back to the id as label", () => {
+  const adRef = JSON.stringify({ sourceId: "999" });
+  const line = adAttributionLine(adRef, null)!;
+  assert.ok(line.includes("📣 Anuncio: 999"));
+  assert.ok(!line.includes("(999)"));
 });
