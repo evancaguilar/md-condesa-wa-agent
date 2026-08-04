@@ -34,6 +34,7 @@ import {
   type TimeoutApprovalView,
 } from "./slack-timeouts.js";
 import { awaitingReplyKey } from "./approvals.js";
+import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
 import { getCampaign } from "../db/queries-admin.js";
 import type { Proposal } from "./kb-editor.js";
 import { CLIENT } from "../client.gen.js";
@@ -228,16 +229,22 @@ function resolvedBlocks(
   return blocks;
 }
 
-function controlPanelBlocks(enabled: boolean): unknown[] {
+function controlPanelBlocks(enabled: boolean, autoUntil: number | null): unknown[] {
   const status = enabled ? "✅ Activo" : "⏸️ Pausado";
+  const mode = autoUntil
+    ? `🌙 *AUTO hasta las ${autoModeEndLabel(autoUntil)}* (respuestas sin aprobación)`
+    : "🎓 Manual (cada respuesta pasa por aprobación)";
   return [
-    section(`🤖 *Bot ${CLIENT.shortName}* — estado: *${status}*`),
+    section(`🤖 *Bot ${CLIENT.shortName}* — estado: *${status}*\n${mode}`),
     {
       type: "actions",
       block_id: "control_panel",
       elements: [
         button("⏸️ Pausar bot", "bot_pause", enabled ? "danger" : undefined),
         button("▶️ Reanudar", "bot_resume", enabled ? undefined : "primary"),
+        autoUntil
+          ? button("🎓 Volver a manual ya", "auto_manual", "danger")
+          : button("🌙 Auto hasta las 7am", "auto_night"),
       ],
     },
   ];
@@ -421,13 +428,19 @@ export async function updateTuningCard(
 export async function ensureControlPanel(env: Env): Promise<string> {
   const existing = await kvGet(env.DB, KV_CONTROL_PANEL_TS);
   const enabled = await isBotEnabled(env.DB);
+  const autoUntil = await getAutoModeUntil(env.DB);
   if (existing) {
-    await updateMessage(env, existing, controlPanelBlocks(enabled), "Panel de control");
+    await updateMessage(
+      env,
+      existing,
+      controlPanelBlocks(enabled, autoUntil),
+      "Panel de control",
+    );
     return existing;
   }
   const ts = await postMessage(
     env,
-    controlPanelBlocks(enabled),
+    controlPanelBlocks(enabled, autoUntil),
     `Panel de control del bot ${CLIENT.shortName}`,
   );
   await kvSet(env.DB, KV_CONTROL_PANEL_TS, ts);
@@ -443,11 +456,12 @@ export async function ensureControlPanel(env: Env): Promise<string> {
 export async function updateControlPanel(env: Env): Promise<void> {
   const ts = await kvGet(env.DB, KV_CONTROL_PANEL_TS);
   const enabled = await isBotEnabled(env.DB);
+  const autoUntil = await getAutoModeUntil(env.DB);
   if (!ts) {
     await ensureControlPanel(env);
     return;
   }
-  await updateMessage(env, ts, controlPanelBlocks(enabled), "Panel de control");
+  await updateMessage(env, ts, controlPanelBlocks(enabled, autoUntil), "Panel de control");
 }
 
 // ---- card-update helpers (chat.update terminal states) ----

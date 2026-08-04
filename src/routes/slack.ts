@@ -20,9 +20,15 @@ import {
 } from "../services/slack-timeouts.js";
 import {
   markApprovedCard,
+  postNote,
   sendHumanFollowupTemplate,
   updateControlPanel,
 } from "../services/slack.js";
+import {
+  armAutoMode,
+  autoModeEndLabel,
+  disarmAutoMode,
+} from "../services/auto-mode.js";
 import {
   approveAndSend,
   discardApproval,
@@ -103,6 +109,10 @@ async function dispatchAction(env: Env, action: ParsedAction): Promise<void> {
         return await onBotToggle(env, false);
       case "bot_resume":
         return await onBotToggle(env, true);
+      case "auto_night":
+        return await onAutoMode(env, true);
+      case "auto_manual":
+        return await onAutoMode(env, false);
       case "attended_yes":
         return await onAttendance(env, action.arg, true);
       case "attended_no":
@@ -196,6 +206,26 @@ async function openEditModal(
 
 async function onBotToggle(env: Env, enabled: boolean): Promise<void> {
   await kvSet(env.DB, "bot_enabled", enabled ? "true" : "false");
+  await updateControlPanel(env);
+}
+
+/**
+ * 🌙 Night mode: arm ⇒ full-auto (no approval on high-confidence replies)
+ * until the next 07:00 CDMX, when the kv window lapses on its own; disarm ⇒
+ * back to manual immediately. Both refresh the pinned panel and leave an
+ * audit note in the channel.
+ */
+async function onAutoMode(env: Env, arm: boolean): Promise<void> {
+  if (arm) {
+    const until = await armAutoMode(env.DB);
+    await postNote(
+      env,
+      `🌙 *Modo nocturno ACTIVADO* — el bot responde solo (sin aprobación) hasta las *${autoModeEndLabel(until)}*. Respuestas de baja confianza siguen quedando en borrador.`,
+    );
+  } else {
+    await disarmAutoMode(env.DB);
+    await postNote(env, "🎓 *Modo manual* — cada respuesta vuelve a requerir aprobación.");
+  }
   await updateControlPanel(env);
 }
 

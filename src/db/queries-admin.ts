@@ -12,6 +12,7 @@ import type {
 } from "../types.js";
 import { cdmxMonthStr, cdmxParts, cdmxToEpoch, DAY } from "../cron/time.js";
 import { isBotEnabled, kvGet } from "./queries.js";
+import { AUTO_MODE_KV, autoModeActive } from "../services/auto-mode.js";
 
 const now = (): number => Math.floor(Date.now() / 1000);
 
@@ -983,6 +984,10 @@ export async function resetConversation(
  * var. Used by the pipeline (replacing the direct env read) and the dashboard.
  */
 export async function getTrainingWheels(env: Env): Promise<boolean> {
+  // Time-boxed night mode wins while its window is open: full auto until the
+  // stored epoch (next 07:00 CDMX) lapses, then the standing config resumes.
+  const auto = await kvGet(env.DB, AUTO_MODE_KV);
+  if (autoModeActive(auto, Math.floor(Date.now() / 1000))) return false;
   const override = await kvGet(env.DB, "training_wheels");
   if (override === "1") return true;
   if (override === "0") return false;
