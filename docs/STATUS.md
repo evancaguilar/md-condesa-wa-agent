@@ -2,6 +2,30 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-04**.
 
+### Inbox v2 (shipped 2026-08-04 morning — 4 commits, 10be1ad..1a0aaa7)
+
+The /admin Chats inbox is now a team tool. Built via multi-agent workflow + 3-verifier adversarial pass (which caught 1 real BLOCKER pre-push — the verify-fixes commit).
+
+- **/health `rev`** — content hash of src/** (tools/gen-rev.mjs → src/rev.gen.ts). THE deploy fingerprint for code-only deploys (kbVersion can't see them). Verify: `node tools/gen-rev.mjs` at a commit == served `rev`.
+- **Draft cards capped** (#pendWrap/.pbody scroll) — the transcript is always visible.
+- **Assign to anyone**: header dropdown (— Sin asignar — / roster from `GET /admin/api/staff`); action row memoized so the open dropdown survives the 5s poll. Needs fer/vale accounts created in Usuarios.
+- **Shared read/unread**: `contacts.read_at` (⚠️ migration below), 📩 No leído header action (works even when the last message is ours), "No leídos" filter chip, open chats advance the shared watermark. Pre-migration: falls back to per-browser localStorage, zero regression.
+- **Send later ⏰**: composer button + presets (Mañana 8:00 / Hoy 18:00 / En 1h) + datetime; rides `followups` kind `staff_later` (no migration). Auto-cancels if the lead writes first (text preserved on a 🚫 card with 📋 Usar en composer); quiet-hours clamp; window-closed at fire time = LOUD Slack note; sends as staff (pauses bot like any staff reply). At-most-once with claim-release-on-failure (the BLOCKER fix: a transient Graph error now retries instead of laundering into a fake 'sent').
+- **🪄 Reescribir (guided rewrite)**: tell the bot how to change a pending draft ("ofrécele el horario de mañana"); `POST /approvals/:id/rewrite` runs a bare no-tools model call (book_trial can't fire); result lands in the edit box for review; sending via the normal edit path logs the draft→final pair for the edit tuner. In Chats pendcards + Aprobaciones.
+- **Opt-out hardening**: `sendTemplate` throws OptedOutError for baja'd contacts (universal backstop incl. future broadcasts); result-watcher sends skip baja; a baja discards pending drafts (gate 3 + claimAndSend race defense); staff sends soft-block with clear toasts; **manual 🚫 baja via the existing status control** (`POST .../status {status:"opted_out"}`) with gate-3 side effects + kv audit + Slack note; unknown status values 400 (no more silent un-baja).
+- **📝 Historial de ediciones** panel in the Editor view (lazy, diff cards, phone links into Chats) — completes the edit-tuner loop UI.
+- Tests 339 → **360**, all green.
+
+### ⚠️ Evan's checklist (Inbox v2)
+
+- [ ] **D1 migration** (console paste; mirrored at end of schema.sql): `ALTER TABLE contacts ADD COLUMN read_at INTEGER;` — until then read/unread is per-browser like before.
+- [ ] Create **fer/vale** accounts in /admin → Usuarios (needs the inbox-v1 admin_users migration) so the assign dropdown has people.
+- [ ] **Mark `oswinvaldes` +52 55 1909 4323 as baja** ("No y bloqueame", 2026-08-03 23:03 — NOT one of the 9 exact opt-out phrases, so the gate did NOT flag him; the polite reply was the brain). One tap now: his chat → status → 🚫 baja.
+- [ ] **Submit the template pack on WABA 1582515279931864 + payment method** — still the highest-leverage item: day-before/same-day reminders silently do nothing until then. Answer to the confirmation question: day-of confirm for a booking made days earlier REQUIRES a template (window closed) → `trial_reminder_same_day` (Utility) already covers it in the pack.
+- [ ] Cloudflare → Workers Builds: confirm last night's + this morning's builds deployed (/health `rev` should be `40056eea736b`).
+
+Deferred by decision: broadcast/plantillas panels (phase 2, after templates+payment), profile photos (Meta doesn't expose them — skipped), nightly auto-arm of night mode (stays manual).
+
 ### Keyword campaign matching + edit-learning loop (shipped 2026-08-04)
 
 **Ad-keyword matching kills the ad-id treadmill.** Campaign attribution is now three-tier (gate 3b): exact ad-id → **ad-creative keywords** (`campaigns.ad_keywords`, comma-separated phrases matched normalized/whole-phrase against the referral headline+body) → trigger phrase. A keyword/trigger match on an ad referral **auto-learns** the new ad id into the campaign's `ad_id` (race-safe append + one-time Slack note "🔗 Anuncio … vinculado"). New ads self-attribute + self-register — no more manual id entry. Campañas UI has the keywords field (create + edit, 🔑 chip); Probar has "📣 Simular anuncio" (headline/texto/ad id, no auto-learn from sandbox); the Editor's propose_campaign can set keywords.
