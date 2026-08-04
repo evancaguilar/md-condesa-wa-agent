@@ -996,6 +996,54 @@ export async function resetConversation(
     .run();
 }
 
+// ---- scheduled staff sends ("send later") ----
+
+export interface StaffLaterRow {
+  id: number;
+  dueAt: number;
+  status: string;
+  note: string | null;
+}
+
+/**
+ * staff_later rows for one phone's chat detail: everything still scheduled,
+ * plus rows cancelled since `cancelledSince` so staff can recover the text
+ * after the lead wrote first (older cancellations drop off the panel).
+ */
+export async function listStaffLater(
+  db: D1Database,
+  phone: string,
+  cancelledSince: number,
+  limit = 10,
+): Promise<StaffLaterRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, due_at AS dueAt, status, note FROM followups
+       WHERE phone = ?1 AND kind = 'staff_later'
+         AND (status = 'scheduled' OR (status = 'cancelled' AND created_at >= ?2))
+       ORDER BY due_at ASC LIMIT ?3`,
+    )
+    .bind(phone, cancelledSince, limit)
+    .all<StaffLaterRow>();
+  return results;
+}
+
+/**
+ * Race-safe cancel against the cron: only a still-'scheduled' row flips, so a
+ * tap that lands while the tick is sending returns false instead of pretending
+ * the message was stopped.
+ */
+export async function cancelStaffLater(db: D1Database, id: number): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE followups SET status = 'cancelled'
+       WHERE id = ?1 AND kind = 'staff_later' AND status = 'scheduled'`,
+    )
+    .bind(id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
 // ---- training wheels (kv override, env fallback) ----
 
 /**

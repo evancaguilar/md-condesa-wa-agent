@@ -220,6 +220,11 @@ export type FollowupKind =
   | "nudge_d3"
   | "nudge_d4"
   | "nudge_d5"
+  /** Staff-composed reply queued from the dashboard composer ("send later").
+   *  note = JSON {text, by}; airtable_record_id = 'later:<client token>' so the
+   *  UNIQUE(phone, kind, airtable_record_id) index dedupes per submit instead of
+   *  capping the lead at one queued message. */
+  | "staff_later"
   | "custom";
 
 export type FollowupStatus = "scheduled" | "sent" | "cancelled" | "skipped_optout";

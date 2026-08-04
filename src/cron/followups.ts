@@ -49,6 +49,7 @@ import {
   type NudgeKind,
   type ExtendedKind,
 } from "./nudges.js";
+import { parseStaffLaterNote, sendStaffText } from "../services/staff-send.js";
 import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
 
@@ -284,6 +285,60 @@ async function processOne(
         await markFollowup(env.DB, f.id, "cancelled");
       } else {
         await markFollowup(env.DB, f.id, res.outcome);
+      }
+      return;
+    }
+
+    case "staff_later": {
+      // Staff-composed reply queued from the dashboard composer. Opt-out was
+      // already handled by the early return at the top of processOne.
+      const later = parseStaffLaterNote(f.note);
+      if (!later) {
+        console.error(`[followups] staff_later #${f.id}: unparseable note`);
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
+      // The lead wrote first → the queued reply is stale. The row keeps its
+      // text so the panel can hand it back to staff.
+      if ((contact?.last_inbound_at ?? 0) > f.created_at) {
+        await markFollowup(env.DB, f.id, "cancelled");
+        await deps.slack.postNote(
+          `🕐 Envío programado de ${byLabel(later.by)} a ${f.phone} cancelado: el lead escribió primero — el texto quedó guardado en el panel.`,
+        );
+        return;
+      }
+      if (isQuietHour(nowSec())) {
+        await rescheduleRow(env, f, next8am(nowSec()));
+        return;
+      }
+      // clientToken derives from the row id, so a retry after a transient
+      // failure re-claims the same kv key: at-most-once, never a double send.
+      const res = await sendStaffText(
+        env,
+        f.phone,
+        later.text,
+        later.by,
+        `later:${f.id}`,
+        {
+          sendText: (e, p, b, opts) => sendText(e, p, b, opts),
+          isWindowClosed: (err) => err instanceof WindowClosedError,
+          postNote: (_e, text) => deps.slack.postNote(text),
+        },
+      );
+      // 'duplicate' = the claim was burned by a send that already landed.
+      if (res.ok || res.reason === "duplicate") {
+        await markFollowup(env.DB, f.id, "sent");
+        return;
+      }
+      await markFollowup(env.DB, f.id, "cancelled");
+      if (res.reason === "window_closed") {
+        // Loud: a human decides whether to re-engage (never an auto template).
+        await deps.slack.postNote(
+          `⏰ Mensaje programado de ${byLabel(later.by)} para ${f.phone} NO enviado: ventana de 24h cerrada.`,
+        );
+      } else if (res.reason !== "opted_out") {
+        // opted_out is already audited by the kv marker + the opt-out gate.
+        console.error(`[followups] staff_later #${f.id} not sent: ${res.reason}`);
       }
       return;
     }
@@ -613,6 +668,11 @@ function customText(note: string | null, lang: string): string {
   const n = (note ?? "").trim();
   if (n) return n;
   return lang === "en" ? CLIENT.copy.checkinEn : CLIENT.copy.checkinEs;
+}
+
+/** Slack attribution for a staff_later row whose note predates the `by` field. */
+function byLabel(by: string): string {
+  return by || "el equipo";
 }
 
 function nowSec(): number {

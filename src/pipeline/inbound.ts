@@ -39,6 +39,7 @@ import {
 import { flagOptOutInAirtable, syncLead } from "../services/lead-sync.js";
 import {
   appendCampaignAdId,
+  cancelFollowupsByKinds,
   getActiveCampaigns,
   getCampaign,
   getTrainingWheels,
@@ -189,6 +190,10 @@ export async function processInbound(
   // drip re-arms after the next bot reply (auto-send or approved). Runs before
   // the gates so the drip is cleared even for kill-switch/override/opt-out paths.
   await cancelNudges(env, msg.phone);
+  // Same reset for a staff "send later": the lead spoke first, so the queued
+  // text must not go out. This clears the dashboard card immediately; the
+  // fire-time last_inbound_at check in cron/followups is the race-proof twin.
+  await cancelFollowupsByKinds(env.DB, msg.phone, ["staff_later"]);
 
   // 2. Global kill switch.
   if (!(await isBotEnabled(env.DB))) {

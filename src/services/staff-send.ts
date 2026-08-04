@@ -117,6 +117,45 @@ export async function sendStaffText(
   };
 }
 
+// ---- scheduled staff sends (F2 "send later") ----
+
+/** Payload stored in followups.note for kind='staff_later'. */
+export interface StaffLaterNote {
+  text: string;
+  by: string;
+}
+
+/** Furthest a staff reply may be queued into the future. */
+export const STAFF_LATER_MAX_HORIZON_SECONDS = 14 * 24 * 3600;
+
+/** Client idempotency token shape accepted by the send-later route. */
+export const STAFF_LATER_TOKEN_RE = /^[A-Za-z0-9_-]{6,64}$/;
+
+export function staffLaterNote(text: string, by: string): string {
+  return JSON.stringify({ text, by });
+}
+
+/**
+ * cron/followups.bumpAttempts appends '|attempts:N' to `note` on transient
+ * failures, so the suffix MUST be stripped before JSON.parse (mirror of
+ * readAttempts). Returns null for anything unparseable — callers cancel the row
+ * rather than throwing, so one bad note can never stall the tick.
+ */
+export function parseStaffLaterNote(note: string | null): StaffLaterNote | null {
+  const raw = (note ?? "").replace(/\s*\|?attempts:\d+$/, "").trim();
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const o = parsed as { text?: unknown; by?: unknown };
+  if (typeof o.text !== "string" || !o.text.trim()) return null;
+  return { text: o.text, by: typeof o.by === "string" ? o.by : "" };
+}
+
 // ---- staff media send (R2: dashboard attachments) ----
 
 export interface StaffMediaInput {

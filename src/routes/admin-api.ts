@@ -37,6 +37,7 @@ import {
   recentMessages,
   getPendingApprovals,
   newestInboundWamid,
+  scheduleFollowup,
   setContactStatus,
   setHumanOverride,
   accrueUsage,
@@ -72,8 +73,19 @@ import {
   updateAdminUser,
   setAssignedToSoft,
   setReadAtSoft,
+  listStaffLater,
+  cancelStaffLater,
 } from "../db/queries-admin.js";
-import { sendStaffMedia, sendStaffText } from "../services/staff-send.js";
+import {
+  sendStaffMedia,
+  sendStaffText,
+  parseStaffLaterNote,
+  staffLaterNote,
+  STAFF_LATER_MAX_HORIZON_SECONDS,
+  STAFF_LATER_TOKEN_RE,
+  STAFF_TEXT_MAX,
+} from "../services/staff-send.js";
+import { shiftOutOfQuiet } from "../cron/quiet.js";
 import {
   markRead,
   sendMedia,
@@ -98,7 +110,9 @@ import {
   discardApproval,
   type ApprovalResult,
 } from "../services/approvals.js";
-import { runKbChat, applyProposal } from "../services/kb-editor.js";
+import { runKbChat, applyProposal, accrueChatUsage } from "../services/kb-editor.js";
+import { callAnthropic, unescapeNewlines } from "../brain/claude.js";
+import { buildSystem } from "../brain/prompt.js";
 import { runEditAnalysis } from "../services/edit-tuner.js";
 import { createBrainWithKb, makeOverlayLoader } from "../brain/index.js";
 import { updateControlPanel } from "../services/slack.js";
@@ -303,7 +317,7 @@ export async function handleAdminApi(
   }
 
   const convoMatch = path.match(
-    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media))?$/,
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-later))?$/,
   );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
@@ -319,6 +333,9 @@ export async function handleAdminApi(
     }
     if (sub === "send-media" && method === "POST") {
       return handleStaffSendMedia(req, env, ports, phone, session);
+    }
+    if (sub === "send-later" && method === "POST") {
+      return handleSendLater(req, env, phone, session);
     }
     if (sub === "assign" && method === "POST") {
       return handleAssign(req, env, phone);
@@ -342,6 +359,12 @@ export async function handleAdminApi(
       return json({ ok: true });
     }
     return json({ error: "not_found" }, 404);
+  }
+
+  // ---- scheduled staff sends ----
+  const schedMatch = path.match(/^\/admin\/api\/scheduled\/(\d+)\/cancel$/);
+  if (schedMatch && method === "POST") {
+    return json({ ok: await cancelStaffLater(env.DB, Number(schedMatch[1])) });
   }
 
   // ---- approvals ----
@@ -369,6 +392,12 @@ export async function handleAdminApi(
       );
     }
     return approvalJson(result);
+  }
+
+  const rewriteMatch = path.match(/^\/admin\/api\/approvals\/(\d+)\/rewrite$/);
+  if (rewriteMatch && method === "POST") {
+    const body = await readJson<{ guidance?: string }>(req);
+    return handleApprovalRewrite(env, Number(rewriteMatch[1]), body.guidance ?? "");
   }
 
   // ---- KB ----
@@ -644,6 +673,49 @@ async function handleStaffSend(
   return json(result);
 }
 
+// ---- scheduled staff send ("send later") ----
+
+/**
+ * Queues a staff-composed reply as a followups row (kind='staff_later'). The due
+ * time is clamped out of quiet hours here; the 24h window is deliberately NOT
+ * checked now — it is re-checked at fire time, where a closed window becomes a
+ * loud Slack note instead of a silently swapped template.
+ */
+async function handleSendLater(
+  req: Request,
+  env: Env,
+  phone: string,
+  session: Session,
+): Promise<Response> {
+  const body = await readJson<{ text?: string; dueAt?: number; token?: string }>(req);
+  const text = (body.text ?? "").trim();
+  if (!text) return json({ error: "empty" }, 400);
+  if (text.length > STAFF_TEXT_MAX) return json({ error: "too_long" }, 400);
+  const token = (body.token ?? "").trim();
+  if (!STAFF_LATER_TOKEN_RE.test(token)) return json({ error: "token_required" }, 400);
+  const now = nowSec();
+  const dueAt = Math.floor(Number(body.dueAt));
+  if (
+    !Number.isFinite(dueAt) ||
+    dueAt <= now ||
+    dueAt > now + STAFF_LATER_MAX_HORIZON_SECONDS
+  ) {
+    return json({ error: "bad_due_at" }, 400);
+  }
+  if (!(await getContact(env.DB, phone))) return json({ error: "no_contact" }, 404);
+  const clamped = shiftOutOfQuiet(dueAt);
+  // INSERT OR IGNORE on UNIQUE(phone, kind, airtable_record_id): a double submit
+  // carrying the same client token is a no-op, never a second queued message.
+  await scheduleFollowup(env.DB, {
+    phone,
+    kind: "staff_later",
+    dueAt: clamped,
+    airtableRecordId: `later:${token}`,
+    note: staffLaterNote(text, session.user),
+  });
+  return json({ ok: true, dueAt: clamped });
+}
+
 // ---- staff media send (multipart: file + token + caption?) ----
 
 const MEDIA_MAX_BYTES = 16 * 1024 * 1024; // WA image limit; videos/docs also capped here (v1)
@@ -759,6 +831,9 @@ async function handleBotToggle(
 
 // ---- conversations ----
 
+/** How long a cancelled staff_later row stays visible in the chat detail. */
+const SCHEDULED_CANCELLED_TTL = 48 * 3600;
+
 function clampLimit(raw: string | null, dflt: number): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return dflt;
@@ -787,6 +862,71 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
   return json({ items, now });
 }
 
+/**
+ * Guided rewrite: the reviewer tells the model HOW to change a pending draft
+ * and gets a new draft back. Deliberately a bare callAnthropic with NO tools —
+ * not brain.respond — so book_trial can never fire from a rewrite. Never sends
+ * and never resolves the approval: the client drops the text into the edit box
+ * and the normal edit path (editAndSend → insertEdit) both sends and logs the
+ * draft→final pair, so every guided rewrite feeds the edit tuner.
+ */
+async function handleApprovalRewrite(
+  env: Env,
+  id: number,
+  guidance: string,
+): Promise<Response> {
+  const g = guidance.trim();
+  if (!g || g.length > 500) return json({ error: "bad_guidance" }, 400);
+  const pending = await getPendingApprovals(env.DB);
+  const a = pending.find((x) => x.id === id);
+  if (!a) return json({ error: "not_pending" }, 404);
+
+  const [contact, history] = await Promise.all([
+    getContact(env.DB, a.phone),
+    recentMessages(env.DB, a.phone, 15),
+  ]);
+  const overlay = await makeOverlayLoader(env.DB)();
+  // Same emoji speaker prefixes the approval context uses — the model has seen
+  // this transcript format in every draft it produced.
+  const convo = history
+    .map((m) => {
+      const who =
+        m.direction === "in"
+          ? "👤"
+          : m.direction === "out_human" || m.direction === "out_human_echo"
+            ? "🧑"
+            : "🤖";
+      return `${who} ${m.body}`;
+    })
+    .join("\n");
+  const user = [
+    `<conversation>\n${convo}\n</conversation>`,
+    `<current_draft>\n${a.draft}\n</current_draft>`,
+    `<staff_guidance>\n${g}\n</staff_guidance>`,
+    contact?.name ? `Lead: ${contact.name}` : "",
+    "Reescribe el borrador siguiendo la indicación del staff. Mantén la voz del bot (cálida, breve, emojis ligeros) y el idioma del lead. Responde ÚNICAMENTE con el texto final del mensaje de WhatsApp — sin comillas, sin explicación.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const resp = await callAnthropic(
+    fetch,
+    env.ANTHROPIC_API_KEY,
+    buildSystem(KB, overlay),
+    [{ role: "user", content: user }],
+    [],
+    600,
+  );
+  await accrueChatUsage(env, resp.usage);
+  const text = resp.content
+    .filter((b): b is { type: "text"; text: string } => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim();
+  if (!text) return json({ error: "empty" }, 502);
+  return json({ ok: true, text: unescapeNewlines(text) });
+}
+
 async function handleConversationDetail(
   env: Env,
   phone: string,
@@ -796,12 +936,20 @@ async function handleConversationDetail(
   const sinceRaw = Number(url.searchParams.get("since"));
   const since =
     Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const [contact, messages, pending] = await Promise.all([
+  const [contact, messages, pending, laterRows] = await Promise.all([
     getContact(env.DB, phone),
     recentMessages(env.DB, phone, 100, since),
     getPendingApprovals(env.DB, phone),
+    listStaffLater(env.DB, phone, nowSec() - SCHEDULED_CANCELLED_TTL),
   ]);
   if (!contact) return json({ error: "not_found" }, 404);
+  // Unparseable notes are skipped, not surfaced — the cron cancels those rows.
+  const scheduled = laterRows.flatMap((r) => {
+    const note = parseStaffLaterNote(r.note);
+    return note
+      ? [{ id: r.id, dueAt: r.dueAt, status: r.status, text: note.text, by: note.by }]
+      : [];
+  });
   // Campaign name for the header attribution pill (best-effort).
   let campaignName: string | null = null;
   if (contact.campaign_id != null) {
@@ -811,7 +959,7 @@ async function handleConversationDetail(
       campaignName = null;
     }
   }
-  return json({ contact, messages, pending, campaignName, now: nowSec() });
+  return json({ contact, messages, pending, scheduled, campaignName, now: nowSec() });
 }
 
 async function handlePause(req: Request, env: Env, phone: string): Promise<Response> {

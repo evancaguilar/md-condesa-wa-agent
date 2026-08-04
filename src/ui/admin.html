@@ -492,7 +492,7 @@ async function setTrainingWheels(on){
 
 // ---------- CHATS (live inbox) ----------
 var chatsCache={items:[],openPhone:null,firstLoad:true,filter:(function(){try{return localStorage.getItem("md_chatfilter")||"all";}catch(e){return "all";}})()};
-var chatState={phone:null,lastTs:0,seen:{},lastDay:"",pendKey:"",contact:null,windowOpen:true,tick:0,sending:false};
+var chatState={phone:null,lastTs:0,seen:{},lastDay:"",pendKey:"",schedKey:"",laterToken:null,contact:null,windowOpen:true,tick:0,sending:false};
 
 function readMap(){ try{ return JSON.parse(localStorage.getItem("md_read")||"{}"); }catch(e){ return {}; } }
 function markReadLocal(phone,ts){
@@ -643,7 +643,7 @@ function convoChips(c){
 // Renders the chat SHELL once; messages/pending/header refresh via detailTick.
 async function openChat(phone){
   chatsCache.openPhone=phone;
-  chatState={phone:phone,lastTs:0,seen:{},lastDay:"",pendKey:"",contact:null,windowOpen:true,tick:chatState.tick,sending:false};
+  chatState={phone:phone,lastTs:0,seen:{},lastDay:"",pendKey:"",schedKey:"",laterToken:null,contact:null,windowOpen:true,tick:chatState.tick,sending:false};
   qa("#chatList .lrow").forEach(function(b){ b.classList.toggle("sel",b.getAttribute("data-phone")===phone); });
   var isMobile=!window.matchMedia("(min-width:768px)").matches;
   var det=el("chatDetail");
@@ -655,18 +655,37 @@ async function openChat(phone){
     +'<div id="pauseBanner"></div>'
     +'<div class="transcript" id="bubWrap"><div class="loading"><span class="spin"></span></div></div>'
     +'<div id="pendWrap"></div>'
+    +'<div id="schedWrap"></div>'
     +'<div class="row" style="flex-wrap:wrap;margin-top:8px;flex:none" id="convoActions"></div>'
     +'<div class="composer" id="chatComposer">'
     +'<button class="btn" id="chatAttach" title="Adjuntar imagen, video o PDF" style="flex:none">📎</button>'
     +'<input type="file" id="chatFile" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" style="display:none">'
     +'<textarea class="field" id="chatTa" placeholder="Escribe un mensaje…"></textarea>'
+    +'<button class="btn" id="chatLater" title="Programar envío" style="flex:none">⏰</button>'
     +'<button class="btn gold" id="chatSend">Enviar</button></div>'
+    +'<div class="editbox hidden" id="laterBox" style="margin-top:8px;flex:none">'
+    +'<div class="row" style="flex-wrap:wrap">'
+    +'<button class="btn sm" data-later="tomorrow8">Mañana 8:00</button>'
+    +'<button class="btn sm" data-later="today18">Hoy 18:00</button>'
+    +'<button class="btn sm" data-later="in1h">En 1 hora</button></div>'
+    +'<input type="datetime-local" class="field" id="laterAt" style="margin-top:6px">'
+    +'<button class="btn gold sm" id="laterGo" style="margin-top:6px">Programar</button>'
+    +'<div class="muted sm" style="margin-top:4px">Se envía el texto del recuadro. Se cancela solo si el lead escribe antes, y necesita la ventana de 24h abierta a esa hora.</div>'
+    +'</div>'
     +'<div class="windowhint hidden" id="windowHint">Ventana de 24h cerrada — se reabre cuando el lead escriba.</div>'
     +'</div>';
   var ta=el("chatTa");
   el("chatSend").onclick=sendChatMsg;
   el("chatAttach").onclick=function(){ el("chatFile").click(); };
   el("chatFile").onchange=function(){ sendChatMedia(); };
+  el("chatLater").onclick=function(){ el("laterBox").classList.toggle("hidden"); };
+  el("laterGo").onclick=scheduleChatMsg;
+  qa("#laterBox [data-later]").forEach(function(b){
+    b.onclick=function(){
+      var inp=el("laterAt");
+      if(inp) inp.value=dtLocalValue(laterPreset(b.getAttribute("data-later")));
+    };
+  });
   ta.addEventListener("keydown",function(ev){
     var desktop=window.matchMedia("(min-width:768px)").matches;
     if(ev.key==="Enter" && !ev.shiftKey && (desktop || ev.ctrlKey || ev.metaKey)){
@@ -691,6 +710,7 @@ async function detailTick(full){
   renderChatHeader(d.now);
   appendMessages(d.messages||[], full);
   renderPendingCards(d.pending||[]);
+  renderScheduledCards(d.scheduled||[]);
   // Mark read locally (badge) + blue ticks to the lead on open.
   if(chatState.lastTs){
     markReadLocal(phone, chatState.lastTs);
@@ -739,6 +759,11 @@ function renderChatHeader(nowSec){
     send.disabled=!chatState.windowOpen || chatState.sending;
     hint.classList.toggle("hidden",chatState.windowOpen);
   }
+  // Programar follows the same rule: the window must be open now AND at fire time.
+  var later=el("chatLater"), laterGo=el("laterGo"), laterBox=el("laterBox");
+  if(later) later.disabled=!chatState.windowOpen;
+  if(laterGo) laterGo.disabled=!chatState.windowOpen;
+  if(laterBox && !chatState.windowOpen) laterBox.classList.add("hidden");
   var acts=el("convoActions");
   if(acts){
     var html="";
@@ -811,7 +836,10 @@ function renderPendingCards(pending){
       +'<button class="btn sm" data-pa="edit">✏️ Editar</button>'
       +'<button class="btn red sm" data-pa="discard">🗑 Descartar</button></div>'
       +'<div class="editbox hidden" style="margin-top:8px"><textarea class="field ta">'+esc(p.draft||"")+'</textarea>'
-      +'<button class="btn gold sm sendedit" style="margin-top:6px">Enviar</button></div>'
+      +'<div class="row" style="margin-top:6px;flex-wrap:wrap">'
+      +'<input class="field guide" style="flex:1;min-width:180px;margin-top:0" placeholder="Dile al bot cómo cambiarlo… (ej. ofrécele el horario de mañana)">'
+      +'<button class="btn blue sm rewrite">🪄 Reescribir</button>'
+      +'<button class="btn gold sm sendedit">Enviar</button></div></div>'
       +'</div>';
   }).join("");
   pending.forEach(function(p){
@@ -826,6 +854,7 @@ function renderPendingCards(pending){
         detailTick(false); refreshOverviewSilent();
       };
     });
+    q(".rewrite",card).onclick=function(){ rewriteDraft(p.id,card); };
     q(".sendedit",card).onclick=async function(){
       var txt=q(".ta",card).value;
       if(!txt.trim()){ toast("Escribe una respuesta","err"); return; }
@@ -833,6 +862,133 @@ function renderPendingCards(pending){
       pendResultToast(st,"edit");
       card.remove(); chatState.pendKey="";
       detailTick(false); refreshOverviewSilent();
+    };
+  });
+}
+// Guided rewrite: POST the staff guidance, drop the result into the edit
+// textarea for review — the send still goes through the normal edit path
+// (which logs the draft→final pair for the tuner). Never auto-sends.
+async function rewriteDraft(id,card){
+  var input=q(".guide",card), btn=q(".rewrite",card);
+  var g=(input&&input.value||"").trim();
+  if(!g){ toast("Escribe una indicación para el bot","err"); return; }
+  btn.disabled=true; var old=btn.textContent; btn.textContent="🪄 Pensando…";
+  try{
+    var r=await api("/approvals/"+id+"/rewrite",{method:"POST",body:{guidance:g}});
+    if(r&&r.ok&&r.text){
+      q(".editbox",card).classList.remove("hidden");
+      q(".ta",card).value=r.text;
+      toast("Borrador reescrito — revísalo y Enviar");
+    } else { toast("No se pudo reescribir","err"); }
+  }catch(e){
+    if(e&&e.data&&e.data.error==="not_pending"){
+      toast("Ya resuelta","err"); card.remove(); chatState.pendKey=""; detailTick(false);
+    } else { toast("No se pudo reescribir","err"); }
+  }
+  btn.disabled=false; btn.textContent=old;
+}
+// ---- send later (scheduled staff replies) ----
+
+// Presets run off the BROWSER clock (staff are in CDMX) and travel as epoch
+// seconds; the server clamps quiet hours. Past targets roll to the next day so
+// the route never rejects a chip for being in the past.
+function laterPreset(kind){
+  var now=new Date();
+  if(kind==="in1h") return new Date(now.getTime()+3600000);
+  var t=new Date(now);
+  if(kind==="today18"){
+    t.setHours(18,0,0,0);
+    if(t.getTime()<=now.getTime()) t.setDate(t.getDate()+1);
+    return t;
+  }
+  t.setDate(t.getDate()+1); t.setHours(8,0,0,0);
+  return t;
+}
+function dtLocalValue(d){
+  function p(n){ return (n<10?"0":"")+n; }
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())
+    +"T"+p(d.getHours())+":"+p(d.getMinutes());
+}
+// Displayed times are CDMX (the academy's clock), whatever the browser's tz is.
+function cdmxClock(ts){
+  if(!ts) return "";
+  var ms= ts<1e12 ? ts*1000 : ts;
+  return new Intl.DateTimeFormat("es-MX",{timeZone:"America/Mexico_City",hour:"2-digit",minute:"2-digit"}).format(new Date(ms));
+}
+function schedWhen(ts){ return cdmxDayLabel(ts)+" "+cdmxClock(ts); }
+// One token per composed message, so a double submit hits INSERT OR IGNORE.
+function laterToken(){
+  if(!chatState.laterToken) chatState.laterToken=newToken();
+  return chatState.laterToken;
+}
+async function scheduleChatMsg(){
+  var phone=chatState.phone; if(!phone) return;
+  var ta=el("chatTa"); if(!ta) return;
+  var text=ta.value;
+  if(!text.trim()){ toast("Escribe el mensaje abajo y luego programa","err"); return; }
+  var inp=el("laterAt");
+  var when=(inp && inp.value) ? new Date(inp.value) : null;
+  if(!when || isNaN(when.getTime())){ toast("Elige fecha y hora","err"); return; }
+  var dueAt=Math.floor(when.getTime()/1000);
+  if(dueAt<=Math.floor(Date.now()/1000)){ toast("Esa hora ya pasó","err"); return; }
+  var btn=el("laterGo"); if(btn) btn.disabled=true;
+  var r;
+  try{
+    r=await api("/conversations/"+encodeURIComponent(phone)+"/send-later",
+      {method:"POST",body:{text:text,dueAt:dueAt,token:laterToken()}});
+  }catch(e){
+    if(btn) btn.disabled=false;
+    var err=(e.data&&e.data.error)||"";
+    if(err==="too_long") toast("Mensaje demasiado largo (máx 4096)","err");
+    else if(err==="bad_due_at") toast("Fecha fuera de rango (máx 14 días)","err");
+    else if(err==="no_contact") toast("Contacto no encontrado","err");
+    else toast("No se pudo programar","err");
+    return;
+  }
+  if(btn) btn.disabled=false;
+  chatState.laterToken=null;
+  ta.value="";
+  if(inp) inp.value="";
+  if(el("laterBox")) el("laterBox").classList.add("hidden");
+  chatState.schedKey="";
+  toast("Programado para "+schedWhen((r&&r.dueAt)?r.dueAt:dueAt),"ok");
+  detailTick(false);
+}
+function renderScheduledCards(list){
+  var wrap=el("schedWrap"); if(!wrap) return;
+  var key=list.map(function(s){return s.id+":"+s.status;}).join(",");
+  if(key===chatState.schedKey) return; // 5s poll must not stomp an open card
+  chatState.schedKey=key;
+  if(!list.length){ wrap.innerHTML=""; return; }
+  wrap.innerHTML=list.map(function(s){
+    var head= s.status==="scheduled"
+      ? '🕐 Programado para '+esc(schedWhen(s.dueAt))+(s.by?' · @'+esc(s.by):'')
+      : '🚫 Cancelado (el lead escribió primero)';
+    var btn= s.status==="scheduled"
+      ? '<button class="btn red sm" data-sa="cancel">🗑 Cancelar</button>'
+      : '<button class="btn sm" data-sa="reuse">📋 Usar en composer</button>';
+    return '<div class="pendcard" id="sched-'+s.id+'">'
+      +'<div class="lbl">'+head+'</div>'
+      +'<div class="pbody" style="font-size:14px;white-space:pre-wrap;word-break:break-word">'+esc(s.text||"")+'</div>'
+      +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'+btn+'</div></div>';
+  }).join("");
+  list.forEach(function(s){
+    var card=el("sched-"+s.id); if(!card) return;
+    var b=q("[data-sa]",card); if(!b) return;
+    b.onclick=async function(){
+      if(b.getAttribute("data-sa")==="reuse"){
+        var ta=el("chatTa");
+        if(ta && !ta.disabled){ ta.value=s.text||""; ta.focus(); toast("Texto copiado al recuadro","ok"); }
+        else toast("Ventana de 24h cerrada","err");
+        return;
+      }
+      b.disabled=true;
+      var r=null;
+      try{ r=await api("/scheduled/"+s.id+"/cancel",{method:"POST"}); }catch(e){}
+      if(r && r.ok) toast("Envío programado cancelado","ok");
+      else toast("Ya no se pudo cancelar","err");
+      chatState.schedKey="";
+      detailTick(false);
     };
   });
 }
@@ -1057,7 +1213,10 @@ function apprCard(it){
     +'<button class="btn sm" data-a="edit">✏️ Editar</button>'
     +'<button class="btn red sm" data-a="discard">🗑 Descartar</button></div>'
     +'<div class="editbox hidden" style="margin-top:10px"><textarea class="field ta">'+esc(it.draft||"")+'</textarea>'
-    +'<button class="btn gold sm sendedit" style="margin-top:8px">Enviar</button></div>'
+    +'<div class="row" style="margin-top:8px;flex-wrap:wrap">'
+    +'<input class="field guide" style="flex:1;min-width:180px;margin-top:0" placeholder="Dile al bot cómo cambiarlo…">'
+    +'<button class="btn blue sm rewrite">🪄 Reescribir</button>'
+    +'<button class="btn gold sm sendedit">Enviar</button></div></div>'
     +'</div>';
 }
 function wireApprCard(it){
@@ -1070,6 +1229,7 @@ function wireApprCard(it){
       else if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); }
     };
   });
+  q(".rewrite",card).onclick=function(){ rewriteDraft(it.id,card); };
   q(".sendedit",card).onclick=function(){
     var txt=q(".ta",card).value;
     if(!txt.trim()){ toast("Escribe una respuesta","err"); return; }
