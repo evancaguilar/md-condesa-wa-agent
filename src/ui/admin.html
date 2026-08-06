@@ -505,7 +505,7 @@ async function setTrainingWheels(on){
 }
 
 // ---------- CHATS (live inbox) ----------
-var chatsCache={items:[],openPhone:null,firstLoad:true,filter:(function(){try{return localStorage.getItem("md_chatfilter")||"all";}catch(e){return "all";}})()};
+var chatsCache={items:[],openPhone:null,firstLoad:true,q:"",searchItems:null,searchSeq:0,filter:(function(){try{return localStorage.getItem("md_chatfilter")||"all";}catch(e){return "all";}})()};
 var chatState={phone:null,lastTs:0,seen:{},lastDay:"",pendKey:"",schedKey:"",laterToken:null,contact:null,windowOpen:true,tick:0,sending:false};
 
 function readMap(){ try{ return JSON.parse(localStorage.getItem("md_read")||"{}"); }catch(e){ return {}; } }
@@ -557,6 +557,7 @@ VIEWS.chats=function(){
   var muted=isMuted();
   m.innerHTML='<div id="chatsView"><div class="between"><h1>Chats</h1>'
     +'<button class="btn sm" id="muteBtn" title="Sonido de nuevos mensajes">'+(muted?"🔕":"🔔")+'</button></div>'
+    +'<input class="field" id="chatSearch" type="search" placeholder="🔍 Buscar por nombre, teléfono o mensaje…" autocomplete="off" style="margin:0 0 10px">'
     +'<div class="filterbar" id="chatFilters"></div>'
     +'<div class="pane-2">'
     +'<div class="list chatlist" id="chatList"><div class="loading"><span class="spin"></span></div></div>'
@@ -567,10 +568,36 @@ VIEWS.chats=function(){
     el("muteBtn").textContent=next?"🔕":"🔔";
   };
   renderChatFilters();
+  wireChatSearch();
   chatsCache.firstLoad=true;
   loadChats();
   startPoll(chatsTick,5000);
 };
+function wireChatSearch(){
+  var inp=el("chatSearch"); if(!inp) return;
+  inp.value=chatsCache.q||"";
+  var deb=null;
+  inp.oninput=function(){
+    if(deb) clearTimeout(deb);
+    deb=setTimeout(function(){ runChatSearch(inp.value); },250);
+  };
+  inp.onkeydown=function(e){
+    if(e.key==="Escape"){ inp.value=""; runChatSearch(""); }
+  };
+}
+async function runChatSearch(raw){
+  var q=(raw||"").trim();
+  chatsCache.q=q;
+  if(!q){ chatsCache.searchItems=null; renderChatList(); return; }
+  var seq=++chatsCache.searchSeq;
+  var data;
+  try{ data=await api("/conversations?limit=100&offset=0&q="+encodeURIComponent(q)); }
+  catch(e){ return; }
+  // Stale response (user kept typing, or cleared) — drop it.
+  if(seq!==chatsCache.searchSeq || chatsCache.q!==q) return;
+  chatsCache.searchItems=data.items||[];
+  renderChatList();
+}
 function renderChatFilters(){
   var bar=el("chatFilters"); if(!bar) return;
   var me=state.me&&state.me.user?state.me.user:"";
@@ -625,9 +652,15 @@ function chatFilterFn(c,rm){
 function renderChatList(){
   var list=el("chatList"); if(!list) return;
   var rm=readMap();
-  var items=chatsCache.items.filter(function(c){ return chatFilterFn(c,rm); });
+  var searching=!!chatsCache.q;
+  if(searching && chatsCache.searchItems===null){
+    list.innerHTML='<div class="loading"><span class="spin"></span></div>';
+    return;
+  }
+  var source=searching?chatsCache.searchItems:chatsCache.items;
+  var items=source.filter(function(c){ return chatFilterFn(c,rm); });
   if(!items.length){
-    list.innerHTML='<div class="card muted">'+(chatsCache.items.length?"Nada con este filtro.":"Sin conversaciones todavía.")+'</div>';
+    list.innerHTML='<div class="card muted">'+(searching?"Sin resultados para «"+esc(chatsCache.q)+"».":(chatsCache.items.length?"Nada con este filtro.":"Sin conversaciones todavía."))+'</div>';
     return;
   }
   var keepScroll=list.scrollTop;
@@ -637,7 +670,7 @@ function renderChatList(){
     var unread=isUnread(c,rm)?" unread":"";
     return '<button class="lrow'+sel+unread+'" data-phone="'+esc(c.phone)+'">'
       +'<div class="top"><span class="nm">'+esc(nameOr(c.name,c.phone))+'</span><span class="tm">'+esc(relTime(c.lastTs))+'</span></div>'
-      +'<div class="pv">'+esc(c.lastBody||"")+'</div>'
+      +'<div class="pv">'+esc((searching&&c.matchBody)||c.lastBody||"")+'</div>'
       +(chips?'<div class="chips" style="margin-top:6px">'+chips+'</div>':"")
       +'</button>';
   }).join("");

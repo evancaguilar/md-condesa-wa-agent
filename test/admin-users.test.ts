@@ -128,6 +128,36 @@ test("listConversations keeps assigned_to when only read_at is absent", async ()
   assert.equal(rows[0]!.assignedTo, "fer");
 });
 
+test("listConversations with q adds the search WHERE + matchBody and binds patterns", async () => {
+  const { db, calls } = fakeDb((sql) => {
+    assert.ok(/WHERE \(c\.name LIKE \?3/.test(sql), "search WHERE present");
+    assert.ok(sql.includes("AS matchBody"), "matchBody column present");
+    return { all: [{ phone: "5215647558301", pendingCount: 0, matchBody: "hola" }] };
+  });
+  const rows = await listConversations(db, 50, 0, "(564) 755-8301");
+  assert.equal(rows[0]!.matchBody, "hola");
+  // ?3 = literal pattern (wildcards escaped), ?4 = digits-only phone pattern
+  assert.deepEqual(calls[0]!.binds, [50, 0, "%(564) 755-8301%", "%5647558301%"]);
+});
+
+test("listConversations with q escapes LIKE wildcards literally", async () => {
+  const { db, calls } = fakeDb(() => ({ all: [] }));
+  await listConversations(db, 50, 0, "50%_off");
+  assert.equal(calls[0]!.binds![2], "%50\\%\\_off%");
+  // <4 digits in q → digits pattern falls back to the literal pattern
+  assert.equal(calls[0]!.binds![3], "%50\\%\\_off%");
+});
+
+test("listConversations without q keeps the original 2-bind shape", async () => {
+  const { db, calls } = fakeDb((sql) => {
+    assert.ok(!sql.includes("matchBody"), "no matchBody without q");
+    assert.ok(!/WHERE \(c\.name/.test(sql), "no search WHERE without q");
+    return { all: [] };
+  });
+  await listConversations(db, 50, 0);
+  assert.deepEqual(calls[0]!.binds, [50, 0]);
+});
+
 test("listConversations rethrows unrelated errors instead of downgrading", async () => {
   const { db } = fakeDb(() => ({ throw: new Error("D1_ERROR: disk I/O") }));
   await assert.rejects(() => listConversations(db, 50, 0), /disk I\/O/);

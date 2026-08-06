@@ -869,7 +869,8 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
   const limit = clampLimit(url.searchParams.get("limit"), 50);
   const offsetRaw = Number(url.searchParams.get("offset"));
   const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
-  const rows = await listConversations(env.DB, limit, offset);
+  const q = (url.searchParams.get("q") ?? "").trim().slice(0, 80) || null;
+  const rows = await listConversations(env.DB, limit, offset, q);
   const now = nowSec();
   const items = rows.map((r) => ({
     phone: r.phone,
@@ -883,6 +884,7 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
     campaignName: r.campaignName,
     assignedTo: r.assignedTo ?? null,
     readAt: r.readAt ?? null,
+    matchBody: r.matchBody ?? null,
   }));
   return json({ items, now });
 }

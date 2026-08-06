@@ -767,6 +767,13 @@ export interface ConversationRow {
   assignedTo?: string | null;
   /** Absent pre-migration (contacts.read_at column) — consumers `?? null`. */
   readAt?: number | null;
+  /** Only on search (`q`): newest message body matching the query, if any. */
+  matchBody?: string | null;
+}
+
+/** Escapes LIKE wildcards so user input matches literally (ESCAPE '\'). */
+function likePattern(q: string): string {
+  return "%" + q.replace(/[\\%_]/g, (m) => "\\" + m) + "%";
 }
 
 /**
@@ -778,7 +785,15 @@ export async function listConversations(
   db: D1Database,
   limit: number,
   offset: number,
+  q?: string | null,
 ): Promise<ConversationRow[]> {
+  // Search: ?3 matches name/message text literally (wildcards escaped); ?4 is
+  // the digits-only variant so a formatted phone like "(564) 755-8301" still
+  // finds contact 5215647558301. Falls back to ?3 when q has <4 digits.
+  const query = (q ?? "").trim();
+  const pattern = query ? likePattern(query) : null;
+  const digits = query.replace(/\D/g, "");
+  const digitsPattern = digits.length >= 4 ? "%" + digits + "%" : pattern;
   // Optional columns are added per tier so each pre-migration fallback (an
   // absent column fails at prepare time) keeps the list working: 2 =
   // assigned_to + read_at, 1 = assigned_to only, 0 = base (today's minimum).
@@ -794,7 +809,14 @@ export async function listConversations(
        lm.ts                           AS lastTs,
        lm.direction                    AS lastDirection,
        COALESCE(pa.pendingCount, 0)    AS pendingCount,
-       camp.name                       AS campaignName
+       camp.name                       AS campaignName${
+         pattern
+           ? `,
+       (SELECT ms.body FROM messages ms
+        WHERE ms.phone = c.phone AND ms.body LIKE ?3 ESCAPE '\\'
+        ORDER BY ms.ts DESC LIMIT 1)   AS matchBody`
+           : ""
+       }
      FROM contacts c
      LEFT JOIN (
        SELECT m.phone, m.body, m.ts, m.direction
@@ -808,14 +830,23 @@ export async function listConversations(
        FROM pending_approvals WHERE status = 'pending' GROUP BY phone
      ) pa ON pa.phone = c.phone
      LEFT JOIN campaigns camp ON camp.id = c.campaign_id
+     ${
+       pattern
+         ? `WHERE (c.name LIKE ?3 ESCAPE '\\'
+            OR c.phone LIKE ?4
+            OR EXISTS (SELECT 1 FROM messages ms
+                       WHERE ms.phone = c.phone AND ms.body LIKE ?3 ESCAPE '\\'))`
+         : ""
+     }
      ORDER BY COALESCE(lm.ts, c.updated_at) DESC
      LIMIT ?1 OFFSET ?2`;
   const run = async (tier: number): Promise<ConversationRow[]> => {
     try {
-      const { results } = await db
-        .prepare(sqlFor(tier))
-        .bind(limit, offset)
-        .all<ConversationRow>();
+      const stmt = db.prepare(sqlFor(tier));
+      const bound = pattern
+        ? stmt.bind(limit, offset, pattern, digitsPattern)
+        : stmt.bind(limit, offset);
+      const { results } = await bound.all<ConversationRow>();
       return results;
     } catch (err) {
       if (tier === 0 || !/no such column/i.test(String(err))) throw err;
