@@ -881,11 +881,52 @@ function appendMessages(msgs,forcePin){
   wrap.insertAdjacentHTML("beforeend",html);
   if(atBottom) wrap.scrollTop=wrap.scrollHeight;
 }
+// ---- edit-preservation guards (shared by Chats pendcards + Aprobaciones) ----
+// Polls rebuild card lists with innerHTML, which used to wipe whatever the
+// reviewer was typing whenever a NEW approval arrived (the id-key guard only
+// covers the unchanged case). Two layers: (1) never rebuild while the cursor
+// is in a text field inside the container — retry next poll; (2) when a
+// rebuild does run, snapshot open edit boxes and restore them for cards that
+// still exist.
+function isTypingIn(node){
+  if(!node) return false;
+  // In-flight 🪄 rewrite (button disabled while awaiting) — a rebuild would
+  // drop its result into a detached card.
+  if(q(".rewrite:disabled",node)) return true;
+  var a=document.activeElement;
+  if(!a || !node.contains(a)) return false;
+  var t=a.tagName;
+  return t==="TEXTAREA" || (t==="INPUT" && a.type!=="checkbox" && a.type!=="radio" && a.type!=="button");
+}
+function snapshotEdits(node){
+  var out={};
+  qa(".editbox",node).forEach(function(box){
+    var card=box.closest("[id]"); if(!card||!card.id) return;
+    var ta=q(".ta",box), gd=q(".guide",box);
+    var open=!box.classList.contains("hidden");
+    var modified=(ta && ta.value!==ta.defaultValue) || (gd && gd.value);
+    if(open || modified) out[card.id]={open:open,ta:ta?ta.value:"",guide:gd?gd.value:""};
+  });
+  return out;
+}
+function restoreEdits(node,snap){
+  Object.keys(snap).forEach(function(id){
+    var card=el(id); if(!card||!node.contains(card)) return;
+    var s=snap[id];
+    var box=q(".editbox",card); if(!box) return;
+    if(s.open) box.classList.remove("hidden");
+    var ta=q(".ta",box), gd=q(".guide",box);
+    if(ta) ta.value=s.ta;
+    if(gd) gd.value=s.guide;
+  });
+}
 function renderPendingCards(pending){
   var wrap=el("pendWrap"); if(!wrap) return;
   var key=pending.map(function(p){return p.id;}).join(",");
   if(key===chatState.pendKey) return; // don't stomp an open edit box
+  if(isTypingIn(wrap)) return; // typing here — key stays stale, next tick retries
   chatState.pendKey=key;
+  var snap=snapshotEdits(wrap);
   if(!pending.length){ wrap.innerHTML=""; return; }
   wrap.innerHTML=pending.map(function(p){
     return '<div class="pendcard" id="pend-'+p.id+'">'
@@ -924,6 +965,7 @@ function renderPendingCards(pending){
       detailTick(false); refreshOverviewSilent();
     };
   });
+  restoreEdits(wrap,snap);
 }
 // Guided rewrite: POST the staff guidance, drop the result into the edit
 // textarea for review — the send still goes through the normal edit path
@@ -1267,7 +1309,11 @@ async function loadApprovals(){
   var body=el("apprBody"); if(!body) return;
   var data;
   try{ data=await api("/approvals"); }
-  catch(e){ if(el("apprBody")) body.innerHTML='<div class="card muted">No se pudieron cargar las aprobaciones.</div>'; apprKey=""; return; }
+  catch(e){
+    // Never wipe cards (and any half-typed edit) over a transient fetch error.
+    if(el("apprBody") && !qa(".card",body).length){ body.innerHTML='<div class="card muted">No se pudieron cargar las aprobaciones.</div>'; apprKey=""; }
+    return;
+  }
   if(!el("apprBody")) return;
   var items=data.items||[];
   state.pendingCount=items.length; updateBadges();
@@ -1275,10 +1321,13 @@ async function loadApprovals(){
   // the DOM under an open edit box / in-flight 🪄 rewrite.
   var key=items.map(function(it){return it.id;}).join(",");
   if(key===apprKey) return;
+  if(isTypingIn(body)) return; // typing here — key stays stale, next poll retries
   apprKey=key;
   if(!items.length){ body.innerHTML='<div class="card center muted" style="padding:40px 16px">🎉 No hay nada pendiente.</div>'; return; }
+  var snap=snapshotEdits(body);
   body.innerHTML=items.map(apprCard).join("");
   items.forEach(function(it){ wireApprCard(it); });
+  restoreEdits(body,snap);
 }
 function apprCard(it){
   var ctx=it.context||"";
