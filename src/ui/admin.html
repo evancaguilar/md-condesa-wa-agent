@@ -601,7 +601,7 @@ async function runChatSearch(raw){
 function renderChatFilters(){
   var bar=el("chatFilters"); if(!bar) return;
   var me=state.me&&state.me.user?state.me.user:"";
-  var opts=[{id:"all",l:"Todos"},{id:"mine",l:"Míos"},{id:"unassigned",l:"Sin asignar"},{id:"unread",l:"No leídos"}];
+  var opts=[{id:"all",l:"Todos"},{id:"mine",l:"Míos"},{id:"unassigned",l:"Sin asignar"},{id:"unread",l:"No leídos"},{id:"hiconf",l:"🤖 IA segura"}];
   bar.innerHTML=opts.map(function(o){
     return '<span class="chip'+(chatsCache.filter===o.id?" on":"")+'" data-f="'+o.id+'">'+o.l+'</span>';
   }).join("");
@@ -647,6 +647,7 @@ function chatFilterFn(c,rm){
   if(chatsCache.filter==="mine") return (c.assignedTo||null)===me;
   if(chatsCache.filter==="unassigned") return !c.assignedTo;
   if(chatsCache.filter==="unread") return isUnread(c,rm);
+  if(chatsCache.filter==="hiconf") return (c.hiConfCount||0)>0;
   return true;
 }
 function renderChatList(){
@@ -687,6 +688,7 @@ function convoChips(c){
   else out.push('<span class="chip">Lead</span>');
   if(c.paused) out.push('<span class="chip red">⏸ Pausado</span>');
   if(c.pendingCount>0) out.push('<span class="chip gold">⏳ Pendiente</span>');
+  if((c.hiConfCount||0)>0) out.push('<span class="chip">🤖 '+c.hiConfCount+'</span>');
   if(c.assignedTo) out.push('<span class="chip blue">@'+esc(c.assignedTo)+'</span>');
   if(c.campaignName) out.push('<span class="chip blue">📣 '+esc(c.campaignName)+'</span>');
   return out.join("");

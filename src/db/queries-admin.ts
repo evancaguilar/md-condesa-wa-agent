@@ -762,6 +762,9 @@ export interface ConversationRow {
   lastDirection: string | null;
   humanOverrideUntil: number | null;
   pendingCount: number;
+  /** Approvals (any status) where the brain claimed high confidence — the
+   *  would-have-auto-sent replies the "IA segura" audit filter surfaces. */
+  hiConfCount: number;
   campaignName: string | null;
   /** Absent pre-migration (contacts.assigned_to column) — consumers `?? null`. */
   assignedTo?: string | null;
@@ -809,6 +812,7 @@ export async function listConversations(
        lm.ts                           AS lastTs,
        lm.direction                    AS lastDirection,
        COALESCE(pa.pendingCount, 0)    AS pendingCount,
+       COALESCE(hc.hiConfCount, 0)     AS hiConfCount,
        camp.name                       AS campaignName${
          pattern
            ? `,
@@ -829,6 +833,10 @@ export async function listConversations(
        SELECT phone, COUNT(*) AS pendingCount
        FROM pending_approvals WHERE status = 'pending' GROUP BY phone
      ) pa ON pa.phone = c.phone
+     LEFT JOIN (
+       SELECT phone, COUNT(*) AS hiConfCount
+       FROM pending_approvals WHERE confidence = 'high' GROUP BY phone
+     ) hc ON hc.phone = c.phone
      LEFT JOIN campaigns camp ON camp.id = c.campaign_id
      ${
        pattern

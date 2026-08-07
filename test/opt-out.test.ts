@@ -47,7 +47,27 @@ test("isOptOut: ya no me manden mensajes", () => {
   assert.equal(isOptOut("ya no me manden mensajes"), true);
 });
 
+test("isOptOut: Oigan me pueden dejar de mandar mensajes? (Pamela case)", () => {
+  assert.equal(isOptOut("Oigan me pueden dejar de mandar mensajes?"), true);
+});
+
+test("isOptOut: hola por favor dejen de mandarme mensajes", () => {
+  assert.equal(isOptOut("hola por favor dejen de mandarme mensajes"), true);
+});
+
+test("isOptOut: ya no quiero recibir mensajes", () => {
+  assert.equal(isOptOut("ya no quiero recibir mensajes"), true);
+});
+
 // ---- negatives (no substring matching) -------------------------------------
+
+test("isOptOut: false for cuando quieran pueden dejar de mandar mensajes (non-filler lead-in)", () => {
+  assert.equal(isOptOut("cuando quieran pueden dejar de mandar mensajes"), false);
+});
+
+test("isOptOut: false for hola quiero recibir mensajes", () => {
+  assert.equal(isOptOut("hola quiero recibir mensajes"), false);
+});
 
 test("isOptOut: false for hola quiero info", () => {
   assert.equal(isOptOut("hola quiero info"), false);

@@ -509,8 +509,12 @@ async function routeResult(
   const phone = ctx.phone;
 
   if (result.action === "escalate") {
+    // <!here> — an escalation is action-required (often the HOTTEST leads:
+    // "quiero pagar/inscribirme"). Without the ping it drowns in a channel
+    // muted to Mentions-only and the lead never gets any reply (seen live
+    // 2026-08-07: enrollment-ready lead silently dropped for 6 hours).
     await ports.slack.postNote(
-      `⚠️ Escalar (${phone}): ${result.reason}\n${result.summary}`,
+      `<!here> ⚠️ Escalar (${phone}): ${result.reason}\n${result.summary}\n_El bot NO respondió nada — este lead espera respuesta humana._`,
     );
     return;
   }
@@ -558,7 +562,9 @@ async function routeResult(
     }
     if (ctx.trainingWheels) {
       // Booking confirmation routes through approval; mark it booking-origin so
-      // approve/edit fires the booking video after sending (R4).
+      // approve/edit fires the booking video after sending (R4). Confidence
+      // "high": without wheels this send happens unconditionally, so the audit
+      // view must count it as a would-have-auto-sent reply.
       await queueApproval(
         env,
         ports,
@@ -567,6 +573,8 @@ async function routeResult(
         history,
         undefined,
         true,
+        true,
+        "high",
       );
     } else {
       const delivered = await deliverOrDraft(
@@ -599,7 +607,10 @@ async function routeResult(
     return;
   }
 
-  // Draft / low confidence / training wheels ⇒ Slack approval.
+  // Draft / low confidence / training wheels ⇒ Slack approval. The brain's
+  // REAL confidence is stored (was hardcoded "low"): 'high' rows are the
+  // would-have-auto-sent replies the audit view reviews before loosening
+  // training wheels.
   const reason = result.action === "draft" ? result.reason : undefined;
   await queueApproval(
     env,
@@ -610,6 +621,7 @@ async function routeResult(
     reason,
     false,
     result.awaitingReply ?? true,
+    result.confidence,
   );
 }
 
@@ -637,7 +649,6 @@ async function deliverOrDraft(
   history: StoredMessage[],
   bookingOrigin = false,
 ): Promise<boolean> {
-  void confidence;
   try {
     await sendText(env, ctx.phone, message);
   } catch (err) {
@@ -653,6 +664,8 @@ async function deliverOrDraft(
         history,
         "24h window closed",
         bookingOrigin,
+        true,
+        confidence,
       );
       return false;
     }
@@ -675,6 +688,7 @@ async function queueApproval(
   reason?: string,
   bookingOrigin = false,
   awaitingReply = true,
+  confidence: "high" | "low" = "low",
 ): Promise<void> {
   const contextText = history
     .slice(-6)
@@ -689,7 +703,6 @@ async function queueApproval(
       return `${who} ${mic}${m.body}`;
     })
     .join("\n");
-  const confidence = "low";
   // Older pending cards for this phone are strictly stale — this new draft was
   // built from the FULL conversation. Snapshot them now, supersede after create.
   const stale = await getPendingApprovals(env.DB, ctx.phone);

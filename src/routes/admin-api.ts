@@ -881,6 +881,7 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
     lastDirection: r.lastDirection,
     paused: (r.humanOverrideUntil ?? 0) > now,
     pendingCount: r.pendingCount,
+    hiConfCount: r.hiConfCount ?? 0,
     campaignName: r.campaignName,
     assignedTo: r.assignedTo ?? null,
     readAt: r.readAt ?? null,

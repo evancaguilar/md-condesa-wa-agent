@@ -26,10 +26,29 @@ export function normalizeText(s: string): string {
 }
 
 /**
+ * Leading greeting tokens ignored on BOTH sides of the trigger comparison.
+ * Meta rewrites ad prefills over time — the same designed ice-breaker has
+ * shipped as "¡Hola! Sí, quiero inscribirme…" and later as plain "Sí, quiero
+ * inscribirme…" (seen live 2026-08-07: the hola-less variant matched nothing).
+ * Stripping greetings from the stored trigger too means neither variant of the
+ * stored phrase nor of the inbound body breaks the prefix match.
+ */
+const GREETING_TOKENS = new Set(["hola", "buenas", "oigan", "oye", "hello", "hi"]);
+
+/** Drops leading greeting tokens from an already-normalized string. */
+export function stripLeadingGreeting(norm: string): string {
+  const words = norm.split(" ");
+  let i = 0;
+  while (i < words.length && GREETING_TOKENS.has(words[i]!)) i++;
+  return i === 0 ? norm : words.slice(i).join(" ");
+}
+
+/**
  * First active campaign whose normalized trigger matches the normalized inbound
  * body: either the whole body equals the trigger, or the body starts with the
  * trigger (so "curso de defensa ... me interesa" still matches trigger "curso de
- * defensa"). Returns the campaign id, or null when nothing matches.
+ * defensa"). Leading greetings ("hola", "buenas", …) are ignored on both sides.
+ * Returns the campaign id, or null when nothing matches.
  *
  * `bodyNorm` is expected already normalized via `normalizeText`.
  */
@@ -37,10 +56,11 @@ export function matchCampaign(
   bodyNorm: string,
   campaigns: Campaign[],
 ): number | null {
+  const body = stripLeadingGreeting(bodyNorm);
   for (const c of campaigns) {
-    const trigger = c.trigger_norm;
+    const trigger = c.trigger_norm ? stripLeadingGreeting(c.trigger_norm) : "";
     if (!trigger) continue;
-    if (bodyNorm === trigger || bodyNorm.startsWith(trigger)) {
+    if (body === trigger || body.startsWith(trigger)) {
       return c.id;
     }
   }

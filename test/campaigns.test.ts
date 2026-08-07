@@ -96,6 +96,31 @@ test("ignores campaigns with empty trigger_norm", () => {
   assert.equal(id, null);
 });
 
+// Greeting drift: Meta ships the same prefill with and without "¡Hola!".
+test("body without hola matches a trigger stored WITH hola", () => {
+  const c = campaign({
+    trigger_norm:
+      "hola si quiero inscribirme en linea y asegurar mi lugar antes de que se acaben",
+  });
+  const id = matchCampaign(
+    "si quiero inscribirme en linea y asegurar mi lugar antes de que se acaben",
+    [c],
+  );
+  assert.equal(id, 1);
+});
+
+test("body WITH hola matches a trigger stored without it", () => {
+  const c = campaign({ trigger_norm: "quiero el curso de defensa" });
+  const id = matchCampaign("hola quiero el curso de defensa", [c]);
+  assert.equal(id, 1);
+});
+
+test("greeting stripping does not create false positives mid-body", () => {
+  // "hola" only strips at the START — a body about something else stays unmatched.
+  const c = campaign({ trigger_norm: "curso de defensa" });
+  assert.equal(matchCampaign("quiero decir hola al curso de defensa", [c]), null);
+});
+
 // ---- matchCampaignByAdId -------------------------------------------------
 
 test("ad-id match returns the campaign whose ad_id equals the source id", () => {
