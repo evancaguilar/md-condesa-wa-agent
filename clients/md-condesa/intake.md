@@ -48,6 +48,30 @@ Clase lúdica, segura y adaptada a su edad: coordinación, equilibrio, atención
 ### Baby Fight Club (12–36 meses)
 No es pelea real: es una clase de movimiento, juego y desarrollo físico inspirada en artes marciales. Obstáculos, coordinación, equilibrio, confianza, socialización y exploración segura. **Los papás participan activamente — deben venir listos para moverse.** Ideal para bebés con mucha energía, niños aprendiendo a moverse mejor, y familias que quieren introducir movimiento desde temprano.
 
+## Clases de prueba — horarios y combos recomendados (MANDA sobre la tabla de horario)
+
+Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases seguidas salvo BFC/Mini MT):
+
+- **Adultos L–J mañana**: llegar 7 u 8 am ⇒ Jiu-Jitsu y Muay Thai seguidas. Lun/mar/jue también 10 am (y 11 am solo Jiu-Jitsu). **Mié y vie solo hay Jiu-Jitsu a las 7 y 8 am** — si solo quieren Muay Thai, mié/vie también pueden 9 o 10 am.
+- **Adultos L–J tarde/noche**: combo recomendado **6 pm Jiu-Jitsu + 7 pm Muay Thai**. (Jueves el Muay Thai de 6/7 pm es sparring — para prueba mejor Jiu-Jitsu, o MMA a las 8 pm.) Si necesitan más tarde: lun/mié Jiu-Jitsu o MMA a las 8 pm; mar/jue lo mismo a las 8 pm y además Box a las 9 pm.
+- **Viernes**: NO hay clases por la tarde/noche. Solo mañana (ver arriba).
+- **Sábado adultos**: llegar **9 am** (Jiu-Jitsu Fundamentos) y luego Muay Thai a las 10 am. También hay Jiu-Jitsu 12 pm. (El Muay Thai de 11 am es sparring — no para primera clase.)
+- **Domingo adultos**: llegar **11 am** ⇒ Muay Thai 11 am + Jiu-Jitsu 12 pm.
+- **Kids 6–12**: L–J llegar **4 pm** ⇒ Muay Thai Kids 4 pm + Jiu-Jitsu Kids 5 pm. Sábado llegar **11 am** ⇒ Jiu-Jitsu Niños 11 am + Muay Thai Niños 12 pm. **NO hay Kids el domingo.**
+- **Teens 13–17**: L–J llegar **4 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm. Para Muay Thai, desde los 13 años entran al grupo de adultos (p. ej. sábado 10 am).
+- **Mini Muay Thai (3–5)**: lun y mié 3:15 pm, sáb 1:15 pm.
+- **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 11 am y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí.
+
+## Después de agendar (obligatorio)
+
+Cuando el lead confirma un horario que está en el KB, **agéndalo y confírmalo — nunca dudes de la disponibilidad ni digas "no me aparece disponible"**. El mensaje de confirmación sigue esta plantilla:
+
+> ¡Perfecto {nombre}! Ya quedó agendado 🙌 Nos vemos {día} a las {hora} para {programa}.
+> Aquí toda la info de tu primera clase: mdcondesa.com/tu-primera-clase/
+> Si quieres invitar a un amigo o pariente, estaría súper 💪 Cualquier duda, aquí estoy 🙏
+
+(Para Baby Fight Club / Mini Muay Thai usa el link mdcondesa.com/tu-primera-clase-bebes/ y "su primera clase".)
+
 ## Curso de Verano (niños 6–12 años)
 
 Programa temporal de vacaciones: artes marciales, defensa personal, juegos, coordinación, disciplina, actividades físicas, confianza, seguridad personal y diversión en un ambiente seguro. Ideal para niños con mucha energía, niños tímidos que necesitan ganar confianza y niños que ya disfrutan actividades físicas.
@@ -70,7 +94,7 @@ Respuesta sugerida a "me puedes dar más info del Curso de Verano":
 
 ## Reto Gladiador
 
-Programa de transformación y constancia basado en artes marciales. No es solo un reto fitness: el objetivo es cumplir un compromiso real de entrenamiento durante el periodo del reto. Enfoque: estructura, disciplina, condición física, confianza, progreso medible, acompañamiento, comunidad. Incluye beneficios como InBody, Ice Bath, clases privadas, descuentos en equipo, eventos especiales, bonos y premio/crédito al completar el reto.
+Programa de transformación y constancia de **90 días** basado en artes marciales. No es solo un reto fitness: el objetivo es cumplir un compromiso real de entrenamiento durante el periodo del reto. Enfoque: estructura, disciplina, condición física, confianza, progreso medible, acompañamiento, comunidad. Incluye beneficios como InBody, Ice Bath, clases privadas, descuentos en equipo, eventos especiales, bonos y premio/crédito al completar el reto.
 
 Respuesta sugerida:
 > Sí 🙌 El Reto Gladiador es nuestro programa para entrenar con más estructura y compromiso. La idea es que elijas una meta de constancia, entrenes durante el periodo del reto y tengas beneficios extra como clases privadas, asesoría InBody, una master class gratis, y más.
@@ -134,18 +158,22 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 | Silver | $2,500 | $3,000 |
 | Bronze | $1,996 | $2,396 |
 
+- **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario.
 - Kids (6–12) y Teens (13–17): MISMOS precios y planes que adultos, excepto que su plan más alto es Gold (no hay Diamond).
 - Mini Muay Thai (3–5) y Baby Fight Club (12–36 meses), cobro cada 4 semanas: BFC $1,500 (1 clase/sem) o $2,500 (2 clases/sem); Mini MT $1,500 (1 clase/sem) o $1,996 (2 clases/sem).
 - **Inscripción: $999 — GRATIS al inscribirse en línea** (aplica a todos los programas).
-- **Descuento de hermanos: 10%.**
+- **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
 - 10% de descuento en equipo para alumnos inscritos.
 
-Respuesta sugerida la PRIMERA vez que preguntan precio:
-> Tenemos varios planes y promos, entonces lo recomendable es venir a probar un día gratis y después platicamos para encontrar la mejor opción para ti 🙌 ¿Te agendamos tu día de prueba?
+Respuesta sugerida la PRIMERA vez que preguntan precio (adultos/kids/teens):
+> Tenemos varios planes y promos, entonces lo ideal es platicarlo en persona después de que pruebes las clases — así te recomendamos el plan que mejor se ajuste a lo que buscas, en vez de mandarte una lista genérica 🙌 ¿Te agendamos tu día de prueba?
 
 Respuesta sugerida cuando insisten en el precio (2ª vez, o no satisfechos con "ven a probar") — SOLO el rango, nunca la tabla completa:
-> Para darte una idea del rango: nuestros planes empiezan en $1,996 cada 4 semanas, y el plan ilimitado con varios bonos está en $3,996. ¿Te agendamos tu día muestra gratis?
+> Para darte una idea: el rango más común de nuestros planes va de $1,996 a $2,996 cada 4 semanas. Ya en tu día de prueba platicamos cuál te conviene según tu objetivo. ¿Te agendamos?
+
+**Excepción Baby Fight Club**: si preguntan precio de BFC, dalo A LA PRIMERA (sin rodeos) y sigue agendando:
+> Para Baby Fight Club la inscripción es de $999 y la membresía de $1,500 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 11 am o el sábado 2 pm?
 
 ## Estacionamiento
 

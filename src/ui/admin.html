@@ -834,6 +834,8 @@ function renderChatHeader(nowSec){
     html+=assignSelectHtml(assigned);
     html+='<button class="btn sm" id="unreadBtn">📩 No leído</button>';
     if(c.status!=="student") html+='<button class="btn gold sm" id="studentBtn">🎓 Alumno</button>';
+    if(c.status==="opted_out") html+='<button class="btn sm" id="optoutBtn">↩️ Quitar baja</button>';
+    else html+='<button class="btn red sm" id="optoutBtn">🚫 Baja</button>';
     html+='<button class="btn red sm" id="resetBtn">🧹 Reiniciar</button>';
     // Rebuild only when something actually changed: detailTick polls every few
     // seconds and an innerHTML rewrite would slam an open <select> shut.
@@ -844,6 +846,9 @@ function renderChatHeader(nowSec){
       if(el("resumeBtn")) el("resumeBtn").onclick=function(){ resumeConvo(chatState.phone); };
       if(el("unreadBtn")) el("unreadBtn").onclick=function(){ markUnreadConvo(chatState.phone); };
       if(el("studentBtn")) el("studentBtn").onclick=function(){ markStudent(chatState.phone); };
+      if(el("optoutBtn")) el("optoutBtn").onclick=function(){
+        toggleOptOut(chatState.phone, chatState.contact && chatState.contact.status==="opted_out");
+      };
       if(el("resetBtn")) el("resetBtn").onclick=function(){ resetConvo(chatState.phone); };
       if(el("assignSel")) el("assignSel").onchange=function(){
         assignConvo(chatState.phone, el("assignSel").value||null);
@@ -1289,6 +1294,18 @@ async function markStudent(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/status",{method:"POST",body:{status:"student"}});
     toast("Marcado como alumno","ok");
     if(chatState.contact) chatState.contact.status="student";
+    renderChatHeader(); loadChats(); }
+  catch(e){ toast("No se pudo actualizar","err"); }
+}
+async function toggleOptOut(phone, isOptedOut){
+  if(isOptedOut){
+    if(!confirm("¿Quitar la baja? El bot y los seguimientos vuelven a activarse para este número (la etiqueta Baja en Airtable se quita a mano).")) return;
+  } else {
+    if(!confirm("¿Marcar como baja? El bot no le escribirá nunca más, se cancelan seguimientos y aprobaciones pendientes, y se marca Baja en Airtable.")) return;
+  }
+  try{ await api("/conversations/"+encodeURIComponent(phone)+"/status",{method:"POST",body:{status:isOptedOut?"lead":"opted_out"}});
+    toast(isOptedOut?"Baja retirada":"Marcado como baja","ok");
+    if(chatState.contact) chatState.contact.status=isOptedOut?"lead":"opted_out";
     renderChatHeader(); loadChats(); }
   catch(e){ toast("No se pudo actualizar","err"); }
 }
