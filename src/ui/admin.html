@@ -601,7 +601,7 @@ async function runChatSearch(raw){
 function renderChatFilters(){
   var bar=el("chatFilters"); if(!bar) return;
   var me=state.me&&state.me.user?state.me.user:"";
-  var opts=[{id:"all",l:"Todos"},{id:"mine",l:"Míos"},{id:"unassigned",l:"Sin asignar"},{id:"unread",l:"No leídos"},{id:"hiconf",l:"🤖 IA segura"}];
+  var opts=[{id:"all",l:"Todos"},{id:"mine",l:"Míos"},{id:"unassigned",l:"Sin asignar"},{id:"unread",l:"No leídos"},{id:"hiconf",l:"🤖 IA segura"},{id:"iareview",l:"🔍 Revisar IA"}];
   bar.innerHTML=opts.map(function(o){
     return '<span class="chip'+(chatsCache.filter===o.id?" on":"")+'" data-f="'+o.id+'">'+o.l+'</span>';
   }).join("");
@@ -641,13 +641,17 @@ async function loadChats(){
 }
 function chatFilterFn(c,rm){
   // CRM-only contacts (Airtable sync, resets) have no messages — hide them
-  // from the inbox; they appear the moment a real message exists.
-  if(!c.lastTs) return false;
+  // from the inbox, EXCEPT while searching (a web-form booker like this must
+  // still be findable by name/phone). They join the inbox on their first message.
+  if(!c.lastTs) return !!chatsCache.q;
   var me=state.me&&state.me.user?state.me.user:"";
   if(chatsCache.filter==="mine") return (c.assignedTo||null)===me;
   if(chatsCache.filter==="unassigned") return !c.assignedTo;
   if(chatsCache.filter==="unread") return isUnread(c,rm);
   if(chatsCache.filter==="hiconf") return (c.hiConfCount||0)>0;
+  // Retro audit: the lead kept talking past the initial ad message AND at
+  // least one AI reply went out sin editar (aprobada tal cual).
+  if(chatsCache.filter==="iareview") return (c.inboundCount||0)>=2 && (c.approvedAsIsCount||0)>=1;
   return true;
 }
 function renderChatList(){
@@ -671,7 +675,7 @@ function renderChatList(){
     var unread=isUnread(c,rm)?" unread":"";
     return '<button class="lrow'+sel+unread+'" data-phone="'+esc(c.phone)+'">'
       +'<div class="top"><span class="nm">'+esc(nameOr(c.name,c.phone))+'</span><span class="tm">'+esc(relTime(c.lastTs))+'</span></div>'
-      +'<div class="pv">'+esc((searching&&c.matchBody)||c.lastBody||"")+'</div>'
+      +'<div class="pv">'+esc((searching&&c.matchBody)||c.lastBody||(c.lastTs?"":"(sin mensajes — contacto del CRM)"))+'</div>'
       +(chips?'<div class="chips" style="margin-top:6px">'+chips+'</div>':"")
       +'</button>';
   }).join("");

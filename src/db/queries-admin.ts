@@ -765,6 +765,13 @@ export interface ConversationRow {
   /** Approvals (any status) where the brain claimed high confidence — the
    *  would-have-auto-sent replies the "IA segura" audit filter surfaces. */
   hiConfCount: number;
+  /** Approvals Evan sent AS-IS (status 'approved', not edited) — with
+   *  inboundCount ≥ 2 these are the "AI replied without intervention" convos
+   *  the retro audit filter surfaces. */
+  approvedAsIsCount: number;
+  /** Total inbound messages: ≥2 means the lead kept talking past the initial
+   *  ad message (a real AI dialogue, not just the canned welcome). */
+  inboundCount: number;
   campaignName: string | null;
   /** Absent pre-migration (contacts.assigned_to column) — consumers `?? null`. */
   assignedTo?: string | null;
@@ -813,6 +820,8 @@ export async function listConversations(
        lm.direction                    AS lastDirection,
        COALESCE(pa.pendingCount, 0)    AS pendingCount,
        COALESCE(hc.hiConfCount, 0)     AS hiConfCount,
+       COALESCE(aa.approvedAsIsCount, 0) AS approvedAsIsCount,
+       COALESCE(ic.inboundCount, 0)    AS inboundCount,
        camp.name                       AS campaignName${
          pattern
            ? `,
@@ -837,6 +846,14 @@ export async function listConversations(
        SELECT phone, COUNT(*) AS hiConfCount
        FROM pending_approvals WHERE confidence = 'high' GROUP BY phone
      ) hc ON hc.phone = c.phone
+     LEFT JOIN (
+       SELECT phone, COUNT(*) AS approvedAsIsCount
+       FROM pending_approvals WHERE status = 'approved' GROUP BY phone
+     ) aa ON aa.phone = c.phone
+     LEFT JOIN (
+       SELECT phone, COUNT(*) AS inboundCount
+       FROM messages WHERE direction = 'in' GROUP BY phone
+     ) ic ON ic.phone = c.phone
      LEFT JOIN campaigns camp ON camp.id = c.campaign_id
      ${
        pattern
