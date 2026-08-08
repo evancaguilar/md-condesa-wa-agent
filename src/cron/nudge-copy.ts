@@ -10,6 +10,7 @@
 
 import type { Contact, Language, Qualification } from "../types.js";
 import { CLIENT } from "../client.gen.js";
+import { greetingName } from "./display-name.js";
 
 // ---- kinds ----
 
@@ -55,10 +56,13 @@ export function parseQualification(contact: Contact | null): Qualification {
   }
 }
 
+/**
+ * Greeting name: the qualification name (a real name the lead TOLD us) wins;
+ * the WhatsApp push name is only used when it passes greetingName's "is this
+ * actually a first name?" test — it is user-typed junk as often as not.
+ */
 function firstName(contact: Contact | null, q: Qualification): string {
-  const raw = (q.name ?? contact?.name ?? "").trim();
-  if (!raw) return "";
-  return raw.split(/\s+/)[0] ?? "";
+  return greetingName(q.name) || greetingName(contact?.name);
 }
 
 /** " Nombre" (leading space) or "" — for "¡Hola${sp}!" style greetings. */
@@ -91,9 +95,17 @@ export function classifyProgram(
  * step 1; kids/baby mirror the ManyChat step 1–3 arc. Step 3 always carries the
  * booking link. Pure over (contact, kind).
  */
-export function nudgeCopy(contact: Contact | null, kind: NudgeKind): string {
+export function nudgeCopy(
+  contact: Contact | null,
+  kind: NudgeKind,
+  campaignName?: string | null,
+): string {
   const q = parseQualification(contact);
-  const program = classifyProgram(contact);
+  // campaignName matters: a lead who clicked the Baby Fight Club ad and never
+  // reached the brain has NO qualification, so without it they fell through to
+  // the adults copy — and got the adults pitch + adults booking link (live
+  // 2026-08-07). The extended drip has always passed it; day-1 now does too.
+  const program = classifyProgram(contact, campaignName);
   const lang: Language = contact?.lang === "en" ? "en" : "es";
   const name = firstName(contact, q);
   const sp = nameSuffix(name);

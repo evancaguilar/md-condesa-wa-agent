@@ -321,6 +321,9 @@ export async function processNudge(
   deps: {
     sendText: (env: Env, phone: string, body: string) => Promise<string>;
     isWindowClosed: (err: unknown) => boolean;
+    /** Optional so existing callers/tests keep working; without it a
+     *  campaign-only lead falls back to the adults copy (the old behavior). */
+    campaignName?: (env: Env, campaignId: number) => Promise<string | null>;
   },
 ): Promise<"sent" | "cancelled" | "skipped_optout"> {
   const contact = await getContact(env.DB, phone);
@@ -339,8 +342,13 @@ export async function processNudge(
   const kv = await kvGet(env.DB, kvKey);
   if (!underNudgeCap(kv, now)) return "cancelled";
 
+  const campaignName =
+    contact.campaign_id !== null && deps.campaignName
+      ? await deps.campaignName(env, contact.campaign_id)
+      : null;
+
   try {
-    await deps.sendText(env, phone, nudgeCopy(contact, kind));
+    await deps.sendText(env, phone, nudgeCopy(contact, kind, campaignName));
   } catch (err) {
     if (deps.isWindowClosed(err)) return "cancelled";
     throw err;

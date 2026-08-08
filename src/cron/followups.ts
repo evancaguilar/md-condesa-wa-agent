@@ -36,6 +36,7 @@ import {
   DAY,
 } from "./time.js";
 import { isQuietHour, next8am } from "./quiet.js";
+import { greetingName } from "./display-name.js";
 import {
   listRecentBookings,
   listStudents,
@@ -180,7 +181,9 @@ async function processOne(
     return;
   }
   const lang = contact?.lang ?? "es";
-  const name = contact?.name ?? "";
+  // Same guard as the nudges: a WhatsApp push name that isn't clearly a first
+  // name (email, handle, fancy font) must never be greeted by name.
+  const name = greetingName(contact?.name);
   const recordId = f.airtable_record_id ?? "";
 
   switch (f.kind) {
@@ -268,6 +271,7 @@ async function processOne(
       const status = await processNudge(env, f.phone, f.kind as NudgeKind, {
         sendText,
         isWindowClosed: (err) => err instanceof WindowClosedError,
+        campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
       });
       await markFollowup(env.DB, f.id, status);
       // Nudge 3 actually landed → arm the extended chain (d2–d5) off its real
@@ -783,13 +787,24 @@ function tpl(base: string, lang: string): string {
   return lang === "en" ? `${base}_en` : `${base}_es`;
 }
 
+/**
+ * Neutral filler for a template variable we have no value for. Meta REJECTS an
+ * empty body parameter, and our reminder copy puts {{1}} in a bare vocative slot
+ * ("¡Hola {{1}}!"), so a blank would also read broken. A waving hand degrades
+ * gracefully in every template that takes a name.
+ */
+const EMPTY_PARAM_FALLBACK = "👋";
+
 function bodyParams(values: string[]): {
   type: "body";
   parameters: { type: "text"; text: string }[];
 } {
   return {
     type: "body",
-    parameters: values.map((text) => ({ type: "text" as const, text: text || "" })),
+    parameters: values.map((text) => ({
+      type: "text" as const,
+      text: text.trim() || EMPTY_PARAM_FALLBACK,
+    })),
   };
 }
 

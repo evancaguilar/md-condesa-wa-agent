@@ -18,6 +18,13 @@ Template name mapping (base → sent name):
 
 Address string used across templates: **Av. México 49, 1º piso, Condesa**.
 
+**Name variables ({{1}}) — read before submitting.** The WhatsApp push name is
+user-typed and is frequently NOT a person's name (emails, `@handles`, fancy-font
+text, emoji). `greetingName()` (src/cron/display-name.ts) drops those, so {{1}}
+is empty for a meaningful share of leads. Meta rejects an empty body parameter,
+so the sender substitutes `👋`. Keep {{1}} in a position where that still reads
+naturally ("¡Hola {{1}}!" ✅) and avoid mid-sentence vocatives if you reword.
+
 ---
 
 ## 1. trial_confirm — Utility
