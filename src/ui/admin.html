@@ -824,6 +824,19 @@ function renderChatHeader(nowSec){
     ta.disabled=!chatState.windowOpen;
     send.disabled=!chatState.windowOpen || chatState.sending;
     hint.classList.toggle("hidden",chatState.windowOpen);
+    // Escape hatch: window closed = this panel can't reach them, but the OTHER
+    // WhatsApp (support number on the phone / whatever session WA Web has) can.
+    var digits=String(c.phone||"").replace(/\D/g,"");
+    if(!chatState.windowOpen && chanOf(c.phone)==="wa" && digits){
+      hint.innerHTML='Ventana de 24h cerrada — se reabre cuando el lead escriba.'
+        +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'
+        +'<a class="btn sm" style="text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/'+digits+'">📱 Abrir en WhatsApp</a>'
+        +'<a class="btn sm" style="text-decoration:none" target="_blank" rel="noopener" href="https://web.whatsapp.com/send?phone='+digits+'">💻 WhatsApp Web</a>'
+        +'</div>'
+        +'<div class="muted sm" style="margin-top:4px">Se abre desde el otro número — esa conversación seguirá allá, no en este panel.</div>';
+    }else if(!chatState.windowOpen){
+      hint.textContent='Ventana cerrada — se reabre cuando el lead escriba.';
+    }
   }
   // Programar follows the same rule: the window must be open now AND at fire time.
   var later=el("chatLater"), laterGo=el("laterGo"), laterBox=el("laterBox");
