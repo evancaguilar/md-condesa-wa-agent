@@ -1324,17 +1324,18 @@ async function resetConvo(phone){
 VIEWS.aprobaciones=function(){
   var m=el("main");
   m.innerHTML='<h1>Aprobaciones</h1><div id="apprBody"><div class="loading"><span class="spin"></span></div></div>';
+  apprKey=null; // fresh spinner in the DOM — force the first load to render even if the id-list is unchanged
   loadApprovals();
   startPoll(loadApprovals,30000);
 };
-var apprKey="";
+var apprKey=null; // null = nothing rendered yet; "" would collide with the empty-inbox key and strand the spinner
 async function loadApprovals(){
   var body=el("apprBody"); if(!body) return;
   var data;
   try{ data=await api("/approvals"); }
   catch(e){
     // Never wipe cards (and any half-typed edit) over a transient fetch error.
-    if(el("apprBody") && !qa(".card",body).length){ body.innerHTML='<div class="card muted">No se pudieron cargar las aprobaciones.</div>'; apprKey=""; }
+    if(el("apprBody") && !qa(".card",body).length){ body.innerHTML='<div class="card muted">No se pudieron cargar las aprobaciones.</div>'; apprKey=null; }
     return;
   }
   if(!el("apprBody")) return;
