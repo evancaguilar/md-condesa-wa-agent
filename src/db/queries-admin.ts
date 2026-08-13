@@ -13,6 +13,7 @@ import type {
 import { cdmxMonthStr, cdmxParts, cdmxToEpoch, DAY } from "../cron/time.js";
 import { isBotEnabled, kvGet } from "./queries.js";
 import { AUTO_MODE_KV, autoModeActive } from "../services/auto-mode.js";
+import { HOLDING_LINE } from "../services/slack-timeouts.js";
 
 const now = (): number => Math.floor(Date.now() / 1000);
 
@@ -787,6 +788,23 @@ function likePattern(q: string): string {
 }
 
 /**
+ * SQL predicate: true for messages that count as a conversation's "last
+ * message" in the inbox list. Holding lines ("te respondemos pronto") are
+ * excluded — they are noise, not an answer — so a lead who only got the
+ * holding line still surfaces as waiting under the "No leídos" filter.
+ * Matched two ways: the meta tag new sends carry (LIKE on the raw JSON — no
+ * json_extract, so one malformed meta row can't brick the whole list) and the
+ * exact body text for rows stored before tagging existed. An inbound message
+ * that coincidentally repeats the sentence still counts (direction check).
+ */
+function notHoldingSql(col: string): string {
+  const body = HOLDING_LINE.replace(/'/g, "''");
+  return `(${col}.direction = 'in'
+     OR ((${col}.meta IS NULL OR ${col}.meta NOT LIKE '%"holding":1%')
+         AND COALESCE(${col}.body, '') <> '${body}'))`;
+}
+
+/**
  * Conversation list for the Chats view: each contact with its last message,
  * count of still-pending approvals, and campaign name (if tagged). Ordered by
  * most-recent activity (last message ts, then contact updated_at).
@@ -835,8 +853,11 @@ export async function listConversations(
        SELECT m.phone, m.body, m.ts, m.direction
        FROM messages m
        JOIN (
-         SELECT phone, MAX(ts) AS maxTs FROM messages GROUP BY phone
+         SELECT mi.phone, MAX(mi.ts) AS maxTs FROM messages mi
+         WHERE ${notHoldingSql("mi")}
+         GROUP BY mi.phone
        ) last ON last.phone = m.phone AND last.maxTs = m.ts
+       WHERE ${notHoldingSql("m")}
      ) lm ON lm.phone = c.phone
      LEFT JOIN (
        SELECT phone, COUNT(*) AS pendingCount

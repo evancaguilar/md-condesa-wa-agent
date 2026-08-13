@@ -594,7 +594,11 @@ export async function runApprovalTimeouts(
 
     try {
       if (decision.kind === "hold") {
-        await deps.sendText(env, a.phone, HOLDING_LINE);
+        // meta.holding=1: the inbox list skips holding lines when deriving a
+        // chat's "last message", so the lead still shows as waiting (unread).
+        await deps.sendText(env, a.phone, HOLDING_LINE, {
+          metaExtra: { holding: 1 },
+        });
         await queries.markHoldingSent(env.DB, a.id);
         await postHoldingPing(env, a.id, {
           name: contact?.name ?? null,

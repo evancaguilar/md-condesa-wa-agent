@@ -163,6 +163,23 @@ test("listConversations rethrows unrelated errors instead of downgrading", async
   await assert.rejects(() => listConversations(db, 50, 0), /disk I\/O/);
 });
 
+test("listConversations excludes holding lines from the last-message join", async () => {
+  const { db } = fakeDb((sql) => {
+    // Both the MAX(ts) inner select and the joined row filter must skip
+    // holding lines, or a stale holding row can shadow the lead's message.
+    const hits = sql.match(/NOT LIKE '%"holding":1%'/g) ?? [];
+    assert.equal(hits.length, 2, "meta tag filtered in both subquery levels");
+    const bodies = sql.match(/te respondemos por aquí/g) ?? [];
+    assert.equal(bodies.length, 2, "legacy body text filtered in both levels");
+    assert.ok(
+      sql.includes(`direction = 'in'`),
+      "inbound rows exempt from the holding filter",
+    );
+    return { all: [] };
+  });
+  await listConversations(db, 50, 0);
+});
+
 // ---- fail-soft: read_at column missing ----
 
 test("setReadAtSoft is a no-op pre-migration (no such column)", async () => {
