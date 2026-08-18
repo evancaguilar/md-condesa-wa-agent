@@ -155,7 +155,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
           // A booking that succeeded this turn + a send_reply → 'book' result
           // (types.ts union carries the followupMessage + recordId on 'book').
           if (pendingBooking) return bookResult(pendingBooking);
-          return sendResult(sendReply, pendingFollowup);
+          return guardUnbackedBookingClaim(sendResult(sendReply, pendingFollowup));
         }
 
         // No terminal tool yet — process the non-terminal tools, feed results
@@ -469,6 +469,36 @@ export function sendResult(
   return reason
     ? { action: "draft", message, language, confidence, reason, followup: fu, awaitingReply }
     : { action: "draft", message, language, confidence, followup: fu, awaitingReply };
+}
+
+/**
+ * Past-participle booking claims ("ya quedó agendado", "tu clase está
+ * reservada", "you're booked"). Deliberately does NOT match the infinitive
+ * ("¿quieres agendar?", "puedo agendarte") — offering to book is fine.
+ */
+const CLAIMS_BOOKED = /\bagendad[oa]s?\b|\breservad[oa]s?\b|\bbooked\b|\byou'?re all set\b/i;
+
+/**
+ * A reply claiming a completed booking when book_trial did NOT succeed this
+ * turn must never auto-send: seen live 2026-08-18 — baby-campaign leads were
+ * told "ya quedó agendado" while validateSlot had rejected the slot, so no
+ * Airtable record, no anti-no-show sequence. Downgrade to a low-confidence
+ * draft with an explicit reason so the approver sees exactly what's wrong.
+ * (Real bookings return 'book' before this runs, so they are unaffected.)
+ */
+export function guardUnbackedBookingClaim(res: BrainResult): BrainResult {
+  if (res.action !== "send" && res.action !== "draft") return res;
+  if (!CLAIMS_BOOKED.test(res.message)) return res;
+  return {
+    action: "draft",
+    message: res.message,
+    language: res.language,
+    confidence: "low",
+    reason:
+      "⚠️ El texto afirma que la clase ya quedó agendada, pero NO se creó ningún booking en Airtable en este turno (book_trial no se ejecutó o falló). Verifica antes de aprobar.",
+    followup: res.followup,
+    awaitingReply: res.awaitingReply,
+  };
 }
 
 function escalateResult(tu: ToolUseContent): BrainResult {

@@ -68,3 +68,23 @@ test("validateSlot rejects a malformed date", () => {
   const r = validateSlot("07/06/2026", "18:00", "adult", "jiu", SCHED);
   assert.equal(r.ok, false);
 });
+
+// ---- compiled-slots contract: Baby Fight Club trial times ----------------
+// intake.md: trials are mié 11:00 and sáb 14:00 ONLY; the member classes
+// (mié 12:00, sáb 15:00) must never accept a trial booking. This pins the
+// generated schedule so a site-schedule recompile can't silently regress it
+// (live incident 2026-08-18: every advertised baby slot was rejected).
+import { SLOTS } from "../src/brain/slots.gen.js";
+
+test("compiled SLOTS: baby trials bookable mié 11:00 + sáb 14:00, both audiences", () => {
+  // 2026-08-19 is a Wednesday; 2026-08-22 is a Saturday.
+  for (const aud of ["adult", "kid"]) {
+    assert.equal(validateSlot("2026-08-19", "11:00", aud, "baby", SLOTS).ok, true);
+    assert.equal(validateSlot("2026-08-22", "14:00", aud, "baby", SLOTS).ok, true);
+  }
+});
+
+test("compiled SLOTS: baby member classes are NOT bookable as trials", () => {
+  assert.equal(validateSlot("2026-08-19", "12:00", "adult", "baby", SLOTS).ok, false);
+  assert.equal(validateSlot("2026-08-22", "15:00", "adult", "baby", SLOTS).ok, false);
+});

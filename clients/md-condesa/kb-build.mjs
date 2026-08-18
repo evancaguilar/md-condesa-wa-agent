@@ -198,6 +198,31 @@ function buildSlots(schedule) {
   return slots;
 }
 
+/**
+ * Baby Fight Club: the site schedule only lists the MEMBER classes (mié 12:00,
+ * sáb 15:00) and intake.md forbids booking trials there ("NUNCA agendes una
+ * prueba ahí"). The bookable TRIAL slots — mié 11:00 y sáb 2 pm — don't appear
+ * on the site at all, so flattening the site schedule made validateSlot reject
+ * every legitimate baby booking (seen live 2026-08-18: leads told "ya quedó
+ * agendado" with no Airtable record). Swap member slots for trial slots here,
+ * emitting BOTH audiences: the model describes a baby booking as 'kid' at
+ * least as often as 'adult', and the site's audience tag for baby is 'adult'
+ * (no `a:` field), so a single-audience entry is a trap.
+ */
+function withBabyTrialSlots(slots) {
+  const babyTrials = [
+    { weekday: 2, time: "11:00" }, // miércoles 11 am
+    { weekday: 5, time: "14:00" }, // sábado 2 pm
+  ];
+  const out = slots.filter((s) => s.discipline !== "baby");
+  for (const t of babyTrials) {
+    for (const audience of ["adult", "kid"]) {
+      out.push({ weekday: t.weekday, time: t.time, discipline: "baby", audience });
+    }
+  }
+  return out;
+}
+
 // ---- content curation (distilled, not dumped) ----------------------------
 
 const stripHtml = (s) => (s || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
@@ -369,7 +394,7 @@ export async function buildKb({ intake, cfg }) {
   const schedEn = renderSchedule(schedule, i18n, "en");
   const curated = curatePages(pages);
   const founderTxt = curateFounder(founder);
-  const slots = buildSlots(schedule);
+  const slots = withBabyTrialSlots(buildSlots(schedule));
 
   const body = assembleMarkdown({
     cfg,

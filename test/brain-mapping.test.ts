@@ -361,3 +361,30 @@ test("sendResult: high confidence send carries awaitingReply too", () => {
   assert.equal(r.action, "send");
   if (r.action === "send") assert.equal(r.awaitingReply, false);
 });
+
+// ---- guardUnbackedBookingClaim -------------------------------------------
+import { guardUnbackedBookingClaim } from "../src/brain/claude.js";
+import type { BrainResult } from "../src/types.js";
+
+function sendRes(message: string): BrainResult {
+  return { action: "send", message, language: "es", confidence: "high", awaitingReply: true };
+}
+
+test("guard downgrades an 'agendado' claim with no booking to a low draft", () => {
+  const r = guardUnbackedBookingClaim(sendRes("¡Perfecto! Ya quedó agendado 🙌 Nos vemos el sábado a las 2 pm."));
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") {
+    assert.equal(r.confidence, "low");
+    assert.ok(/booking/i.test(r.reason ?? ""));
+  }
+});
+
+test("guard leaves offers to book (infinitive) untouched", () => {
+  const r = guardUnbackedBookingClaim(sendRes("¿Te gustaría agendar tu clase muestra? Puedo agendarte el sábado."));
+  assert.equal(r.action, "send");
+});
+
+test("guard leaves normal replies untouched", () => {
+  const r = guardUnbackedBookingClaim(sendRes("La clase es sábado a las 2 pm, ¡te esperamos!"));
+  assert.equal(r.action, "send");
+});
