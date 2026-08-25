@@ -361,6 +361,15 @@ export interface BrainPort {
   respond(ctx: ConvoContext): Promise<BrainResult>;
 }
 
+/** Payload of the "the bot answered on its own" card (gated auto-send lane). */
+export interface AutoSentFyi {
+  phone: string;
+  name: string | null;
+  text: string;
+  /** Auto-sends today INCLUDING this one. */
+  dailyCount: number;
+}
+
 export interface SlackPort {
   /** Posts a draft-approval card; returns the Slack message ts. */
   postDraft(a: PendingApproval & { contextText: string }): Promise<string>;
@@ -368,6 +377,8 @@ export interface SlackPort {
   postNote(text: string): Promise<void>;
   /** FYI card posted whenever book_trial fires (spec: always ALSO to Slack). */
   postBookingFyi(booking: BookTrialInput): Promise<void>;
+  /** FYI card for a reply the gated auto-send lane sent without approval. */
+  postAutoSentFyi(fyi: AutoSentFyi): Promise<void>;
   /** Swaps a stale pending card to "reemplazada por #newId" (new draft covers it). */
   markSuperseded(a: PendingApproval, newId: number): Promise<void>;
 }

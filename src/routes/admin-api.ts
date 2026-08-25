@@ -123,6 +123,12 @@ import { buildSystem } from "../brain/prompt.js";
 import { runEditAnalysis } from "../services/edit-tuner.js";
 import { createBrainWithKb, makeOverlayLoader } from "../brain/index.js";
 import { updateControlPanel } from "../services/slack.js";
+import {
+  AUTO_SEND_DAILY_CAP,
+  getAutoSendCount,
+  isAutoSendEnabled,
+  setAutoSendEnabled,
+} from "../services/auto-send.js";
 import { KB } from "../kb.js";
 
 // Overlay hard cap (estimated tokens). A resulting overlay above this is rejected
@@ -301,6 +307,18 @@ export async function handleAdminApi(
     const body = await readJson<{ enabled?: boolean }>(req);
     await kvSet(env.DB, "training_wheels", body.enabled ? "1" : "0");
     return json({ ok: true });
+  }
+  // Gated auto-send lane (services/auto-send.ts). GET reads the switch + today's
+  // usage; POST flips it (kv absent ⇒ disabled, so the lane ships inert).
+  if (path === "/admin/api/autosend" && method === "GET") {
+    return handleAutoSendState(env);
+  }
+  if (path === "/admin/api/autosend" && method === "POST") {
+    const body = await readJson<{ enabled?: boolean }>(req);
+    await setAutoSendEnabled(env.DB, body.enabled === true);
+    // Best-effort: keep the pinned Slack control panel in sync.
+    ctx.waitUntil(updateControlPanel(env).catch(() => {}));
+    return handleAutoSendState(env);
   }
 
   // ---- conversations ----
@@ -929,6 +947,16 @@ async function handleOverview(env: Env): Promise<Response> {
     month: stats.month,
     overlayTokens: tokens,
   });
+}
+
+// ---- gated auto-send ----
+
+async function handleAutoSendState(env: Env): Promise<Response> {
+  const [enabled, todayCount] = await Promise.all([
+    isAutoSendEnabled(env.DB),
+    getAutoSendCount(env.DB),
+  ]);
+  return json({ ok: true, enabled, todayCount, cap: AUTO_SEND_DAILY_CAP });
 }
 
 // ---- bot toggle ----

@@ -84,6 +84,8 @@ export interface ParsedAction {
 export interface ParsedInteraction {
   kind: "block_actions" | "view_submission" | "unknown";
   triggerId: string | null;
+  /** Who clicked (Slack username, display name, or id) — audit copy only. */
+  user: string | null;
   actions: ParsedAction[]; // block_actions only
   // view_submission:
   privateMetadata: string | null;
@@ -122,6 +124,9 @@ export function parseInteractionPayload(rawOrJson: string): ParsedInteraction {
   }
 
   const type = typeof obj?.type === "string" ? obj.type : "unknown";
+  // Slack sends user.username on modern payloads, user.name on older ones.
+  const user: string | null =
+    obj?.user?.username ?? obj?.user?.name ?? obj?.user?.id ?? null;
 
   if (type === "block_actions") {
     const actions: ParsedAction[] = [];
@@ -142,6 +147,7 @@ export function parseInteractionPayload(rawOrJson: string): ParsedInteraction {
     return {
       kind: "block_actions",
       triggerId: obj?.trigger_id ?? null,
+      user,
       actions,
       privateMetadata: null,
       viewValues: {},
@@ -167,6 +173,7 @@ export function parseInteractionPayload(rawOrJson: string): ParsedInteraction {
     return {
       kind: "view_submission",
       triggerId: null,
+      user,
       actions: [],
       privateMetadata: view?.private_metadata ?? null,
       viewValues,
@@ -181,6 +188,7 @@ function emptyInteraction(kind: ParsedInteraction["kind"]): ParsedInteraction {
   return {
     kind,
     triggerId: null,
+    user: null,
     actions: [],
     privateMetadata: null,
     viewValues: {},

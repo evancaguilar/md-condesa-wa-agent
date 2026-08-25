@@ -2,6 +2,18 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-25**.
 
+### Slice 6 — gated auto-send: a narrow always-on lane under training wheels (2026-08-25)
+
+Training wheels still route every reply through Slack. This adds ONE exception: a reply that is obviously safe **and** lands in a chat a human already signed off on goes out immediately instead of waiting for an approval. Ships **inert** — the kv key is absent, which means disabled; Evan arms it from the Slack panel (or `POST /admin/api/autosend`).
+
+- **`src/services/auto-send.ts`** — `decideAutoSend()` is the whole safety contract, pure and unit-tested. Gates, first failure wins (`blockedBy`): `switch` (kv `auto_send_enabled` !== "1", **missing = OFF**) → `action` (only the brain's plain `send`) → `confidence` (only `high`) → `booking_claim` (shared `claimsBooking` regex — anything promising a real class gets human eyes) → `price` (`PRICE_PROMO_RE`: `$`, precio/costo/promo/descuento/mxn/inscripci*/mensualidad/membres*) → `first_contact` (the phone needs ≥1 approval a human resolved as approved|edited — the FIRST reply of a conversation is never auto-sent) → `cap` (**20 auto-sends per CDMX day**, kv `auto_send_count:<YYYY-MM-DD>`, rolls over on its own). `evaluateAutoSendLane()` wraps the D1 reads (switch first, per-lead queries only for a message that is eligible on its own text) so the pipeline stays a thin call.
+- **`routeResult`** (src/pipeline/inbound.ts): unchanged when wheels are OFF. With wheels ON and the old `autoSend` false, it evaluates the lane; on `auto` it delivers through the SAME `deliverOrDraft` as the wheels-off path (outbound row stored, nudge drip armed, closed window still degrades to an approval), bumps the counter and posts an FYI. Anything the lane refuses falls through to `queueApproval` exactly like before — no other behavior change.
+- **Slack**: silent FYI card `🤖 Auto-enviado (alta confianza) — nombre · teléfono` + the text + `n/20 hoy`, with **🙋 Tomar control** (new `takeover_phone|<phone>` verb — an auto-sent reply has no approval row to claim, so it just applies the same `HUMAN_SNOOZE_HOURS` pause). Control panel gained an **Activar/Apagar auto-envío** button pair (`autosend_on`/`autosend_off`) plus a status line; every flip posts an audit note naming who clicked (`ParsedInteraction.user` is now parsed).
+- **Admin API**: `GET /admin/api/autosend` → `{enabled, todayCount, cap}`; `POST /admin/api/autosend {enabled}` sets the kv and returns the new state (also refreshes the Slack panel). No dashboard UI yet — the Slack button is the switch.
+- Master override unchanged: `getTrainingWheels(env) === false` (night mode / TRAINING_WHEELS=0) ⇒ the old path already auto-sends and this lane never runs.
+- Tests 530 → **555**, all green. No D1 migration (kv only).
+- [ ] **Evan**: arm it when ready — Slack `#wa-leads` control panel → 🤖 Activar auto-envío. Turning it off is the same button (or `POST /admin/api/autosend {"enabled":false}`).
+
 ### Slice 4 — human-booking gap closure: detect + 1-click Registrar (2026-08-25)
 
 Until now the **only** thing that wrote a trial to Airtable was the brain's `book_trial`. Every class a human confirmed over WhatsApp — Aprobar/Editar on a Slack draft, a dashboard staff reply, a scheduled "send later" — left the CRM empty and the anti-no-show sequence unarmed. Slice 7's nightly digest reported the damage; this closes the loop in real time.
