@@ -142,30 +142,45 @@ test("placeNudge3: pull + defer both beyond window → drop", () => {
 
 // ---- computeDayOnePlan ----
 
-test("computeDayOnePlan: daytime base → 3 nudges, none dropped", () => {
+test("computeDayOnePlan: daytime base → 2 nudges (+1h/+8h), none dropped", () => {
   const base = D15(9); // 09:00
   const plan = computeDayOnePlan(base, base);
   assert.equal(plan.nudge3Dropped, false);
+  // B3: the +6h middle step is no longer scheduled.
   assert.deepEqual(
     plan.scheduled.map((s) => [s.kind, s.dueAt]),
     [
       ["nudge_1h", D15(10)],
-      ["nudge_6h", D15(15)],
       ["nudge_8h", D15(17)],
     ],
   );
 });
 
-test("computeDayOnePlan: evening base defers nudges 1–2 out of quiet with ≥2h gap", () => {
-  const base = D15(21); // 9pm → +1h=22:00 (quiet), +6h=03:00 (quiet)
+test("computeDayOnePlan: evening base defers nudge 1 out of quiet; the close hands off to d2", () => {
+  const base = D15(21); // 9pm → +1h=22:00 (quiet), +8h=05:00 (quiet)
   const plan = computeDayOnePlan(base, base);
   const one = plan.scheduled.find((s) => s.kind === "nudge_1h");
-  const six = plan.scheduled.find((s) => s.kind === "nudge_6h");
-  // nudge_1h (22:00) → next 08:00; nudge_6h (03:00) → 08:00 collides → +2h = 10:00
+  // nudge_1h (22:00) → next 08:00.
   assert.equal(one?.dueAt, D16(8));
-  assert.equal(six?.dueAt, D16(10));
-  // ≥2h between consecutive placed nudges
-  assert.ok((six?.dueAt ?? 0) - (one?.dueAt ?? 0) >= 2 * 3600);
+  // The closing nudge (05:00) can't be placed ≥2h later inside the window, so it
+  // drops and the extended chain takes over — unchanged from the 3-step era.
+  assert.equal(plan.nudge3Dropped, true);
+  assert.equal(plan.extendedAnchor, D16(8));
+  // The +6h middle step is never scheduled any more.
+  assert.equal(
+    plan.scheduled.some((s) => s.kind === "nudge_6h"),
+    false,
+  );
+});
+
+test("computeDayOnePlan: the closing nudge still keeps ≥2h after nudge 1", () => {
+  const base = D15(7); // 07:00 → +1h = 08:00, +8h = 15:00
+  const plan = computeDayOnePlan(base, base);
+  const one = plan.scheduled.find((s) => s.kind === "nudge_1h");
+  const close = plan.scheduled.find((s) => s.kind === "nudge_8h");
+  assert.equal(one?.dueAt, D15(8));
+  assert.equal(close?.dueAt, D15(15));
+  assert.ok((close?.dueAt ?? 0) - (one?.dueAt ?? 0) >= 2 * 3600);
 });
 
 // ---- R3: extended chain timing ----

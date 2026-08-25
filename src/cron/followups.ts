@@ -17,6 +17,7 @@ import {
   upsertContact,
   setContactStatus,
   cancelFollowups,
+  lastBotMessage,
 } from "../db/queries.js";
 import { cancelFollowupsByKinds, getCampaign } from "../db/queries-admin.js";
 import {
@@ -35,7 +36,7 @@ import {
   cdmxIso,
   DAY,
 } from "./time.js";
-import { isQuietHour, next8am } from "./quiet.js";
+import { isQuietHour, next8am, shiftOutOfQuiet } from "./quiet.js";
 import { greetingName } from "./display-name.js";
 import {
   listRecentBookings,
@@ -48,6 +49,7 @@ import {
   processNudge,
   processExtendedNudge,
   maybeArmExtended,
+  gateOnOpenQuestion,
   ALL_NUDGE_KINDS,
   type NudgeKind,
   type ExtendedKind,
@@ -266,6 +268,8 @@ async function processOne(
         await rescheduleRow(env, f, next8am(nowSec()));
         return;
       }
+      // Never stomp the bot's own open question (B3): defer, don't cancel.
+      if (await deferForOpenQuestion(env, f)) return;
       // Lead-nudge drip. processNudge re-verifies eligibility at send time,
       // sends the free-form nudge, and bumps the rolling cap. Nudges are always
       // in-window by construction; a closed window → cancel (no template).
@@ -293,6 +297,7 @@ async function processOne(
         await rescheduleRow(env, f, next8am(nowSec()));
         return;
       }
+      if (await deferForOpenQuestion(env, f)) return;
       const res = await processExtendedNudge(env, f.phone, f.kind as ExtendedKind, {
         sendText,
         sendTemplate,
@@ -562,6 +567,18 @@ async function handleSendFailure(
       `[followups] send failed #${f.id} (${f.kind}) attempt ${attempts}: ${String(err)}`,
     );
   }
+}
+
+/**
+ * True when this nudge row was pushed back because the bot's last message to the
+ * lead is a question less than 2h old — the row stays 'scheduled' and comes back
+ * the moment the guard lifts (quiet-shifted), so nothing is ever cancelled here.
+ */
+async function deferForOpenQuestion(env: Env, f: Followup): Promise<boolean> {
+  const gate = gateOnOpenQuestion(await lastBotMessage(env.DB, f.phone), nowSec());
+  if (gate.send) return false;
+  await rescheduleRow(env, f, shiftOutOfQuiet(gate.retryAt));
+  return true;
 }
 
 async function rescheduleRow(
