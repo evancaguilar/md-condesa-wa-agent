@@ -2,6 +2,19 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-25**.
 
+### 15-day conversation audit — findings + pending actions (2026-08-25)
+
+Full report (artifact): "Radiografía del Agente". 185 convos / 226 approvals / 128 edits reviewed by a 22-agent fleet; every critical finding verified against raw transcripts (56 confirmed, 9 adjusted, 0 refuted). Headlines: only 9.7% of leads reach an evidenced booking; 23% of approval drafts EXPIRE unanswered (65% die overnight); ALL 226 approvals were confidence:low (structural — the persona's "high" definition is unreachable); link-push campaigns (Reto 7.6%, Kids 4.5%) convert half of the in-chat-booking baby flow (16.1%); overlay §1 actively instructed offering Thursday sparring ("ni menciones que uno es sparring"); 18/128 owner edits are schedule corrections (Friday afternoons invented, Sunday kids offered, Mini MT days wrong).
+
+Shipped this same day (7 slices, 573 tests green): atomic holding/expire claims; approvals-history endpoint (+ IN()-chunking 500 fix); slot hardening (sparring `trial:false`, Mini MT dual-audience, defensa-personal mapping, contract tests); booking-failure Slack alerts; human-booking capture cards (detect + 1-click Registrar); multi-person bookings; gated auto-send lane (inert); nightly booking reconciliation digest.
+
+- [ ] **Evan**: paste the corrected overlay §1 (sparring exception) — text in the report and in the session scratchpad (`overlay-fix-section1.md`).
+- [ ] **Evan**: check mdcondesa.com/clase-prueba-adultos/ (lead reported it broken 08-24) and confirm the canonical booking URLs (`/agendar-clase-prueba-adultos/` vs the stale ones intake.md ships).
+- [ ] **Evan**: say "aplica el paquete de KB" → one slice deploys the confidence checklist (high-as-default with 8 verifiable boxes + code backstop), 19 mined style rules, schedule corrections, missing facts (Reto prize, WellHub, class size, duration, Del Valle), campaign fixes (answer appended question + in-chat booking for Reto/Kids/mañanas), nudge copy rewrite. Requires raising the KB TOKEN_LIMIT (at 8,921/9,000).
+- [ ] **Evan**: rule on Baby Fight Club minimum age — his edits say 11 months, intake/campaign say 12.
+- [ ] **Evan**: after the KB pack deploys and Probar shows FAQ replies rating "high" — arm auto-send (Slack panel → 🤖 Activar auto-envío).
+- [ ] **Evan**: paste in D1 console: `CREATE INDEX IF NOT EXISTS idx_pending_approvals_created ON pending_approvals(created_at);`
+
 ### Slice 6 — gated auto-send: a narrow always-on lane under training wheels (2026-08-25)
 
 Training wheels still route every reply through Slack. This adds ONE exception: a reply that is obviously safe **and** lands in a chat a human already signed off on goes out immediately instead of waiting for an approval. Ships **inert** — the kv key is absent, which means disabled; Evan arms it from the Slack panel (or `POST /admin/api/autosend`).
