@@ -8,6 +8,7 @@ import { runCron, setCronDeps } from "./cron/dispatcher.js";
 import { createBrainWithKb, makeOverlayLoader } from "./brain/index.js";
 import { accrueUsage } from "./db/queries.js";
 import { makeAirtablePort } from "./services/airtable.js";
+import { makeBookingFailureNotifier } from "./services/booking-alerts.js";
 import {
   makeSlackPort,
   postNote,
@@ -34,6 +35,7 @@ function makePorts(env: Env): Ports {
     accrueUsage: (day, inTok, cachedTok, outTok, cost) =>
       accrueUsage(env.DB, day, inTok, cachedTok, outTok, cost),
     loadOverlay: makeOverlayLoader(env.DB),
+    onBookingFailure: makeBookingFailureNotifier(env),
   });
   const slack = makeSlackPort(env);
 

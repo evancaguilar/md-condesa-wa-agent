@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createBrain, computeCost } from "../src/brain/claude.js";
-import type { AirtablePort, Contact, ConvoContext } from "../src/types.js";
+import { createBrain, computeCost, type ApiMessage } from "../src/brain/claude.js";
+import type {
+  AirtablePort,
+  BookingFailureEvent,
+  Contact,
+  ConvoContext,
+} from "../src/types.js";
 
 // ---- fixtures ------------------------------------------------------------
 
@@ -51,13 +56,18 @@ const okAirtable: AirtablePort = {
   },
 };
 
-/** Build a fake fetch that returns each queued Anthropic response in order. */
+/** Build a fake fetch that returns each queued Anthropic response in order.
+ *  `bodies()` exposes the request payloads so tests can inspect the tool_results
+ *  the brain fed back to the model. */
 function mockFetch(responses: unknown[]): {
   fetchImpl: typeof fetch;
   calls: () => number;
+  bodies: () => { messages: ApiMessage[] }[];
 } {
   let i = 0;
-  const fn = async (): Promise<Response> => {
+  const sent: { messages: ApiMessage[] }[] = [];
+  const fn = async (_url: unknown, init?: { body?: string }): Promise<Response> => {
+    sent.push(JSON.parse(init?.body ?? "{}") as { messages: ApiMessage[] });
     const payload = responses[Math.min(i, responses.length - 1)];
     i++;
     return {
@@ -67,7 +77,29 @@ function mockFetch(responses: unknown[]): {
       text: async () => JSON.stringify(payload),
     } as unknown as Response;
   };
-  return { fetchImpl: fn as unknown as typeof fetch, calls: () => i };
+  return {
+    fetchImpl: fn as unknown as typeof fetch,
+    calls: () => i,
+    bodies: () => sent,
+  };
+}
+
+/** The tool_result string the brain handed back for tool_use id `id`. */
+function toolResultText(
+  bodies: { messages: ApiMessage[] }[],
+  id: string,
+): string | null {
+  for (const body of bodies) {
+    for (const m of body.messages) {
+      if (m.role !== "user" || typeof m.content === "string") continue;
+      for (const block of m.content as { type: string; tool_use_id?: string; content?: string }[]) {
+        if (block.type === "tool_result" && block.tool_use_id === id) {
+          return block.content ?? "";
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function usage(over: Record<string, number> = {}) {
@@ -286,6 +318,196 @@ test("book_trial (invalid slot) is rejected, model retries and drafts", async ()
   const r = await brain.respond(ctx("domingo 7am jiu"));
   assert.equal(bookCalled, false, "invalid slot never reaches airtable");
   assert.equal(r.action, "draft");
+});
+
+// ---- booking-failure notifications (slice 3) -----------------------------
+
+/** book_trial tool_use with overridable input. */
+function bookResp(input: Record<string, unknown>, id = "b1") {
+  return {
+    stop_reason: "tool_use",
+    usage: usage(),
+    content: [{ type: "tool_use", id, name: "book_trial", input }],
+  };
+}
+
+test("invalid slot → notifier fires once; tool_result text is unchanged", async () => {
+  // A malformed date keeps the reason deterministic (no dependence on the
+  // generated schedule), so the exact tool_result string can be asserted.
+  const { fetchImpl, bodies } = mockFetch([
+    bookResp({
+      name: "Ana",
+      child_name: "Emilia",
+      discipline: "jiu",
+      audience: "kid",
+      trial_date: "mañana",
+      trial_time: "17:00",
+      followup_message: "ok",
+    }),
+    sendReplyResp("low", "¿te va otro horario?"),
+  ]);
+  const events: BookingFailureEvent[] = [];
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    onBookingFailure: async (ev) => {
+      events.push(ev);
+    },
+    fetchImpl,
+  });
+
+  const r = await brain.respond(ctx("mañana a las 5 para mi hija"));
+  assert.equal(r.action, "draft");
+
+  assert.equal(events.length, 1, "notifier called exactly once");
+  const ev = events[0]!;
+  assert.equal(ev.kind, "invalid_slot");
+  assert.equal(ev.phone, "5215512345678");
+  assert.equal(ev.requested.name, "Ana");
+  assert.equal(ev.requested.childName, "Emilia");
+  assert.equal(ev.requested.discipline, "jiu");
+  assert.equal(ev.requested.audience, "kid");
+  assert.equal(ev.requested.trialDate, "mañana");
+  assert.equal(ev.requested.trialTime, "17:00");
+  assert.equal(ev.requested.phone, "5215512345678");
+  assert.equal(ev.reason, "Invalid trial_date 'mañana' (expected YYYY-MM-DD).");
+  assert.equal(ev.alternatives, undefined, "no same-day options for a bad date");
+
+  // CONTRACT: the string the model sees must not change because we now alert.
+  assert.equal(
+    toolResultText(bodies(), "b1"),
+    "error: Invalid trial_date 'mañana' (expected YYYY-MM-DD). Do not book; propose a valid slot to the lead and end with send_reply.",
+  );
+});
+
+test("invalid slot with same-day options → alternatives ride on the event", async () => {
+  // 2026-07-06 is Monday; jiu/adult runs that day but never at 06:00.
+  const { fetchImpl } = mockFetch([
+    bookResp({
+      name: "Ana",
+      discipline: "jiu",
+      audience: "adult",
+      trial_date: "2026-07-06",
+      trial_time: "06:00",
+      followup_message: "ok",
+    }),
+    sendReplyResp("low", "¿te va otro horario?"),
+  ]);
+  const events: BookingFailureEvent[] = [];
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    onBookingFailure: async (ev) => {
+      events.push(ev);
+    },
+    fetchImpl,
+  });
+
+  await brain.respond(ctx("lunes 6am jiu"));
+  assert.equal(events.length, 1);
+  const ev = events[0]!;
+  assert.equal(ev.kind, "invalid_slot");
+  assert.ok(ev.reason.includes("Same-day options"), ev.reason);
+  assert.ok(Array.isArray(ev.alternatives) && ev.alternatives.length > 0);
+  assert.ok(ev.alternatives!.includes("18:00"), ev.alternatives!.join(","));
+});
+
+test("airtable throw → notifier fires with kind airtable_error, text unchanged", async () => {
+  const { fetchImpl, bodies } = mockFetch([
+    bookResp({
+      name: "Ana",
+      discipline: "jiu",
+      audience: "adult",
+      trial_date: "2026-07-06",
+      trial_time: "18:00",
+      followup_message: "ok",
+    }),
+    sendReplyResp("low", "perdón, hubo un problema"),
+  ]);
+  const events: BookingFailureEvent[] = [];
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: {
+      async bookTrial() {
+        throw new Error("airtable 422 UNKNOWN_FIELD_NAME");
+      },
+    },
+    accrueUsage: async () => {},
+    onBookingFailure: async (ev) => {
+      events.push(ev);
+    },
+    fetchImpl,
+  });
+
+  const r = await brain.respond(ctx("lunes 6pm jiu"));
+  assert.equal(r.action, "draft");
+  assert.equal(events.length, 1);
+  const ev = events[0]!;
+  assert.equal(ev.kind, "airtable_error");
+  assert.equal(ev.reason, "airtable 422 UNKNOWN_FIELD_NAME");
+  assert.equal(ev.requested.trialDate, "2026-07-06");
+  assert.equal(ev.requested.trialTime, "18:00");
+
+  assert.equal(
+    toolResultText(bodies(), "b1"),
+    "error: booking failed (airtable 422 UNKNOWN_FIELD_NAME). Apologize and offer the booking link; end with send_reply confidence low.",
+  );
+});
+
+test("a notifier that throws never breaks the turn", async () => {
+  const { fetchImpl } = mockFetch([
+    bookResp({
+      name: "Ana",
+      discipline: "jiu",
+      audience: "adult",
+      trial_date: "2026-07-12", // Sunday: no class
+      trial_time: "07:00",
+      followup_message: "ok",
+    }),
+    sendReplyResp("low", "ese horario no existe, ¿te va otro?"),
+  ]);
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    onBookingFailure: async () => {
+      throw new Error("slack down");
+    },
+    fetchImpl,
+  });
+  const r = await brain.respond(ctx("domingo 7am jiu"));
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") assert.equal(r.message, "ese horario no existe, ¿te va otro?");
+});
+
+test("no notifier wired (sandbox) → failures still handled normally", async () => {
+  const { fetchImpl, bodies } = mockFetch([
+    bookResp({
+      name: "Ana",
+      discipline: "jiu",
+      audience: "adult",
+      trial_date: "2026-07-12",
+      trial_time: "07:00",
+      followup_message: "ok",
+    }),
+    sendReplyResp("low", "otro horario?"),
+  ]);
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    fetchImpl,
+  });
+  const r = await brain.respond(ctx("domingo 7am jiu"));
+  assert.equal(r.action, "draft");
+  assert.ok((toolResultText(bodies(), "b1") ?? "").startsWith("error: "));
 });
 
 test("API error → draft apology with reason api_error", async () => {

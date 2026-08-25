@@ -8,6 +8,8 @@
 import type {
   AirtablePort,
   Audience,
+  BookingFailureEvent,
+  BookingFailureNotifier,
   BookTrialInput,
   BrainPort,
   BrainResult,
@@ -44,6 +46,13 @@ export interface BrainDeps {
    * system prompt stays a single block. Injected by makeOverlayLoader.
    */
   loadOverlay?: () => Promise<string>;
+  /**
+   * Called whenever book_trial fails to produce an Airtable record (rejected
+   * slot or a bookTrial throw). Observability only: the tool_result handed back
+   * to the model is identical with or without it, and any throw is swallowed —
+   * a broken notifier must never break the tool loop. Omit in the sandbox.
+   */
+  onBookingFailure?: BookingFailureNotifier;
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -172,7 +181,12 @@ export function createBrain(deps: BrainDeps): BrainPort {
 
         for (const tu of toolUses) {
           if (tu.name === "book_trial") {
-            const outcome = await handleBookTrial(deps.airtable, ctx, tu);
+            const outcome = await handleBookTrial(
+              deps.airtable,
+              ctx,
+              tu,
+              deps.onBookingFailure,
+            );
             results.push(outcome.result);
             if (outcome.booking) pendingBooking = outcome.booking;
           } else if (tu.name === "set_followup") {
@@ -360,10 +374,27 @@ interface BookOutcome {
   booking?: { input: BookTrialInput; followupMessage: string; recordId: string };
 }
 
+/**
+ * Fire-and-forget-but-awaited failure notification. Awaited because Workers kill
+ * floating promises; try/caught because observability must never cost a reply.
+ */
+async function notifyBookingFailure(
+  notify: BookingFailureNotifier | undefined,
+  ev: BookingFailureEvent,
+): Promise<void> {
+  if (!notify) return;
+  try {
+    await notify(ev);
+  } catch (err) {
+    console.error("[booking-failure] notifier threw", err);
+  }
+}
+
 async function handleBookTrial(
   airtable: AirtablePort,
   ctx: ConvoContext,
   tu: ToolUseContent,
+  onFailure?: BookingFailureNotifier,
 ): Promise<BookOutcome> {
   const input = tu.input as {
     name?: string;
@@ -383,18 +414,8 @@ async function handleBookTrial(
   const trialTime = input.trial_time ?? "";
   const followupMessage = unescapeNewlines(input.followup_message ?? "");
 
-  const check = validateSlot(trialDate, trialTime, audience, discipline);
-  if (!check.ok) {
-    return {
-      result: {
-        type: "tool_result",
-        tool_use_id: tu.id,
-        content: `error: ${check.reason} Do not book; propose a valid slot to the lead and end with send_reply.`,
-        is_error: true,
-      },
-    };
-  }
-
+  // Assembled BEFORE validation so a rejected slot can report exactly what the
+  // model asked for (BookingFailureEvent.requested).
   const bookInput: BookTrialInput = {
     name,
     discipline,
@@ -410,6 +431,25 @@ async function handleBookTrial(
   if (ad) bookInput.ad = ad;
   if (childName) bookInput.childName = childName;
 
+  const check = validateSlot(trialDate, trialTime, audience, discipline);
+  if (!check.ok) {
+    await notifyBookingFailure(onFailure, {
+      phone: ctx.phone,
+      kind: "invalid_slot",
+      requested: bookInput,
+      reason: check.reason ?? "",
+      ...(check.alternatives ? { alternatives: check.alternatives } : {}),
+    });
+    return {
+      result: {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `error: ${check.reason} Do not book; propose a valid slot to the lead and end with send_reply.`,
+        is_error: true,
+      },
+    };
+  }
+
   try {
     const recordId = await airtable.bookTrial(bookInput);
     return {
@@ -422,6 +462,12 @@ async function handleBookTrial(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    await notifyBookingFailure(onFailure, {
+      phone: ctx.phone,
+      kind: "airtable_error",
+      requested: bookInput,
+      reason: msg,
+    });
     return {
       result: {
         type: "tool_result",

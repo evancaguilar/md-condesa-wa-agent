@@ -3,7 +3,7 @@
 // imports createBrainWithKb from here and injects the AirtablePort + a
 // db-bound accrueUsage closure.
 
-import type { AirtablePort, BrainPort } from "../types.js";
+import type { AirtablePort, BookingFailureNotifier, BrainPort } from "../types.js";
 import { KB } from "../kb.js";
 import { createBrain, type AccrueUsage } from "./claude.js";
 import { assembleOverlay } from "./overlay.js";
@@ -18,6 +18,9 @@ export function createBrainWithKb(deps: {
   airtable: AirtablePort;
   accrueUsage: AccrueUsage;
   loadOverlay?: () => Promise<string>;
+  /** Slack/log sink for failed book_trial attempts. Live wiring only — the
+   *  admin sandbox constructs its own deps without one. */
+  onBookingFailure?: BookingFailureNotifier;
   fetchImpl?: typeof fetch;
 }): BrainPort {
   return createBrain({ ...deps, kb: KB });

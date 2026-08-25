@@ -282,6 +282,28 @@ export interface BookTrialInput {
   childName?: string;
 }
 
+/**
+ * A book_trial attempt that did NOT produce an Airtable record. Emitted by the
+ * brain's tool loop so the failure is visible outside the model conversation
+ * (Slack note + structured log) — before this, a rejected slot or an Airtable
+ * throw only ever existed as a tool_result string inside the loop.
+ */
+export interface BookingFailureEvent {
+  phone: string;
+  /** invalid_slot = validateSlot rejected it; airtable_error = bookTrial threw. */
+  kind: "invalid_slot" | "airtable_error";
+  /** What the model asked to book (post-normalization). */
+  requested: BookTrialInput;
+  /** validateSlot's corrective reason, or the Airtable error message. */
+  reason: string;
+  /** Same-day alternatives from validateSlot, when it offered any. */
+  alternatives?: string[];
+}
+
+/** Side-effect sink for BookingFailureEvent (Slack + logs). Never throws into
+ *  the tool loop — the brain wraps every call. */
+export type BookingFailureNotifier = (ev: BookingFailureEvent) => Promise<void>;
+
 /** A custom follow-up the model asked to schedule (set_followup tool). The
  *  pipeline persists this as a `kind:'custom'` followup row. */
 export interface FollowupRequest {
