@@ -11,6 +11,7 @@ import type {
   PendingApproval,
   StoredMessage,
 } from "../types.js";
+import { claimsBooking } from "../services/booking-claims.js";
 
 const now = (): number => Math.floor(Date.now() / 1000);
 
@@ -601,4 +602,25 @@ export async function kvClaimIfAbsentOrOlder(
 export async function isBotEnabled(db: D1Database): Promise<boolean> {
   const v = await kvGet(db, "bot_enabled");
   return v !== "false";
+}
+
+/**
+ * Outbound messages since `sinceEpoch` (bot replies, staff replies, and the
+ * legacy WA-app echo) that CLAIM a completed booking — used by the nightly
+ * booking-reconciliation backstop (booking-recon.ts) to catch any that
+ * Airtable has no trial datetime for. The claim check runs in JS (not SQL)
+ * so it stays in lockstep with booking-claims.ts's regex.
+ */
+export async function recentClaimSends(
+  db: D1Database,
+  sinceEpoch: number,
+): Promise<Array<{ phone: string; body: string; ts: number }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT phone, body, ts FROM messages
+       WHERE direction IN ('out_bot', 'out_human', 'out_human_echo') AND ts >= ?1`,
+    )
+    .bind(sinceEpoch)
+    .all<{ phone: string; body: string; ts: number }>();
+  return results.filter((r) => claimsBooking(r.body ?? ""));
 }
