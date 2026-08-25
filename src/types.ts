@@ -196,7 +196,14 @@ export type ApprovalStatus =
   | "taken_over"
   | "expired"
   | "discarded"
-  | "superseded";
+  | "superseded"
+  /**
+   * Best-bet timeout (owner directive 2026-08-25): nobody reviewed the draft
+   * within an hour and the model was at least 25% sure, so the bot sent it
+   * itself. Additive TEXT value — no D1 migration; every renderer/filter must
+   * treat an unknown status as "just show it", never crash.
+   */
+  | "auto_sent";
 
 export type Confidence = "high" | "low";
 
@@ -324,6 +331,14 @@ export type BrainResult =
       message: string;
       language: Language;
       confidence: Confidence;
+      /**
+       * The model's own 0–100 read of "is this answer correct and complete"
+       * (send_reply.sureness). `confidence` is DERIVED from it (>=75 ⇒ high).
+       * Absent on legacy/synthesized results — every consumer must have a
+       * fallback. ≥75 auto-sends; 25–74 waits for a human up to an hour and
+       * then sends anyway; <25 never auto-sends.
+       */
+      sureness?: number;
       followup?: FollowupRequest;
       /** False when the lead was just closing (thanks/ok) — nobody is waiting. */
       awaitingReply?: boolean;
@@ -333,6 +348,8 @@ export type BrainResult =
       message: string;
       language: Language;
       confidence: Confidence;
+      /** See the 'send' member: model's 0–100 self-report, may be absent. */
+      sureness?: number;
       reason?: string;
       followup?: FollowupRequest;
       /** False when the lead was just closing (thanks/ok) — nobody is waiting. */
@@ -368,11 +385,15 @@ export interface AutoSentFyi {
   text: string;
   /** Auto-sends today INCLUDING this one. */
   dailyCount: number;
+  /** Model's 0–100 sureness for the reply that went out (when it reported one). */
+  sureness?: number;
 }
 
 export interface SlackPort {
   /** Posts a draft-approval card; returns the Slack message ts. */
-  postDraft(a: PendingApproval & { contextText: string }): Promise<string>;
+  postDraft(
+    a: PendingApproval & { contextText: string; sureness?: number },
+  ): Promise<string>;
   /** Posts a plain informational note to the channel. */
   postNote(text: string): Promise<void>;
   /** FYI card posted whenever book_trial fires (spec: always ALSO to Slack). */

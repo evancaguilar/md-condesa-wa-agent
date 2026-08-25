@@ -288,6 +288,136 @@ test("decideTimeout: >12h ⇒ expire, windowClosed reflects window state", () =>
   assert.equal(d2.kind === "expire" && d2.windowClosed, true);
 });
 
+// ---- best-bet timeout (owner directive 2026-08-25) ----
+
+test("decideTimeout: >1h with sureness 30 ⇒ bestbet; 59min ⇒ not yet", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000; // 10:00 CDMX
+  const late = baseView({
+    createdAt: now - 61 * 60,
+    lastInboundAt: now - 61 * 60,
+    holdingSent: true,
+    sureness: 30,
+  });
+  const d = decideTimeout(late, now);
+  assert.equal(d.kind, "bestbet");
+  assert.equal(d.kind === "bestbet" && d.sureness, 30);
+
+  const early = baseView({
+    createdAt: now - 59 * 60,
+    lastInboundAt: now - 59 * 60,
+    holdingSent: true,
+    sureness: 30,
+  });
+  assert.equal(decideTimeout(early, now).kind, "none");
+});
+
+test("decideTimeout: the 25% floor — 25 sends, 24 waits for a human", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = (sureness: number) =>
+    baseView({
+      createdAt: now - 2 * 3600,
+      lastInboundAt: now - 2 * 3600,
+      holdingSent: true,
+      sureness,
+    });
+  assert.equal(decideTimeout(view(25), now).kind, "bestbet");
+  assert.equal(decideTimeout(view(24), now).kind, "none");
+  assert.equal(decideTimeout(view(0), now).kind, "none");
+});
+
+test("decideTimeout: a 20%-sure draft never bestbets — it expires at 12h", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const at2h = baseView({
+    createdAt: now - 2 * 3600,
+    lastInboundAt: now - 2 * 3600,
+    holdingSent: true,
+    sureness: 20,
+  });
+  assert.equal(decideTimeout(at2h, now).kind, "none");
+  const at13h = baseView({
+    createdAt: now - 13 * 3600,
+    lastInboundAt: now - 60,
+    holdingSent: true,
+    sureness: 20,
+  });
+  assert.equal(decideTimeout(at13h, now).kind, "expire");
+});
+
+test("decideTimeout: unknown sureness (legacy row) never bestbets", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = baseView({
+    createdAt: now - 2 * 3600,
+    lastInboundAt: now - 2 * 3600,
+    holdingSent: true,
+  });
+  assert.equal(decideTimeout(view, now).kind, "none");
+});
+
+test("decideTimeout: a GUARDED draft never bestbets, however sure the model was", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = baseView({
+    createdAt: now - 2 * 3600,
+    lastInboundAt: now - 2 * 3600,
+    holdingSent: true,
+    sureness: 70,
+    guarded: true,
+  });
+  assert.equal(decideTimeout(view, now).kind, "none");
+  // …and it still dies the normal death at 12h.
+  const old = baseView({
+    createdAt: now - 13 * 3600,
+    lastInboundAt: now - 60,
+    holdingSent: true,
+    sureness: 70,
+    guarded: true,
+  });
+  assert.equal(decideTimeout(old, now).kind, "expire");
+});
+
+test("decideTimeout: a closed window blocks bestbet (nothing free-form can go out)", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = baseView({
+    createdAt: now - 2 * 3600,
+    lastInboundAt: now - 25 * 3600,
+    holdingSent: true,
+    sureness: 90,
+  });
+  assert.equal(decideTimeout(view, now).kind, "none");
+});
+
+test("decideTimeout: bestbet ignores business hours (3am is fine — it's a reply)", () => {
+  const now = Date.parse("2026-07-06T08:00:00Z") / 1000; // 02:00 CDMX
+  const view = baseView({
+    createdAt: now - 2 * 3600,
+    lastInboundAt: now - 2 * 3600,
+    sureness: 40,
+  });
+  const d = decideTimeout(view, now);
+  assert.equal(d.kind, "bestbet", "the holding line waits for 09:00; the answer does not");
+});
+
+test("decideTimeout: bestbet beats expiry for an eligible 13h-old draft", () => {
+  // Only reachable if the cron was down — an answer still beats silence.
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = baseView({
+    createdAt: now - 13 * 3600,
+    lastInboundAt: now - 60,
+    holdingSent: true,
+    sureness: 55,
+  });
+  assert.equal(decideTimeout(view, now).kind, "bestbet");
+});
+
+test("decideTimeout: a fresh sure draft under 1h just waits (hold path only)", () => {
+  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
+  const view = baseView({
+    createdAt: now - 11 * 60,
+    lastInboundAt: now - 11 * 60,
+    sureness: 60,
+  });
+  assert.equal(decideTimeout(view, now).kind, "hold");
+});
+
 test("windowHoursLeft: rounds up, floors at 0", () => {
   const now = 1_000_000;
   assert.equal(windowHoursLeft(now - 1 * 3600, now), 23);

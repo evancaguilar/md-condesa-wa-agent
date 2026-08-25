@@ -740,12 +740,116 @@ test("sendResult: high confidence send carries awaitingReply too", () => {
   if (r.action === "send") assert.equal(r.awaitingReply, false);
 });
 
+// ---- sureness → confidence mapping (owner directive 2026-08-25) ----
+
+test("sendResult: sureness >=75 sends, <75 drafts (the 75% threshold)", () => {
+  for (const [sureness, action] of [
+    [100, "send"],
+    [75, "send"],
+    [74, "draft"],
+    [25, "draft"],
+    [0, "draft"],
+  ] as const) {
+    const r = sendResult(
+      sendReplyUse({ message: "Hola", language: "es", sureness, confidence: "low" }),
+    );
+    assert.equal(r.action, action, `sureness ${sureness}`);
+    if (r.action === "send" || r.action === "draft") {
+      assert.equal(r.sureness, sureness);
+      assert.equal(r.confidence, action === "send" ? "high" : "low");
+    }
+  }
+});
+
+test("sendResult: sureness OVERRIDES a contradictory confidence enum", () => {
+  // The model set the legacy field wrong; the number is the source of truth.
+  const low = sendResult(
+    sendReplyUse({ message: "Hola", language: "es", sureness: 10, confidence: "high" }),
+  );
+  assert.equal(low.action, "draft");
+  const high = sendResult(
+    sendReplyUse({ message: "Hola", language: "es", sureness: 99, confidence: "low" }),
+  );
+  assert.equal(high.action, "send");
+});
+
+test("sendResult: out-of-range sureness is clamped and rounded", () => {
+  const over = sendResult(
+    sendReplyUse({ message: "Hola", language: "es", sureness: 140, confidence: "low" }),
+  );
+  assert.equal(over.action, "send", "140 must clamp to 100 and send");
+  if (over.action === "send") assert.equal(over.sureness, 100);
+
+  const under = sendResult(
+    sendReplyUse({ message: "Hola", language: "es", sureness: -20, confidence: "high" }),
+  );
+  assert.equal(under.action, "draft", "-20 must clamp to 0 and draft");
+  if (under.action === "draft") assert.equal(under.sureness, 0);
+
+  const fractional = sendResult(
+    sendReplyUse({ message: "Hola", language: "es", sureness: 74.6, confidence: "low" }),
+  );
+  // 74.6 rounds to 75 — at the threshold, so it sends.
+  assert.equal(fractional.action, "send");
+  if (fractional.action === "send") assert.equal(fractional.sureness, 75);
+});
+
+test("sendResult: a numeric STRING sureness still parses", () => {
+  const r = sendResult(
+    sendReplyUse({ message: "Hola", language: "es", sureness: "80", confidence: "low" }),
+  );
+  assert.equal(r.action, "send");
+  if (r.action === "send") assert.equal(r.sureness, 80);
+});
+
+test("sendResult: missing/garbage sureness falls back to the enum, with no number", () => {
+  for (const input of [
+    { message: "Hola", language: "es", confidence: "high" },
+    { message: "Hola", language: "es", sureness: "muy seguro", confidence: "high" },
+    { message: "Hola", language: "es", sureness: null, confidence: "high" },
+  ]) {
+    const r = sendResult(sendReplyUse(input));
+    assert.equal(r.action, "send", JSON.stringify(input));
+    if (r.action === "send") {
+      assert.equal(r.confidence, "high");
+      assert.equal(r.sureness, undefined, "no invented number");
+    }
+  }
+  const low = sendResult(sendReplyUse({ message: "Hola", language: "es" }));
+  assert.equal(low.action, "draft");
+  if (low.action === "draft") assert.equal(low.sureness, undefined);
+});
+
+test("sendResult: a low-sureness draft keeps its escalation reason", () => {
+  const r = sendResult(
+    sendReplyUse({
+      message: "Hola",
+      language: "es",
+      sureness: 30,
+      confidence: "low",
+      escalation_reason: "precio no aprobado",
+    }),
+  );
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") {
+    assert.equal(r.reason, "precio no aprobado");
+    assert.equal(r.sureness, 30);
+  }
+});
+
 // ---- guardUnbackedBookingClaim -------------------------------------------
 import { guardUnbackedBookingClaim } from "../src/brain/claude.js";
 import type { BrainResult } from "../src/types.js";
 
 function sendRes(message: string): BrainResult {
-  return { action: "send", message, language: "es", confidence: "high", awaitingReply: true };
+  return {
+    action: "send",
+    message,
+    language: "es",
+    confidence: "high",
+    sureness: 95,
+    awaitingReply: true,
+  };
 }
 
 test("guard downgrades an 'agendado' claim with no booking to a low draft", () => {
@@ -754,6 +858,10 @@ test("guard downgrades an 'agendado' claim with no booking to a low draft", () =
   if (r.action === "draft") {
     assert.equal(r.confidence, "low");
     assert.ok(/booking/i.test(r.reason ?? ""));
+    // The model's 95 is discarded: a guarded draft must never best-bet itself
+    // out an hour later (services/slack-timeouts.ts).
+    assert.equal(r.sureness, undefined);
+    assert.ok(r.reason!.startsWith("⚠️"), "the guard marker the pipeline keys on");
   }
 });
 

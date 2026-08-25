@@ -8,10 +8,11 @@ import {
   decideAutoSend,
   evaluateAutoSendLane,
   getAutoSendCount,
-  hasPriorResolvedApproval,
   isAutoSendEnabled,
   releaseAutoSendSlot,
   setAutoSendEnabled,
+  SURENESS_SEND_MIN,
+  surenessOf,
   tryClaimAutoSendSlot,
   type AutoSendGateInput,
 } from "../src/services/auto-send.js";
@@ -25,8 +26,8 @@ function input(over: Partial<AutoSendGateInput> = {}): AutoSendGateInput {
   return {
     action: "send",
     confidence: "high",
+    sureness: 90,
     message: SAFE,
-    hasPriorResolvedApproval: true,
     dailyCount: 0,
     enabled: true,
     ...over,
@@ -56,11 +57,32 @@ test("decideAutoSend: only the plain 'send' action qualifies", () => {
   }
 });
 
-test("decideAutoSend: low (or unknown) confidence blocks", () => {
+test("decideAutoSend: the 75% threshold — 74 blocks, 75 passes", () => {
+  assert.equal(SURENESS_SEND_MIN, 75);
+  assert.deepEqual(decideAutoSend(input({ sureness: 74 })), {
+    auto: false,
+    blockedBy: "sureness",
+  });
+  assert.deepEqual(decideAutoSend(input({ sureness: 75 })), { auto: true });
+  assert.deepEqual(decideAutoSend(input({ sureness: 0 })), {
+    auto: false,
+    blockedBy: "sureness",
+  });
+  assert.deepEqual(decideAutoSend(input({ sureness: 100 })), { auto: true });
+});
+
+test("decideAutoSend: no sureness ⇒ the legacy enum decides (high 85 / low 50)", () => {
+  assert.equal(surenessOf(undefined, "high"), 85);
+  assert.equal(surenessOf(undefined, "low"), 50);
+  assert.equal(surenessOf(10, "high"), 10, "an explicit number always wins");
+  assert.deepEqual(
+    decideAutoSend(input({ sureness: undefined, confidence: "high" })),
+    { auto: true },
+  );
   for (const confidence of ["low", "medium", ""]) {
     assert.deepEqual(
-      decideAutoSend(input({ confidence })),
-      { auto: false, blockedBy: "confidence" },
+      decideAutoSend(input({ sureness: undefined, confidence })),
+      { auto: false, blockedBy: "sureness" },
       confidence,
     );
   }
@@ -88,37 +110,31 @@ test("decideAutoSend: offering to book is NOT a booking claim (still auto-sends)
   );
 });
 
-test("decideAutoSend: every price/promo token blocks", () => {
+test("decideAutoSend: price copy AUTO-SENDS now (gate removed 2026-08-25)", () => {
+  // The price/promo gate and the first-contact gate are gone: sureness owns
+  // that caution (persona.md checklist box 3 sends an unapproved figure to
+  // 25-50, well under the threshold). A price the model is 90% sure of — one of
+  // the approved figures — goes straight out.
   for (const message of [
     "Son $999 al mes.",
     "El precio depende del plan.",
-    "El costo de la clase es bajo.",
     "Tenemos una promo esta semana.",
-    "Hay descuento por pago anual.",
-    "Son 1200 MXN mensuales.",
     "La inscripción es aparte.",
-    "La mensualidad incluye dos disciplinas.",
     "La membresía es flexible.",
   ]) {
-    assert.deepEqual(
-      decideAutoSend(input({ message })),
-      { auto: false, blockedBy: "price" },
-      message,
-    );
+    assert.deepEqual(decideAutoSend(input({ message })), { auto: true }, message);
   }
-});
-
-test("decideAutoSend: first contact (no approved/edited history) blocks", () => {
-  assert.deepEqual(decideAutoSend(input({ hasPriorResolvedApproval: false })), {
+  // …and the same copy at 60% still waits for a human.
+  assert.deepEqual(decideAutoSend(input({ message: "Son $999 al mes.", sureness: 60 })), {
     auto: false,
-    blockedBy: "first_contact",
+    blockedBy: "sureness",
   });
 });
 
-test("decideAutoSend: daily cap boundary — 19 passes, 20 blocks", () => {
-  assert.equal(AUTO_SEND_DAILY_CAP, 20);
-  assert.deepEqual(decideAutoSend(input({ dailyCount: 19 })), { auto: true });
-  assert.deepEqual(decideAutoSend(input({ dailyCount: 20 })), {
+test("decideAutoSend: daily cap boundary — 99 passes, 100 blocks", () => {
+  assert.equal(AUTO_SEND_DAILY_CAP, 100);
+  assert.deepEqual(decideAutoSend(input({ dailyCount: 99 })), { auto: true });
+  assert.deepEqual(decideAutoSend(input({ dailyCount: 100 })), {
     auto: false,
     blockedBy: "cap",
   });
@@ -131,25 +147,34 @@ test("decideAutoSend: daily cap boundary — 19 passes, 20 blocks", () => {
 test("decideAutoSend: gate order — the earliest failure is the one reported", () => {
   // switch beats everything…
   assert.equal(
-    decideAutoSend(input({ enabled: false, confidence: "low", dailyCount: 99 }))
-      .blockedBy,
+    decideAutoSend(input({ enabled: false, sureness: 10, dailyCount: 999 })).blockedBy,
     "switch",
   );
-  // …booking claim beats price…
+  // …action beats sureness…
   assert.equal(
-    decideAutoSend(input({ message: "Ya quedó agendado, son $999." })).blockedBy,
-    "booking_claim",
+    decideAutoSend(input({ action: "draft", sureness: 10 })).blockedBy,
+    "action",
   );
-  // …and price beats the per-lead gates.
+  // …sureness beats the booking-claim lock…
   assert.equal(
-    decideAutoSend(
-      input({ message: "El precio es ese.", hasPriorResolvedApproval: false, dailyCount: 99 }),
-    ).blockedBy,
-    "price",
+    decideAutoSend(input({ message: "Ya quedó agendado.", sureness: 10 })).blockedBy,
+    "sureness",
+  );
+  // …and the booking claim beats the cap.
+  assert.equal(
+    decideAutoSend(input({ message: "Ya quedó agendado.", dailyCount: 999 })).blockedBy,
+    "booking_claim",
   );
 });
 
-// ---- fake D1 (kv rows + the prior-approval probe) ---------------------------
+test("decideAutoSend: a 100%-sure booking claim STILL blocks (correctness lock)", () => {
+  assert.deepEqual(
+    decideAutoSend(input({ message: "Listo, ya quedó agendado tu lugar 🙌", sureness: 100 })),
+    { auto: false, blockedBy: "booking_claim" },
+  );
+});
+
+// ---- fake D1 (kv rows) ------------------------------------------------------
 
 interface FakeDb {
   db: D1Database;
@@ -157,10 +182,7 @@ interface FakeDb {
   calls: { sql: string; binds: unknown[] }[];
 }
 
-function fakeDb(
-  initial: Record<string, string> = {},
-  opts: { priorApproval?: boolean } = {},
-): FakeDb {
+function fakeDb(initial: Record<string, string> = {}): FakeDb {
   const store = new Map<string, string>(Object.entries(initial));
   const calls: { sql: string; binds: unknown[] }[] = [];
   const make = (sql: string): D1PreparedStatement => {
@@ -175,9 +197,6 @@ function fakeDb(
         if (sql.includes("FROM kv")) {
           const v = store.get(String(binds[0]));
           return (v === undefined ? null : ({ value: v } as unknown as T)) as T | null;
-        }
-        if (sql.includes("FROM pending_approvals")) {
-          return (opts.priorApproval ? ({ n: 1 } as unknown as T) : null) as T | null;
         }
         return null;
       },
@@ -305,30 +324,27 @@ test("getAutoSendCount: unknown day reads as 0", async () => {
   assert.equal(await getAutoSendCount(fakeDb().db, "2026-01-01"), 0);
 });
 
-test("hasPriorResolvedApproval: true only when an approved/edited row exists", async () => {
-  const yes = fakeDb({}, { priorApproval: true });
-  assert.equal(await hasPriorResolvedApproval(yes.db, "5215500000000"), true);
-  const no = fakeDb({}, { priorApproval: false });
-  assert.equal(await hasPriorResolvedApproval(no.db, "5215500000000"), false);
-  // The query must scope to sent-by-a-human statuses and to this phone.
-  const sql = no.calls[0]!.sql;
-  assert.match(sql, /status IN \('approved', 'edited'\)/);
-  assert.deepEqual(no.calls[0]!.binds, ["5215500000000"]);
-});
-
 // ---- lane evaluation (what the inbound pipeline calls) ----------------------
 
-const lane = (over: Partial<{ action: string; confidence: string; message: string }> = {}) => ({
+const lane = (
+  over: Partial<{
+    action: string;
+    confidence: string;
+    sureness: number;
+    message: string;
+  }> = {},
+) => ({
   phone: "5215500000000",
   action: "send",
   confidence: "high",
+  sureness: 90,
   message: SAFE,
   now: NOW,
   ...over,
 });
 
-test("evaluateAutoSendLane: switch off ⇒ blocked, and no per-lead queries run", async () => {
-  const f = fakeDb({}, { priorApproval: true });
+test("evaluateAutoSendLane: switch off ⇒ blocked, and no counter read runs", async () => {
+  const f = fakeDb();
   const r = await evaluateAutoSendLane(f.db, lane());
   assert.deepEqual(
     { auto: r.auto, blockedBy: r.blockedBy, day: r.day, cap: r.cap },
@@ -338,21 +354,35 @@ test("evaluateAutoSendLane: switch off ⇒ blocked, and no per-lead queries run"
 });
 
 test("evaluateAutoSendLane: an ineligible message costs one kv read", async () => {
-  const f = fakeDb({ [AUTO_SEND_KV]: "1" }, { priorApproval: true });
-  const r = await evaluateAutoSendLane(f.db, lane({ message: "Son $999 al mes." }));
-  assert.equal(r.blockedBy, "price");
+  const f = fakeDb({ [AUTO_SEND_KV]: "1" });
+  const r = await evaluateAutoSendLane(f.db, lane({ sureness: 40 }));
+  assert.equal(r.blockedBy, "sureness");
   assert.equal(f.calls.length, 1);
+});
+
+test("evaluateAutoSendLane: a price answer the model is sure of goes out", async () => {
+  // Regression for the removed `price` gate — this used to be blocked outright.
+  const f = fakeDb({ [AUTO_SEND_KV]: "1" });
+  const r = await evaluateAutoSendLane(f.db, lane({ message: "Son $999 al mes." }));
+  assert.deepEqual({ auto: r.auto, blockedBy: r.blockedBy }, {
+    auto: true,
+    blockedBy: undefined,
+  });
+});
+
+test("evaluateAutoSendLane: never queries pending_approvals (no first-contact gate)", async () => {
+  const f = fakeDb({ [AUTO_SEND_KV]: "1", [autoSendCountKey(DAY_STR)]: "3" });
+  const r = await evaluateAutoSendLane(f.db, lane());
+  assert.equal(r.auto, true);
   assert.equal(
     f.calls.some((c) => c.sql.includes("pending_approvals")),
     false,
+    "a lead with zero approval history still auto-sends",
   );
 });
 
 test("evaluateAutoSendLane: all gates pass ⇒ auto, with today's count and day", async () => {
-  const f = fakeDb(
-    { [AUTO_SEND_KV]: "1", [autoSendCountKey(DAY_STR)]: "4" },
-    { priorApproval: true },
-  );
+  const f = fakeDb({ [AUTO_SEND_KV]: "1", [autoSendCountKey(DAY_STR)]: "4" });
   const r = await evaluateAutoSendLane(f.db, lane());
   assert.deepEqual(
     { auto: r.auto, blockedBy: r.blockedBy, dailyCount: r.dailyCount, day: r.day },
@@ -360,37 +390,28 @@ test("evaluateAutoSendLane: all gates pass ⇒ auto, with today's count and day"
   );
 });
 
-test("evaluateAutoSendLane: no approved/edited history ⇒ first_contact", async () => {
-  const f = fakeDb({ [AUTO_SEND_KV]: "1" }, { priorApproval: false });
-  const r = await evaluateAutoSendLane(f.db, lane());
-  assert.deepEqual({ auto: r.auto, blockedBy: r.blockedBy }, {
-    auto: false,
-    blockedBy: "first_contact",
-  });
-});
-
 test("evaluateAutoSendLane: at the cap ⇒ blocked; one below ⇒ auto", async () => {
-  const at = fakeDb(
-    { [AUTO_SEND_KV]: "1", [autoSendCountKey(DAY_STR)]: String(AUTO_SEND_DAILY_CAP) },
-    { priorApproval: true },
-  );
+  const at = fakeDb({
+    [AUTO_SEND_KV]: "1",
+    [autoSendCountKey(DAY_STR)]: String(AUTO_SEND_DAILY_CAP),
+  });
   const blocked = await evaluateAutoSendLane(at.db, lane());
   assert.deepEqual({ auto: blocked.auto, blockedBy: blocked.blockedBy }, {
     auto: false,
     blockedBy: "cap",
   });
 
-  const below = fakeDb(
-    { [AUTO_SEND_KV]: "1", [autoSendCountKey(DAY_STR)]: String(AUTO_SEND_DAILY_CAP - 1) },
-    { priorApproval: true },
-  );
+  const below = fakeDb({
+    [AUTO_SEND_KV]: "1",
+    [autoSendCountKey(DAY_STR)]: String(AUTO_SEND_DAILY_CAP - 1),
+  });
   assert.equal((await evaluateAutoSendLane(below.db, lane())).auto, true);
 });
 
 test("evaluateAutoSendLane: the day is CDMX, not UTC (23:00 CDMX is still today)", async () => {
   // 23:00 CDMX on the 25th is already the 26th in UTC — the counter must not
   // roll over an hour before midnight local.
-  const f = fakeDb({ [AUTO_SEND_KV]: "1" }, { priorApproval: true });
+  const f = fakeDb({ [AUTO_SEND_KV]: "1" });
   const late = cdmxToEpoch(2026, 8, 25, 23, 0, 0);
   const r = await evaluateAutoSendLane(f.db, { ...lane(), now: late });
   assert.equal(r.day, DAY_STR);
@@ -398,10 +419,7 @@ test("evaluateAutoSendLane: the day is CDMX, not UTC (23:00 CDMX is still today)
 });
 
 test("evaluateAutoSendLane: a draft never auto-sends even with everything armed", async () => {
-  const f = fakeDb(
-    { [AUTO_SEND_KV]: "1", [autoSendCountKey(DAY_STR)]: "0" },
-    { priorApproval: true },
-  );
+  const f = fakeDb({ [AUTO_SEND_KV]: "1", [autoSendCountKey(DAY_STR)]: "0" });
   const r = await evaluateAutoSendLane(f.db, lane({ action: "draft" }));
   assert.deepEqual({ auto: r.auto, blockedBy: r.blockedBy }, {
     auto: false,

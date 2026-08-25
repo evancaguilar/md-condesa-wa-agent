@@ -200,6 +200,14 @@ function emptyInteraction(kind: ParsedInteraction["kind"]): ParsedInteraction {
 
 const CDMX_TZ = "America/Mexico_City";
 const HOLDING_THRESHOLD_SEC = 10 * 60; // 10 min → send holding line
+/**
+ * 1 h → send the draft anyway if the model was at least BESTBET_SURENESS_MIN
+ * sure. Owner directive 2026-08-25: "if it waits more than an hour with no
+ * approval, it sends its best bet as long as it's 25% sure — a 30% answer in an
+ * hour beats the 100% answer 12 hours later."
+ */
+export const BESTBET_THRESHOLD_SEC = 3600;
+export const BESTBET_SURENESS_MIN = 25;
 const EXPIRE_THRESHOLD_SEC = 12 * 3600; // 12 h → expire
 const WINDOW_SECONDS = 24 * 3600;
 const BIZ_OPEN_HOUR = 9; // 09:00 CDMX
@@ -236,24 +244,62 @@ export interface TimeoutApprovalView {
    * noise. Undefined (legacy rows, fallback drafts) = waiting.
    */
   awaitingReply?: boolean;
+  /**
+   * Model's 0–100 self-report for this draft (kv `sureness:<id>`, written at
+   * queue time). Undefined = unknown (legacy row, synthesized fallback, or a
+   * guard that stripped it) ⇒ never best-bet.
+   */
+  sureness?: number;
+  /**
+   * True when the draft tripped a correctness guard (kv `guarded:<id>`): the
+   * text claims a booking nothing backs, or names a slot that isn't on the
+   * grid. Hard exclusion from best-bet — a human fixes it or it expires.
+   */
+  guarded?: boolean;
 }
 
 export type TimeoutAction =
   | { kind: "hold"; id: number; phone: string } // send holding line + re-ping
+  /** Send the draft anyway — 1h with no review, model sure enough. */
+  | { kind: "bestbet"; id: number; phone: string; sureness: number }
   | { kind: "expire"; id: number; phone: string; windowClosed: boolean }
   | { kind: "none"; id: number };
 
 /**
  * Pure decision for a single approval. Injectable `now` (seconds).
+ * - age > 1h, sureness >= 25, not guarded, window open ⇒ best-bet send.
  * - age > 12h                         ⇒ expire (windowClosed reported so the
  *                                       caller can offer the template button).
  * - age > 10min, business hours, window open, holding not yet sent, and the
  *   lead is actually waiting on an answer ⇒ send holding line.
  * - otherwise                         ⇒ none.
+ *
+ * Best-bet is checked FIRST, above expiry: a draft eligible for it should have
+ * gone out at the 1h mark, so a 13h-old eligible row means the cron was down,
+ * not that Evan decided against it — and the lead (who wrote < 24h ago, or the
+ * window check would fail) is still better served by an answer than by silence.
+ * Expiry keeps everything best-bet won't touch: unknown/low sureness, guarded
+ * drafts, closed windows.
+ *
+ * Best-bet deliberately IGNORES the 09:00–21:00 business-hours gate that guards
+ * the holding line. That gate exists so unsolicited copy never lands at 3am;
+ * this is a direct reply to a lead who messaged at most 13h ago (1h queue +
+ * the 24h window), inside a conversation they opened. Making it wait for 09:00
+ * would recreate exactly the "100% answer 12 hours later" the directive kills.
  */
 export function decideTimeout(a: TimeoutApprovalView, now: number): TimeoutAction {
   const age = now - a.createdAt;
   const windowOpen = a.lastInboundAt !== null && now - a.lastInboundAt < WINDOW_SECONDS;
+
+  if (
+    age > BESTBET_THRESHOLD_SEC &&
+    windowOpen &&
+    !a.guarded &&
+    a.sureness !== undefined &&
+    a.sureness >= BESTBET_SURENESS_MIN
+  ) {
+    return { kind: "bestbet", id: a.id, phone: a.phone, sureness: a.sureness };
+  }
 
   if (age > EXPIRE_THRESHOLD_SEC) {
     return { kind: "expire", id: a.id, phone: a.phone, windowClosed: !windowOpen };

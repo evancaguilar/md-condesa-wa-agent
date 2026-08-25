@@ -41,8 +41,18 @@ export function claimsBooking(text: string): boolean {
 
 // ---- shared booking-capture vocabulary -----------------------------------
 
-/** Where a human-originated outbound came from (drives the Slack card copy). */
-export type HumanSendSource = "approved" | "edited" | "staff" | "staff_later";
+/**
+ * Where a non-brain outbound came from (drives the Slack card copy).
+ * "auto_timeout" is the bot's own best-bet send after an hour with no human
+ * review (owner directive 2026-08-25) — not human-originated, but it goes down
+ * the same audit path because nothing verified the text before it left.
+ */
+export type HumanSendSource =
+  | "approved"
+  | "edited"
+  | "staff"
+  | "staff_later"
+  | "auto_timeout";
 
 /** validateSlot's answer, flattened for storage on a capture record. */
 export interface BookingVerdict {

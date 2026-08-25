@@ -61,11 +61,17 @@ import { isOptOut } from "./opt-out.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
 import { channelOf } from "../services/channel.js";
-import { bookingApprovalKey, awaitingReplyKey } from "../services/approvals.js";
+import {
+  bookingApprovalKey,
+  awaitingReplyKey,
+  guardedApprovalKey,
+  surenessKey,
+} from "../services/approvals.js";
 import {
   evaluateAutoSendLane,
   getAutoSendCount,
   releaseAutoSendSlot,
+  surenessOf,
   tryClaimAutoSendSlot,
 } from "../services/auto-send.js";
 import { CLIENT } from "../client.gen.js";
@@ -582,6 +588,10 @@ async function routeResult(
       // approve/edit fires the booking video after sending (R4). Confidence
       // "high": without wheels this send happens unconditionally, so the audit
       // view must count it as a would-have-auto-sent reply.
+      // Sureness mirrors the enum fallback (surenessOf: high ⇒ 85): the booking
+      // is already in Airtable, and without wheels this exact text sends
+      // unconditionally — so if nobody reviews it within the hour, the best-bet
+      // timeout delivers the confirmation instead of leaving the lead hanging.
       await queueApproval(
         env,
         ports,
@@ -592,6 +602,7 @@ async function routeResult(
         true,
         true,
         "high",
+        surenessOf(undefined, "high"),
       );
     } else {
       const delivered = await deliverOrDraft(
@@ -624,16 +635,18 @@ async function routeResult(
     return;
   }
 
-  // Gated auto-send lane: with training wheels ON, an OBVIOUSLY safe reply on a
-  // chat a human already signed off on goes straight out instead of waiting for
-  // an approval (gates + rationale in services/auto-send.ts). Dead unless the kv
+  // Gated auto-send lane: with training wheels ON, a reply the model is at least
+  // 75% sure of goes straight to the lead instead of waiting for an approval
+  // (threshold + remaining gates in services/auto-send.ts). Dead unless the kv
   // switch `auto_send_enabled` is "1". Anything it refuses falls through to the
-  // normal approval queue below — no other behavior changes.
+  // normal approval queue below, where the 1h best-bet timeout can still send
+  // it (services/slack-timeouts.ts).
   if (ctx.trainingWheels) {
     const lane = await evaluateAutoSendLane(env.DB, {
       phone,
       action: result.action,
       confidence: result.confidence,
+      sureness: result.sureness,
       message: result.message,
     });
     if (lane.auto) {
@@ -666,6 +679,7 @@ async function routeResult(
             name: ctx.contact.name,
             text: result.message,
             dailyCount,
+            ...(result.sureness !== undefined ? { sureness: result.sureness } : {}),
           });
         } catch (err) {
           console.error("[inbound] auto-send FYI failed", phone, err);
@@ -690,6 +704,7 @@ async function routeResult(
     false,
     result.awaitingReply ?? true,
     result.confidence,
+    result.sureness,
   );
 }
 
@@ -757,6 +772,8 @@ async function queueApproval(
   bookingOrigin = false,
   awaitingReply = true,
   confidence: "high" | "low" = "low",
+  /** Model's 0–100 self-report; drives the card chip + the 1h best-bet timeout. */
+  sureness?: number,
 ): Promise<void> {
   const contextText = history
     .slice(-6)
@@ -797,9 +814,24 @@ async function queueApproval(
   // Not-waiting marker (kv, like bookingOrigin): timeout cron skips the holding
   // line for closings. Only written when false — missing key = waiting.
   if (!awaitingReply) await kvSet(env.DB, awaitingReplyKey(id), "0");
+  // Sureness marker (kv, same side-channel): the Slack card renders it and the
+  // timeout cron best-bets on it after an hour. Missing key = unknown ⇒ the
+  // draft can only be resolved by a human.
+  if (typeof sureness === "number" && Number.isFinite(sureness)) {
+    await kvSet(env.DB, surenessKey(id), String(Math.round(sureness)));
+  }
+  // Guarded marker: the brain's correctness guards prefix their reason with
+  // "⚠️" (unbacked booking claim / slot that isn't on the grid). `includes`, not
+  // `startsWith`: guardUnverifiedSlotClaim appends its warning to an existing
+  // escalation reason. Such a draft NEVER best-bets — a human fixes it or it
+  // expires.
+  if (reason?.includes("⚠️")) await kvSet(env.DB, guardedApprovalKey(id), "1");
   const slackTs = await ports.slack.postDraft({
     id,
     phone: ctx.phone,
+    ...(typeof sureness === "number" && Number.isFinite(sureness)
+      ? { sureness: Math.round(sureness) }
+      : {}),
     draft,
     context: contextText,
     confidence,

@@ -24,6 +24,10 @@ const STATUSES: Record<ApprovalStatus, true> = {
   expired: true,
   discarded: true,
   superseded: true,
+  // Best-bet timeout send (owner directive 2026-08-25). Listed here so the
+  // history endpoint can FILTER on it — the compile error you get by omitting a
+  // new status is the whole point of this map.
+  auto_sent: true,
 };
 
 function isApprovalStatus(s: string): s is ApprovalStatus {

@@ -23,6 +23,7 @@ import {
   kvGet,
   kvSet,
   releaseHoldingClaim,
+  resolveApproval,
   setContactStatus,
   setHumanOverride,
   isBotEnabled,
@@ -36,7 +37,12 @@ import {
   windowHoursLeft,
   type TimeoutApprovalView,
 } from "./slack-timeouts.js";
-import { awaitingReplyKey } from "./approvals.js";
+import {
+  awaitingReplyKey,
+  guardedApprovalKey,
+  runPostSendEffects,
+  surenessKey,
+} from "./approvals.js";
 import type { BookingCapture, HumanSendSource } from "./booking-claims.js";
 import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
 import { AUTO_SEND_DAILY_CAP, isAutoSendEnabled } from "./auto-send.js";
@@ -156,17 +162,22 @@ function statusChips(
 
 /** Renders the last ~6 conversation lines already embedded in contextText. */
 function draftBlocks(
-  approval: PendingApproval & { contextText: string },
+  approval: PendingApproval & { contextText: string; sureness?: number },
   name: string | null,
   hoursLeft: number,
   reason: string | null,
   adLine: string | null,
 ): unknown[] {
   const who = name ? `${name} · ${approval.phone}` : approval.phone;
+  // The model's own 0–100 read of the draft. Shown so Evan can calibrate the
+  // thresholds against reality (>=75 never reaches this card; 25–74 self-sends
+  // after an hour). Absent on legacy rows and guard-stripped drafts.
+  const seguridad =
+    approval.sureness !== undefined ? ` · seguridad ${approval.sureness}%` : "";
   const blocks: unknown[] = [
     {
       type: "header",
-      text: { type: "plain_text", text: `📲 ${who}`, emoji: true },
+      text: { type: "plain_text", text: `📲 ${who}${seguridad}`, emoji: true },
     },
     context(statusChips(approval, name, hoursLeft)),
   ];
@@ -246,7 +257,7 @@ function controlPanelBlocks(
   // The gated lane only matters while replies still need approval; under night
   // mode everything high-confidence already sends on its own.
   const lane = autoSend
-    ? `🤖 Auto-envío seguro: *ACTIVADO* (máx. ${AUTO_SEND_DAILY_CAP}/día; nunca precios ni agendados, nunca el primer contacto)`
+    ? `🤖 Auto-envío seguro: *ACTIVADO* (seguridad ≥75% sale sola; máx. ${AUTO_SEND_DAILY_CAP}/día; nunca un agendado sin respaldo)`
     : "🤖 Auto-envío seguro: *apagado*";
   return [
     section(`🤖 *Bot ${CLIENT.shortName}* — estado: *${status}*\n${mode}\n${lane}`),
@@ -272,7 +283,7 @@ function controlPanelBlocks(
 /** Posts the draft-approval card; returns the Slack message ts. */
 export async function postDraft(
   env: Env,
-  a: PendingApproval & { contextText: string },
+  a: PendingApproval & { contextText: string; sureness?: number },
 ): Promise<string> {
   const contact = await getContact(env.DB, a.phone);
   const name = contact?.name ?? null;
@@ -325,8 +336,10 @@ export async function postBookingFyi(env: Env, booking: BookTrialInput): Promise
  */
 export async function postAutoSentFyi(env: Env, fyi: AutoSentFyi): Promise<void> {
   const who = fyi.name ? `${fyi.name} · ${fyi.phone}` : fyi.phone;
+  const seguridad =
+    fyi.sureness !== undefined ? `seguridad ${fyi.sureness}%` : "alta confianza";
   const blocks: unknown[] = [
-    section(`🤖 *Auto-enviado (alta confianza)* — ${who}`),
+    section(`🤖 *Auto-enviado (${seguridad})* — ${who}`),
     section(`>${quote(fyi.text)}`),
     context(
       `${fyi.dailyCount}/${AUTO_SEND_DAILY_CAP} hoy  •  sin aprobación (auto-envío seguro)`,
@@ -470,6 +483,7 @@ const SOURCE_ES: Record<HumanSendSource, string> = {
   edited: "respuesta editada en Slack",
   staff: "mensaje del panel",
   staff_later: "envío programado del panel",
+  auto_timeout: "auto-enviada tras 1h sin revisión",
 };
 
 /** "jiu · adultos · 2026-08-29 19:00" — the fields we managed to read back. */
@@ -648,6 +662,23 @@ export function markExpiredCard(env: Env, a: PendingApproval, windowClosed: bool
     : undefined;
   return updateResolvedCard(env, a, "⌛ *Expirada* (sin respuesta a tiempo)", a.draft, extra);
 }
+/**
+ * The 1h best-bet send (owner directive 2026-08-25): nobody reviewed the draft
+ * and the bot sent it itself. The card says so explicitly, with the model's own
+ * sureness, so Evan can audit which numbers were worth trusting.
+ */
+export function markAutoSentCard(
+  env: Env,
+  a: PendingApproval,
+  sureness: number,
+): Promise<void> {
+  return updateResolvedCard(
+    env,
+    a,
+    `⏱️ *Enviada automáticamente* tras 1h sin revisión · seguridad ${sureness}%`,
+    a.draft,
+  );
+}
 export function markStudentCard(env: Env, a: PendingApproval): Promise<void> {
   return updateResolvedCard(env, a, "🎓 *Marcado como alumno* — descartada", a.draft);
 }
@@ -714,6 +745,9 @@ export interface TimeoutDeps {
  * Per spec §Slack timeouts. Called by D's every-5-minute cron.
  * - pending >10min in business hours (09–21 CDMX) & !holding_sent & window open
  *   ⇒ claim holding_sent, send holding line, re-ping Slack <!here>.
+ * - pending >1h, sureness >=25, not guarded, window open ⇒ BEST BET: claim
+ *   `auto_sent`, send the draft as-is, stamp the card (owner directive
+ *   2026-08-25 — an hour of silence is worse than an imperfect answer).
  * - pending >12h ⇒ expire + update card (offer template button if window closed).
  *
  * Both writes are atomic claims (claimHoldingSend / claimApproval) because the
@@ -740,6 +774,12 @@ export async function runApprovalTimeouts(
     const contact = await queries.getContact(env.DB, a.phone);
     // Brain's not-waiting marker (kv, set at queue time): "0" ⇒ skip holding.
     const awaitingRaw = await kvGet(env.DB, awaitingReplyKey(a.id));
+    // Best-bet inputs, both kv side-channels written by queueApproval. Three
+    // point reads per pending row: the queue is dozens of rows at worst, so a
+    // kvGet each is cheaper than the schema change it avoids.
+    const surenessRaw = await kvGet(env.DB, surenessKey(a.id));
+    const guardedRaw = await kvGet(env.DB, guardedApprovalKey(a.id));
+    const surenessNum = Number(surenessRaw);
     const view: TimeoutApprovalView = {
       id: a.id,
       phone: a.phone,
@@ -747,6 +787,9 @@ export async function runApprovalTimeouts(
       holdingSent: a.holding_sent === 1,
       lastInboundAt: contact?.last_inbound_at ?? null,
       awaitingReply: awaitingRaw === "0" ? false : undefined,
+      sureness:
+        surenessRaw !== null && Number.isFinite(surenessNum) ? surenessNum : undefined,
+      guarded: guardedRaw === "1",
     };
     const decision = decideTimeout(view, now);
 
@@ -785,6 +828,42 @@ export async function runApprovalTimeouts(
           phone: a.phone,
           draft: a.draft,
         });
+      } else if (decision.kind === "bestbet") {
+        // Defensive baja check, same as approveAndSend: the inbound gate already
+        // discards pending drafts on opt-out, so reaching here is a race (or a
+        // manual baja). An automated send has no human to catch it — the draft
+        // dies as `discarded` instead of going out.
+        if (contact?.status === "opted_out") {
+          if (await queries.claimApproval(env.DB, a.id, "discarded")) {
+            await markDiscardedCard(env, a);
+          }
+          continue;
+        }
+        // Claim FIRST (atomic, pending-only) so a human tapping Aprobar in the
+        // same second wins and the lead never gets the draft twice. Losing the
+        // claim means the row stopped being pending — stay quiet.
+        if (!(await queries.claimApproval(env.DB, a.id, "auto_sent", a.draft))) continue;
+        try {
+          await deps.sendText(env, a.phone, a.draft);
+        } catch (err) {
+          if (err instanceof WindowClosedError) {
+            // decideTimeout checked the window, but it can close in between.
+            // Same downgrade approveAndSend does: the row dies as `expired`
+            // and the card offers the template button.
+            await resolveApproval(env.DB, a.id, "expired");
+            await markWindowClosedCard(env, a);
+            continue;
+          }
+          // Transient failure: hand the row back so the next 5-minute pass (or
+          // a human) can still send it.
+          await resolveApproval(env.DB, a.id, "pending");
+          throw err;
+        }
+        await markAutoSentCard(env, a, decision.sureness);
+        // Exactly the post-send work approve/edit do — booking video, nudge
+        // re-arm, booking-claim audit — under its own source so the audit card
+        // says nobody reviewed this one.
+        await runPostSendEffects(env, a.id, a.phone, a.draft, "auto_timeout");
       } else if (decision.kind === "expire") {
         // Atomic: never stomp a row a human resolved between snapshot and now.
         if (!(await queries.claimApproval(env.DB, a.id, "expired"))) continue;

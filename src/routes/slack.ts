@@ -380,7 +380,7 @@ async function onAutoSendToggle(
   await postNote(
     env,
     enabled
-      ? `🤖 *Auto-envío ACTIVADO*${who} — respuestas obvias de alta confianza salen sin aprobación (máx. ${AUTO_SEND_DAILY_CAP}/día; nunca precios, agendados ni primer contacto).`
+      ? `🤖 *Auto-envío ACTIVADO*${who} — toda respuesta con seguridad ≥75% sale sin aprobación (máx. ${AUTO_SEND_DAILY_CAP}/día; nunca un agendado sin respaldo).`
       : `🤖 *Auto-envío DESACTIVADO*${who} — todas las respuestas vuelven a pasar por aprobación.`,
   );
   await updateControlPanel(env);
