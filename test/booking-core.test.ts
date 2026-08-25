@@ -1,0 +1,287 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  bookingRecordedKey,
+  finalizeBooking,
+  registerBooking,
+  type BookingCoreDeps,
+} from "../src/services/booking-core.js";
+import { validateSlot } from "../src/brain/tools.js";
+import type { BookTrialInput, Env } from "../src/types.js";
+
+// ---- fakes (fakeDb idiom from staff-send.test.ts / booking-alerts.test.ts) ---
+
+function fakeDb(): { db: D1Database; calls: { sql: string; binds: unknown[] }[] } {
+  const calls: { sql: string; binds: unknown[] }[] = [];
+  const make = (sql: string): D1PreparedStatement => {
+    let binds: unknown[] = [];
+    const stmt: D1PreparedStatement = {
+      bind(...v: unknown[]) {
+        binds = v;
+        return stmt;
+      },
+      async first<T>(): Promise<T | null> {
+        calls.push({ sql, binds });
+        return null as T | null;
+      },
+      async run() {
+        calls.push({ sql, binds });
+        return { results: [], meta: { changes: 1 } };
+      },
+      async all<T>() {
+        calls.push({ sql, binds });
+        return { results: [] as T[], meta: {} };
+      },
+    };
+    return stmt;
+  };
+  return { db: { prepare: make }, calls };
+}
+
+function envWith(db: D1Database): Env {
+  return { DB: db } as unknown as Env;
+}
+
+interface CoreLog {
+  fyi: BookTrialInput[];
+  notes: string[];
+  sequences: { phone: string; recordId: string; iso: string; opts: unknown }[];
+  qualifications: { phone: string; json: string }[];
+  syncs: { phone: string; event: string }[];
+  booked: BookTrialInput[];
+  videos: string[];
+  kv: { key: string; value: string }[];
+}
+
+const NOW = 1_756_000_000;
+
+function harness(over: Partial<BookingCoreDeps> = {}): {
+  deps: BookingCoreDeps;
+  log: CoreLog;
+  slack: { postBookingFyi(b: BookTrialInput): Promise<void>; postNote(t: string): Promise<void> };
+} {
+  const log: CoreLog = {
+    fyi: [],
+    notes: [],
+    sequences: [],
+    qualifications: [],
+    syncs: [],
+    booked: [],
+    videos: [],
+    kv: [],
+  };
+  const deps: BookingCoreDeps = {
+    async scheduleTrialSequence(_env, phone, recordId, iso, opts) {
+      log.sequences.push({ phone, recordId, iso, opts });
+    },
+    async setQualification(_db, phone, json) {
+      log.qualifications.push({ phone, json });
+    },
+    async syncLead(_env, phone, event) {
+      log.syncs.push({ phone, event });
+    },
+    async bookTrial(_env, input) {
+      log.booked.push(input);
+      return "recHUMAN1";
+    },
+    validateSlot,
+    async sendBookingVideo(_env, phone) {
+      log.videos.push(phone);
+    },
+    async kvSet(_db, key, value) {
+      log.kv.push({ key, value });
+    },
+    now: () => NOW,
+    ...over,
+  };
+  const slack = {
+    async postBookingFyi(b: BookTrialInput) {
+      log.fyi.push(b);
+    },
+    async postNote(t: string) {
+      log.notes.push(t);
+    },
+  };
+  return { deps, log, slack };
+}
+
+const PHONE = "5215512345678";
+// Monday 2026-08-24 19:00 is a real adult Jiu-Jitsu slot (brain/slots.gen.ts).
+const VALID: BookTrialInput = {
+  name: "Ana",
+  discipline: "jiu",
+  audience: "adult",
+  trialDate: "2026-08-24",
+  trialTime: "19:00",
+  phone: PHONE,
+};
+
+// ---- finalizeBooking: the extracted routeResult `book` branch ---------------
+
+test("finalizeBooking: FYI card, sequence (includeConfirm:false), qualification, lead sync", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  await finalizeBooking(
+    envWith(db),
+    slack,
+    { ...VALID, recordId: "recX" },
+    deps,
+  );
+
+  assert.equal(log.fyi.length, 1);
+  assert.deepEqual(log.fyi[0], VALID); // exactly the six card fields
+  assert.equal(log.sequences.length, 1);
+  assert.equal(log.sequences[0]!.recordId, "recX");
+  assert.equal(log.sequences[0]!.iso, "2026-08-24T19:00:00-06:00");
+  assert.deepEqual(log.sequences[0]!.opts, { includeConfirm: false });
+  assert.equal(log.qualifications.length, 1);
+  assert.deepEqual(JSON.parse(log.qualifications[0]!.json), {
+    discipline: "jiu",
+    audience: "adult",
+    name: "Ana",
+  });
+  assert.deepEqual(log.syncs, [{ phone: PHONE, event: "booking_created" }]);
+});
+
+test("finalizeBooking: a Slack failure never throws and never blocks the sync", async () => {
+  const { db } = fakeDb();
+  const { deps, log } = harness();
+  const slack = {
+    async postBookingFyi() {
+      throw new Error("slack down");
+    },
+    async postNote() {},
+  };
+
+  await finalizeBooking(envWith(db), slack, { ...VALID, recordId: "recX" }, deps);
+
+  assert.equal(log.sequences.length, 0); // the FYI threw before it
+  assert.equal(log.syncs.length, 1); // …but the sync block still ran
+});
+
+test("finalizeBooking: a sync failure is swallowed (isolated try/catch)", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness({
+    async syncLead() {
+      throw new Error("airtable 500");
+    },
+  });
+
+  await finalizeBooking(envWith(db), slack, { ...VALID, recordId: "recX" }, deps);
+
+  assert.equal(log.fyi.length, 1);
+  assert.equal(log.sequences.length, 1);
+});
+
+// ---- registerBooking: the human entry point --------------------------------
+
+test("registerBooking: books, marks booking_recorded, finalizes, sends the video", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  const r = await registerBooking(envWith(db), slack, VALID, undefined, deps);
+
+  assert.deepEqual(r, { ok: true, recordId: "recHUMAN1" });
+  assert.equal(log.booked.length, 1);
+  assert.deepEqual(log.kv, [
+    { key: bookingRecordedKey(PHONE), value: String(NOW) },
+  ]);
+  assert.equal(log.sequences.length, 1);
+  assert.deepEqual(log.videos, [PHONE]); // sendVideo defaults to TRUE
+  assert.equal(log.notes.length, 0); // no `by` ⇒ no attribution note
+});
+
+test("registerBooking: `by` adds the attribution note; sendVideo:false skips the video", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  await registerBooking(
+    envWith(db),
+    slack,
+    VALID,
+    { by: "fer", sendVideo: false },
+    deps,
+  );
+
+  assert.equal(log.videos.length, 0);
+  assert.equal(log.notes.length, 1);
+  assert.ok(log.notes[0]!.includes("fer"));
+  assert.ok(log.notes[0]!.includes("recHUMAN1"));
+});
+
+test("registerBooking: invalid slot → {ok:false, invalid_slot} with alternatives, no write", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  const r = await registerBooking(
+    envWith(db),
+    slack,
+    { ...VALID, trialTime: "05:00" },
+    undefined,
+    deps,
+  );
+
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.reason, "invalid_slot");
+  assert.ok((r.alternatives ?? []).includes("19:00"));
+  assert.equal(log.booked.length, 0);
+  assert.equal(log.kv.length, 0);
+  assert.equal(log.sequences.length, 0);
+});
+
+test("registerBooking: force skips validateSlot and books anyway", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  const r = await registerBooking(
+    envWith(db),
+    slack,
+    { ...VALID, trialTime: "05:00" },
+    { force: true },
+    deps,
+  );
+
+  assert.deepEqual(r, { ok: true, recordId: "recHUMAN1" });
+  assert.equal(log.booked.length, 1);
+  assert.equal(log.booked[0]!.trialTime, "05:00");
+  assert.equal(log.sequences.length, 1);
+});
+
+test("registerBooking: Airtable throw → {ok:false, airtable_error}, nothing finalized", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness({
+    async bookTrial() {
+      throw new Error("airtable create failed: Unknown field name");
+    },
+  });
+
+  const r = await registerBooking(envWith(db), slack, VALID, undefined, deps);
+
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.reason, "airtable_error");
+  assert.match(r.detail, /Unknown field name/);
+  assert.equal(log.kv.length, 0);
+  assert.equal(log.fyi.length, 0);
+  assert.equal(log.sequences.length, 0);
+  assert.equal(log.videos.length, 0);
+});
+
+test("registerBooking: a label discipline is normalized to the service key", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  const r = await registerBooking(
+    envWith(db),
+    slack,
+    { ...VALID, discipline: "Jiu-Jitsu" },
+    undefined,
+    deps,
+  );
+
+  assert.equal(r.ok, true);
+  assert.equal(log.booked[0]!.discipline, "jiu");
+});

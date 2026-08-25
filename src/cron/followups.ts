@@ -53,6 +53,7 @@ import {
   type ExtendedKind,
 } from "./nudges.js";
 import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../services/staff-send.js";
+import { auditHumanSend } from "../services/booking-guard.js";
 import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
 
@@ -348,6 +349,7 @@ async function processOne(
           sendText: (e, p, b, opts) => sendText(e, p, b, opts),
           isWindowClosed: (err) => err instanceof WindowClosedError,
           postNote: (_e, text) => deps.slack.postNote(text),
+          auditSend: (e, p, t, by) => auditHumanSend(e, p, t, "staff_later", by),
         });
       } catch (err) {
         await kvDelete(env.DB, staffSendClaimKey(f.phone, token));

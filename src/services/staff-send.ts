@@ -54,6 +54,13 @@ export interface StaffSendDeps {
   ): Promise<string>;
   isWindowClosed(err: unknown): boolean;
   postNote(env: Env, text: string): Promise<void>;
+  /**
+   * Slice 4 post-send audit (services/booking-guard.auditHumanSend): a staff
+   * reply that CONFIRMS a class writes nothing to Airtable on its own, so this
+   * turns it into a one-tap Slack capture card. Optional so existing callers /
+   * tests can omit it; awaited, because Workers kill floating promises.
+   */
+  auditSend?(env: Env, phone: string, text: string, by: string): Promise<void>;
 }
 
 /**
@@ -109,6 +116,13 @@ export async function sendStaffText(
     await deps.postNote(env, `🧑‍💻 ${byUsername} respondió desde el panel a ${phone}: «${preview}»`);
   } catch (err) {
     console.error("staff-send slack note failed", err);
+  }
+  if (deps.auditSend) {
+    try {
+      await deps.auditSend(env, phone, text, byUsername);
+    } catch (err) {
+      console.error("staff-send booking audit failed", err);
+    }
   }
 
   return {

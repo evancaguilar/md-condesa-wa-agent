@@ -26,7 +26,13 @@ export const PERSONA_AND_POLICIES = CLIENT.persona;
 export interface SystemBlock {
   type: "text";
   text: string;
-  cache_control: { type: "ephemeral"; ttl: "1h" };
+  /**
+   * Optional: the brain's big persona+KB / overlay blocks always set it (that's
+   * the whole caching strategy). Short one-off prompts — e.g. booking-guard's
+   * field extractor — leave it off, since a block below the model's minimum
+   * cacheable size would never be cached anyway.
+   */
+  cache_control?: { type: "ephemeral"; ttl: "1h" };
 }
 
 /** Assemble the frozen system text: persona/policies + the KB body. */

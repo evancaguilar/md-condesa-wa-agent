@@ -49,7 +49,7 @@ import {
   listKbSections,
   updateKbSection,
 } from "../db/queries-admin.js";
-import { accrueUsage } from "../db/queries.js";
+import { accrueChatUsage } from "./usage.js";
 import { normalizeText } from "../pipeline/campaigns.js";
 import { cdmxDateStr } from "../cron/time.js";
 import { CLIENT } from "../client.gen.js";
@@ -793,24 +793,6 @@ async function applyAirtableRule(
 }
 
 // ---- usage accrual (same pricing as the brain) ----------------------------
-
-export function accrueChatUsage(env: Env, u: ApiUsage | undefined): Promise<void> {
-  const input = u?.input_tokens ?? 0;
-  const output = u?.output_tokens ?? 0;
-  const cacheRead = u?.cache_read_input_tokens ?? 0;
-  const cacheWrite = u?.cache_creation_input_tokens ?? 0;
-  const cost = computeCost({
-    input_tokens: input,
-    output_tokens: output,
-    cache_read_input_tokens: cacheRead,
-    cache_creation_input_tokens: cacheWrite,
-  });
-  return accrueUsage(
-    env.DB,
-    cdmxDateStr(Math.floor(Date.now() / 1000)),
-    input,
-    cacheRead,
-    output,
-    cost,
-  );
-}
+// Lives in ./usage.js so callers that only need accrual don't import the KB;
+// re-exported here because this stays the Editor's single import surface.
+export { accrueChatUsage };

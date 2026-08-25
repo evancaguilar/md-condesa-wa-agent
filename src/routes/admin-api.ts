@@ -7,6 +7,7 @@
 // the same overlay loader + real usage accrual as production.
 
 import type {
+  BookTrialInput,
   BrainResult,
   ConvoContext,
   Env,
@@ -115,6 +116,8 @@ import {
   type ApprovalResult,
 } from "../services/approvals.js";
 import { runKbChat, applyProposal, accrueChatUsage } from "../services/kb-editor.js";
+import { auditHumanSend, parseBookingFromText } from "../services/booking-guard.js";
+import { registerBooking } from "../services/booking-core.js";
 import { callAnthropic, unescapeNewlines } from "../brain/claude.js";
 import { buildSystem } from "../brain/prompt.js";
 import { runEditAnalysis } from "../services/edit-tuner.js";
@@ -321,7 +324,7 @@ export async function handleAdminApi(
   }
 
   const convoMatch = path.match(
-    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-later))?$/,
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-later|booking\/parse|booking))?$/,
   );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
@@ -340,6 +343,12 @@ export async function handleAdminApi(
     }
     if (sub === "send-later" && method === "POST") {
       return handleSendLater(req, env, phone, session);
+    }
+    if (sub === "booking/parse" && method === "POST") {
+      return handleBookingParse(env, phone);
+    }
+    if (sub === "booking" && method === "POST") {
+      return handleBookingRegister(req, env, ports, phone, session);
     }
     if (sub === "assign" && method === "POST") {
       return handleAssign(req, env, phone);
@@ -674,6 +683,7 @@ async function handleStaffSend(
       sendText: (e, p, b, opts) => sendText(e, p, b, opts),
       isWindowClosed: (err) => err instanceof WindowClosedError,
       postNote: (_e, text) => ports.slack.postNote(text),
+      auditSend: (e, p, t, by) => auditHumanSend(e, p, t, "staff", by),
     },
   );
   if (!result.ok && (result.reason === "empty" || result.reason === "too_long")) {
@@ -813,6 +823,81 @@ async function handleStaffSendMedia(
   if (!result.ok && result.reason === "too_long") {
     return json({ error: "too_long" }, 400);
   }
+  return json(result);
+}
+
+// ---- booking gap closure (Slice 4) ----
+
+/**
+ * Read-only: what class does the LAST outbound message promise? Runs the same
+ * deterministic parse (+ the one cheap model fallback) booking-guard uses on
+ * live sends, and returns the schedule verdict. Writes nothing.
+ */
+async function handleBookingParse(env: Env, phone: string): Promise<Response> {
+  const messages = await recentMessages(env.DB, phone, 20);
+  const lastOut = [...messages]
+    .reverse()
+    .find((m) => m.direction !== "in" && (m.body ?? "").trim() !== "");
+  if (!lastOut) return json({ error: "no_outbound" }, 404);
+  const parsed = await parseBookingFromText(
+    env,
+    phone,
+    lastOut.body,
+    nowSec(),
+  );
+  return json({
+    ok: true,
+    sentText: lastOut.body.slice(0, 500),
+    hints: parsed.hints,
+    verdict: parsed.verdict,
+  });
+}
+
+/**
+ * Register a trial a human already promised. Same core as the Slack capture
+ * card's "Registrar" button: validateSlot (unless `force`) → Airtable →
+ * anti-no-show sequence → booking video.
+ */
+async function handleBookingRegister(
+  req: Request,
+  env: Env,
+  ports: Ports,
+  phone: string,
+  session: Session,
+): Promise<Response> {
+  const body = await readJson<{
+    name?: string;
+    childName?: string;
+    discipline?: string;
+    audience?: string;
+    trialDate?: string;
+    trialTime?: string;
+    force?: boolean;
+  }>(req);
+  const discipline = (body.discipline ?? "").trim();
+  const trialDate = (body.trialDate ?? "").trim();
+  const trialTime = (body.trialTime ?? "").trim();
+  if (!discipline) return json({ error: "discipline_required" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trialDate)) return json({ error: "bad_trial_date" }, 400);
+  if (!/^\d{1,2}:\d{2}$/.test(trialTime)) return json({ error: "bad_trial_time" }, 400);
+  const contact = await getContact(env.DB, phone);
+  if (!contact) return json({ error: "no_contact" }, 404);
+
+  const input: BookTrialInput = {
+    name: (body.name ?? contact.name ?? "").trim(),
+    discipline,
+    audience: body.audience === "kid" ? "kid" : "adult",
+    trialDate,
+    trialTime: trialTime.padStart(5, "0"),
+    phone,
+  };
+  const childName = (body.childName ?? "").trim();
+  if (childName) input.childName = childName;
+
+  const result = await registerBooking(env, ports.slack, input, {
+    force: body.force === true,
+    by: session.user,
+  });
   return json(result);
 }
 

@@ -21,6 +21,7 @@ import {
 } from "../db/queries.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
 import { armNudges } from "../cron/nudges.js";
+import { auditHumanSend } from "./booking-guard.js";
 import {
   markApprovedCard,
   markDiscardedCard,
@@ -131,10 +132,15 @@ export async function approveAndSend(
   if (res.ok) {
     await markApprovedCard(env, a, a.draft);
     // Booking-confirmation draft → fire the booking video right after (R4).
-    if (await isBookingApproval(env, id)) await sendBookingVideo(env, a.phone);
+    const bookingOrigin = await isBookingApproval(env, id);
+    if (bookingOrigin) await sendBookingVideo(env, a.phone);
     // Approved bot reply landed → arm/re-arm the lead-nudge drip (no-op unless
     // the contact is a lead with no active booking/override, under the cap).
     await armNudges(env, a.phone);
+    // Slice 4: a booking-origin draft already wrote Airtable inside the brain's
+    // tool loop; anything else that CLAIMS a booking did not, so audit it.
+    // Never throws, always awaited (Workers kill floating promises).
+    if (!bookingOrigin) await auditHumanSend(env, a.phone, a.draft, "approved");
   }
   return res;
 }
@@ -152,9 +158,13 @@ export async function editAndSend(
     await insertEdit(env.DB, a.phone, a.draft, finalText);
     await markEditedCard(env, a, finalText);
     // Booking-confirmation draft → fire the booking video right after (R4).
-    if (await isBookingApproval(env, id)) await sendBookingVideo(env, a.phone);
+    const bookingOrigin = await isBookingApproval(env, id);
+    if (bookingOrigin) await sendBookingVideo(env, a.phone);
     // Edited bot reply landed → arm/re-arm the lead-nudge drip (conditional).
     await armNudges(env, a.phone);
+    // Slice 4: audit the SENT text (a human may have edited a plain answer into
+    // a booking confirmation that nothing wrote to Airtable).
+    if (!bookingOrigin) await auditHumanSend(env, a.phone, finalText, "edited");
   }
   return res;
 }

@@ -35,6 +35,7 @@ import {
   type TimeoutApprovalView,
 } from "./slack-timeouts.js";
 import { awaitingReplyKey } from "./approvals.js";
+import type { BookingCapture, HumanSendSource } from "./booking-claims.js";
 import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
 import { claimApproval, getCampaign } from "../db/queries-admin.js";
 import type { Proposal } from "./kb-editor.js";
@@ -420,6 +421,106 @@ export async function updateTuningCard(
       elements: buttons.map((b) => button(b.text, b.actionId, b.style)),
     });
   }
+  await updateMessage(env, ts, blocks, headline);
+}
+
+// ---- booking-capture cards (human confirmed a class, Airtable has nothing) ---
+
+const SOURCE_ES: Record<HumanSendSource, string> = {
+  approved: "respuesta aprobada en Slack",
+  edited: "respuesta editada en Slack",
+  staff: "mensaje del panel",
+  staff_later: "envío programado del panel",
+};
+
+/** "jiu · adultos · 2026-08-29 19:00" — the fields we managed to read back. */
+function captureFieldsLine(c: BookingCapture): string {
+  const parts: string[] = [];
+  parts.push(c.discipline ? c.discipline : "_disciplina?_");
+  parts.push(
+    c.audience ? (c.audience === "kid" ? "niños" : "adultos") : "_programa?_",
+  );
+  parts.push(c.trialDate ? c.trialDate : "_fecha?_");
+  parts.push(c.trialTime ? c.trialTime : "_hora?_");
+  return parts.join(" · ");
+}
+
+/** ✅/⚠️ chip summarizing validateSlot's answer for the card. */
+function captureVerdictChip(c: BookingCapture): string {
+  if (c.verdict.ok) return "✅ horario válido";
+  const alts = c.verdict.alternatives?.length
+    ? ` · opciones ese día: ${c.verdict.alternatives.join(", ")}`
+    : "";
+  return `⚠️ ${c.verdict.reason ?? "horario no validado"}${alts}`;
+}
+
+function captureButtons(key: string, verdictOk: boolean): Record<string, unknown> {
+  return {
+    type: "actions",
+    block_id: `bkcap_${key}`,
+    elements: [
+      button(
+        verdictOk ? "✅ Registrar en Airtable" : "✅ Registrar de todos modos",
+        `bkreg|${key}`,
+        "primary",
+      ),
+      button("✏️ Corregir datos", `bkedit|${key}`),
+      button("🚫 No era un agendado", `bkskip|${key}`),
+    ],
+  };
+}
+
+/**
+ * The capture card: a human promised a class over WhatsApp and nothing wrote it
+ * to Airtable. One tap registers it (and arms the anti-no-show sequence).
+ * `key` is the kv key of the persisted BookingCapture — it rides in the
+ * action_id (verb|arg splits on the FIRST pipe, so its colons are safe).
+ */
+export async function postBookingCaptureCard(
+  env: Env,
+  key: string,
+  capture: BookingCapture,
+): Promise<string> {
+  const contact = await getContact(env.DB, capture.phone).catch(() => null);
+  const name = capture.name ?? contact?.name ?? null;
+  const who = name ? `${name} · ${capture.phone}` : capture.phone;
+  const blocks: unknown[] = [
+    context("<!here>"),
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "⚠️ Confirmaste una clase sin registro en Airtable",
+        emoji: true,
+      },
+    },
+    section(`*${who}*`),
+    section(`>${quote(snip(capture.sentText))}`),
+    context(
+      `${captureFieldsLine(capture)}${capture.childName ? ` · menor: ${capture.childName}` : ""}`,
+    ),
+    context(
+      `${captureVerdictChip(capture)}  •  origen: ${SOURCE_ES[capture.source]}${capture.by ? ` (${capture.by})` : ""}`,
+    ),
+    captureButtons(key, capture.verdict.ok),
+  ];
+  return postMessage(
+    env,
+    blocks,
+    `<!here> Agendado sin registro en Airtable — ${capture.phone}`,
+  );
+}
+
+/** Re-render a capture card (terminal state, or an error + retry buttons). */
+export async function updateBookingCaptureCard(
+  env: Env,
+  ts: string,
+  headline: string,
+  body: string,
+  buttons?: { key: string; verdictOk: boolean },
+): Promise<void> {
+  const blocks: unknown[] = [section(`${headline}\n${body}`)];
+  if (buttons) blocks.push(captureButtons(buttons.key, buttons.verdictOk));
   await updateMessage(env, ts, blocks, headline);
 }
 

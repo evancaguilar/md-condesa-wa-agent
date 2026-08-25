@@ -31,7 +31,7 @@ const FOURTEEN_DAYS_S = 14 * 24 * 3600;
  *  regex in booking-claims.ts already excludes "no (has/ha) agendad…" via a
  *  lookbehind; this is a second, body-level check so the exclusion holds
  *  even if the claim came from an unrelated sentence in the same message. */
-function isNudgePhrase(body: string): boolean {
+export function isNudgePhrase(body: string): boolean {
   return /no\s+has\s+agendado|todav[ií]a\s+no/i.test(body);
 }
 

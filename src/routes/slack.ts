@@ -17,6 +17,7 @@ import {
   parseInteractionPayload,
   verifySlackSignature,
   type ParsedAction,
+  type ParsedInteraction,
 } from "../services/slack-timeouts.js";
 import {
   markApprovedCard,
@@ -42,6 +43,17 @@ import {
   applyTuningProposal,
   discardTuningProposal,
 } from "../services/edit-tuner.js";
+import {
+  applyBookingCapture,
+  flattenViewValues,
+  getBookingCapture,
+  parseViewSubmissionTarget,
+  skipBookingCapture,
+  submitBookingCaptureEdit,
+  BOOKING_META_PREFIX,
+  BOOKING_MODAL_ACTION,
+  BOOKING_MODAL_FIELDS,
+} from "../services/booking-guard.js";
 
 export async function handleSlackInteractive(
   req: Request,
@@ -60,19 +72,25 @@ export async function handleSlackInteractive(
   const interaction = parseInteractionPayload(raw);
 
   if (interaction.kind === "view_submission") {
-    // Modal submit: ack by clearing the view, then send the edit off-path.
-    ctx.waitUntil(onViewSubmission(env, interaction.privateMetadata, interaction.firstInputValue));
+    // Modal submit: ack by clearing the view, then do the work off-path.
+    ctx.waitUntil(onViewSubmission(env, interaction));
     return json({ response_action: "clear" });
   }
 
   if (interaction.kind === "block_actions") {
-    // Some actions (edit) need the trigger_id synchronously to open a modal.
+    // Some actions (edit, bkedit) need the trigger_id synchronously to open a modal.
     const editAction = interaction.actions.find((a) => a.verb === "edit");
     if (editAction && interaction.triggerId) {
       ctx.waitUntil(openEditModal(env, interaction.triggerId, editAction));
     }
+    const bookingEditAction = interaction.actions.find((a) => a.verb === "bkedit");
+    if (bookingEditAction && interaction.triggerId) {
+      ctx.waitUntil(
+        openBookingCaptureModal(env, interaction.triggerId, bookingEditAction),
+      );
+    }
     for (const action of interaction.actions) {
-      if (action.verb === "edit") continue; // handled above
+      if (action.verb === "edit" || action.verb === "bkedit") continue; // handled above
       ctx.waitUntil(dispatchAction(env, action));
     }
   }
@@ -125,6 +143,10 @@ async function dispatchAction(env: Env, action: ParsedAction): Promise<void> {
         return await applyTuningProposal(env, action.arg ?? "", true);
       case "tune_discard":
         return await discardTuningProposal(env, action.arg ?? "");
+      case "bkreg":
+        return await onBookingRegister(env, action.arg ?? "");
+      case "bkskip":
+        return await skipBookingCapture(env, action.arg ?? "");
       default:
         return;
     }
@@ -179,13 +201,83 @@ async function onSendTemplate(env: Env, id: number): Promise<void> {
   await markApprovedCard(env, a, "[plantilla human_followup enviada]");
 }
 
+/**
+ * Every modal we open comes back through this one handler, so it branches on
+ * private_metadata: `booking:<kv key>` is a booking-capture correction, and a
+ * bare numeric id is the (unchanged) approval-edit path.
+ */
 async function onViewSubmission(
   env: Env,
-  privateMetadata: string | null,
-  editedText: string | null,
+  interaction: ParsedInteraction,
 ): Promise<void> {
-  if (!privateMetadata || !editedText) return;
-  await editAndSend(env, num(privateMetadata), editedText);
+  const target = parseViewSubmissionTarget(interaction.privateMetadata);
+  if (target.kind === "booking") {
+    await submitBookingCaptureEdit(
+      env,
+      target.key,
+      flattenViewValues(interaction.viewValues),
+    );
+    return;
+  }
+  if (target.kind !== "approval") return;
+  if (!interaction.firstInputValue) return;
+  await editAndSend(env, target.id, interaction.firstInputValue);
+}
+
+// ---- booking-capture card actions ----
+
+/** "Registrar": force only when the stored verdict said the slot is invalid. */
+async function onBookingRegister(env: Env, key: string): Promise<void> {
+  if (!key) return;
+  const record = await getBookingCapture(env, key);
+  await applyBookingCapture(env, key, { force: record?.verdict.ok === false });
+}
+
+/** "Corregir datos": prefilled 5-field modal, namespaced private_metadata. */
+async function openBookingCaptureModal(
+  env: Env,
+  triggerId: string,
+  action: ParsedAction,
+): Promise<void> {
+  const key = action.arg ?? "";
+  if (!key) return;
+  const record = await getBookingCapture(env, key);
+  if (!record || record.status !== "open") return;
+  const input = (
+    blockId: string,
+    label: string,
+    value: string | undefined,
+    optional = false,
+  ): Record<string, unknown> => ({
+    type: "input",
+    block_id: blockId,
+    optional,
+    label: { type: "plain_text", text: label },
+    element: {
+      type: "plain_text_input",
+      action_id: BOOKING_MODAL_ACTION,
+      ...(value ? { initial_value: value } : {}),
+    },
+  });
+  const view = {
+    type: "modal",
+    private_metadata: `${BOOKING_META_PREFIX}${key}`,
+    title: { type: "plain_text", text: "Corregir agendado" },
+    submit: { type: "plain_text", text: "Registrar" },
+    close: { type: "plain_text", text: "Cancelar" },
+    blocks: [
+      input(BOOKING_MODAL_FIELDS.name, "Nombre", record.name),
+      input(BOOKING_MODAL_FIELDS.childName, "Nombre del niño/a", record.childName, true),
+      input(
+        BOOKING_MODAL_FIELDS.discipline,
+        "Disciplina (jiu / muay / mma / box / baby)",
+        record.discipline,
+      ),
+      input(BOOKING_MODAL_FIELDS.trialDate, "Fecha (YYYY-MM-DD)", record.trialDate),
+      input(BOOKING_MODAL_FIELDS.trialTime, "Hora (HH:mm)", record.trialTime),
+    ],
+  };
+  await viewsOpen(env, triggerId, view);
 }
 
 async function openEditModal(

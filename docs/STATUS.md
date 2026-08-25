@@ -1,6 +1,18 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-04**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-25**.
+
+### Slice 4 — human-booking gap closure: detect + 1-click Registrar (2026-08-25)
+
+Until now the **only** thing that wrote a trial to Airtable was the brain's `book_trial`. Every class a human confirmed over WhatsApp — Aprobar/Editar on a Slack draft, a dashboard staff reply, a scheduled "send later" — left the CRM empty and the anti-no-show sequence unarmed. Slice 7's nightly digest reported the damage; this closes the loop in real time.
+
+- **`src/services/booking-core.ts`** is now the one place a booking is finalized. `finalizeBooking` (Slack FYI + anti-no-show sequence with `includeConfirm:false` + qualification + `booking_created` sync) was lifted verbatim out of `routeResult`'s `book` branch, which now calls it — zero behavior change, except it no longer throws out of the reply path. `registerBooking` is the human entry point: validateSlot (skippable via `force`) → Airtable `bookTrial` → `finalizeBooking` → booking video, plus a `booking_recorded:<phone>` kv marker.
+- **`src/services/booking-guard.ts` — `auditHumanSend(env, phone, text, source, by?)`**: fire-and-forget post-send audit, never throws, always awaited. Gates: `claimsBooking` → already-backed check (fresh `booking_recorded` marker <72h, or a scheduled booking-kind followup) → one capture per lead per CDMX day → parse → validate → Slack capture card. Hooked into `approveAndSend`/`editAndSend` (skipped for booking-origin drafts, which already wrote Airtable), the dashboard composer and the `staff_later` cron dispatch.
+- **Parsing** is regex-first (`parseBookingHints` in booking-claims.ts — hoy/mañana/pasado mañana, weekday→next occurrence, `7 pm`/`11 am`/`19:00`/`3:15 pm`→15:15, disciplines via CLIENT.services + Baby Fight Club / Mini Muay Thai special cases). Only a non-`full` parse spends **one** cheap `propose_booking` model call (300 max tokens, no KB) to fill the gaps; regex always wins on what it read.
+- **Slack card**: `⚠️ Confirmaste una clase sin registro en Airtable` with the quoted send, the parsed fields, a ✅/⚠️ schedule verdict, and **Registrar en Airtable** (label becomes "Registrar de todos modos" when the verdict failed) / **Corregir datos** (5-field modal) / **No era un agendado**. Registering is at-most-once via a kv claim, released on failure so a fixable cause can be retried.
+- **Dashboard endpoints (no UI yet)**: `POST /admin/api/conversations/:phone/booking/parse` (read-only: hints + verdict for the last outbound) and `POST /admin/api/conversations/:phone/booking` (registers; `{name, childName?, discipline, audience, trialDate, trialTime, force?}`).
+- `accrueChatUsage` moved to `src/services/usage.ts` (kb-editor.ts re-exports it) so a caller that just logs tokens no longer drags the whole compiled KB in behind it.
+- Tests 473 → **530**, all green. No D1 migration (kv only).
 
 ### Attribution v2: trigger-first precedence + ad-name lookup + staleness fixes (2026-08-04, later)
 

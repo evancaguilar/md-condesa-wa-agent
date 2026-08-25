@@ -32,7 +32,6 @@ import {
   setContactNameIfEmpty,
   setContactStatus,
   setHumanOverride,
-  setQualification,
   touchLastInbound,
   upsertContact,
 } from "../db/queries.js";
@@ -69,7 +68,7 @@ import {
   transcribe,
 } from "../services/media.js";
 import { lookupAdMeta } from "../services/ad-meta.js";
-import { scheduleTrialSequence, cdmxIso } from "../cron/followups.js";
+import { finalizeBooking } from "../services/booking-core.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
@@ -521,45 +520,21 @@ async function routeResult(
 
   if (result.action === "book") {
     // The brain already created the Airtable record (inside its tool loop) and
-    // handed us the recordId. We: (1) always post an FYI card to Slack,
-    // (2) schedule the anti-no-show sequence keyed to that record, and
-    // (3) deliver the booking confirmation to the lead. A confirmation is still
-    // a reply, so under TRAINING_WHEELS it routes through draft-approval instead.
-    const booking = {
+    // handed us the recordId. finalizeBooking does the shared post-booking work
+    // — Slack FYI card, anti-no-show sequence keyed to that record,
+    // qualification + lead sync — and is the SAME routine the human
+    // registration path (services/booking-core.registerBooking) runs. We then
+    // deliver the booking confirmation to the lead; a confirmation is still a
+    // reply, so under TRAINING_WHEELS it routes through draft-approval instead.
+    await finalizeBooking(env, ports.slack, {
       name: result.name,
       discipline: result.discipline,
       audience: result.audience,
       trialDate: result.trialDate,
       trialTime: result.trialTime,
       phone,
-    };
-    await ports.slack.postBookingFyi(booking);
-    // Chat booking: the bot confirms inline below, so skip the scheduled
-    // trial_confirm (it's for web-form bookers detected via syncBookings).
-    await scheduleTrialSequence(
-      env,
-      phone,
-      result.recordId,
-      cdmxIso(result.trialDate, result.trialTime),
-      { includeConfirm: false },
-    );
-    // Persist qualification (this is the sole caller — gives classifyProgram real
-    // data) then sync the booking to Airtable + fire program rules. Isolated so a
-    // sync failure never derails the confirmation/video path below.
-    try {
-      await setQualification(
-        env.DB,
-        phone,
-        JSON.stringify({
-          discipline: result.discipline,
-          audience: result.audience,
-          name: result.name,
-        }),
-      );
-      await syncLead(env, phone, "booking_created");
-    } catch (err) {
-      console.warn(`[inbound] booking sync failed for ${phone}:`, err);
-    }
+      recordId: result.recordId,
+    });
     if (ctx.trainingWheels) {
       // Booking confirmation routes through approval; mark it booking-origin so
       // approve/edit fires the booking video after sending (R4). Confidence
