@@ -341,6 +341,39 @@ export async function markHoldingSent(db: D1Database, id: number): Promise<void>
     .run();
 }
 
+/**
+ * Atomic claim of the holding-line send: flips holding_sent 0→1 in ONE UPDATE
+ * guarded by `status='pending'`. Returns true only if THIS call won the race —
+ * false when a human approved/edited the draft (or another cron pass claimed
+ * it) since the pending snapshot was taken. Claim BEFORE sending so a holding
+ * line ("te respondemos pronto") can never land after the real answer.
+ */
+export async function claimHoldingSend(db: D1Database, id: number): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE pending_approvals SET holding_sent = 1
+       WHERE id = ?1 AND status = 'pending' AND holding_sent = 0`,
+    )
+    .bind(id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Undoes a claimHoldingSend claim when the send failed for a transient reason,
+ * so the next cron pass can retry. Guarded by `status='pending'` so a row that
+ * got resolved in the meantime keeps its terminal state untouched.
+ */
+export async function releaseHoldingClaim(db: D1Database, id: number): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE pending_approvals SET holding_sent = 0
+       WHERE id = ?1 AND status = 'pending'`,
+    )
+    .bind(id)
+    .run();
+}
+
 // ---- followups ----
 
 export interface ScheduleFollowupInput {

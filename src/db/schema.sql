@@ -127,3 +127,11 @@ ALTER TABLE campaigns ADD COLUMN ad_keywords TEXT;  -- comma-separated keyword P
 -- and the dashboard falls back to its per-browser localStorage read map).
 
 ALTER TABLE contacts ADD COLUMN read_at INTEGER;  -- unix seconds the team last marked the convo read; 0 = explicitly marked unread, NULL = never read from the panel
+
+-- ---- Approvals history endpoint (2026-08-25) ----
+-- Prod migration (Evan pastes in D1 console): the CREATE INDEX below.
+-- Pure speed-up for /admin/api/approvals/history, whose window filter scans
+-- pending_approvals by created_at. The endpoint works without it (full scan),
+-- so there is nothing to fail-soft in code.
+
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_created ON pending_approvals(created_at);

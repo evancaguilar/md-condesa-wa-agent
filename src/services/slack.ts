@@ -14,13 +14,13 @@ import type {
 } from "../types.js";
 import {
   cancelPendingApprovals,
+  claimHoldingSend,
   getContact,
   getPendingApprovals,
   insertEdit,
   kvGet,
   kvSet,
-  markHoldingSent,
-  resolveApproval,
+  releaseHoldingClaim,
   setContactStatus,
   setHumanOverride,
   isBotEnabled,
@@ -36,7 +36,7 @@ import {
 } from "./slack-timeouts.js";
 import { awaitingReplyKey } from "./approvals.js";
 import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
-import { getCampaign } from "../db/queries-admin.js";
+import { claimApproval, getCampaign } from "../db/queries-admin.js";
 import type { Proposal } from "./kb-editor.js";
 import { CLIENT } from "../client.gen.js";
 
@@ -550,8 +550,9 @@ export async function sendHumanFollowupTemplate(
 export interface TimeoutQueries {
   getPendingApprovals: typeof getPendingApprovals;
   getContact: typeof getContact;
-  markHoldingSent: typeof markHoldingSent;
-  resolveApproval: typeof resolveApproval;
+  claimHoldingSend: typeof claimHoldingSend;
+  releaseHoldingClaim: typeof releaseHoldingClaim;
+  claimApproval: typeof claimApproval;
 }
 
 export interface TimeoutDeps {
@@ -562,16 +563,22 @@ export interface TimeoutDeps {
 /**
  * Per spec §Slack timeouts. Called by D's every-5-minute cron.
  * - pending >10min in business hours (09–21 CDMX) & !holding_sent & window open
- *   ⇒ send holding line, mark holding_sent, re-ping Slack <!here>.
+ *   ⇒ claim holding_sent, send holding line, re-ping Slack <!here>.
  * - pending >12h ⇒ expire + update card (offer template button if window closed).
+ *
+ * Both writes are atomic claims (claimHoldingSend / claimApproval) because the
+ * pending list is a snapshot: a human can approve, edit or take over an
+ * approval between the snapshot and the action, and the loser of that race must
+ * do nothing at all.
  */
 export async function runApprovalTimeouts(
   env: Env,
   queries: TimeoutQueries = {
     getPendingApprovals,
     getContact,
-    markHoldingSent,
-    resolveApproval,
+    claimHoldingSend,
+    releaseHoldingClaim,
+    claimApproval,
   },
   deps: TimeoutDeps = { sendText },
 ): Promise<void> {
@@ -594,19 +601,33 @@ export async function runApprovalTimeouts(
 
     try {
       if (decision.kind === "hold") {
-        // meta.holding=1: the inbox list skips holding lines when deriving a
-        // chat's "last message", so the lead still shows as waiting (unread).
-        await deps.sendText(env, a.phone, HOLDING_LINE, {
-          metaExtra: { holding: 1 },
-        });
-        await queries.markHoldingSent(env.DB, a.id);
+        // Claim FIRST: losing the flip means the draft stopped being pending
+        // (approved/edited/taken over) since the snapshot, so the lead already
+        // has — or is about to get — a real answer. Stay quiet.
+        if (!(await queries.claimHoldingSend(env.DB, a.id))) continue;
+        try {
+          // meta.holding=1: the inbox list skips holding lines when deriving a
+          // chat's "last message", so the lead still shows as waiting (unread).
+          await deps.sendText(env, a.phone, HOLDING_LINE, {
+            metaExtra: { holding: 1 },
+          });
+        } catch (err) {
+          // Closed window ⇒ keep the claim: the holding line is undeliverable
+          // and retrying every 5 min would only burn calls. Anything else is
+          // transient, so release the claim and let the next pass retry.
+          if (!(err instanceof WindowClosedError)) {
+            await queries.releaseHoldingClaim(env.DB, a.id);
+          }
+          throw err;
+        }
         await postHoldingPing(env, a.id, {
           name: contact?.name ?? null,
           phone: a.phone,
           draft: a.draft,
         });
       } else if (decision.kind === "expire") {
-        await queries.resolveApproval(env.DB, a.id, "expired");
+        // Atomic: never stomp a row a human resolved between snapshot and now.
+        if (!(await queries.claimApproval(env.DB, a.id, "expired"))) continue;
         await markExpiredCard(env, a, decision.windowClosed);
       }
     } catch (err) {
