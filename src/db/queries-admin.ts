@@ -757,6 +757,28 @@ export async function claimApproval(
   return (res.meta.changes ?? 0) > 0;
 }
 
+/**
+ * True when this phone has at least one approval a human resolved by SENDING it
+ * (status approved|edited). "A human has signed off on the bot's voice in this
+ * chat at least once" — the first-contact gate of the gated auto-send lane
+ * (services/auto-send.ts). Discarded/expired/superseded/taken-over rows do NOT
+ * count: nothing was sent, so nothing was endorsed.
+ */
+export async function hasResolvedApproval(
+  db: D1Database,
+  phone: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS n FROM pending_approvals
+       WHERE phone = ?1 AND status IN ('approved', 'edited')
+       LIMIT 1`,
+    )
+    .bind(phone)
+    .first<{ n: number }>();
+  return row !== null;
+}
+
 // ---- approvals: history ----
 
 /** The columns the history endpoint reads (raw snake_case row, like D1 gives). */

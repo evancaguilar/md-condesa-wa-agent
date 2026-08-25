@@ -11,6 +11,7 @@ import {
   kvSet,
   phoneForRecordId,
   scheduleFollowup,
+  setHumanOverride,
 } from "../db/queries.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "../cron/time.js";
 import {
@@ -30,6 +31,7 @@ import {
   autoModeEndLabel,
   disarmAutoMode,
 } from "../services/auto-mode.js";
+import { AUTO_SEND_DAILY_CAP, setAutoSendEnabled } from "../services/auto-send.js";
 import { OptedOutError } from "../services/wa.js";
 import { ChannelCapabilityError } from "../services/channel.js";
 import {
@@ -91,7 +93,7 @@ export async function handleSlackInteractive(
     }
     for (const action of interaction.actions) {
       if (action.verb === "edit" || action.verb === "bkedit") continue; // handled above
-      ctx.waitUntil(dispatchAction(env, action));
+      ctx.waitUntil(dispatchAction(env, action, interaction.user));
     }
   }
 
@@ -112,13 +114,19 @@ async function loadPending(env: Env, id: number) {
   return all.find((a) => a.id === id) ?? null;
 }
 
-async function dispatchAction(env: Env, action: ParsedAction): Promise<void> {
+async function dispatchAction(
+  env: Env,
+  action: ParsedAction,
+  by: string | null = null,
+): Promise<void> {
   try {
     switch (action.verb) {
       case "approve":
         return await onApprove(env, num(action.arg));
       case "takeover":
         return await onTakeover(env, num(action.arg));
+      case "takeover_phone":
+        return await onTakeoverPhone(env, action.arg);
       case "mark_student":
         return await onMarkStudent(env, num(action.arg));
       case "discard":
@@ -133,6 +141,10 @@ async function dispatchAction(env: Env, action: ParsedAction): Promise<void> {
         return await onAutoMode(env, true);
       case "auto_manual":
         return await onAutoMode(env, false);
+      case "autosend_on":
+        return await onAutoSendToggle(env, true, by);
+      case "autosend_off":
+        return await onAutoSendToggle(env, false, by);
       case "attended_yes":
         return await onAttendance(env, action.arg, true);
       case "attended_no":
@@ -165,6 +177,21 @@ async function onApprove(env: Env, id: number): Promise<void> {
 
 async function onTakeover(env: Env, id: number): Promise<void> {
   await takeoverApproval(env, id);
+}
+
+/**
+ * "Tomar control" on an auto-sent FYI card. There is no approval row to claim
+ * (the reply already went out), so this only pauses the bot for that lead —
+ * the same snooze the approval-backed takeover applies.
+ */
+async function onTakeoverPhone(env: Env, phone: string | null): Promise<void> {
+  if (!phone) return;
+  const hours = Number(env.HUMAN_SNOOZE_HOURS) || 8;
+  await setHumanOverride(env.DB, phone, hours);
+  await postNote(
+    env,
+    `🙋 Tomaste el control de ${phone} — el bot no responde ese chat por ${hours}h.`,
+  );
 }
 
 async function onMarkStudent(env: Env, id: number): Promise<void> {
@@ -335,6 +362,27 @@ async function onAutoMode(env: Env, arm: boolean): Promise<void> {
     await disarmAutoMode(env.DB);
     await postNote(env, "🎓 *Modo manual* — cada respuesta vuelve a requerir aprobación.");
   }
+  await updateControlPanel(env);
+}
+
+/**
+ * 🤖 Gated auto-send master switch. ON ⇒ obviously-safe high-confidence replies
+ * skip the approval queue (services/auto-send.ts owns the gates); OFF ⇒ the lane
+ * is completely inert. Every flip leaves an audit note naming who clicked.
+ */
+async function onAutoSendToggle(
+  env: Env,
+  enabled: boolean,
+  by: string | null,
+): Promise<void> {
+  await setAutoSendEnabled(env.DB, enabled);
+  const who = by ? ` por ${by}` : "";
+  await postNote(
+    env,
+    enabled
+      ? `🤖 *Auto-envío ACTIVADO*${who} — respuestas obvias de alta confianza salen sin aprobación (máx. ${AUTO_SEND_DAILY_CAP}/día; nunca precios, agendados ni primer contacto).`
+      : `🤖 *Auto-envío DESACTIVADO*${who} — todas las respuestas vuelven a pasar por aprobación.`,
+  );
   await updateControlPanel(env);
 }
 

@@ -61,6 +61,7 @@ import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
 import { channelOf } from "../services/channel.js";
 import { bookingApprovalKey, awaitingReplyKey } from "../services/approvals.js";
+import { bumpAutoSendCount, evaluateAutoSendLane } from "../services/auto-send.js";
 import { CLIENT } from "../client.gen.js";
 import {
   fetchMediaBytes,
@@ -580,6 +581,48 @@ async function routeResult(
   if (autoSend) {
     await deliverOrDraft(env, ports, ctx, result.message, "high", history);
     return;
+  }
+
+  // Gated auto-send lane: with training wheels ON, an OBVIOUSLY safe reply on a
+  // chat a human already signed off on goes straight out instead of waiting for
+  // an approval (gates + rationale in services/auto-send.ts). Dead unless the kv
+  // switch `auto_send_enabled` is "1". Anything it refuses falls through to the
+  // normal approval queue below — no other behavior changes.
+  if (ctx.trainingWheels) {
+    const lane = await evaluateAutoSendLane(env.DB, {
+      phone,
+      action: result.action,
+      confidence: result.confidence,
+      message: result.message,
+    });
+    if (lane.auto) {
+      // Same delivery path as the wheels-off send: stores the outbound row and
+      // arms the nudge drip. A closed window returns false — deliverOrDraft
+      // already queued the approval, so we neither count nor announce it.
+      const delivered = await deliverOrDraft(
+        env,
+        ports,
+        ctx,
+        result.message,
+        "high",
+        history,
+      );
+      if (delivered) {
+        const dailyCount = await bumpAutoSendCount(env.DB, lane.day);
+        // FYI only — never blocks the reply that already landed.
+        try {
+          await ports.slack.postAutoSentFyi({
+            phone,
+            name: ctx.contact.name,
+            text: result.message,
+            dailyCount,
+          });
+        } catch (err) {
+          console.error("[inbound] auto-send FYI failed", phone, err);
+        }
+      }
+      return;
+    }
   }
 
   // Draft / low confidence / training wheels ⇒ Slack approval. The brain's

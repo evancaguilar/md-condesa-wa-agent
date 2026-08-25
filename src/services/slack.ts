@@ -7,6 +7,7 @@
 // timeout logic) live in ./slack-timeouts.js and are re-exported here.
 
 import type {
+  AutoSentFyi,
   BookTrialInput,
   Env,
   PendingApproval,
@@ -37,6 +38,7 @@ import {
 import { awaitingReplyKey } from "./approvals.js";
 import type { BookingCapture, HumanSendSource } from "./booking-claims.js";
 import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
+import { AUTO_SEND_DAILY_CAP, isAutoSendEnabled } from "./auto-send.js";
 import { claimApproval, getCampaign } from "../db/queries-admin.js";
 import type { Proposal } from "./kb-editor.js";
 import { CLIENT } from "../client.gen.js";
@@ -231,13 +233,22 @@ function resolvedBlocks(
   return blocks;
 }
 
-function controlPanelBlocks(enabled: boolean, autoUntil: number | null): unknown[] {
+function controlPanelBlocks(
+  enabled: boolean,
+  autoUntil: number | null,
+  autoSend: boolean,
+): unknown[] {
   const status = enabled ? "✅ Activo" : "⏸️ Pausado";
   const mode = autoUntil
     ? `🌙 *AUTO hasta las ${autoModeEndLabel(autoUntil)}* (respuestas sin aprobación)`
     : "🎓 Manual (cada respuesta pasa por aprobación)";
+  // The gated lane only matters while replies still need approval; under night
+  // mode everything high-confidence already sends on its own.
+  const lane = autoSend
+    ? `🤖 Auto-envío seguro: *ACTIVADO* (máx. ${AUTO_SEND_DAILY_CAP}/día; nunca precios ni agendados, nunca el primer contacto)`
+    : "🤖 Auto-envío seguro: *apagado*";
   return [
-    section(`🤖 *Bot ${CLIENT.shortName}* — estado: *${status}*\n${mode}`),
+    section(`🤖 *Bot ${CLIENT.shortName}* — estado: *${status}*\n${mode}\n${lane}`),
     {
       type: "actions",
       block_id: "control_panel",
@@ -247,6 +258,9 @@ function controlPanelBlocks(enabled: boolean, autoUntil: number | null): unknown
         autoUntil
           ? button("🎓 Volver a manual ya", "auto_manual", "danger")
           : button("🌙 Auto hasta las 7am", "auto_night"),
+        autoSend
+          ? button("🤖 Apagar auto-envío", "autosend_off", "danger")
+          : button("🤖 Activar auto-envío", "autosend_on"),
       ],
     },
   ];
@@ -299,6 +313,30 @@ export async function postBookingFyi(env: Env, booking: BookTrialInput): Promise
     ),
   ];
   await postMessage(env, blocks, `Clase de prueba agendada — ${booking.name}`);
+}
+
+/**
+ * FYI card for a reply the gated auto-send lane sent WITHOUT approval. Silent
+ * on purpose (no <!here>): nothing is action-required — it already went out.
+ * "Tomar control" pauses the bot for that lead so a human can take the thread;
+ * it is phone-keyed (`takeover_phone|<phone>`) because an auto-sent reply never
+ * created an approval row to claim.
+ */
+export async function postAutoSentFyi(env: Env, fyi: AutoSentFyi): Promise<void> {
+  const who = fyi.name ? `${fyi.name} · ${fyi.phone}` : fyi.phone;
+  const blocks: unknown[] = [
+    section(`🤖 *Auto-enviado (alta confianza)* — ${who}`),
+    section(`>${quote(fyi.text)}`),
+    context(
+      `${fyi.dailyCount}/${AUTO_SEND_DAILY_CAP} hoy  •  sin aprobación (auto-envío seguro)`,
+    ),
+    {
+      type: "actions",
+      block_id: `autosent_${fyi.phone}`,
+      elements: [button("🙋 Tomar control", `takeover_phone|${fyi.phone}`)],
+    },
+  ];
+  await postMessage(env, blocks, `Auto-enviado — ${fyi.phone}`);
 }
 
 /** "¿Llegó {name}?" attendance card (posted by workstream D's cron). */
@@ -534,18 +572,19 @@ export async function ensureControlPanel(env: Env): Promise<string> {
   const existing = await kvGet(env.DB, KV_CONTROL_PANEL_TS);
   const enabled = await isBotEnabled(env.DB);
   const autoUntil = await getAutoModeUntil(env.DB);
+  const autoSend = await isAutoSendEnabled(env.DB);
   if (existing) {
     await updateMessage(
       env,
       existing,
-      controlPanelBlocks(enabled, autoUntil),
+      controlPanelBlocks(enabled, autoUntil, autoSend),
       "Panel de control",
     );
     return existing;
   }
   const ts = await postMessage(
     env,
-    controlPanelBlocks(enabled, autoUntil),
+    controlPanelBlocks(enabled, autoUntil, autoSend),
     `Panel de control del bot ${CLIENT.shortName}`,
   );
   await kvSet(env.DB, KV_CONTROL_PANEL_TS, ts);
@@ -562,11 +601,17 @@ export async function updateControlPanel(env: Env): Promise<void> {
   const ts = await kvGet(env.DB, KV_CONTROL_PANEL_TS);
   const enabled = await isBotEnabled(env.DB);
   const autoUntil = await getAutoModeUntil(env.DB);
+  const autoSend = await isAutoSendEnabled(env.DB);
   if (!ts) {
     await ensureControlPanel(env);
     return;
   }
-  await updateMessage(env, ts, controlPanelBlocks(enabled, autoUntil), "Panel de control");
+  await updateMessage(
+    env,
+    ts,
+    controlPanelBlocks(enabled, autoUntil, autoSend),
+    "Panel de control",
+  );
 }
 
 // ---- card-update helpers (chat.update terminal states) ----
@@ -749,6 +794,7 @@ export function makeSlackPort(env: Env): SlackPort {
     postDraft: (a) => postDraft(env, a),
     postNote: (text) => postNote(env, text),
     postBookingFyi: (booking) => postBookingFyi(env, booking),
+    postAutoSentFyi: (fyi) => postAutoSentFyi(env, fyi),
     markSuperseded: (a, newId) => markSupersededCard(env, a, newId),
   };
 }
