@@ -2,6 +2,10 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-25**.
 
+### Sureness: probability-driven sending + 1-hour best-bet (2026-08-25, owner-directed)
+
+Owner's rules now live: the model reports `sureness` 0-100 per reply. **>=75 → sends immediately** (auto-send lane; kill switch + 100/day breaker + the two correctness locks: unbacked booking claims and invented schedule slots NEVER auto-send). **25-74 → queues for approval, and if nobody acts within 1 HOUR the draft sends itself** (status `auto_sent`, Slack card stamped "Enviada automáticamente tras 1h · seguridad NN%"; opt-out re-checked; guarded/⚠️ drafts excluded; ignores business hours — it's a direct reply). **<25 → human-only, expires at 12h as before.** Price/first-contact auto-send gates removed by owner directive. Sparring hours are BOOKABLE for trials again (professor gives first-timers a mini-lesson); defensa personal routes to muay/jiu/mma/box with the MMA-foundations framing. Draft cards now show "seguridad NN%".
+
 ### KB pack — confidence rewrite + mined rules + nudge overhaul (2026-08-25, later)
 
 Part A: persona.md gained the 8-box confidence checklist ("high" is the default when every box ticks; low is priced at "up to 12h delay"), the 19 style rules mined from Evan's 128 edits, schedule corrections (Kids 4pm arrival, Friday warning, Sunday adults-only, Mini MT exact days, BFC-only price exception, positive price reframe), a "Datos que preguntan seguido" facts section (verbatim-sourced from edit finals; Mini MT + adult class DURATIONS still need Evan wording), BFC minimum age ruled 12 months. Code: `guardUnverifiedSlotClaim` (full day+time+discipline claims that don't resolve to a SLOTS row force draft/low), campaign first-reply question passthrough (canned welcome + brain answers the appended question), KB TOKEN_LIMIT 9000→11000 (KB now 9,838).
@@ -23,7 +27,7 @@ Full report (artifact): "Radiografía del Agente". 185 convos / 226 approvals / 
 
 Shipped this same day (7 slices, 573 tests green): atomic holding/expire claims; approvals-history endpoint (+ IN()-chunking 500 fix); slot hardening (sparring `trial:false`, Mini MT dual-audience, defensa-personal mapping, contract tests); booking-failure Slack alerts; human-booking capture cards (detect + 1-click Registrar); multi-person bookings; gated auto-send lane (inert); nightly booking reconciliation digest.
 
-- [ ] **Evan**: paste the corrected overlay §1 (sparring exception) — text in the report and in the session scratchpad (`overlay-fix-section1.md`).
+- [x] ~~overlay §1 sparring exception~~ — obsolete: sparring trials re-allowed by owner 2026-08-25; only the 'ni menciones que uno es sparring' line still wants a reword to the mini-lesson framing (pending Chrome).
 - [ ] **Evan**: check mdcondesa.com/clase-prueba-adultos/ (lead reported it broken 08-24) and confirm the canonical booking URLs (`/agendar-clase-prueba-adultos/` vs the stale ones intake.md ships).
 - [ ] **Evan**: say "aplica el paquete de KB" → one slice deploys the confidence checklist (high-as-default with 8 verifiable boxes + code backstop), 19 mined style rules, schedule corrections, missing facts (Reto prize, WellHub, class size, duration, Del Valle), campaign fixes (answer appended question + in-chat booking for Reto/Kids/mañanas), nudge copy rewrite. Requires raising the KB TOKEN_LIMIT (at 8,921/9,000).
 - [ ] **Evan**: rule on Baby Fight Club minimum age — his edits say 11 months, intake/campaign say 12.
