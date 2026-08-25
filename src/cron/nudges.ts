@@ -1,8 +1,11 @@
-// Lead-nudge drip. Day-1 (nudge_1h/6h/8h, in the 24h window → free-form) plus the
-// extended multi-day sequence (nudge_d2…d5) from sequences-v2. Scheduling honors
-// CDMX quiet hours (21:30–08:00): nudges 1–2 defer out of quiet, nudge 3 uses the
-// window-aware placement rule, and the extended chain is quiet-shifted (see
-// ./quiet.ts). Copy + program classification live in ./nudge-copy.ts.
+// Lead-nudge drip. Day-1 (nudge_1h + nudge_8h, in the 24h window → free-form)
+// plus the extended multi-day sequence (nudge_d2…d5) from sequences-v2.
+// Scheduling honors CDMX quiet hours (21:30–08:00): nudge 1 defers out of quiet,
+// the closing nudge uses the window-aware placement rule, and the extended chain
+// is quiet-shifted (see ./quiet.ts). The old +6h middle step is no longer
+// scheduled (B3) but its kind survives for pending rows. gateOnOpenQuestion
+// additionally holds any nudge back while the bot's own question is still fresh.
+// Copy + program classification live in ./nudge-copy.ts.
 //
 // Pure math (computeNudgeTimes, computeDayOnePlan, computeExtendedChain,
 // underNudgeCap) is unit-tested with fake clocks. armNudges/cancelNudges/
@@ -25,6 +28,7 @@ import { DAY } from "./time.js";
 import { shiftOutOfQuiet, placeNudge3 } from "./quiet.js";
 import {
   NUDGE_KINDS,
+  SCHEDULED_NUDGE_KINDS,
   EXTENDED_NUDGE_KINDS,
   ALL_NUDGE_KINDS,
   nudgeCopy,
@@ -39,6 +43,7 @@ import {
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
   NUDGE_KINDS,
+  SCHEDULED_NUDGE_KINDS,
   EXTENDED_NUDGE_KINDS,
   ALL_NUDGE_KINDS,
   nudgeCopy,
@@ -69,15 +74,55 @@ export interface NudgeTime {
 }
 
 /**
- * The three natural nudge send times relative to the lead's last inbound epoch:
- * +1h, +6h, +8h (before any quiet-hour shifting). Pure.
+ * The natural nudge send times relative to the lead's last inbound epoch: +1h
+ * and +8h (before any quiet-hour shifting). The +6h middle step was dropped in
+ * B3 — see SCHEDULED_NUDGE_KINDS. Pure.
  */
 export function computeNudgeTimes(lastInboundEpoch: number): NudgeTime[] {
   return [
     { kind: "nudge_1h", dueAt: lastInboundEpoch + 1 * HOUR },
-    { kind: "nudge_6h", dueAt: lastInboundEpoch + 6 * HOUR },
     { kind: "nudge_8h", dueAt: lastInboundEpoch + 8 * HOUR },
   ];
+}
+
+// ---- open-question guard (pure) ----
+
+/** A bot question younger than this blocks a nudge from stomping it. */
+export const OPEN_QUESTION_GUARD_SECONDS = 2 * HOUR;
+
+/** The last thing the BOT said to this lead (body + epoch seconds). */
+export interface LastBotMessage {
+  body: string;
+  ts: number;
+}
+
+/** Send now, or come back at `retryAt` (the row is rescheduled, never cancelled). */
+export type NudgeGate = { send: true } | { send: false; retryAt: number };
+
+/** Trailing whitespace, variation selectors, ZWJ and emoji — ignored by the "?" test. */
+const TRAILING_DECOR = /[\s\u200d\ufe0f\p{Extended_Pictographic}]+$/u;
+
+/**
+ * True when the body reads as a QUESTION to the lead: its last meaningful
+ * character is "?" once trailing emoji/whitespace are stripped ("¿Te late? 🙂").
+ */
+export function endsWithQuestion(body: string): boolean {
+  return body.replace(TRAILING_DECOR, "").endsWith("?");
+}
+
+/**
+ * Never stomp our own open question. The first day-1 nudge used to fire ~60 min
+ * after the BOT's own unanswered question, which reads as nagging; when the last
+ * outbound is a bot question less than 2h old the nudge is deferred (rescheduled
+ * to the moment the guard lifts), not cancelled. Pure over (last, now).
+ */
+export function gateOnOpenQuestion(
+  last: LastBotMessage | null,
+  now: number,
+): NudgeGate {
+  if (!last || !endsWithQuestion(last.body)) return { send: true };
+  const until = last.ts + OPEN_QUESTION_GUARD_SECONDS;
+  return now >= until ? { send: true } : { send: false, retryAt: until };
 }
 
 export interface DayOnePlan {
@@ -90,11 +135,13 @@ export interface DayOnePlan {
 }
 
 /**
- * Quiet-aware day-1 schedule (R1 + R2). Given the lead's last-inbound `base` and
- * the current `now`:
- *  - nudges 1 & 2 (+1h/+6h) defer out of quiet to the next 08:00, preserve order,
- *    keep ≥2h between consecutive nudges, and drop if pushed past the 24h window;
- *  - nudge 3 (+8h) uses placeNudge3 (keep / pull-to-21:30 / defer-08:00 / drop).
+ * Quiet-aware day-1 schedule (R1 + R2, cadence trimmed in B3). Given the lead's
+ * last-inbound `base` and the current `now`:
+ *  - nudge 1 (+1h) defers out of quiet to the next 08:00 and drops if pushed
+ *    past the 24h window;
+ *  - the old middle step (+6h) is no longer scheduled at all;
+ *  - the closing nudge (+8h) uses placeNudge3 (keep / pull-to-21:30 /
+ *    defer-08:00 / drop), still ≥2h after nudge 1.
  * Times already in the past (≤ now) are omitted. Pure over (base, now).
  */
 export function computeDayOnePlan(base: number, now: number): DayOnePlan {
@@ -115,14 +162,12 @@ export function computeDayOnePlan(base: number, now: number): DayOnePlan {
   };
 
   place("nudge_1h", base + 1 * HOUR);
-  place("nudge_6h", base + 6 * HOUR);
 
-  // nudge 2 reference for the ≥2h guard: placed nudge_6h, else nudge_1h, else the
-  // shifted natural +6h (covers the case where both were pushed past now).
+  // ≥2h guard reference for the closing nudge: the placed nudge 1, else its
+  // shifted natural time (covers the case where it was pushed past now).
   const nudge2Time =
-    scheduled.find((p) => p.kind === "nudge_6h")?.dueAt ??
     scheduled.find((p) => p.kind === "nudge_1h")?.dueAt ??
-    shiftOutOfQuiet(base + 6 * HOUR);
+    shiftOutOfQuiet(base + 1 * HOUR);
 
   const natural3 = base + 8 * HOUR;
   const p3 = placeNudge3(natural3, nudge2Time, windowEnd, now);
@@ -348,7 +393,7 @@ export async function processNudge(
       : null;
 
   try {
-    await deps.sendText(env, phone, nudgeCopy(contact, kind, campaignName));
+    await deps.sendText(env, phone, nudgeCopy(contact, kind, campaignName, now));
   } catch (err) {
     if (deps.isWindowClosed(err)) return "cancelled";
     throw err;
@@ -403,7 +448,7 @@ export async function processExtendedNudge(
       ? await deps.campaignName(env, contact.campaign_id)
       : null;
   const program = classifyProgram(contact, campaignName);
-  const body = extendedCopy(contact, kind, program);
+  const body = extendedCopy(contact, kind, program, now);
 
   try {
     await deps.sendText(env, phone, body); // free-form (window open)

@@ -10,12 +10,18 @@ import {
   cancelNudges,
   processNudge,
   NUDGE_KINDS,
+  SCHEDULED_NUDGE_KINDS,
   NUDGE_CAP,
   NUDGE_CAP_WINDOW_SECONDS,
+  endsWithQuestion,
+  gateOnOpenQuestion,
+  OPEN_QUESTION_GUARD_SECONDS,
 } from "../src/cron/nudges.js";
 import { classifyResult, normalizeResult } from "../src/services/airtable.js";
 import { syncBookings } from "../src/cron/followups.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "../src/cron/time.js";
+import { claimsBooking } from "../src/services/booking-claims.js";
+import { isNudgePhrase } from "../src/cron/booking-recon-core.js";
 import type { Contact, Env } from "../src/types.js";
 
 /** Next 09:00 CDMX strictly after `now` — a deterministic daytime base so the
@@ -106,17 +112,50 @@ function contact(over: Partial<Contact>): Contact {
 
 // ---- computeNudgeTimes ----
 
-test("computeNudgeTimes returns +1h, +6h, +8h in order", () => {
+test("computeNudgeTimes returns +1h and +8h (the +6h middle step was dropped)", () => {
   const base = 1_000_000;
   const times = computeNudgeTimes(base);
   assert.deepEqual(
     times.map((t) => [t.kind, t.dueAt]),
     [
       ["nudge_1h", base + 3600],
-      ["nudge_6h", base + 6 * 3600],
       ["nudge_8h", base + 8 * 3600],
     ],
   );
+  assert.deepEqual([...SCHEDULED_NUDGE_KINDS], ["nudge_1h", "nudge_8h"]);
+  // The dropped kind stays in the cancellation surface for pending rows.
+  assert.ok(NUDGE_KINDS.includes("nudge_6h"));
+});
+
+// ---- open-question guard (B3) ----
+
+test("endsWithQuestion: trailing emoji/space don't hide the '?'", () => {
+  assert.equal(endsWithQuestion("¿Te late mañana a las 7?"), true);
+  assert.equal(endsWithQuestion("¿Te late mañana a las 7? 🙂"), true);
+  assert.equal(endsWithQuestion("¿Te late? 🙂 "), true);
+  assert.equal(endsWithQuestion("Te espero mañana 🙌"), false);
+  assert.equal(endsWithQuestion("Aquí está el link: https://x.y/z"), false);
+  assert.equal(endsWithQuestion(""), false);
+});
+
+test("gateOnOpenQuestion: fresh bot question defers, 3h-old one sends", () => {
+  const now = 1_000_000;
+  const fresh = gateOnOpenQuestion({ body: "¿Te late mañana? 🙂", ts: now - 3600 }, now);
+  assert.deepEqual(fresh, {
+    send: false,
+    retryAt: now - 3600 + OPEN_QUESTION_GUARD_SECONDS,
+  });
+
+  const old = gateOnOpenQuestion({ body: "¿Te late mañana? 🙂", ts: now - 3 * 3600 }, now);
+  assert.deepEqual(old, { send: true });
+
+  const notAQuestion = gateOnOpenQuestion(
+    { body: "Te comparto el link: https://x.y/z", ts: now - 60 },
+    now,
+  );
+  assert.deepEqual(notAQuestion, { send: true });
+
+  assert.deepEqual(gateOnOpenQuestion(null, now), { send: true });
 });
 
 // ---- cap logic ----
@@ -156,15 +195,19 @@ test("cap: NUDGE_CAP is 3", () => {
 
 // ---- copy ----
 
+// Anchor week (CDMX): Mon 2026-08-24 … Sun 2026-08-30, same as next-slot.test.
+const MON10 = cdmxToEpoch(2026, 8, 24, 10, 0, 0);
+
 test("nudgeCopy: step 3 mentions free trial + adult booking link, personalizes", () => {
   const c = contact({
     name: "María López",
     qualification: JSON.stringify({ name: "María", discipline: "BJJ", audience: "adult" }),
   });
-  const s1 = nudgeCopy(c, "nudge_1h");
-  const s3 = nudgeCopy(c, "nudge_8h");
+  const s1 = nudgeCopy(c, "nudge_1h", null, MON10);
+  const s3 = nudgeCopy(c, "nudge_8h", null, MON10);
   assert.ok(s1.includes("María"));
-  assert.ok(s1.includes("BJJ"));
+  // "BJJ" is rendered with the client-facing program name.
+  assert.ok(s1.includes("Jiu-Jitsu"), s1);
   assert.ok(/gratis/i.test(s3));
   assert.ok(s3.includes("https://mdcondesa.com/clase-prueba-adultos/"));
 });
@@ -173,14 +216,79 @@ test("nudgeCopy: kids audience → kids link", () => {
   const c = contact({
     qualification: JSON.stringify({ audience: "kid" }),
   });
-  assert.ok(nudgeCopy(c, "nudge_8h").includes("https://mdcondesa.com/clase-prueba-ninos/"));
+  assert.ok(
+    nudgeCopy(c, "nudge_8h", null, MON10).includes("https://mdcondesa.com/clase-prueba-ninos/"),
+  );
 });
 
 test("nudgeCopy: english lead gets english copy", () => {
   const c = contact({ lang: "en", name: "John" });
-  const s3 = nudgeCopy(c, "nudge_8h");
+  const s3 = nudgeCopy(c, "nudge_8h", null, MON10);
   assert.ok(/free trial/i.test(s3));
   assert.ok(s3.includes("John"));
+  assert.ok(s3.includes("I can save you a spot"), s3);
+});
+
+// ---- B2: every nudge proposes ONE concrete slot ----
+
+test("nudgeCopy: adults close with a concrete slot from the real schedule", () => {
+  const c = contact({ qualification: JSON.stringify({ discipline: "muay", audience: "adult" }) });
+  for (const kind of NUDGE_KINDS) {
+    const body = nudgeCopy(c, kind, null, MON10);
+    assert.ok(
+      body.includes("Te puedo apartar lugar en Muay Thai hoy a las 3:15 pm"),
+      `${kind}: ${body}`,
+    );
+    assert.ok(body.includes("¿te late?"), `${kind}: ${body}`);
+    // The open-ended catch-all that produced 248 useless nudges is gone.
+    assert.ok(!/algo con lo que te pueda ayudar/i.test(body), kind);
+  }
+});
+
+test("nudgeCopy: day-1 step 1 keeps the recon marker phrase", () => {
+  // booking-recon-core.isNudgePhrase() excludes nudge bodies by this phrase.
+  for (const q of [null, JSON.stringify({ audience: "kid" }), JSON.stringify({ discipline: "muay" })]) {
+    const body = nudgeCopy(contact({ qualification: q }), "nudge_1h", null, MON10);
+    assert.ok(/todav[ií]a no has agendado/i.test(body), body);
+    assert.ok(isNudgePhrase(body), body);
+  }
+});
+
+test("nudgeCopy: nudges never read as a completed booking claim", () => {
+  for (const program of [null, JSON.stringify({ audience: "kid" })]) {
+    for (const kind of NUDGE_KINDS) {
+      const body = nudgeCopy(contact({ qualification: program }), kind, null, MON10);
+      assert.ok(!claimsBooking(body) || isNudgePhrase(body), `${kind}: ${body}`);
+    }
+  }
+});
+
+test("nudgeCopy: kids/baby speak plural to the parent and propose a KID slot", () => {
+  const kid = nudgeCopy(contact({ qualification: JSON.stringify({ audience: "kid" }) }), "nudge_1h", null, MON10);
+  assert.ok(kid.includes("Les puedo apartar lugar"), kid);
+  assert.ok(kid.includes("¿les late?"), kid);
+  assert.ok(kid.includes("hoy a las 3:15 pm"), kid); // Mon 15:15 kid Muay Thai
+  assert.ok(kid.includes("https://mdcondesa.com/clase-prueba-ninos/"), kid);
+  assert.ok(!kid.includes("clase-prueba-adultos"), kid);
+
+  const baby = nudgeCopy(contact({}), "nudge_1h", "Baby Fight Club", MON10);
+  assert.ok(baby.includes("Baby Fight Club"), baby);
+  assert.ok(baby.includes("¿les late?"), baby);
+  assert.ok(!baby.includes("clase-prueba-adultos"), baby);
+});
+
+test("nudgeCopy: a Kids CAMPAIGN lead (no qualification) gets kids copy + kids link", () => {
+  const body = nudgeCopy(contact({}), "nudge_8h", "Kids Verano CDMX", MON10);
+  assert.ok(body.includes("tu peque"), body);
+  assert.ok(body.includes("https://mdcondesa.com/clase-prueba-ninos/"), body);
+  assert.ok(!body.includes("clase-prueba-adultos"), body);
+});
+
+test("nudgeCopy: no slot available → generic link-only fallback, never a broken send", () => {
+  const body = nudgeCopy(contact({}), "nudge_8h", null, MON10, []);
+  assert.ok(body.includes("Puedes agendar tu día gratuito aquí:"), body);
+  assert.ok(body.includes("https://mdcondesa.com/clase-prueba-adultos/"), body);
+  assert.ok(!body.includes("apartar lugar"), body);
 });
 
 // ---- resultado normalization / classification ----
@@ -205,7 +313,7 @@ test("classifyResult matches all accent/case variants", () => {
 
 // ---- armNudges: cancels then inserts fresh for an eligible lead ----
 
-test("armNudges: lead, no booking, under cap → cancels then schedules 3 nudges", async () => {
+test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges", async () => {
   const inserted: { kind: unknown; recordId: unknown }[] = [];
   let cancelledNudges = false;
   // Daytime base so all three nudges land outside quiet hours (deterministic).
@@ -235,7 +343,7 @@ test("armNudges: lead, no booking, under cap → cancels then schedules 3 nudges
   assert.equal(cancelledNudges, true);
   assert.deepEqual(
     inserted.map((i) => i.kind),
-    [...NUDGE_KINDS],
+    [...SCHEDULED_NUDGE_KINDS],
   );
   // record id is '' for nudges (dedupe key)
   assert.ok(inserted.every((i) => i.recordId === ""));

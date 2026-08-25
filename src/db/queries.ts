@@ -212,6 +212,25 @@ export async function setContactNameIfEmpty(
     .run();
 }
 
+/**
+ * Body + ts of the newest BOT-sent message for a phone, or null. Feeds the
+ * nudge open-question guard (src/cron/nudges.ts): a nudge must not stomp the
+ * bot's own question while it's still fresh. Human sends are excluded on
+ * purpose — those are covered by the human-override gate.
+ */
+export async function lastBotMessage(
+  db: D1Database,
+  phone: string,
+): Promise<{ body: string; ts: number } | null> {
+  const row = await db
+    .prepare(
+      `SELECT body, ts FROM messages WHERE phone = ?1 AND direction = 'out_bot' ORDER BY ts DESC LIMIT 1`,
+    )
+    .bind(phone)
+    .first<{ body: string; ts: number }>();
+  return row ?? null;
+}
+
 /** True if any non-inbound message (bot or human echo) has ever been sent to this phone. */
 export async function hasOutboundMessage(
   db: D1Database,
