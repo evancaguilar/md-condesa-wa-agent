@@ -2,6 +2,11 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-25**.
 
+### KB pack — confidence rewrite + mined rules + nudge overhaul (2026-08-25, later)
+
+Part A: persona.md gained the 8-box confidence checklist ("high" is the default when every box ticks; low is priced at "up to 12h delay"), the 19 style rules mined from Evan's 128 edits, schedule corrections (Kids 4pm arrival, Friday warning, Sunday adults-only, Mini MT exact days, BFC-only price exception, positive price reframe), a "Datos que preguntan seguido" facts section (verbatim-sourced from edit finals; Mini MT + adult class DURATIONS still need Evan wording), BFC minimum age ruled 12 months. Code: `guardUnverifiedSlotClaim` (full day+time+discipline claims that don't resolve to a SLOTS row force draft/low), campaign first-reply question passthrough (canned welcome + brain answers the appended question), KB TOKEN_LIMIT 9000→11000 (KB now 9,838).
+Part B: nudges propose a REAL next slot (`nextTrialSlot` over generated SLOTS, sparring skipped, ≥2h buffer), plural voice + kids link for kids/baby leads, day-1 cadence 3→2 (dropped nudge_6h), open-question guard (never nudge over the bot's own <2h-old question). Also: one-time in-worker migration created `idx_pending_approvals_created` and force-refreshed the Slack control panel (auto-send button now visible).
+
 ### Hardening slice — precision fixes from an external review (2026-08-25)
 
 Five tightenings, no behavior changes beyond the ones described. Tests 573 → **586**, green; no D1 migration (kv + an existing table only).
