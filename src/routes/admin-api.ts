@@ -536,7 +536,7 @@ async function handleLogin(req: Request, env: Env): Promise<Response> {
   const provided = body.password ?? "";
   const usernameRaw = (body.username ?? "").trim().toLowerCase();
   // Invalid charset is treated as unknown-user (still constant-shaped flow).
-  const username = isValidUsername(usernameRaw) ? usernameRaw : usernameRaw === "" ? "" : " ";
+  const username = isValidUsername(usernameRaw) ? usernameRaw : usernameRaw === "" ? "" : "\u0000";
 
   // Master-password compare (break-glass; SHA-256 both sides + timing-safe).
   const providedHash = await sha256Hex(provided);
@@ -546,7 +546,7 @@ async function handleLogin(req: Request, env: Env): Promise<Response> {
     hexToBytes(expectedHash),
   );
 
-  const dbRow = username && username !== " "
+  const dbRow = username && username !== "\u0000"
     ? await getAdminUserSoft(env.DB, username)
     : null;
   const userRow: AdminUserRow | null = dbRow
@@ -561,7 +561,7 @@ async function handleLogin(req: Request, env: Env): Promise<Response> {
     : null;
 
   const decision2 = await authenticateLogin({
-    username: username === " " ? "invalid" : username,
+    username: username === "\u0000" ? "invalid" : username,
     password: provided,
     userRow,
     masterMatches,

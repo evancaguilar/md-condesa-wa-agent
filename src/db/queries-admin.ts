@@ -822,13 +822,19 @@ export async function namesForPhones(
   phones: string[],
 ): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>();
-  if (phones.length === 0) return out;
-  const placeholders = phones.map((_, i) => `?${i + 1}`).join(", ");
-  const { results } = await db
-    .prepare(`SELECT phone, name FROM contacts WHERE phone IN (${placeholders})`)
-    .bind(...phones)
-    .all<{ phone: string; name: string | null }>();
-  for (const r of results) out.set(r.phone, r.name);
+  // D1 rejects statements with too many bound parameters — a full 200-row
+  // history page over an active window carries 100+ distinct phones and threw
+  // a raw 1101 (seen live 2026-08-25). Chunk the IN() well under the limit.
+  const CHUNK = 50;
+  for (let i = 0; i < phones.length; i += CHUNK) {
+    const batch = phones.slice(i, i + CHUNK);
+    const placeholders = batch.map((_, j) => `?${j + 1}`).join(", ");
+    const { results } = await db
+      .prepare(`SELECT phone, name FROM contacts WHERE phone IN (${placeholders})`)
+      .bind(...batch)
+      .all<{ phone: string; name: string | null }>();
+    for (const r of results) out.set(r.phone, r.name);
+  }
   return out;
 }
 
