@@ -9,7 +9,12 @@ import type {
   Env,
   KbRevision,
   KbSection,
+  PendingApproval,
 } from "../types.js";
+import {
+  buildApprovalHistorySql,
+  type ApprovalHistoryQuery,
+} from "./approvals-history.js";
 import { cdmxMonthStr, cdmxParts, cdmxToEpoch, DAY } from "../cron/time.js";
 import { isBotEnabled, kvGet } from "./queries.js";
 import { AUTO_MODE_KV, autoModeActive } from "../services/auto-mode.js";
@@ -750,6 +755,59 @@ export async function claimApproval(
     .bind(id, status, now(), finalText ?? null)
     .run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+// ---- approvals: history ----
+
+/** The columns the history endpoint reads (raw snake_case row, like D1 gives). */
+export type ApprovalHistoryRow = Pick<
+  PendingApproval,
+  | "id"
+  | "phone"
+  | "draft"
+  | "final_text"
+  | "confidence"
+  | "status"
+  | "holding_sent"
+  | "created_at"
+  | "resolved_at"
+>;
+
+/**
+ * Resolved + pending approvals in a created_at window, newest first. Filters
+ * and paging are built by the pure db/approvals-history.ts module (everything
+ * parameterized); this only runs the statement.
+ */
+export async function listApprovalHistory(
+  db: D1Database,
+  q: ApprovalHistoryQuery,
+): Promise<ApprovalHistoryRow[]> {
+  const { sql, binds } = buildApprovalHistorySql(q);
+  const { results } = await db
+    .prepare(sql)
+    .bind(...binds)
+    .all<ApprovalHistoryRow>();
+  return results;
+}
+
+/**
+ * Contact names for a batch of phones in ONE query (the history list would
+ * otherwise fire a getContact per row). Phones absent from `contacts` simply
+ * don't appear in the map; an empty input never touches the DB.
+ */
+export async function namesForPhones(
+  db: D1Database,
+  phones: string[],
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (phones.length === 0) return out;
+  const placeholders = phones.map((_, i) => `?${i + 1}`).join(", ");
+  const { results } = await db
+    .prepare(`SELECT phone, name FROM contacts WHERE phone IN (${placeholders})`)
+    .bind(...phones)
+    .all<{ phone: string; name: string | null }>();
+  for (const r of results) out.set(r.phone, r.name);
+  return out;
 }
 
 // ---- dashboard read models ----

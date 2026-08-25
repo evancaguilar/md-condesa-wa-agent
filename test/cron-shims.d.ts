@@ -51,3 +51,11 @@ declare class URL {
   };
   toString(): string;
 }
+
+declare class URLSearchParams {
+  constructor(init?: string | Record<string, string> | [string, string][]);
+  get(name: string): string | null;
+  set(name: string, value: string): void;
+  append(name: string, value: string): void;
+  toString(): string;
+}

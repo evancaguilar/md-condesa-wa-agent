@@ -75,7 +75,10 @@ import {
   setReadAtSoft,
   listStaffLater,
   cancelStaffLater,
+  listApprovalHistory,
+  namesForPhones,
 } from "../db/queries-admin.js";
+import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import {
   sendStaffMedia,
   sendStaffText,
@@ -371,6 +374,9 @@ export async function handleAdminApi(
   // ---- approvals ----
   if (path === "/admin/api/approvals" && method === "GET") {
     return handleApprovalsList(env);
+  }
+  if (path === "/admin/api/approvals/history" && method === "GET") {
+    return handleApprovalsHistory(env, url);
   }
   const apprMatch = path.match(/^\/admin\/api\/approvals\/(\d+)\/(approve|edit|discard)$/);
   if (apprMatch && method === "POST") {
@@ -1089,6 +1095,37 @@ async function handleApprovalsList(env: Env): Promise<Response> {
     }),
   );
   return json({ items });
+}
+
+/**
+ * Approvals archive: every approval (any status) in a created_at window,
+ * newest first. Filters + paging are parsed and clamped by the pure
+ * db/approvals-history.ts module (default window 15 days, default limit 100,
+ * cap 200 — the same numbers as clampLimit); bad filters are a 400 rather than
+ * a silently-wider query. Names come from ONE batched contacts lookup.
+ */
+async function handleApprovalsHistory(env: Env, url: URL): Promise<Response> {
+  const now = nowSec();
+  const parsed = parseApprovalHistoryParams(url.searchParams, now);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const q = parsed.query;
+
+  const rows = await listApprovalHistory(env.DB, q);
+  const names = await namesForPhones(env.DB, [...new Set(rows.map((r) => r.phone))]);
+  const items = rows.map((r) => ({
+    id: r.id,
+    phone: r.phone,
+    name: names.get(r.phone) ?? null,
+    draft: r.draft,
+    finalText: r.final_text,
+    confidence: r.confidence,
+    status: r.status,
+    holdingSent: r.holding_sent === 1,
+    createdAt: r.created_at,
+    resolvedAt: r.resolved_at,
+    edited: r.status === "edited",
+  }));
+  return json({ items, now, since: q.since, limit: q.limit, offset: q.offset });
 }
 
 // ---- KB ----
