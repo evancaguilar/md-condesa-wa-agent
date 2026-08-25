@@ -5,6 +5,8 @@ import {
   buildContextBlock,
   systemText,
   PERSONA_AND_POLICIES,
+  NO_REPLY_SENTINEL,
+  isNoReplySentinel,
 } from "../src/brain/prompt.js";
 import type { Contact, ConvoContext } from "../src/types.js";
 
@@ -192,4 +194,44 @@ test("campaign and adRef together → both blocks, campaign first", () => {
   assert.ok(block.includes("<campaign_info>"));
   assert.ok(block.includes("<ad_info>"));
   assert.ok(block.indexOf("<campaign_info>") < block.indexOf("<ad_info>"));
+});
+
+// ---- welcome-aware turn (campaign first-reply fall-through) ---------------
+
+test("context block has no welcome section on an ordinary turn", () => {
+  const block = buildContextBlock(ctx());
+  assert.ok(!block.includes("<bienvenida_ya_enviada>"));
+  assert.ok(!block.includes(NO_REPLY_SENTINEL));
+});
+
+test("justSentWelcome briefs the model with the welcome text and the no-reply option", () => {
+  const welcome = "¡Hola! Estamos en Av. México 49, Condesa. Agenda aquí: https://x/";
+  const block = buildContextBlock(ctx({ justSentWelcome: welcome }));
+  assert.ok(block.includes("<bienvenida_ya_enviada>"));
+  assert.ok(block.includes(welcome), "welcome text is handed over verbatim");
+  assert.ok(block.includes(NO_REPLY_SENTINEL), "the silent option is taught");
+  assert.ok(/NO vuelvas a ofrecer horarios/.test(block), "re-offering is forbidden");
+});
+
+test("a very long welcome is truncated so it can't bloat the per-turn context", () => {
+  const block = buildContextBlock(ctx({ justSentWelcome: "a".repeat(5000) }));
+  assert.ok(block.length < 4000);
+  assert.ok(block.includes("…"));
+});
+
+test("isNoReplySentinel accepts the bare token and shrugs off stray punctuation", () => {
+  assert.ok(isNoReplySentinel(NO_REPLY_SENTINEL));
+  assert.ok(isNoReplySentinel(`  ${NO_REPLY_SENTINEL}  `));
+  assert.ok(isNoReplySentinel(`${NO_REPLY_SENTINEL}.`));
+  assert.ok(isNoReplySentinel(`${NO_REPLY_SENTINEL} 🙌`));
+});
+
+test("isNoReplySentinel rejects anything carrying real words — never drop a lead", () => {
+  assert.ok(!isNoReplySentinel(""));
+  assert.ok(!isNoReplySentinel("¡Hola! ¿Te late mañana 9 am?"));
+  assert.ok(
+    !isNoReplySentinel(`${NO_REPLY_SENTINEL} pero te comparto el link`),
+    "sentinel plus a real message is a real message",
+  );
+  assert.ok(!isNoReplySentinel("sin_respuesta"), "bare word is not the token");
 });

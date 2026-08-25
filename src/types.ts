@@ -273,6 +273,15 @@ export interface ConvoContext {
   /** Parsed contacts.ad_ref — the Meta ad the lead clicked, when known. Lets the
    *  brain infer program/audience even when the ad isn't mapped to a campaign. */
   adRef?: { headline: string | null; body: string | null; sourceId: string | null };
+  /**
+   * The campaign's canned welcome that was JUST delivered this same turn, when
+   * the first-reply gate fell through because the lead's opening message
+   * carried a real question (pipeline/inbound.ts §5c). The lead is already
+   * reading that text, so this turn's reply must only add what the welcome
+   * left out — and may be dropped entirely via the no-reply sentinel.
+   * Absent on every ordinary turn.
+   */
+  justSentWelcome?: string;
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */

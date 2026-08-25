@@ -75,6 +75,7 @@ import {
   tryClaimAutoSendSlot,
 } from "../services/auto-send.js";
 import { CLIENT } from "../client.gen.js";
+import { isNoReplySentinel } from "../brain/prompt.js";
 import {
   fetchMediaBytes,
   fetchMediaBytesFromUrl,
@@ -399,6 +400,10 @@ export async function processInbound(
   //    no trial booked — same welcome again, at most once per cooldown window
   //    (atomic kv timestamp claim). Typing trigger-like text mid-chat never
   //    re-welcomes. A failed send falls through to the brain path.
+  // Set when the canned welcome went out AND we fell through to the brain — the
+  // brain is then told what the lead is already reading (see buildContextBlock's
+  // <bienvenida_ya_enviada>) so this turn adds only what the welcome left out.
+  let justSentWelcome: string | undefined;
   if (matchedCampaign && contact.status === "lead") {
     const canned = firstReplyFor(matchedCampaign, false);
     if (canned !== null) {
@@ -441,6 +446,7 @@ export async function processInbound(
           // instant welcome now, plus a real reply through the normal
           // debounce → brain → approval path.
           if (!hasRealQuestion(body, matchedCampaign.trigger_phrase)) return;
+          justSentWelcome = canned;
         } catch (err) {
           // WindowClosed can't happen here (last_inbound was just touched); any
           // other send failure degrades to a normal AI reply this turn.
@@ -516,9 +522,21 @@ export async function processInbound(
     trainingWheels,
     campaign,
     adRef,
+    justSentWelcome,
   };
 
   const result = await ports.brain.respond(brainCtx);
+  // The welcome already said everything: the model asked us to stay quiet.
+  // Only honored on a welcome turn, and never for a booking/escalation (those
+  // carry side effects a human must see).
+  if (
+    justSentWelcome &&
+    (result.action === "send" || result.action === "draft") &&
+    isNoReplySentinel(result.message)
+  ) {
+    console.log(`[inbound] welcome covered it; no reply for ${msg.phone}`);
+    return;
+  }
   await routeResult(env, ports, brainCtx, result, history);
 }
 

@@ -23,6 +23,26 @@ import { CLIENT } from "../client.gen.js";
  */
 export const PERSONA_AND_POLICIES = CLIENT.persona;
 
+/**
+ * Token the model emits INSTEAD of a reply when the canned campaign welcome
+ * that just went out already answered the lead in full (see the
+ * `<bienvenida_ya_enviada>` context block). Honored ONLY on a turn where
+ * `ctx.justSentWelcome` is set — on any other turn the instruction that
+ * teaches it is absent from the prompt, and the pipeline treats it as plain
+ * text, so the model can never silently drop an ordinary lead.
+ */
+export const NO_REPLY_SENTINEL = "<sin_respuesta>";
+
+/**
+ * Is `message` the bare no-reply sentinel? Tolerates surrounding whitespace and
+ * the stray trailing period/emoji a model sometimes appends; anything with real
+ * words alongside it is a REPLY (we send it rather than risk dropping a lead).
+ */
+export function isNoReplySentinel(message: string): boolean {
+  const stripped = message.replace(NO_REPLY_SENTINEL, " ").trim();
+  return message.includes(NO_REPLY_SENTINEL) && !/\p{L}|\p{N}/u.test(stripped);
+}
+
 export interface SystemBlock {
   type: "text";
   text: string;
@@ -132,6 +152,29 @@ export function buildContextBlock(ctx: ConvoContext): string {
     lines.push(
       "Deduce con la base de conocimiento a qué programa o promoción corresponde este anuncio (y si es para adultos o para niños). No preguntes lo que el anuncio ya deja claro.",
       "</ad_info>",
+    );
+  }
+
+  // The campaign's canned welcome went out SECONDS ago, this same turn: the
+  // first-reply gate fell through because the lead's opening message carried a
+  // real question (any "?"). Audit 2026-08-25: that fall-through fired even
+  // when the welcome had already answered the question, and the model — having
+  // nothing new to say — filled the gap by re-offering schedules, so the lead
+  // got two messages and five time slots in 14 seconds. The welcome text is
+  // handed over verbatim so the model can see exactly what is already covered.
+  if (ctx.justSentWelcome) {
+    lines.push(
+      "<bienvenida_ya_enviada>",
+      "Hace segundos ya le enviamos AUTOMÁTICAMENTE este mensaje de bienvenida (el lead lo está leyendo ahora mismo):",
+      "---",
+      truncate(ctx.justSentWelcome, 1200),
+      "---",
+      "Tu mensaje llega INMEDIATAMENTE después de ése. Reglas de este turno:",
+      `- Si la bienvenida ya responde TODO lo que preguntó el lead y tú no agregarías nada nuevo, NO contestes: llama send_reply con message exactamente "${NO_REPLY_SENTINEL}" (sin nada más) y sureness 90. Es la opción correcta y preferida, no una falla.`,
+      "- Si algo quedó sin responder, contesta SOLO eso, en una o dos líneas.",
+      "- NO vuelvas a ofrecer horarios ni el link de agendar: la bienvenida ya cerró con su llamada a la acción y repetirla satura al lead.",
+      "- No repitas el saludo, la ubicación, la descripción del programa ni ningún dato que ya aparezca arriba.",
+      "</bienvenida_ya_enviada>",
     );
   }
 
