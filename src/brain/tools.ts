@@ -21,7 +21,7 @@ export interface AnthropicTool {
 const sendReply: AnthropicTool = {
   name: "send_reply",
   description:
-    "Terminal tool — end EVERY turn with exactly one call. Sends (or drafts) the reply to the lead on WhatsApp. Mirror the lead's language. Confidence: 'high' is the default for a routine reply; drop to 'low' only when a box of the confidence checklist in the system prompt fails — 'low' routes to human approval instead of auto-sending, and can delay the lead up to 12 hours.",
+    "Terminal tool — end EVERY turn with exactly one call. Sends (or drafts) the reply to the lead on WhatsApp. Mirror the lead's language. Rate yourself with `sureness` (0–100): >=75 sends immediately, 25–74 waits for a human up to one hour and then sends anyway, <25 never auto-sends. Calibrate with the sureness checklist in the system prompt.",
   input_schema: {
     type: "object",
     properties: {
@@ -31,11 +31,18 @@ const sendReply: AnthropicTool = {
           "The WhatsApp reply text. Short, warm, light emoji, no walls of text. In the lead's language (es-MX default).",
       },
       language: { type: "string", enum: ["es", "en"] },
+      sureness: {
+        type: "integer",
+        minimum: 0,
+        maximum: 100,
+        description:
+          "How sure you are the answer is correct and complete, 0–100. >=75 sends without review; 25–74 waits for a human up to 1 hour, then sends anyway; <25 never auto-sends. Calibrate with the checklist in the system prompt.",
+      },
       confidence: {
         type: "string",
         enum: ["high", "low"],
         description:
-          "'high' is the DEFAULT for a routine reply: use it when the 8-box confidence checklist in the system prompt passes. 'low' when ANY box fails (unbacked fact, no schedule row, unapproved price, unbacked booking claim, a 'te confirmo' promise, an escalation trigger, you had to guess, or capacity/other-location/first minor booking). Low is NOT free — it routes to human approval and can delay the lead up to 12 hours.",
+          "Legacy field, DERIVED from `sureness` (>=75 ⇒ 'high', else 'low'). Set it to match your sureness; it is kept only for wire compatibility — `sureness` is what decides whether the reply sends, waits, or stays with a human.",
       },
       escalation_reason: {
         type: "string",
@@ -48,7 +55,7 @@ const sendReply: AnthropicTool = {
           "Is the lead left waiting for an answer? false ONLY when the lead is closing the conversation (thanks / ok / 'sería todo' / bye) and your message is a mere pleasantry — going silent after it would be natural. true whenever the lead asked something, is mid-scheduling, or expects information.",
       },
     },
-    required: ["message", "language", "confidence", "awaiting_reply"],
+    required: ["message", "language", "sureness", "confidence", "awaiting_reply"],
     additionalProperties: false,
   },
 };

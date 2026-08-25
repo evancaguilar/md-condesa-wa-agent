@@ -1,69 +1,79 @@
-// Gated auto-send ("auto-envío seguro"): a narrow, always-on lane that lets an
-// OBVIOUSLY safe reply go straight to the lead even while training wheels are
-// ON. It is deliberately much stricter than the wheels-off path — that one
-// auto-sends every high-confidence reply; this one only fires when EVERY gate
-// below passes, so the worst case is "the lead got a boring correct answer 20
-// minutes sooner".
+// Gated auto-send ("auto-envío seguro"): the lane that lets a reply go straight
+// to the lead while training wheels are ON.
+//
+// Owner directive 2026-08-25 — "if it's at least 75% sure it has the correct
+// answer, it sends. only asks for approval if it's less than 75% sure" — turned
+// this from a narrow, hand-tuned allowlist into a straight sureness threshold.
+// The topic-based gates (price copy, first contact of a conversation) were
+// REMOVED: calibration now lives in the model's sureness checklist (persona.md
+// box 3 is exactly the price caution the `price` gate used to encode), and a
+// reply the model is <75% sure about never reaches this lane in the first place.
 //
 // Gate order (first failure wins, and is reported as `blockedBy`):
 //   switch        — kv `auto_send_enabled` !== "1" (missing key = OFF).
 //   action        — only the brain's plain `send`; drafts/escalations/books stay
 //                   in the approval queue.
-//   confidence    — only "high".
+//   sureness      — the model's 0–100 self-report must be >= SURENESS_SEND_MIN.
+//                   Missing (legacy result) ⇒ derived from the old enum.
 //   booking_claim — the copy claims a booked class (shared regex with the brain
-//                   guard + the nightly reconciliation): a promise about a real
-//                   calendar slot always gets human eyes.
-//   price         — the copy mentions money/promos/inscripción: pricing is the
-//                   #1 thing Evan re-words, so it never auto-sends.
-//   first_contact — the phone has no approval a human ever approved/edited. The
-//                   FIRST reply of a conversation is always human-reviewed;
-//                   the lane only speeds up chats already signed off on once.
-//   cap           — AUTO_SEND_DAILY_CAP auto-sends per CDMX day. A blast radius
-//                   limit: if the lane misbehaves it stops on its own. The gate
-//                   below only PRE-SCREENS the count; the binding decision is
-//                   tryClaimAutoSendSlot, claimed atomically right before the
-//                   send so concurrent webhooks can't overshoot the cap.
+//                   guard + the nightly reconciliation). NOT a caution gate but
+//                   a correctness lock: an unbacked "ya quedó agendado" means no
+//                   Airtable record and no anti-no-show sequence, whatever the
+//                   model's sureness says. Real bookings never come through here
+//                   (they return a 'book' result and take the booking path).
+//   cap           — AUTO_SEND_DAILY_CAP auto-sends per CDMX day: a circuit
+//                   breaker, not a throttle. The gate below only PRE-SCREENS the
+//                   count; the binding decision is tryClaimAutoSendSlot, claimed
+//                   atomically right before the send so concurrent webhooks
+//                   can't overshoot the cap.
 //
 // The master override is unchanged: TRAINING_WHEELS off ⇒ the old wheels-off
 // path already auto-sends and this lane never runs; kv switch off ⇒ the lane is
 // completely dead and every reply queues for approval exactly like today.
 
 import { kvDecrement, kvGet, kvIncrementIfBelow, kvSet } from "../db/queries.js";
-import { hasResolvedApproval } from "../db/queries-admin.js";
 import { cdmxDateStr } from "../cron/time.js";
 import { claimsBooking } from "./booking-claims.js";
 
 /** kv master switch. "1" = lane armed; anything else (incl. missing) = OFF. */
 export const AUTO_SEND_KV = "auto_send_enabled";
 
-/** Max auto-sends per CDMX day, across all leads. */
-export const AUTO_SEND_DAILY_CAP = 20;
+/**
+ * Max auto-sends per CDMX day, across all leads. Raised 20 → 100 by the same
+ * 2026-08-25 directive: with sureness deciding what sends, the cap stops being
+ * a daily ration and becomes a blast-radius limit — if the lane misbehaves it
+ * stops on its own, but it must not silently mute a busy day of ad traffic.
+ */
+export const AUTO_SEND_DAILY_CAP = 100;
+
+/** A reply this sure (0–100) sends with no human in the loop. */
+export const SURENESS_SEND_MIN = 75;
 
 /**
- * Money / promo vocabulary. Any hit keeps the reply in the approval queue:
- * prices, promos and inscripción terms are exactly what a human rewrites.
- * Prefix forms (`inscripci`, `membres`) cover inscripción/inscripciones and
- * membresía/membresías without fighting diacritics.
+ * Sureness for a result that predates the field (or whose model call dropped
+ * it): map the legacy enum onto the scale. "high" lands above the send
+ * threshold, "low" comfortably below it and above the best-bet floor, so old
+ * and new results behave identically.
  */
-export const PRICE_PROMO_RE =
-  /\$|\bprecio|\bcosto|\bpromo|\bdescuento|\bmxn\b|\binscripci|\bmensualidad|\bmembres/i;
+export function surenessOf(sureness: number | undefined, confidence: string): number {
+  return sureness ?? (confidence === "high" ? 85 : 50);
+}
 
 /** Why the lane refused. Ordered exactly like the gates run. */
 export type AutoSendBlockReason =
   | "switch"
   | "action"
-  | "confidence"
+  | "sureness"
   | "booking_claim"
-  | "price"
-  | "first_contact"
   | "cap";
 
 export interface AutoSendGateInput {
   action: string;
+  /** Legacy enum — only used as the fallback when `sureness` is absent. */
   confidence: string;
+  /** Model's 0–100 self-report (BrainResult.sureness). */
+  sureness?: number;
   message: string;
-  /** Phone had >=1 approval a human resolved as approved|edited. */
-  hasPriorResolvedApproval: boolean;
   /** Auto-sends already made today (CDMX). */
   dailyCount: number;
   /** kv master switch. */
@@ -79,10 +89,10 @@ export interface AutoSendDecision {
 export function decideAutoSend(i: AutoSendGateInput): AutoSendDecision {
   if (!i.enabled) return { auto: false, blockedBy: "switch" };
   if (i.action !== "send") return { auto: false, blockedBy: "action" };
-  if (i.confidence !== "high") return { auto: false, blockedBy: "confidence" };
+  if (surenessOf(i.sureness, i.confidence) < SURENESS_SEND_MIN) {
+    return { auto: false, blockedBy: "sureness" };
+  }
   if (claimsBooking(i.message)) return { auto: false, blockedBy: "booking_claim" };
-  if (PRICE_PROMO_RE.test(i.message)) return { auto: false, blockedBy: "price" };
-  if (!i.hasPriorResolvedApproval) return { auto: false, blockedBy: "first_contact" };
   if (i.dailyCount >= AUTO_SEND_DAILY_CAP) return { auto: false, blockedBy: "cap" };
   return { auto: true };
 }
@@ -144,18 +154,12 @@ export function releaseAutoSendSlot(
   return kvDecrement(db, autoSendCountKey(cdmxDay));
 }
 
-/** True when a human already approved/edited at least one draft for `phone`. */
-export function hasPriorResolvedApproval(
-  db: D1Database,
-  phone: string,
-): Promise<boolean> {
-  return hasResolvedApproval(db, phone);
-}
-
 export interface AutoSendLaneInput {
   phone: string;
   action: string;
   confidence: string;
+  /** Model's 0–100 self-report; absent falls back to the enum (surenessOf). */
+  sureness?: number;
   message: string;
   /** Injectable clock (epoch seconds) for tests. */
   now?: number;
@@ -175,11 +179,11 @@ export interface AutoSendLaneResult extends AutoSendDecision {
  * (not in the pipeline) so it is unit-testable: inbound.ts only calls this and
  * acts on the answer.
  *
- * Two passes over the pure gate: the first runs with the per-lead facts
- * OPTIMISTICALLY assumed to pass, purely so a message that is ineligible on its
- * own text (wrong action, low confidence, booking claim, price) costs a single
- * kv read instead of three queries. The returned decision always comes from the
- * second pass, with the real values.
+ * Two passes over the pure gate: the first runs with the counter optimistically
+ * at zero, purely so a message that is ineligible on its own (wrong action, not
+ * sure enough, booking claim) costs a single kv read instead of two. The
+ * returned decision always comes from the second pass, with the real count.
+ * (The per-lead prior-approval query died with the first_contact gate.)
  */
 export async function evaluateAutoSendLane(
   db: D1Database,
@@ -190,24 +194,14 @@ export async function evaluateAutoSendLane(
   const base = {
     action: input.action,
     confidence: input.confidence,
+    sureness: input.sureness,
     message: input.message,
   };
   const enabled = await isAutoSendEnabled(db);
-  const cheap = decideAutoSend({
-    ...base,
-    enabled,
-    hasPriorResolvedApproval: true,
-    dailyCount: 0,
-  });
+  const cheap = decideAutoSend({ ...base, enabled, dailyCount: 0 });
   if (!cheap.auto) return { ...cheap, dailyCount: 0, day, cap: AUTO_SEND_DAILY_CAP };
 
-  const prior = await hasPriorResolvedApproval(db, input.phone);
   const dailyCount = await getAutoSendCount(db, day);
-  const decision = decideAutoSend({
-    ...base,
-    enabled,
-    hasPriorResolvedApproval: prior,
-    dailyCount,
-  });
+  const decision = decideAutoSend({ ...base, enabled, dailyCount });
   return { ...decision, dailyCount, day, cap: AUTO_SEND_DAILY_CAP };
 }

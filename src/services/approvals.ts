@@ -22,6 +22,7 @@ import {
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
 import { armNudges } from "../cron/nudges.js";
 import { auditHumanSend } from "./booking-guard.js";
+import type { HumanSendSource } from "./booking-claims.js";
 import {
   markApprovedCard,
   markDiscardedCard,
@@ -58,6 +59,28 @@ export function bookingApprovalKey(id: number): string {
  */
 export function awaitingReplyKey(id: number): string {
   return `awaiting_reply:${id}`;
+}
+
+/**
+ * kv key holding the model's 0–100 sureness for one approval. Same side-channel
+ * trick as bookingApprovalKey: pending_approvals has no sureness column and D1
+ * migrations need Evan at a console, so the number rides in kv. Read by the
+ * Slack card ("seguridad NN%") and by the 1h best-bet timeout. Missing key =
+ * unknown ⇒ never best-bet.
+ */
+export function surenessKey(id: number): string {
+  return `sureness:${id}`;
+}
+
+/**
+ * kv key marking an approval whose draft tripped a correctness guard
+ * (guardUnbackedBookingClaim / guardUnverifiedSlotClaim — their `reason` starts
+ * with "⚠️"). The best-bet timeout NEVER sends one of these: we already know the
+ * text claims something the system can't back, so it dies as `expired` unless a
+ * human fixes it. Missing key = not guarded.
+ */
+export function guardedApprovalKey(id: number): string {
+  return `guarded:${id}`;
 }
 
 async function isBookingApproval(env: Env, id: number): Promise<boolean> {
@@ -121,6 +144,34 @@ async function claimAndSend(
   return { ok: true };
 }
 
+/**
+ * Everything that must happen after an approval's draft actually reached the
+ * lead, whoever pushed it out: booking video for a booking-origin draft, nudge
+ * re-arm, and the booking-claim audit for anything else.
+ *
+ * Shared so the Slack best-bet timeout (services/slack.ts, `auto_sent`) can't
+ * drift from approve/edit — the last time these steps were duplicated, one copy
+ * quietly stopped arming nudges. `source` only drives the audit card's copy.
+ */
+export async function runPostSendEffects(
+  env: Env,
+  id: number,
+  phone: string,
+  sentText: string,
+  source: HumanSendSource,
+): Promise<void> {
+  // Booking-confirmation draft → fire the booking video right after (R4).
+  const bookingOrigin = await isBookingApproval(env, id);
+  if (bookingOrigin) await sendBookingVideo(env, phone);
+  // Bot reply landed → arm/re-arm the lead-nudge drip (no-op unless the contact
+  // is a lead with no active booking/override, under the cap).
+  await armNudges(env, phone);
+  // Slice 4: a booking-origin draft already wrote Airtable inside the brain's
+  // tool loop; anything else that CLAIMS a booking did not, so audit it.
+  // Never throws, always awaited (Workers kill floating promises).
+  if (!bookingOrigin) await auditHumanSend(env, phone, sentText, source);
+}
+
 /** Approve the drafted reply as-is and send it. */
 export async function approveAndSend(
   env: Env,
@@ -131,16 +182,7 @@ export async function approveAndSend(
   const res = await claimAndSend(env, id, "approved", a.draft, a.draft);
   if (res.ok) {
     await markApprovedCard(env, a, a.draft);
-    // Booking-confirmation draft → fire the booking video right after (R4).
-    const bookingOrigin = await isBookingApproval(env, id);
-    if (bookingOrigin) await sendBookingVideo(env, a.phone);
-    // Approved bot reply landed → arm/re-arm the lead-nudge drip (no-op unless
-    // the contact is a lead with no active booking/override, under the cap).
-    await armNudges(env, a.phone);
-    // Slice 4: a booking-origin draft already wrote Airtable inside the brain's
-    // tool loop; anything else that CLAIMS a booking did not, so audit it.
-    // Never throws, always awaited (Workers kill floating promises).
-    if (!bookingOrigin) await auditHumanSend(env, a.phone, a.draft, "approved");
+    await runPostSendEffects(env, id, a.phone, a.draft, "approved");
   }
   return res;
 }
@@ -157,14 +199,9 @@ export async function editAndSend(
   if (res.ok) {
     await insertEdit(env.DB, a.phone, a.draft, finalText);
     await markEditedCard(env, a, finalText);
-    // Booking-confirmation draft → fire the booking video right after (R4).
-    const bookingOrigin = await isBookingApproval(env, id);
-    if (bookingOrigin) await sendBookingVideo(env, a.phone);
-    // Edited bot reply landed → arm/re-arm the lead-nudge drip (conditional).
-    await armNudges(env, a.phone);
-    // Slice 4: audit the SENT text (a human may have edited a plain answer into
-    // a booking confirmation that nothing wrote to Airtable).
-    if (!bookingOrigin) await auditHumanSend(env, a.phone, finalText, "edited");
+    // Audits the SENT text (a human may have edited a plain answer into a
+    // booking confirmation that nothing wrote to Airtable).
+    await runPostSendEffects(env, id, a.phone, finalText, "edited");
   }
   return res;
 }

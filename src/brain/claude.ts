@@ -503,6 +503,25 @@ export function unescapeNewlines(text: string): string {
   return text.replace(/\\n/g, "\n");
 }
 
+/** ≥ this much sureness and the reply needs no human before it goes out. */
+export const SURENESS_SEND_MIN = 75;
+
+/**
+ * Reads the model's `sureness` (0–100) and clamps it into range. Returns
+ * undefined when the field is absent or unparseable, so callers fall back to
+ * the legacy `confidence` enum instead of inventing a number.
+ */
+export function parseSureness(raw: unknown): number | undefined {
+  // Only a number or a numeric string counts. `Number(null)` is 0 and
+  // `Number(false)` is 0 — reading either as "0% sure" would silently pin a
+  // perfectly fine reply below the best-bet floor.
+  if (typeof raw !== "number" && typeof raw !== "string") return undefined;
+  if (typeof raw === "string" && raw.trim() === "") return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
 export function sendResult(
   tu: ToolUseContent,
   followup?: { hoursFromNow: number; note: string } | null,
@@ -510,23 +529,52 @@ export function sendResult(
   const input = tu.input as {
     message?: string;
     language?: string;
+    sureness?: unknown;
     confidence?: string;
     escalation_reason?: string;
     awaiting_reply?: boolean;
   };
   const language: Language = input.language === "en" ? "en" : "es";
-  const confidence: Confidence = input.confidence === "high" ? "high" : "low";
+  // Sureness is the source of truth (owner directive 2026-08-25: "if it's at
+  // least 75% sure it has the correct answer, it sends"). The high/low enum is
+  // DERIVED from it and kept only so every downstream consumer — D1 column,
+  // Slack chips, audit views — keeps working unchanged. A missing/garbage
+  // sureness falls back to the old enum mapping.
+  const sureness = parseSureness(input.sureness);
+  const confidence: Confidence =
+    sureness !== undefined
+      ? sureness >= SURENESS_SEND_MIN
+        ? "high"
+        : "low"
+      : input.confidence === "high"
+        ? "high"
+        : "low";
   const message = unescapeNewlines(input.message ?? "");
   const fu = followup ?? undefined;
   // Anything not an explicit false counts as waiting — the safe default.
   const awaitingReply = input.awaiting_reply !== false;
   if (confidence === "high") {
-    return { action: "send", message, language, confidence, followup: fu, awaitingReply };
+    return {
+      action: "send",
+      message,
+      language,
+      confidence,
+      ...(sureness !== undefined ? { sureness } : {}),
+      followup: fu,
+      awaitingReply,
+    };
   }
   const reason = input.escalation_reason;
-  return reason
-    ? { action: "draft", message, language, confidence, reason, followup: fu, awaitingReply }
-    : { action: "draft", message, language, confidence, followup: fu, awaitingReply };
+  const base = {
+    action: "draft" as const,
+    message,
+    language,
+    confidence,
+    ...(sureness !== undefined ? { sureness } : {}),
+    followup: fu,
+    awaitingReply,
+  };
+  return reason ? { ...base, reason } : base;
 }
 
 /**
@@ -536,6 +584,11 @@ export function sendResult(
  * Airtable record, no anti-no-show sequence. Downgrade to a low-confidence
  * draft with an explicit reason so the approver sees exactly what's wrong.
  * (Real bookings return 'book' before this runs, so they are unaffected.)
+ *
+ * The model's `sureness` is DROPPED on purpose: the number was its own read of
+ * a message we just proved wrong, so it must not drive the 1h best-bet timeout
+ * (services/slack-timeouts.ts). No sureness ⇒ the draft can only ever be
+ * resolved by a human, or expire at 12h.
  */
 export function guardUnbackedBookingClaim(res: BrainResult): BrainResult {
   if (res.action !== "send" && res.action !== "draft") return res;
@@ -575,7 +628,9 @@ const WEEKDAY_ES = [
  *
  * Sends become low-confidence drafts; drafts stay drafts but pick up the
  * reason so the approver sees why. Anything the parser can't read in full is
- * left completely untouched.
+ * left completely untouched. Like guardUnbackedBookingClaim, the model's
+ * `sureness` is dropped so the best-bet timeout can never fire on a draft we
+ * already know names a slot that doesn't exist.
  */
 export function guardUnverifiedSlotClaim(
   res: BrainResult,

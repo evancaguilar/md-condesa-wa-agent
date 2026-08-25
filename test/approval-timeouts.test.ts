@@ -12,22 +12,34 @@ import type { ApprovalStatus, Contact, Env, PendingApproval } from "../src/types
 
 // ---- fakes ----
 
-// The only real DB access left in runApprovalTimeouts is the awaiting-reply kv
-// lookup (and getContact inside the card helpers): a SELECT that finds nothing.
-function fakeDb(): D1Database {
-  const stmt: D1PreparedStatement = {
-    bind: () => stmt,
-    async first() {
-      return null;
-    },
-    async run() {
-      return { results: [], meta: { changes: 1 } };
-    },
-    async all() {
-      return { results: [], meta: {} };
-    },
+// The only real DB access left in runApprovalTimeouts is the kv side-channel
+// lookups (awaiting-reply, sureness, guarded) plus getContact inside the card
+// helpers. `kv` seeds the kv rows; everything else finds nothing.
+function fakeDb(kv: Record<string, string> = {}): D1Database {
+  const make = (sql: string): D1PreparedStatement => {
+    let binds: unknown[] = [];
+    const stmt: D1PreparedStatement = {
+      bind(...v: unknown[]) {
+        binds = v;
+        return stmt;
+      },
+      async first() {
+        if (sql.includes("FROM kv")) {
+          const v = kv[String(binds[0])];
+          return v === undefined ? null : ({ value: v } as never);
+        }
+        return null;
+      },
+      async run() {
+        return { results: [], meta: { changes: 1 } };
+      },
+      async all() {
+        return { results: [], meta: {} };
+      },
+    };
+    return stmt;
   };
-  return { prepare: () => stmt };
+  return { prepare: make };
 }
 
 // Slack calls go out through raw fetch; capture them instead of hitting the API.
@@ -89,6 +101,7 @@ function makeQueries(
     claimApproval?: boolean;
     /** What the row's status reads as in the claim→send gap. */
     statusAfterClaim?: ApprovalStatus;
+    optedOut?: boolean;
   } = {},
 ): { queries: TimeoutQueries; log: QueryLog } {
   const log: QueryLog = { claims: [], releases: [], resolved: [], statusReads: 0 };
@@ -101,6 +114,7 @@ function makeQueries(
         phone,
         name: "Joshua",
         last_inbound_at: NOW - 60, // window open
+        ...(over.optedOut ? { status: "opted_out" } : {}),
       } as Contact;
     },
     async claimHoldingSend(_db, id) {
@@ -262,4 +276,145 @@ test("runApprovalTimeouts: losing the expiry claim leaves the resolved card alon
 
   assert.deepEqual(log.resolved, [{ id: 42, status: "expired" }]); // attempted
   assert.equal(slackCalls.length, 0, "a human-resolved card must not be stamped ⌛");
+});
+
+// ---- best-bet branch (1h with no review) ----
+
+import { surenessKey, guardedApprovalKey } from "../src/services/approvals.js";
+
+/** Pending for 61 minutes, holding line already sent. */
+const stale = (over: Partial<PendingApproval> = {}): PendingApproval =>
+  approval({
+    created_at: NOW - 61 * 60,
+    holding_sent: 1,
+    slack_ts: "1700000000.000001",
+    ...over,
+  });
+
+const withSureness = (n: number, extra: Record<string, string> = {}) =>
+  fakeDb({ [surenessKey(42)]: String(n), ...extra });
+
+test("runApprovalTimeouts: 61min + sureness 30 ⇒ claims auto_sent and sends the draft", async () => {
+  slackCalls.length = 0;
+  const row = stale();
+  const { queries, log } = makeQueries([row]);
+  const { deps, log: sendLog } = makeDeps();
+
+  await runApprovalTimeouts(envWith(withSureness(30)), queries, deps);
+
+  assert.deepEqual(log.resolved, [{ id: 42, status: "auto_sent" }]);
+  assert.equal(sendLog.sends.length, 1);
+  assert.equal(sendLog.sends[0]!.body, row.draft, "the draft goes out verbatim");
+  assert.equal(sendLog.sends[0]!.phone, row.phone);
+  // Card swapped in place, saying who sent it and how sure the model was.
+  assert.equal(slackCalls.length, 1);
+  assert.equal(slackCalls[0]!.method, "chat.update");
+  const text = slackCalls[0]!.body.text!;
+  assert.ok(text.includes("Enviada automáticamente"), text);
+  assert.ok(text.includes("seguridad 30%"), text);
+});
+
+test("runApprovalTimeouts: 59min ⇒ nothing sent yet", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale({ created_at: NOW - 59 * 60 })]);
+  const { deps, log: sendLog } = makeDeps();
+
+  await runApprovalTimeouts(envWith(withSureness(30)), queries, deps);
+
+  assert.deepEqual(log.resolved, []);
+  assert.equal(sendLog.sends.length, 0);
+  assert.equal(slackCalls.length, 0);
+});
+
+test("runApprovalTimeouts: sureness 20 never auto-sends — it expires at 12h", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale()]);
+  const { deps, log: sendLog } = makeDeps();
+  await runApprovalTimeouts(envWith(withSureness(20)), queries, deps);
+  assert.deepEqual(log.resolved, []);
+  assert.equal(sendLog.sends.length, 0);
+
+  // …and 13h later the normal expiry path takes it.
+  slackCalls.length = 0;
+  const old = makeQueries([stale({ created_at: NOW - 13 * 3600 })]);
+  const { deps: deps2, log: sendLog2 } = makeDeps();
+  await runApprovalTimeouts(envWith(withSureness(20)), old.queries, deps2);
+  assert.deepEqual(old.log.resolved, [{ id: 42, status: "expired" }]);
+  assert.equal(sendLog2.sends.length, 0);
+});
+
+test("runApprovalTimeouts: a guarded draft is never auto-sent", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale()]);
+  const { deps, log: sendLog } = makeDeps();
+
+  await runApprovalTimeouts(
+    envWith(withSureness(90, { [guardedApprovalKey(42)]: "1" })),
+    queries,
+    deps,
+  );
+
+  assert.deepEqual(log.resolved, []);
+  assert.equal(sendLog.sends.length, 0);
+  assert.equal(slackCalls.length, 0);
+});
+
+test("runApprovalTimeouts: no sureness marker (legacy row) ⇒ no auto-send", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale()]);
+  const { deps, log: sendLog } = makeDeps();
+
+  await runApprovalTimeouts(envWith(fakeDb()), queries, deps);
+
+  assert.deepEqual(log.resolved, []);
+  assert.equal(sendLog.sends.length, 0);
+});
+
+test("runApprovalTimeouts: losing the auto_sent claim sends NOTHING", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale()], { claimApproval: false });
+  const { deps, log: sendLog } = makeDeps();
+
+  await runApprovalTimeouts(envWith(withSureness(60)), queries, deps);
+
+  assert.deepEqual(log.resolved, [{ id: 42, status: "auto_sent" }]); // attempted
+  assert.equal(sendLog.sends.length, 0, "a human resolved it in the gap");
+  assert.equal(slackCalls.length, 0);
+});
+
+test("runApprovalTimeouts: a window that closed in the gap downgrades to expired", async () => {
+  slackCalls.length = 0;
+  const { queries } = makeQueries([stale()]);
+  const { deps } = makeDeps({ throws: new WindowClosedError("5215512345678") });
+
+  await runApprovalTimeouts(envWith(withSureness(60)), queries, deps);
+
+  // The claim happened, the send failed: the card swaps to "ventana cerrada".
+  assert.equal(slackCalls.length, 1);
+  assert.equal(slackCalls[0]!.method, "chat.update");
+  assert.ok(slackCalls[0]!.body.text!.includes("Ventana cerrada"), slackCalls[0]!.body.text);
+});
+
+test("runApprovalTimeouts: a transient failure on the best-bet send never stops the loop", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale(), stale({ id: 42 })]);
+  const { deps } = makeDeps({ throws: new Error("graph 500") });
+
+  await runApprovalTimeouts(envWith(withSureness(60)), queries, deps);
+
+  assert.equal(log.resolved.length, 2, "both rows were attempted");
+  assert.equal(slackCalls.length, 0);
+});
+
+test("runApprovalTimeouts: an opted-out lead is never best-bet — the draft is discarded", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale()], { optedOut: true });
+  const { deps, log: sendLog } = makeDeps();
+
+  await runApprovalTimeouts(envWith(withSureness(90)), queries, deps);
+
+  assert.deepEqual(log.resolved, [{ id: 42, status: "discarded" }]);
+  assert.equal(sendLog.sends.length, 0);
+  assert.equal(slackCalls.length, 1);
+  assert.ok(slackCalls[0]!.body.text!.includes("Descartada"), slackCalls[0]!.body.text);
 });
