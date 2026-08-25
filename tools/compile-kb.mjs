@@ -122,7 +122,7 @@ function renderSlotsTs(slots, version) {
   const rows = slots
     .map(
       (s) =>
-        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)} },`,
+        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)}${s.trial === false ? ", trial: false" : ""} },`,
     )
     .join("\n");
   return (
@@ -133,6 +133,8 @@ function renderSlotsTs(slots, version) {
     `  time: string; // "HH:mm" 24h, America/Mexico_City\n` +
     `  discipline: string; // service key (see src/client.gen.ts services)\n` +
     `  audience: "adult" | "kid";\n` +
+    `  /** false = never book a trial here (e.g. sparring). Absent = bookable. */\n` +
+    `  trial?: boolean;\n` +
     `}\n\n` +
     `export const SLOTS: readonly Slot[] = [\n${rows}\n];\n`
   );

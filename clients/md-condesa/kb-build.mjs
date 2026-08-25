@@ -171,31 +171,56 @@ function audienceOf(cls) {
   return cls.a ? "kid" : "adult";
 }
 
+/** Classes where a parent trains alongside the child: the model's `audience`
+ *  tag is unpredictable, so emit the slot under BOTH audiences.
+ *  baby = no `a:` tag at all; mini = a:'mini' (Mini Muay Thai, 3-5 años). */
+function parentParticipates(cls) {
+  return cls.n === "baby" || (cls.n === "muay" && cls.a === "mini");
+}
+
 /**
  * Flatten the schedule into valid booking slots. One entry per
  * (weekday, time, discipline, audience). Discipline is the compact program key
  * (jiu/muay/mma/box/baby) so validateSlot can match the model's tool input.
+ *
+ * Two internal markers ride along:
+ *   - `trial: false` → the class exists but never takes a trial booking
+ *     (Muay Thai sparring, `s: true` on the site). Carried through to the
+ *     generated slots so validateSlot can say WHY instead of "no such class".
+ *   - `dual: true`   → parent-participation class; expandDualAudience() below
+ *     mirrors it into the other audience. Stripped before emission.
  */
 function buildSlots(schedule) {
-  const slots = [];
-  const seen = new Set();
+  const byKey = new Map();
   for (const day of schedule.order) {
     const idx = WEEKDAY_KEYS.indexOf(day);
     for (const slot of schedule.days[day] || []) {
       for (const cls of slot.c) {
-        const key = `${idx}|${hhmm(slot)}|${cls.n}|${audienceOf(cls)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        slots.push({
+        const time = hhmm(slot);
+        const audience = audienceOf(cls);
+        const key = `${idx}|${time}|${cls.n}|${audience}`;
+        const prev = byKey.get(key);
+        if (prev) {
+          // Same (day, time, program, audience) twice: read it the permissive
+          // way — a regular class at that hour makes the slot bookable even if
+          // a sparring group shares the mat.
+          if (!cls.s) delete prev.trial;
+          if (parentParticipates(cls)) prev.dual = true;
+          continue;
+        }
+        const out = {
           weekday: idx, // 0=Mon … 6=Sun
-          time: hhmm(slot), // "HH:mm" 24h CDMX
+          time, // "HH:mm" 24h CDMX
           discipline: cls.n, // jiu|muay|mma|box|baby
-          audience: audienceOf(cls), // 'adult'|'kid'
-        });
+          audience, // 'adult'|'kid'
+        };
+        if (cls.s) out.trial = false;
+        if (parentParticipates(cls)) out.dual = true;
+        byKey.set(key, out);
       }
     }
   }
-  return slots;
+  return [...byKey.values()];
 }
 
 /**
@@ -204,10 +229,10 @@ function buildSlots(schedule) {
  * prueba ahí"). The bookable TRIAL slots — mié 11:00 y sáb 2 pm — don't appear
  * on the site at all, so flattening the site schedule made validateSlot reject
  * every legitimate baby booking (seen live 2026-08-18: leads told "ya quedó
- * agendado" with no Airtable record). Swap member slots for trial slots here,
- * emitting BOTH audiences: the model describes a baby booking as 'kid' at
- * least as often as 'adult', and the site's audience tag for baby is 'adult'
- * (no `a:` field), so a single-audience entry is a trap.
+ * agendado" with no Airtable record). Swap member slots for trial slots here.
+ * The both-audiences half of that fix now lives in expandDualAudience(): baby
+ * carries `dual` because parents train too, so the mirrored 'kid' entry is
+ * generated there instead of being hand-written twice.
  */
 function withBabyTrialSlots(slots) {
   const babyTrials = [
@@ -216,9 +241,39 @@ function withBabyTrialSlots(slots) {
   ];
   const out = slots.filter((s) => s.discipline !== "baby");
   for (const t of babyTrials) {
-    for (const audience of ["adult", "kid"]) {
-      out.push({ weekday: t.weekday, time: t.time, discipline: "baby", audience });
-    }
+    // 'adult' matches the site's audience tag for baby (no `a:` field);
+    // `dual` mirrors it to 'kid' below.
+    out.push({
+      weekday: t.weekday,
+      time: t.time,
+      discipline: "baby",
+      audience: "adult",
+      dual: true,
+    });
+  }
+  return out;
+}
+
+/**
+ * Mirror every parent-participation slot into the opposite audience and strip
+ * the internal `dual` marker. Baby Fight Club and Mini Muay Thai are booked by
+ * a parent FOR a toddler and trained by both, so the model labels them 'adult'
+ * about as often as 'kid' — a single-audience entry is a trap that rejects a
+ * perfectly real booking (the 2026-08-18 baby incident above). Existing entries
+ * win: the mirror never overwrites a slot the schedule already declared.
+ */
+function expandDualAudience(slots) {
+  const keyOf = (s) => `${s.weekday}|${s.time}|${s.discipline}|${s.audience}`;
+  const strip = ({ dual, ...rest }) => rest;
+  const seen = new Set(slots.map(keyOf));
+  const out = slots.map(strip);
+  for (const s of slots) {
+    if (!s.dual) continue;
+    const mirrored = { ...strip(s), audience: s.audience === "kid" ? "adult" : "kid" };
+    const key = keyOf(mirrored);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(mirrored);
   }
   return out;
 }
@@ -394,7 +449,7 @@ export async function buildKb({ intake, cfg }) {
   const schedEn = renderSchedule(schedule, i18n, "en");
   const curated = curatePages(pages);
   const founderTxt = curateFounder(founder);
-  const slots = withBabyTrialSlots(buildSlots(schedule));
+  const slots = expandDualAudience(withBabyTrialSlots(buildSlots(schedule)));
 
   const body = assembleMarkdown({
     cfg,

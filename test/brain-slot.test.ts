@@ -4,6 +4,7 @@ import {
   validateSlot,
   weekdayIndex,
   normalizeDiscipline,
+  isKnownDiscipline,
   type ValidateResult,
 } from "../src/brain/tools.js";
 import type { Slot } from "../src/brain/slots.gen.js";
@@ -15,6 +16,16 @@ const SCHED: Slot[] = [
   { weekday: 0, time: "19:00", discipline: "jiu", audience: "adult" },
   { weekday: 5, time: "09:00", discipline: "jiu", audience: "adult" },
   { weekday: 5, time: "11:00", discipline: "jiu", audience: "kid" },
+];
+
+// Sparring: real classes that exist on the grid but never take a trial.
+// Thu(3) 18:00 muay is sparring, 19:00 muay is a normal class, and jiu runs at
+// the same 18:00 hour. Sat(5) 11:00 muay is sparring with nothing else that day.
+const SPAR: Slot[] = [
+  { weekday: 3, time: "18:00", discipline: "muay", audience: "adult", trial: false },
+  { weekday: 3, time: "19:00", discipline: "muay", audience: "adult" },
+  { weekday: 3, time: "18:00", discipline: "jiu", audience: "adult" },
+  { weekday: 5, time: "11:00", discipline: "muay", audience: "adult", trial: false },
 ];
 
 test("weekdayIndex maps YYYY-MM-DD to 0=Mon..6=Sun", () => {
@@ -69,22 +80,54 @@ test("validateSlot rejects a malformed date", () => {
   assert.equal(r.ok, false);
 });
 
-// ---- compiled-slots contract: Baby Fight Club trial times ----------------
-// intake.md: trials are mié 11:00 and sáb 14:00 ONLY; the member classes
-// (mié 12:00, sáb 15:00) must never accept a trial booking. This pins the
-// generated schedule so a site-schedule recompile can't silently regress it
-// (live incident 2026-08-18: every advertised baby slot was rejected).
-import { SLOTS } from "../src/brain/slots.gen.js";
+// ---- sparring slots (trial: false) ---------------------------------------
 
-test("compiled SLOTS: baby trials bookable mié 11:00 + sáb 14:00, both audiences", () => {
-  // 2026-08-19 is a Wednesday; 2026-08-22 is a Saturday.
-  for (const aud of ["adult", "kid"]) {
-    assert.equal(validateSlot("2026-08-19", "11:00", aud, "baby", SLOTS).ok, true);
-    assert.equal(validateSlot("2026-08-22", "14:00", aud, "baby", SLOTS).ok, true);
-  }
+test("validateSlot never books a sparring slot, and says why", () => {
+  // 2026-08-27 is a Thursday.
+  const r = validateSlot("2026-08-27", "18:00", "adult", "muay", SPAR);
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /SPARRING/);
 });
 
-test("compiled SLOTS: baby member classes are NOT bookable as trials", () => {
-  assert.equal(validateSlot("2026-08-19", "12:00", "adult", "baby", SLOTS).ok, false);
-  assert.equal(validateSlot("2026-08-22", "15:00", "adult", "baby", SLOTS).ok, false);
+test("validateSlot's alternatives exclude sparring slots", () => {
+  const r = validateSlot("2026-08-27", "18:00", "adult", "muay", SPAR);
+  // 19:00 is bookable; the requested 18:00 sparring must not be offered back.
+  assert.deepEqual(r.alternatives, ["19:00"]);
+});
+
+test("sparring with no bookable class that day offers another day/discipline", () => {
+  // 2026-08-29 is a Saturday — 11:00 muay is sparring and nothing else runs.
+  const r = validateSlot("2026-08-29", "11:00", "adult", "muay", SPAR);
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /SPARRING/);
+  assert.match(r.reason ?? "", /different day or discipline/);
+  assert.equal(r.alternatives, undefined);
+});
+
+test("a co-timed class in another discipline still validates", () => {
+  // Thu 18:00 muay is sparring, but Thu 18:00 jiu is a normal class.
+  assert.equal(validateSlot("2026-08-27", "18:00", "adult", "jiu", SPAR).ok, true);
+});
+
+test("slots without a trial flag stay bookable (back-compat)", () => {
+  // SCHED has no `trial` field at all — every entry must remain bookable.
+  assert.equal(validateSlot("2026-07-06", "18:00", "adult", "jiu", SCHED).ok, true);
+  assert.equal(validateSlot("2026-08-27", "19:00", "adult", "muay", SPAR).ok, true);
+});
+
+// ---- unknown disciplines --------------------------------------------------
+
+test("validateSlot rejects an unknown discipline with a corrective", () => {
+  const r = validateSlot("2026-07-06", "18:00", "adult", "defensa personal", SCHED);
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /not a bookable discipline/);
+  assert.match(r.reason ?? "", /jiu/);
+  assert.match(r.reason ?? "", /muay/);
+});
+
+test("isKnownDiscipline tracks the client's service keys", () => {
+  assert.equal(isKnownDiscipline("jiu"), true);
+  assert.equal(isKnownDiscipline("baby"), true);
+  assert.equal(isKnownDiscipline("defensa personal"), false);
+  assert.equal(isKnownDiscipline("Jiu-Jitsu"), false); // keys only, not labels
 });

@@ -167,6 +167,11 @@ export function normalizeDiscipline(input: string): string {
   return s;
 }
 
+/** True iff `key` is one of the client's bookable service keys. */
+export function isKnownDiscipline(key: string): boolean {
+  return CLIENT.services.some((svc) => svc.key === key);
+}
+
 /**
  * Weekday index (0=Mon … 6=Sun) for a YYYY-MM-DD date, interpreted as a plain
  * calendar date in America/Mexico_City. We build the date at UTC noon to dodge
@@ -194,9 +199,12 @@ export interface ValidateResult {
 }
 
 /**
- * True iff a class of `discipline`/`audience` runs on the weekday of `trialDate`
- * at `trialTime`. On failure, returns a corrective reason (+ same-day
- * alternatives) so the executor can hand the model a useful tool_result.
+ * True iff a BOOKABLE class of `discipline`/`audience` runs on the weekday of
+ * `trialDate` at `trialTime`. On failure, returns a corrective reason (+
+ * same-day alternatives) so the executor can hand the model a useful
+ * tool_result. Slots flagged `trial: false` (Muay Thai sparring) exist in the
+ * schedule but never take a trial — they get their own reason instead of a
+ * misleading "no such class", and never show up as an alternative.
  *
  * `schedule` defaults to the generated SLOTS but is injectable for tests.
  */
@@ -215,14 +223,43 @@ export function validateSlot(
   const time = trialTime.trim();
   const aud = audience.trim().toLowerCase();
 
+  if (!isKnownDiscipline(disc)) {
+    // "defensa personal" is the recurring one: it's a benefit of Jiu-Jitsu and
+    // Muay Thai, not a class on the grid, and the model sometimes books it.
+    const keys = CLIENT.services.map((s) => s.key);
+    const selfDefense =
+      keys.includes("jiu") && keys.includes("muay")
+        ? ` Self-defense ("defensa personal", incl. para mujeres) is taught INSIDE Jiu-Jitsu and Muay Thai — pick jiu or muay and retry.`
+        : "";
+    return {
+      ok: false,
+      reason: `'${discipline}' is not a bookable discipline. Valid: ${keys.join(", ")}.${selfDefense}`,
+    };
+  }
+
   const sameDayDisc = schedule.filter(
     (s) => s.weekday === wd && s.discipline === disc && s.audience === aud,
   );
+  const bookable = sameDayDisc.filter((s) => s.trial !== false);
 
-  const exact = sameDayDisc.find((s) => s.time === time);
+  const exact = bookable.find((s) => s.time === time);
   if (exact) return { ok: true };
 
-  const alternatives = [...new Set(sameDayDisc.map((s) => s.time))].sort();
+  const alternatives = [...new Set(bookable.map((s) => s.time))].sort();
+
+  // The requested hour exists but is a sparring session — say so, or the model
+  // just re-proposes it (the KB lists it) or tells the lead it doesn't exist.
+  if (sameDayDisc.some((s) => s.time === time && s.trial === false)) {
+    const tail = alternatives.length
+      ? ` Same-day trial options: ${alternatives.join(", ")} CDMX.`
+      : ` Offer a different day or discipline from the schedule in the KB.`;
+    return {
+      ok: false,
+      reason: `The ${disc} class at ${time} on ${trialDate} is a SPARRING session — never book a trial there.${tail}`,
+      ...(alternatives.length ? { alternatives } : {}),
+    };
+  }
+
   if (alternatives.length === 0) {
     return {
       ok: false,
