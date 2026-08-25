@@ -63,7 +63,8 @@ export interface BrainDeps {
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-5";
-const MAX_TOKENS = 1024;
+// 4096: adaptive thinking spends from this same budget (replies stay short).
+const MAX_TOKENS = 4096;
 const ANTHROPIC_VERSION = "2023-06-01";
 const MAX_ITERATIONS = 4;
 
@@ -96,7 +97,12 @@ interface ToolResultContent {
   content: string;
   is_error?: boolean;
 }
-type AssistantContent = TextContent | ToolUseContent;
+export interface ThinkingContent {
+  type: "thinking";
+  thinking: string;
+  signature?: string;
+}
+type AssistantContent = TextContent | ToolUseContent | ThinkingContent;
 type UserContent = TextContent | ToolResultContent;
 
 export interface ApiMessage {
@@ -145,7 +151,19 @@ export function createBrain(deps: BrainDeps): BrainPort {
 
     try {
       for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-        const resp = await callAnthropic(doFetch, deps.apiKey, system, messages);
+        const resp = await callAnthropic(
+          doFetch,
+          deps.apiKey,
+          system,
+          messages,
+          TOOLS,
+          MAX_TOKENS,
+          // Adaptive thinking (owner-approved 2026-08-25): the audit's worst
+          // model errors were slot math, weekday arithmetic and calibration —
+          // exactly what thinking helps. Thinking tokens count against
+          // max_tokens, hence the 4096 budget.
+          { thinking: { type: "adaptive" }, effort: "medium" },
+        );
         accumulate(usageAcc, resp.usage);
 
         const toolUses = resp.content.filter(
@@ -314,11 +332,21 @@ export async function callAnthropic(
   messages: ApiMessage[],
   tools: readonly unknown[] = TOOLS,
   maxTokens: number = MAX_TOKENS,
+  opts?: {
+    /** Anthropic `thinking` config. Default stays disabled so the small
+     *  utility callers (KB editor, capture parser, edit tuner, rewrite) keep
+     *  their tight token budgets; the BRAIN passes adaptive (2026-08-25 —
+     *  slot math / date arithmetic / sureness calibration all benefit). */
+    thinking?: { type: "adaptive" } | { type: "disabled" };
+    /** output_config.effort — only sent when provided. */
+    effort?: "low" | "medium" | "high";
+  },
 ): Promise<ApiResponse> {
   const body = JSON.stringify({
     model: MODEL,
     max_tokens: maxTokens,
-    thinking: { type: "disabled" },
+    thinking: opts?.thinking ?? { type: "disabled" },
+    ...(opts?.effort ? { output_config: { effort: opts.effort } } : {}),
     system,
     tools,
     messages,
