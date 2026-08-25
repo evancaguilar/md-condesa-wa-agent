@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import { buildSystem, buildContextBlock, type SystemBlock } from "./prompt.js";
 import { TOOLS, normalizeDiscipline, validateSlot } from "./tools.js";
+import { CLAIMS_BOOKED } from "../services/booking-claims.js";
 
 // ---- deps (injected at construction) -------------------------------------
 
@@ -470,13 +471,6 @@ export function sendResult(
     ? { action: "draft", message, language, confidence, reason, followup: fu, awaitingReply }
     : { action: "draft", message, language, confidence, followup: fu, awaitingReply };
 }
-
-/**
- * Past-participle booking claims ("ya quedó agendado", "tu clase está
- * reservada", "you're booked"). Deliberately does NOT match the infinitive
- * ("¿quieres agendar?", "puedo agendarte") — offering to book is fine.
- */
-const CLAIMS_BOOKED = /\bagendad[oa]s?\b|\breservad[oa]s?\b|\bbooked\b|\byou'?re all set\b/i;
 
 /**
  * A reply claiming a completed booking when book_trial did NOT succeed this

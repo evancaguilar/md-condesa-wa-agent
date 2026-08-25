@@ -15,6 +15,7 @@ import { makeAirtablePort } from "../services/airtable.js";
 import { runDueFollowups, syncBookings, syncStudents } from "./followups.js";
 import { runBudgetReport } from "./budget.js";
 import { maybeRunEditTuning } from "../services/edit-tuner.js";
+import { runBookingRecon } from "./booking-recon.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
 import { kvGet, kvSet } from "../db/queries.js";
@@ -75,6 +76,11 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       await safe("ensureControlPanel", () => cronDeps.ensureControlPanel(env));
       // Edit tuner: self-gated to ~weekly + ≥5 new edits since its watermark.
       await safe("editTuning", () => maybeRunEditTuning(env, cronDeps, nowEpoch));
+      // Booking-reconciliation backstop: flag outbound "ya quedó agendado"
+      // claims Airtable has no trial datetime for. Posts only when it finds one.
+      await safe("bookingRecon", () =>
+        runBookingRecon(env, { slack: cronDeps.slack }, nowEpoch),
+      );
     }
   }
 }
