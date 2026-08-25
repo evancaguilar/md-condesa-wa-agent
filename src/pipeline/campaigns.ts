@@ -225,3 +225,28 @@ export function firstReplyDecision(opts: {
   if (opts.hasReferral && !opts.hasActiveBooking) return "resend";
   return "none";
 }
+
+/** Extra characters over the trigger phrase that count as the lead's own words. */
+const REAL_QUESTION_SLACK = 15;
+
+/**
+ * Does a campaign-matched FIRST message carry a real question of the lead's
+ * own, beyond the ad's prefilled ice-breaker? The canned welcome answers the
+ * ad, not the lead: the 2026-08 conversation audit found 4/20 conversations in
+ * chunk 00 whose opening question ("¿Es apto para niños?", "¿costo?") was
+ * swallowed by the first-reply gate and never answered.
+ *
+ * Deliberately loose — a false positive only costs one extra (approved) brain
+ * reply, while a false negative loses the lead's question entirely:
+ *  - any "?" / "¿" anywhere in the raw text, or
+ *  - normalized text meaningfully longer than the normalized trigger phrase.
+ */
+export function hasRealQuestion(
+  text: string,
+  triggerPhrase: string | null | undefined,
+): boolean {
+  if (/[?¿]/.test(text)) return true;
+  const body = normalizeText(text);
+  const trigger = normalizeText(triggerPhrase ?? "");
+  return body.length > trigger.length + REAL_QUESTION_SLACK;
+}

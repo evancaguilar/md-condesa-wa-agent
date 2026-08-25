@@ -766,3 +766,80 @@ test("guard leaves normal replies untouched", () => {
   const r = guardUnbackedBookingClaim(sendRes("La clase es sábado a las 2 pm, ¡te esperamos!"));
   assert.equal(r.action, "send");
 });
+
+// ---- guardUnverifiedSlotClaim --------------------------------------------
+// Audit backstop: a reply that NAMES a day+hour+discipline the grid doesn't
+// have, without ever calling book_trial. Fixed clock: Monday 2026-08-24.
+import { guardUnverifiedSlotClaim } from "../src/brain/claude.js";
+
+const MON = { nowCdmx: "2026-08-24T10:00" };
+
+function draftRes(message: string, reason?: string): BrainResult {
+  return reason
+    ? { action: "draft", message, language: "es", confidence: "low", reason, awaitingReply: true }
+    : { action: "draft", message, language: "es", confidence: "low", awaitingReply: true };
+}
+
+test("slot guard leaves a real adult slot on send", () => {
+  // Sábado 9 am Jiu-Jitsu (adultos) is on the generated grid.
+  const r = guardUnverifiedSlotClaim(
+    sendRes("Nos vemos el sábado a las 9 am para Jiu-Jitsu 🙌"),
+    MON,
+  );
+  assert.equal(r.action, "send");
+});
+
+test("slot guard downgrades an invented Friday-evening Muay Thai claim", () => {
+  const r = guardUnverifiedSlotClaim(
+    sendRes("¿Te late el viernes a las 7 pm para Muay Thai? 💪"),
+    MON,
+  );
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") {
+    assert.equal(r.confidence, "low");
+    assert.match(r.reason ?? "", /viernes 19:00/);
+    assert.match(r.reason ?? "", /no existe en el calendario/);
+  }
+});
+
+test("slot guard ignores a message without a full date+time+discipline parse", () => {
+  const r = guardUnverifiedSlotClaim(sendRes("Te esperamos mañana a las 7 pm 🙌"), MON);
+  assert.equal(r.action, "send");
+});
+
+test("slot guard passes a kid-only slot (sábado 12 pm Muay Thai niños)", () => {
+  // Invalid for the adult grid, valid for the kid grid — must not trigger.
+  const r = guardUnverifiedSlotClaim(
+    sendRes("Nos vemos el sábado a las 12 pm para Muay Thai niños 🙌"),
+    MON,
+  );
+  assert.equal(r.action, "send");
+});
+
+test("slot guard keeps a draft a draft and appends its reason", () => {
+  const r = guardUnverifiedSlotClaim(
+    draftRes("¿Te late el viernes a las 7 pm para Muay Thai?", "motivo previo"),
+    MON,
+  );
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") {
+    assert.match(r.reason ?? "", /motivo previo/);
+    assert.match(r.reason ?? "", /no existe en el calendario/);
+  }
+});
+
+test("slot guard is idempotent (no duplicate reason)", () => {
+  const once = guardUnverifiedSlotClaim(
+    sendRes("¿Te late el viernes a las 7 pm para Muay Thai?"),
+    MON,
+  );
+  const twice = guardUnverifiedSlotClaim(once, MON);
+  if (twice.action === "draft" && once.action === "draft") {
+    assert.equal(twice.reason, once.reason);
+  }
+});
+
+test("slot guard leaves escalations alone", () => {
+  const esc: BrainResult = { action: "escalate", reason: "queja", summary: "queja" };
+  assert.equal(guardUnverifiedSlotClaim(esc, MON).action, "escalate");
+});

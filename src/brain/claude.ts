@@ -19,8 +19,9 @@ import type {
   StoredMessage,
 } from "../types.js";
 import { buildSystem, buildContextBlock, type SystemBlock } from "./prompt.js";
-import { TOOLS, normalizeDiscipline, validateSlot } from "./tools.js";
-import { CLAIMS_BOOKED } from "../services/booking-claims.js";
+import { TOOLS, normalizeDiscipline, validateSlot, weekdayIndex } from "./tools.js";
+import { CLAIMS_BOOKED, parseBookingHints } from "../services/booking-claims.js";
+import { CLIENT } from "../client.gen.js";
 
 // ---- deps (injected at construction) -------------------------------------
 
@@ -165,7 +166,10 @@ export function createBrain(deps: BrainDeps): BrainPort {
           // A booking that succeeded this turn + a send_reply → 'book' result
           // (types.ts union carries the followupMessage + recordId on 'book').
           if (pendingBookings.length) return bookResult(pendingBookings);
-          return guardUnbackedBookingClaim(sendResult(sendReply, pendingFollowup));
+          return guardUnverifiedSlotClaim(
+            guardUnbackedBookingClaim(sendResult(sendReply, pendingFollowup)),
+            ctx,
+          );
         }
 
         // No terminal tool yet — process the non-terminal tools, feed results
@@ -543,6 +547,76 @@ export function guardUnbackedBookingClaim(res: BrainResult): BrainResult {
     confidence: "low",
     reason:
       "⚠️ El texto afirma que la clase ya quedó agendada, pero NO se creó ningún booking en Airtable en este turno (book_trial no se ejecutó o falló). Verifica antes de aprobar.",
+    followup: res.followup,
+    awaitingReply: res.awaitingReply,
+  };
+}
+
+const WEEKDAY_ES = [
+  "lunes",
+  "martes",
+  "miércoles",
+  "jueves",
+  "viernes",
+  "sábado",
+  "domingo",
+];
+
+/**
+ * Second backstop, from the 2026-08 conversation audit: the model regularly
+ * NAMES a day+hour that isn't on the grid at all (Friday-evening Muay Thai,
+ * Sunday kids, Tuesday Mini Muay Thai) WITHOUT calling book_trial — so
+ * validateSlot never runs and nothing catches it. Here we re-read the reply
+ * deterministically (parseBookingHints) and, only when it yields a FULL parse
+ * (date + time + discipline), check the claimed slot against the real
+ * schedule for BOTH audiences — a message mixing adult and kid vocabulary
+ * must not false-trigger. If neither audience has that class, the reply can't
+ * auto-send.
+ *
+ * Sends become low-confidence drafts; drafts stay drafts but pick up the
+ * reason so the approver sees why. Anything the parser can't read in full is
+ * left completely untouched.
+ */
+export function guardUnverifiedSlotClaim(
+  res: BrainResult,
+  ctx: Pick<ConvoContext, "nowCdmx">,
+): BrainResult {
+  if (res.action !== "send" && res.action !== "draft") return res;
+
+  const todayYmd = ctx.nowCdmx.slice(0, 10);
+  const weekdayIdx = weekdayIndex(todayYmd);
+  if (weekdayIdx === null) return res;
+
+  const hints = parseBookingHints(res.message, ctx.nowCdmx, weekdayIdx);
+  if (hints.confidence !== "full") return res;
+  const trialDate = hints.trialDate!;
+  const trialTime = hints.trialTime!;
+  const discipline = hints.discipline!;
+
+  // Both audiences must reject it before we flag anything.
+  for (const audience of ["adult", "kid"] as const) {
+    if (validateSlot(trialDate, trialTime, audience, discipline).ok) return res;
+  }
+
+  const wd = weekdayIndex(trialDate);
+  const dayName = wd === null ? trialDate : (WEEKDAY_ES[wd] ?? trialDate);
+  const label =
+    CLIENT.services.find((s) => s.key === discipline)?.label ?? discipline;
+  const reason = `⚠️ El mensaje propone ${dayName} ${trialTime} para ${label}, pero ese horario no existe en el calendario. Verifica antes de aprobar.`;
+
+  const merged =
+    res.action === "draft" && res.reason
+      ? res.reason.includes(reason)
+        ? res.reason
+        : `${res.reason}\n${reason}`
+      : reason;
+
+  return {
+    action: "draft",
+    message: res.message,
+    language: res.language,
+    confidence: "low",
+    reason: merged,
     followup: res.followup,
     awaitingReply: res.awaitingReply,
   };
