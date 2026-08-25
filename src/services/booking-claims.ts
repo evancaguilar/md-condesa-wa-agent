@@ -228,6 +228,82 @@ function parseDiscipline(t: string): string | undefined {
 }
 
 /**
+ * EVERY clock time named in the text, in "HH:mm", de-duplicated in reading
+ * order. `parseTime` deliberately returns only the FIRST — that's right for
+ * reconstructing one booking, but a reply may legitimately offer up to three
+ * hours, and a guard has to see all of them.
+ *
+ * Same three tiers as parseTime ("6:30 pm", "9 pm", "a las 7"), plus the
+ * "7 u 8 am" / "7 y 8 am" shape where one meridiem covers a run of hours.
+ */
+export function parseAllTimes(text: string): string[] {
+  const t = norm(text);
+  const out: string[] = [];
+  const push = (v: string | undefined) => {
+    if (v && !out.includes(v)) out.push(v);
+  };
+  // "7 u 8 am" / "7, 8 o 9 pm": bare hours sharing a trailing meridiem.
+  const RUN = /\b(\d{1,2})(?:\s*(?:,|u|o|y|a)\s*(\d{1,2}))+\s*(a\.?\s?m\.?|p\.?\s?m\.?)(?![a-z])/g;
+  for (const m of t.matchAll(RUN)) {
+    for (const h of m[0].matchAll(/\d{1,2}/g)) {
+      const raw = Number(h[0]);
+      if (raw >= 1 && raw <= 12) push(`${pad2(applyMeridiem(raw, m[3]!))}:00`);
+    }
+  }
+  const HM = /\b(\d{1,2}):(\d{2})\s*(a\.?\s?m\.?|p\.?\s?m\.?)?/g;
+  for (const m of t.matchAll(HM)) {
+    const raw = Number(m[1]);
+    const min = Number(m[2]);
+    if (raw > 23 || min > 59) continue;
+    const h = m[3] && raw <= 12 ? applyMeridiem(raw, m[3]) : raw;
+    push(`${pad2(h % 24)}:${pad2(min)}`);
+  }
+  const MER = /\b(\d{1,2})\s*(a\.?\s?m\.?|p\.?\s?m\.?)(?![a-z])/g;
+  for (const m of t.matchAll(MER)) {
+    const raw = Number(m[1]);
+    if (raw >= 1 && raw <= 12) push(`${pad2(applyMeridiem(raw, m[2]!))}:00`);
+  }
+  return out;
+}
+
+/**
+ * How many distinct DAY references the text makes ("hoy", "mañana", a weekday
+ * name, an ISO date). Lets a caller tell a single-offer message ("el jueves a
+ * las 7 pm") from multi-offer copy ("hoy 6 pm o mañana 7 am"), where pairing a
+ * day with an hour is guesswork.
+ */
+export function countDayTokens(text: string): number {
+  const t = norm(text);
+  let n = 0;
+  if (/\b\d{4}-\d{2}-\d{2}\b/.test(t)) n++;
+  if (/\bhoy\b/.test(t)) n++;
+  if (/\bpasado\s+manana\b/.test(t)) n++;
+  // "de/por/en la mañana" is a time of day, not tomorrow (same carve-out as parseDate).
+  const withoutMorning = t
+    .replace(/\bpasado\s+manana\b/g, " ")
+    .replace(/\b(?:de|por|en)\s+la\s+manana\b/g, " ");
+  if (/\bmanana\b/.test(withoutMorning)) n++;
+  for (const [re] of WEEKDAYS) if (re.test(t)) n++;
+  return n;
+}
+
+/**
+ * All distinct discipline keys named in the text. The impossible-hour guard
+ * only trusts a message that names exactly ONE — "Box a las 9 pm o Muay Thai
+ * a las 7 am" is two offers, and 7 am is perfectly real for Muay Thai.
+ */
+export function parseAllDisciplines(text: string): string[] {
+  const t = norm(text);
+  const out: string[] = [];
+  if (BABY_RE.test(t)) out.push("baby");
+  for (const svc of CLIENT.services) {
+    if (!svc.match) continue;
+    if (new RegExp(svc.match).test(t) && !out.includes(svc.key)) out.push(svc.key);
+  }
+  return out;
+}
+
+/**
  * Pull the booking fields out of a human-written confirmation. Pure and clock-
  * injected: `nowCdmxIso` is "YYYY-MM-DDTHH:mm" in CDMX and `weekdayIdx` is that
  * day's index (0=Mon … 6=Sun) — same shape the brain's <context> block carries.

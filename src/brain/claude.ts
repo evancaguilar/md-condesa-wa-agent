@@ -19,8 +19,21 @@ import type {
   StoredMessage,
 } from "../types.js";
 import { buildSystem, buildContextBlock, type SystemBlock } from "./prompt.js";
-import { TOOLS, normalizeDiscipline, validateSlot, weekdayIndex } from "./tools.js";
-import { CLAIMS_BOOKED, parseBookingHints } from "../services/booking-claims.js";
+import {
+  TOOLS,
+  disciplineNeverRunsAt,
+  disciplineTimes,
+  normalizeDiscipline,
+  validateSlot,
+  weekdayIndex,
+} from "./tools.js";
+import {
+  CLAIMS_BOOKED,
+  countDayTokens,
+  parseAllDisciplines,
+  parseAllTimes,
+  parseBookingHints,
+} from "../services/booking-claims.js";
 import { CLIENT } from "../client.gen.js";
 
 // ---- deps (injected at construction) -------------------------------------
@@ -671,6 +684,44 @@ export function guardUnverifiedSlotClaim(
   if (weekdayIdx === null) return res;
 
   const hints = parseBookingHints(res.message, ctx.nowCdmx, weekdayIdx);
+
+  // 1. Impossible HOUR for the named discipline — day-independent, so it works
+  //    on multi-offer copy the pairing check below can't read.
+  //
+  //    Seen live 2026-08-25: a Box lead was offered "hoy Box a las 9 pm, o
+  //    mañana miércoles a las 7 u 8 am". Box runs Tue 9 pm, Thu 9 pm, Sat 2 pm
+  //    and NOTHING else — 7/8 am is Jiu-Jitsu/Muay Thai. The pairing check
+  //    below took the day from the SECOND offer and the hour from the FIRST,
+  //    validated a phantom "miércoles 21:00 Box", and flagged the message for
+  //    the wrong reason; had that crossed pair happened to be a real slot it
+  //    would have passed the morning-Box offer straight through.
+  //
+  //    Only for copy naming exactly ONE discipline: "Box 9 pm o Muay Thai 7 am"
+  //    is two offers, and 7 am is perfectly real for Muay Thai.
+  const named = parseAllDisciplines(res.message);
+  const times = parseAllTimes(res.message);
+  if (named.length === 1) {
+    const disc = named[0]!;
+    const impossible = times.filter((t) => disciplineNeverRunsAt(disc, t));
+    if (impossible.length > 0) {
+      const label = CLIENT.services.find((s) => s.key === disc)?.label ?? disc;
+      const real = [...disciplineTimes(disc)].sort();
+      return downgradeToDraft(
+        res,
+        `⚠️ El mensaje ofrece ${label} a las ${impossible.join(", ")}, pero ${label} NUNCA se imparte a esa hora (ningún día). Horas reales de ${label}: ${real.join(", ")}. Verifica antes de aprobar.`,
+      );
+    }
+  }
+
+  // 2. Exact day+hour pairing. parseBookingHints reads the first day and the
+  //    first hour INDEPENDENTLY, so on multi-offer copy it pairs the day of one
+  //    offer with the hour of another and judges a slot nobody proposed — which
+  //    cuts both ways (it flagged a phantom "miércoles 21:00 Box" above, and it
+  //    would flag the perfectly real "hoy Box 9 pm, o Muay Thai mañana 7 am").
+  //    So this tier only runs on copy that names ONE hour and at most one day.
+  //    Multi-offer messages — now the norm, since the persona allows up to
+  //    three slots — are covered by tier 1 instead, which needs no pairing.
+  if (times.length > 1 || countDayTokens(res.message) > 1) return res;
   if (hints.confidence !== "full") return res;
   const trialDate = hints.trialDate!;
   const trialTime = hints.trialTime!;
@@ -685,15 +736,28 @@ export function guardUnverifiedSlotClaim(
   const dayName = wd === null ? trialDate : (WEEKDAY_ES[wd] ?? trialDate);
   const label =
     CLIENT.services.find((s) => s.key === discipline)?.label ?? discipline;
-  const reason = `⚠️ El mensaje propone ${dayName} ${trialTime} para ${label}, pero ese horario no existe en el calendario. Verifica antes de aprobar.`;
+  return downgradeToDraft(
+    res,
+    `⚠️ El mensaje propone ${dayName} ${trialTime} para ${label}, pero ese horario no existe en el calendario. Verifica antes de aprobar.`,
+  );
+}
 
+/**
+ * Turn a send/draft into a low-confidence draft carrying `reason`, without
+ * duplicating a reason the draft already has. `sureness` is dropped on purpose
+ * (see guardUnbackedBookingClaim) so the 1h best-bet timeout can never deliver
+ * a message we have already proved wrong.
+ */
+function downgradeToDraft(
+  res: Extract<BrainResult, { action: "send" | "draft" }>,
+  reason: string,
+): BrainResult {
   const merged =
     res.action === "draft" && res.reason
       ? res.reason.includes(reason)
         ? res.reason
         : `${res.reason}\n${reason}`
       : reason;
-
   return {
     action: "draft",
     message: res.message,

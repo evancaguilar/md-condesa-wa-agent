@@ -951,3 +951,58 @@ test("slot guard leaves escalations alone", () => {
   const esc: BrainResult = { action: "escalate", reason: "queja", summary: "queja" };
   assert.equal(guardUnverifiedSlotClaim(esc, MON).action, "escalate");
 });
+
+// ---- impossible-hour tier (multi-offer copy) ------------------------------
+// Live 2026-08-25: a Box lead was offered "hoy Box a las 9 pm, o mañana
+// miércoles a las 7 u 8 am". Box runs Tue 9 pm / Thu 9 pm / Sat 2 pm only.
+
+const BOX_MORNING =
+  "Claro, sin bronca 🙌 Si te late, hoy mismo tenemos Box a las 9 pm, o si prefieres, mañana miércoles a las 7 u 8 am.";
+
+test("guard flags an hour the named discipline never runs, on any day", () => {
+  const r = guardUnverifiedSlotClaim(sendRes(BOX_MORNING), MON);
+  assert.equal(r.action, "draft");
+  assert.match(String((r as { reason?: string }).reason), /Boxing a las 07:00, 08:00/);
+  assert.match(String((r as { reason?: string }).reason), /NUNCA se imparte a esa hora/);
+  // Sureness dropped ⇒ the 1h best-bet timeout can't deliver it unreviewed.
+  assert.equal((r as { sureness?: number }).sureness, undefined);
+});
+
+test("guard names the discipline's real hours so the approver can fix it", () => {
+  const r = guardUnverifiedSlotClaim(sendRes(BOX_MORNING), MON);
+  assert.match(String((r as { reason?: string }).reason), /14:00, 21:00/);
+});
+
+test("guard leaves a three-slot offer of REAL hours alone", () => {
+  // The persona allows up to three slots, spanning two days.
+  const r = guardUnverifiedSlotClaim(
+    sendRes("¿Te queda bien hoy a las 6 pm, 7 pm, o mañana a las 7 am? A esa hora toca Muay Thai 🙌"),
+    MON,
+  );
+  assert.equal(r.action, "send");
+});
+
+test("guard does not cross-pair two offers naming DIFFERENT disciplines", () => {
+  // Box 9 pm and Muay Thai 7 am are both real; only a crossed pairing
+  // ("miércoles 21:00 Box") would look wrong, and that slot was never offered.
+  const r = guardUnverifiedSlotClaim(
+    sendRes("Hoy tenemos Box a las 9 pm, o Muay Thai mañana a las 7 am 🙌"),
+    MON,
+  );
+  assert.equal(r.action, "send");
+});
+
+test("guard still catches a single invented slot (pairing tier intact)", () => {
+  const r = guardUnverifiedSlotClaim(
+    sendRes("Te esperamos el domingo a las 5 pm para Jiu-Jitsu."),
+    MON,
+  );
+  assert.equal(r.action, "draft");
+});
+
+test("a draft already carrying a reason keeps it and appends the new one", () => {
+  const r = guardUnverifiedSlotClaim(draftRes(BOX_MORNING, "motivo previo"), MON);
+  assert.equal(r.action, "draft");
+  assert.match(String((r as { reason?: string }).reason), /motivo previo/);
+  assert.match(String((r as { reason?: string }).reason), /NUNCA se imparte/);
+});

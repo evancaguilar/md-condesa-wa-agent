@@ -217,6 +217,39 @@ export interface ValidateResult {
  *
  * `schedule` defaults to the generated SLOTS but is injectable for tests.
  */
+/**
+ * Every clock time a discipline runs at ANY point in the week (both audiences).
+ * Box, for instance, is only ever 14:00 and 21:00 — never a morning hour.
+ */
+export function disciplineTimes(
+  discipline: string,
+  schedule: readonly Slot[] = SLOTS,
+): Set<string> {
+  const disc = normalizeDiscipline(discipline);
+  const out = new Set<string>();
+  for (const s of schedule) if (s.discipline === disc) out.add(s.time);
+  return out;
+}
+
+/**
+ * Does this discipline NEVER run at this clock time, on any day, for anyone?
+ *
+ * A day-independent check, which is the point: pairing a day with an hour out
+ * of free-form copy is unreliable (see guardUnverifiedSlotClaim), but "Box at
+ * 7 am" is wrong no matter which day it was attached to. Unknown disciplines
+ * and unparseable times are never flagged.
+ */
+export function disciplineNeverRunsAt(
+  discipline: string,
+  time: string,
+  schedule: readonly Slot[] = SLOTS,
+): boolean {
+  const disc = normalizeDiscipline(discipline);
+  if (!isKnownDiscipline(disc)) return false;
+  const times = disciplineTimes(disc, schedule);
+  return times.size > 0 && !times.has(time.trim());
+}
+
 export function validateSlot(
   trialDate: string,
   trialTime: string,

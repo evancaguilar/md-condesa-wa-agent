@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   claimsBooking,
+  countDayTokens,
+  parseAllDisciplines,
+  parseAllTimes,
   parseBookingHints,
 } from "../src/services/booking-claims.js";
 
@@ -177,4 +180,41 @@ test("parseBookingHints: nothing concrete ⇒ confidence 'none'", () => {
   assert.equal(h.trialDate, undefined);
   assert.equal(h.trialTime, undefined);
   assert.equal(h.discipline, undefined);
+});
+
+// ---- parseAllTimes / parseAllDisciplines / countDayTokens ------------------
+
+test("parseAllTimes reads every hour, not just the first", () => {
+  assert.deepEqual(
+    parseAllTimes("hoy Box a las 9 pm, o mañana a las 7 u 8 am"),
+    ["07:00", "08:00", "21:00"],
+  );
+});
+
+test("parseAllTimes handles a shared meridiem run and HH:mm", () => {
+  assert.deepEqual(parseAllTimes("a las 7, 8 o 9 am"), ["07:00", "08:00", "09:00"]);
+  assert.deepEqual(parseAllTimes("3:15 pm y 1:15 pm"), ["15:15", "13:15"]);
+});
+
+test("parseAllTimes de-duplicates and returns [] when there is no time", () => {
+  assert.deepEqual(parseAllTimes("a las 6 pm o 6 pm"), ["18:00"]);
+  assert.deepEqual(parseAllTimes("¿te late venir a probar?"), []);
+});
+
+test("parseAllDisciplines finds each discipline named", () => {
+  assert.deepEqual(parseAllDisciplines("Box a las 9 pm o Muay Thai a las 7 am"), [
+    "muay",
+    "box",
+  ]);
+  assert.deepEqual(parseAllDisciplines("hoy tenemos Box"), ["box"]);
+  assert.deepEqual(parseAllDisciplines("¿te queda bien mañana?"), []);
+});
+
+test("countDayTokens separates single-offer from multi-offer copy", () => {
+  assert.equal(countDayTokens("el jueves a las 7 pm"), 1);
+  assert.equal(countDayTokens("hoy a las 6 pm o mañana a las 7 am"), 2);
+  // "por la mañana" is a time of day, not a second day.
+  assert.equal(countDayTokens("mañana miércoles por la mañana"), 2);
+  assert.equal(countDayTokens("el sábado por la mañana"), 1);
+  assert.equal(countDayTokens("¿te late venir a probar?"), 0);
 });
