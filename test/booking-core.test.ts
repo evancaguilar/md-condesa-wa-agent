@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   bookingRecordedKey,
   finalizeBooking,
+  planBookingSequences,
   registerBooking,
   type BookingCoreDeps,
 } from "../src/services/booking-core.js";
@@ -173,6 +174,79 @@ test("finalizeBooking: a sync failure is swallowed (isolated try/catch)", async 
 
   assert.equal(log.fyi.length, 1);
   assert.equal(log.sequences.length, 1);
+});
+
+// ---- group bookings (slice 5) ----------------------------------------------
+
+const REC = "recGROUP";
+/** Bookings as the brain emits them: same phone, same Airtable row, one per person. */
+function person(name: string, trialDate: string, trialTime: string) {
+  return { ...VALID, name, trialDate, trialTime, recordId: REC };
+}
+
+test("planBookingSequences: two people, same slot → ONE sequence on the bare id", () => {
+  const plans = planBookingSequences([
+    person("Ana", "2026-08-24", "19:00"),
+    person("Luis", "2026-08-24", "19:00"),
+  ]);
+  assert.equal(plans.length, 1);
+  assert.equal(plans[0]!.sequenceKey, REC);
+  assert.equal(plans[0]!.booking.name, "Ana"); // first one wins the slot
+});
+
+test("planBookingSequences: two different slots → the 2nd key is suffixed #1", () => {
+  const plans = planBookingSequences([
+    person("Ana", "2026-08-24", "19:00"),
+    person("Luis", "2026-08-25", "19:00"),
+  ]);
+  assert.deepEqual(
+    plans.map((p) => [p.booking.name, p.sequenceKey]),
+    [
+      ["Ana", REC],
+      ["Luis", `${REC}#1`],
+    ],
+  );
+});
+
+test("planBookingSequences: three bookings over two slots → two sequences", () => {
+  const plans = planBookingSequences([
+    person("Ana", "2026-08-24", "19:00"),
+    person("Luis", "2026-08-25", "19:00"),
+    person("Sofi", "2026-08-24", "19:00"), // shares Ana's slot
+  ]);
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans.map((p) => p.sequenceKey), [REC, `${REC}#1`]);
+});
+
+test("planBookingSequences: empty in, empty out", () => {
+  assert.deepEqual(planBookingSequences([]), []);
+});
+
+test("finalizeBooking: sequenceKey null skips the sequence, keeps the FYI", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  await finalizeBooking(envWith(db), slack, { ...VALID, recordId: REC }, deps, {
+    sequenceKey: null,
+    skipLeadSync: true,
+  });
+
+  assert.equal(log.fyi.length, 1); // every person still gets their own card
+  assert.equal(log.sequences.length, 0);
+  assert.equal(log.qualifications.length, 0);
+  assert.equal(log.syncs.length, 0);
+});
+
+test("finalizeBooking: an explicit sequenceKey overrides the record id", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness();
+
+  await finalizeBooking(envWith(db), slack, { ...VALID, recordId: REC }, deps, {
+    sequenceKey: `${REC}#1`,
+  });
+
+  assert.equal(log.sequences[0]!.recordId, `${REC}#1`);
+  assert.equal(log.syncs.length, 1); // lead sync untouched
 });
 
 // ---- registerBooking: the human entry point --------------------------------

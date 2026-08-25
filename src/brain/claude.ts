@@ -135,11 +135,11 @@ export function createBrain(deps: BrainDeps): BrainPort {
       cache_read_input_tokens: 0,
     };
 
-    let pendingBooking: {
-      input: BookTrialInput;
-      followupMessage: string;
-      recordId: string;
-    } | null = null;
+    // EVERY successful book_trial of this turn, in call order. The model may
+    // book a whole family in one turn (one call per person) — before slice 5
+    // only the last one survived, so the earlier people got no Slack FYI and no
+    // anti-no-show sequence.
+    const pendingBookings: PendingBooking[] = [];
     let pendingFollowup: { hoursFromNow: number; note: string } | null = null;
 
     try {
@@ -164,7 +164,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
           await flushUsage(deps.accrueUsage, usageAcc);
           // A booking that succeeded this turn + a send_reply → 'book' result
           // (types.ts union carries the followupMessage + recordId on 'book').
-          if (pendingBooking) return bookResult(pendingBooking);
+          if (pendingBookings.length) return bookResult(pendingBookings);
           return guardUnbackedBookingClaim(sendResult(sendReply, pendingFollowup));
         }
 
@@ -189,7 +189,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
               deps.onBookingFailure,
             );
             results.push(outcome.result);
-            if (outcome.booking) pendingBooking = outcome.booking;
+            if (outcome.booking) pendingBookings.push(outcome.booking);
           } else if (tu.name === "set_followup") {
             // Capture the request; the pipeline persists it (the brain has no DB).
             // We still acknowledge so the model proceeds to send_reply.
@@ -223,7 +223,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
 
       // Exhausted iterations without a terminal send_reply.
       await flushUsage(deps.accrueUsage, usageAcc);
-      if (pendingBooking) return bookResult(pendingBooking);
+      if (pendingBookings.length) return bookResult(pendingBookings);
       return {
         action: "draft",
         message: safeApology(ctx.contact.lang),
@@ -370,9 +370,16 @@ function adLabelFromRef(adRef: string | null): string | null {
   }
 }
 
+/** One book_trial call that actually produced an Airtable record. */
+interface PendingBooking {
+  input: BookTrialInput;
+  followupMessage: string;
+  recordId: string;
+}
+
 interface BookOutcome {
   result: ToolResultContent;
-  booking?: { input: BookTrialInput; followupMessage: string; recordId: string };
+  booking?: PendingBooking;
 }
 
 /**
@@ -550,16 +557,29 @@ function escalateResult(tu: ToolUseContent): BrainResult {
   };
 }
 
-function bookResult(b: {
-  input: BookTrialInput;
-  followupMessage: string;
-  recordId: string;
-}): BrainResult {
+/**
+ * Collapses every booking of the turn into ONE 'book' result.
+ *
+ * Deterministic split, deliberately:
+ *  - flat fields + recordId = the FIRST booking (the lead who started the
+ *    conversation; keeps single-booking results byte-identical and gives the
+ *    Slack card / sandbox / chat-local a stable "the booking" to show);
+ *  - followupMessage = the LAST booking's, because the model is told to put the
+ *    confirmation covering EVERYONE in the final call's followup_message;
+ *  - bookings[] = all of them, in call order — the pipeline fans out from here
+ *    (a Slack FYI per person, an anti-no-show sequence per distinct slot).
+ *
+ * Never called with an empty array (both call sites check `.length`).
+ */
+function bookResult(bs: PendingBooking[]): BrainResult {
+  const first = bs[0]!;
+  const last = bs[bs.length - 1]!;
   return {
     action: "book",
-    ...b.input,
-    followupMessage: b.followupMessage,
-    recordId: b.recordId,
+    ...first.input,
+    followupMessage: last.followupMessage,
+    recordId: first.recordId,
+    bookings: bs.map((b) => ({ ...b.input, recordId: b.recordId })),
   };
 }
 

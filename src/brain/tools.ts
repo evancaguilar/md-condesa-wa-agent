@@ -56,7 +56,7 @@ const sendReply: AnthropicTool = {
 const bookTrial: AnthropicTool = {
   name: "book_trial",
   description:
-    "Book a trial class into Airtable. Only call when you have a concrete day AND time the lead agreed to, and a name. Resolve relative dates ('hoy', 'mañana', 'el sábado') using the <context> date before calling. The executor validates the slot against the real schedule and will tell you to retry if no such class exists. After a successful booking you still end the turn with send_reply — or the executor pairs the booking with your followupMessage.",
+    "Book a trial class into Airtable. Only call when you have a concrete day AND time the lead agreed to, and a name. Resolve relative dates ('hoy', 'mañana', 'el sábado') using the <context> date before calling. The executor validates the slot against the real schedule and will tell you to retry if no such class exists. After a successful booking you still end the turn with send_reply — or the executor pairs the booking with your followupMessage. Call book_trial ONCE PER PERSON. Two people coming (mom + son, two friends) = two calls in the same turn, each with that person's name (and their own date/time if different). Put the confirmation covering EVERYONE in the followup_message of the LAST call.",
   input_schema: {
     type: "object",
     properties: {

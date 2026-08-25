@@ -42,6 +42,74 @@ export function bookingRecordedKey(phone: string): string {
   return `booking_recorded:${phone}`;
 }
 
+export interface PlannedBookingSequence {
+  /** The booking that represents this slot (the first one that asked for it). */
+  booking: FinalizeBookingInput;
+  /** airtable_record_id to key the sequence's followup rows to. */
+  sequenceKey: string;
+}
+
+/**
+ * Which of a turn's bookings get an anti-no-show sequence, and under what key.
+ * Pure — unit-tested directly.
+ *
+ * Slice 5: the model books one person per book_trial call, so "mamá + hijo, los
+ * dos el sábado" arrives as two bookings for the SAME slot. Airtable keeps one
+ * row per phone (option A), so every booking of the turn carries the same
+ * recordId, and scheduleFollowup dedupes on UNIQUE(phone, kind,
+ * airtable_record_id) (db/schema.sql:36). Consequences:
+ *
+ *  - same slot twice ⇒ ONE sequence (the reminders are per household, not per
+ *    person — two copies of "te esperamos mañana" would be spam);
+ *  - two DIFFERENT slots ⇒ two sequences, which the UNIQUE index would collapse
+ *    into one. The 2nd+ distinct slot is therefore keyed `<recordId>#<n>` so
+ *    both survive. Everything that reads the key back tolerates the suffix:
+ *    it is stored verbatim in followups.airtable_record_id, so
+ *    phoneForRecordId (queries.ts, exact match) and the attendance card's
+ *    kv `attendance:<recordId>` both round-trip.
+ *
+ * ACCEPTED TRADE-OFF: the Airtable result watcher (cron/followups.processResult)
+ * keys off the BARE record id — its `resultado:<recordId>` marker and Airtable's
+ * one-row-per-phone shape know nothing about `#n`. A "no asistió"/"se inscribió"
+ * result still cancels every pending followup for the PHONE (cancelFollowups is
+ * per-phone), so a #n sequence is not orphaned; what it cannot do is treat the
+ * two slots independently. Fine for v1 — multi-slot family bookings are rare and
+ * the CRM row only ever holds the last slot anyway.
+ */
+export function planBookingSequences(
+  bookings: FinalizeBookingInput[],
+): PlannedBookingSequence[] {
+  const plans: PlannedBookingSequence[] = [];
+  const seen = new Set<string>();
+  for (const booking of bookings) {
+    const slot = `${booking.trialDate}|${booking.trialTime}`;
+    if (seen.has(slot)) continue;
+    const n = seen.size;
+    seen.add(slot);
+    plans.push({
+      booking,
+      sequenceKey: n === 0 ? booking.recordId : `${booking.recordId}#${n}`,
+    });
+  }
+  return plans;
+}
+
+export interface FinalizeBookingOpts {
+  /**
+   * airtable_record_id the anti-no-show sequence is keyed to. Defaults to the
+   * booking's own recordId; pass a `#n`-suffixed key for a second distinct slot
+   * booked in the same turn (see planBookingSequences), or `null` to skip the
+   * sequence entirely because another person already armed this exact slot.
+   */
+  sequenceKey?: string | null;
+  /**
+   * Skip setQualification + syncLead. Set for the 2nd+ person of a group
+   * booking: both write per-PHONE state, so re-running them would just
+   * overwrite the lead's qualification with a family member's.
+   */
+  skipLeadSync?: boolean;
+}
+
 export interface BookingCoreDeps {
   scheduleTrialSequence: typeof scheduleTrialSequence;
   setQualification: typeof setQualification;
@@ -81,12 +149,18 @@ export function realBookingDeps(): BookingCoreDeps {
  * let a Slack or sequence failure propagate out of routeResult, which meant the
  * lead never got their confirmation text. Swallowing (+logging) is strictly
  * safer and invisible unless something is already broken.
+ *
+ * `opts` only exists for group bookings (slice 5): called once PER PERSON so
+ * everyone gets their own Slack FYI, with the sequence/lead-sync parts switched
+ * off for the people whose slot or phone another call already covered. Omit it
+ * and the behavior is exactly the single-booking one.
  */
 export async function finalizeBooking(
   env: Env,
   slack: Pick<SlackPort, "postBookingFyi">,
   b: FinalizeBookingInput,
   deps: BookingCoreDeps = realBookingDeps(),
+  opts?: FinalizeBookingOpts,
 ): Promise<void> {
   const booking: BookTrialInput = {
     name: b.name,
@@ -96,20 +170,26 @@ export async function finalizeBooking(
     trialTime: b.trialTime,
     phone: b.phone,
   };
+  // undefined = "no opinion" → the record's own id (the single-booking default).
+  // null = an explicit "someone else already armed this slot's sequence".
+  const sequenceKey = opts?.sequenceKey === undefined ? b.recordId : opts.sequenceKey;
   try {
     await slack.postBookingFyi(booking);
     // Chat booking: the bot/human confirms inline, so skip the scheduled
     // trial_confirm (it's for web-form bookers detected via syncBookings).
-    await deps.scheduleTrialSequence(
-      env,
-      b.phone,
-      b.recordId,
-      cdmxIso(b.trialDate, b.trialTime),
-      { includeConfirm: false },
-    );
+    if (sequenceKey !== null) {
+      await deps.scheduleTrialSequence(
+        env,
+        b.phone,
+        sequenceKey,
+        cdmxIso(b.trialDate, b.trialTime),
+        { includeConfirm: false },
+      );
+    }
   } catch (err) {
     console.error(`[booking] finalize failed for ${b.phone}:`, err);
   }
+  if (opts?.skipLeadSync) return;
   // Persist qualification (gives classifyProgram real data) then sync the
   // booking to Airtable + fire program rules. Isolated so a sync failure never
   // derails the caller's confirmation/video path.

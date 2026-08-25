@@ -510,6 +510,162 @@ test("no notifier wired (sandbox) → failures still handled normally", async ()
   assert.ok((toolResultText(bodies(), "b1") ?? "").startsWith("error: "));
 });
 
+// ---- multi-person bookings (slice 5) -------------------------------------
+
+/** One assistant turn carrying several book_trial calls. */
+function multiBookResp(inputs: Record<string, unknown>[]) {
+  return {
+    stop_reason: "tool_use",
+    usage: usage(),
+    content: inputs.map((input, i) => ({
+      type: "tool_use",
+      id: `b${i + 1}`,
+      name: "book_trial",
+      input,
+    })),
+  };
+}
+
+test("two book_trial calls in one turn → both survive in bookings[]", async () => {
+  // Mamá + hijo, same Monday: 19:00 adult jiu and 17:00 kid jiu are real slots.
+  const { fetchImpl } = mockFetch([
+    multiBookResp([
+      {
+        name: "Ana",
+        discipline: "jiu",
+        audience: "adult",
+        trial_date: "2026-07-06",
+        trial_time: "19:00",
+        followup_message: "Listo Ana 🙌",
+      },
+      {
+        name: "Ana",
+        child_name: "Leo",
+        discipline: "jiu",
+        audience: "kid",
+        trial_date: "2026-07-06",
+        trial_time: "17:00",
+        followup_message: "Listos los dos: Leo a las 5 y tú a las 7 🙌",
+      },
+    ]),
+    sendReplyResp("high"),
+  ]);
+  const booked: unknown[] = [];
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: {
+      async bookTrial(input) {
+        booked.push(input);
+        return "recABC"; // upsert by phone ⇒ same row for the whole family
+      },
+    },
+    accrueUsage: async () => {},
+    fetchImpl,
+  });
+
+  const r = await brain.respond(ctx("vamos mi hijo y yo el lunes"));
+  assert.equal(booked.length, 2, "both bookings reached Airtable");
+  assert.equal(r.action, "book");
+  if (r.action !== "book") return;
+  assert.equal(r.bookings.length, 2);
+  // Flat fields mirror the FIRST booking (deterministic, back-compat).
+  assert.equal(r.name, r.bookings[0]!.name);
+  assert.equal(r.trialTime, "19:00");
+  assert.equal(r.audience, "adult");
+  assert.equal(r.recordId, r.bookings[0]!.recordId);
+  // …the closing text is the LAST call's (it covers everyone).
+  assert.equal(r.followupMessage, "Listos los dos: Leo a las 5 y tú a las 7 🙌");
+  assert.equal(r.bookings[1]!.audience, "kid");
+  assert.equal(r.bookings[1]!.childName, "Leo");
+  assert.equal(r.bookings[1]!.trialTime, "17:00");
+});
+
+test("one valid + one rejected slot → only the valid one is in bookings[]", async () => {
+  const events: BookingFailureEvent[] = [];
+  const { fetchImpl } = mockFetch([
+    multiBookResp([
+      {
+        name: "Ana",
+        discipline: "jiu",
+        audience: "adult",
+        trial_date: "2026-07-12", // Sunday: no class
+        trial_time: "07:00",
+        followup_message: "no",
+      },
+      {
+        name: "Luis",
+        discipline: "jiu",
+        audience: "adult",
+        trial_date: "2026-07-06",
+        trial_time: "19:00",
+        followup_message: "Listo Luis 🙌",
+      },
+    ]),
+    sendReplyResp("high"),
+  ]);
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    onBookingFailure: async (ev) => {
+      events.push(ev);
+    },
+    fetchImpl,
+  });
+
+  const r = await brain.respond(ctx("Ana el domingo y Luis el lunes"));
+  assert.equal(events.length, 1, "the rejected slot still notifies");
+  assert.equal(events[0]!.kind, "invalid_slot");
+  assert.equal(r.action, "book");
+  if (r.action !== "book") return;
+  assert.equal(r.bookings.length, 1);
+  assert.equal(r.bookings[0]!.name, "Luis");
+  assert.equal(r.name, "Luis"); // flat fields = the only surviving booking
+  assert.equal(r.trialDate, "2026-07-06");
+});
+
+test("single booking → bookings[] holds exactly the flat fields (regression)", async () => {
+  const { fetchImpl } = mockFetch([
+    multiBookResp([
+      {
+        name: "Ana",
+        discipline: "jiu",
+        audience: "adult",
+        trial_date: "2026-07-06",
+        trial_time: "18:00",
+        followup_message: "Listo Ana 🙌",
+      },
+    ]),
+    sendReplyResp("high"),
+  ]);
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    fetchImpl,
+  });
+
+  const r = await brain.respond(ctx("lunes 6pm jiu"));
+  assert.equal(r.action, "book");
+  if (r.action !== "book") return;
+  assert.deepEqual(r.bookings, [
+    {
+      name: "Ana",
+      discipline: "jiu",
+      audience: "adult",
+      trialDate: "2026-07-06",
+      trialTime: "18:00",
+      phone: "5215512345678",
+      recordId: "recXYZ",
+    },
+  ]);
+  assert.equal(r.recordId, "recXYZ");
+  assert.equal(r.followupMessage, "Listo Ana 🙌");
+});
+
 test("API error → draft apology with reason api_error", async () => {
   const failing = (async () => {
     throw new Error("network down");

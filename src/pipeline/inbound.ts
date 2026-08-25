@@ -68,7 +68,11 @@ import {
   transcribe,
 } from "../services/media.js";
 import { lookupAdMeta } from "../services/ad-meta.js";
-import { finalizeBooking } from "../services/booking-core.js";
+import {
+  finalizeBooking,
+  planBookingSequences,
+  type FinalizeBookingInput,
+} from "../services/booking-core.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
@@ -519,22 +523,46 @@ async function routeResult(
   }
 
   if (result.action === "book") {
-    // The brain already created the Airtable record (inside its tool loop) and
-    // handed us the recordId. finalizeBooking does the shared post-booking work
-    // — Slack FYI card, anti-no-show sequence keyed to that record,
-    // qualification + lead sync — and is the SAME routine the human
+    // The brain already created the Airtable record(s) (inside its tool loop)
+    // and handed us the recordId(s). finalizeBooking does the shared
+    // post-booking work — Slack FYI card, anti-no-show sequence keyed to that
+    // record, qualification + lead sync — and is the SAME routine the human
     // registration path (services/booking-core.registerBooking) runs. We then
     // deliver the booking confirmation to the lead; a confirmation is still a
     // reply, so under TRAINING_WHEELS it routes through draft-approval instead.
-    await finalizeBooking(env, ports.slack, {
-      name: result.name,
-      discipline: result.discipline,
-      audience: result.audience,
-      trialDate: result.trialDate,
-      trialTime: result.trialTime,
-      phone,
-      recordId: result.recordId,
-    });
+    //
+    // Slice 5: a turn can carry SEVERAL bookings (one book_trial call per
+    // person — mamá + hijo, two friends). Everyone gets their own FYI card;
+    // planBookingSequences decides which of them arm an anti-no-show sequence
+    // and under what key (one per distinct slot, `#n`-suffixed after the
+    // first — see its doc comment, including the result-watcher trade-off).
+    // Older results without `bookings` fall back to the flat fields.
+    const list: FinalizeBookingInput[] = result.bookings?.length
+      ? result.bookings.map((b) => ({ ...b, phone }))
+      : [
+          {
+            name: result.name,
+            discipline: result.discipline,
+            audience: result.audience,
+            trialDate: result.trialDate,
+            trialTime: result.trialTime,
+            phone,
+            recordId: result.recordId,
+          },
+        ];
+    const sequenceKeys = new Map<FinalizeBookingInput, string>();
+    for (const plan of planBookingSequences(list)) {
+      sequenceKeys.set(plan.booking, plan.sequenceKey);
+    }
+    for (const [i, booking] of list.entries()) {
+      await finalizeBooking(env, ports.slack, booking, undefined, {
+        // null ⇒ an earlier person already armed this exact slot's sequence.
+        sequenceKey: sequenceKeys.get(booking) ?? null,
+        // Qualification + lead sync are per-PHONE: only the first booking runs
+        // them, so a family member never overwrites the lead's qualification.
+        skipLeadSync: i > 0,
+      });
+    }
     if (ctx.trainingWheels) {
       // Booking confirmation routes through approval; mark it booking-origin so
       // approve/edit fires the booking video after sending (R4). Confidence

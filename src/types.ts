@@ -344,6 +344,15 @@ export type BrainResult =
       followupMessage: string;
       /** Airtable record id from bookTrial — keys the anti-no-show sequence. */
       recordId: string;
+      /**
+       * EVERY booking the model made this turn, in call order (slice 5:
+       * family/group bookings — "mi hijo y yo" — are one book_trial call per
+       * person). The flat BookTrialInput fields + `recordId` above mirror
+       * bookings[0] for back-compat (Slack cards, the sandbox, chat-local);
+       * `followupMessage` is the LAST call's, because that is where the model
+       * writes the closing text covering everyone.
+       */
+      bookings: (BookTrialInput & { recordId: string })[];
     } & BookTrialInput);
 
 // ---- Ports (stable interfaces B/C/D implement against) ----
