@@ -27,12 +27,12 @@ Full report (artifact): "Radiografía del Agente". 185 convos / 226 approvals / 
 
 Shipped this same day (7 slices, 573 tests green): atomic holding/expire claims; approvals-history endpoint (+ IN()-chunking 500 fix); slot hardening (sparring `trial:false`, Mini MT dual-audience, defensa-personal mapping, contract tests); booking-failure Slack alerts; human-booking capture cards (detect + 1-click Registrar); multi-person bookings; gated auto-send lane (inert); nightly booking reconciliation digest.
 
-- [x] ~~overlay §1 sparring exception~~ — obsolete: sparring trials re-allowed by owner 2026-08-25; only the 'ni menciones que uno es sparring' line still wants a reword to the mini-lesson framing (pending Chrome).
+- [x] Overlay §1 updated live (mini-lesson sparring framing + hora-actual validation); campaigns 3/4 first_reply now book in-chat with real slots; campaigns 5/6 schedule claim corrected to day-accurate.
 - [ ] **Evan**: check mdcondesa.com/clase-prueba-adultos/ (lead reported it broken 08-24) and confirm the canonical booking URLs (`/agendar-clase-prueba-adultos/` vs the stale ones intake.md ships).
 - [ ] **Evan**: say "aplica el paquete de KB" → one slice deploys the confidence checklist (high-as-default with 8 verifiable boxes + code backstop), 19 mined style rules, schedule corrections, missing facts (Reto prize, WellHub, class size, duration, Del Valle), campaign fixes (answer appended question + in-chat booking for Reto/Kids/mañanas), nudge copy rewrite. Requires raising the KB TOKEN_LIMIT (at 8,921/9,000).
 - [ ] **Evan**: rule on Baby Fight Club minimum age — his edits say 11 months, intake/campaign say 12.
-- [ ] **Evan**: after the KB pack deploys and Probar shows FAQ replies rating "high" — arm auto-send (Slack panel → 🤖 Activar auto-envío).
-- [ ] **Evan**: paste in D1 console: `CREATE INDEX IF NOT EXISTS idx_pending_approvals_created ON pending_approvals(created_at);`
+- [x] Auto-send ARMED 2026-08-25 (Probar verified: FAQ/price/sparring-booking all rate high; cap 100/day; kill switch = same Slack button or POST /admin/api/autosend {"enabled":false}).
+- [x] Index created via the one-time in-worker migration (kv `migr_idx_pending_approvals_created`).
 
 ### Sureness: the owner's 75/25 rule (2026-08-25)
 
