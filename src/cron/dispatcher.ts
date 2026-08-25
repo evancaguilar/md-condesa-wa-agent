@@ -48,6 +48,21 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   const nowEpoch = Math.floor(Date.now() / 1000);
   const p = cdmxParts(nowEpoch);
 
+  // One-time (kv-guarded, retried until it succeeds): additive index from
+  // schema.sql, applied from the worker at Evan's explicit request
+  // (2026-08-25) since local wrangler is on the wrong account — plus an
+  // immediate control-panel refresh so the new auto-send toggle appears
+  // without waiting for the daily 10:00 block. Idempotent by construction.
+  if (!(await kvGet(env.DB, "migr_idx_pending_approvals_created"))) {
+    await safe("ensureIndexes", async () => {
+      await env.DB.prepare(
+        `CREATE INDEX IF NOT EXISTS idx_pending_approvals_created ON pending_approvals(created_at)`,
+      ).run();
+      await cronDeps.ensureControlPanel(env);
+      await kvSet(env.DB, "migr_idx_pending_approvals_created", "1");
+    });
+  }
+
   // Every tick: due followups + approval timeouts. Isolate failures so one
   // subsystem can't starve the others.
   await safe("runDueFollowups", () => runDueFollowups(env, cronDeps));
