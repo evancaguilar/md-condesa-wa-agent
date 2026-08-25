@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   bookingRecordedKey,
   finalizeBooking,
+  parseBookingRecordedMarker,
   planBookingSequences,
   registerBooking,
   type BookingCoreDeps,
@@ -146,7 +147,7 @@ test("finalizeBooking: FYI card, sequence (includeConfirm:false), qualification,
   assert.deepEqual(log.syncs, [{ phone: PHONE, event: "booking_created" }]);
 });
 
-test("finalizeBooking: a Slack failure never throws and never blocks the sync", async () => {
+test("finalizeBooking: a Slack failure never throws and skips NOTHING after it", async () => {
   const { db } = fakeDb();
   const { deps, log } = harness();
   const slack = {
@@ -158,8 +159,40 @@ test("finalizeBooking: a Slack failure never throws and never blocks the sync", 
 
   await finalizeBooking(envWith(db), slack, { ...VALID, recordId: "recX" }, deps);
 
-  assert.equal(log.sequences.length, 0); // the FYI threw before it
-  assert.equal(log.syncs.length, 1); // …but the sync block still ran
+  // The anti-no-show sequence is the step that actually gets people to show up:
+  // a Slack outage must never cost the lead their reminders.
+  assert.equal(log.sequences.length, 1);
+  assert.equal(log.qualifications.length, 1);
+  assert.equal(log.syncs.length, 1);
+});
+
+test("finalizeBooking: a sequence failure still qualifies and syncs the lead", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness({
+    async scheduleTrialSequence() {
+      throw new Error("d1 down");
+    },
+  });
+
+  await finalizeBooking(envWith(db), slack, { ...VALID, recordId: "recX" }, deps);
+
+  assert.equal(log.fyi.length, 1);
+  assert.equal(log.qualifications.length, 1);
+  assert.deepEqual(log.syncs, [{ phone: PHONE, event: "booking_created" }]);
+});
+
+test("finalizeBooking: a qualification failure still runs the lead sync", async () => {
+  const { db } = fakeDb();
+  const { deps, log, slack } = harness({
+    async setQualification() {
+      throw new Error("d1 down");
+    },
+  });
+
+  await finalizeBooking(envWith(db), slack, { ...VALID, recordId: "recX" }, deps);
+
+  assert.equal(log.sequences.length, 1);
+  assert.equal(log.syncs.length, 1);
 });
 
 test("finalizeBooking: a sync failure is swallowed (isolated try/catch)", async () => {
@@ -249,6 +282,20 @@ test("finalizeBooking: an explicit sequenceKey overrides the record id", async (
   assert.equal(log.syncs.length, 1); // lead sync untouched
 });
 
+// ---- the booking_recorded marker -------------------------------------------
+
+test("parseBookingRecordedMarker: reads a LEGACY bare-epoch row (no slot)", () => {
+  assert.deepEqual(parseBookingRecordedMarker("1756000000"), { ts: 1756000000 });
+});
+
+test("parseBookingRecordedMarker: garbage and absence read as null", () => {
+  assert.equal(parseBookingRecordedMarker(null), null);
+  assert.equal(parseBookingRecordedMarker(""), null);
+  assert.equal(parseBookingRecordedMarker("ayer"), null);
+  assert.equal(parseBookingRecordedMarker("{no json"), null);
+  assert.equal(parseBookingRecordedMarker('{"trialDate":"2026-08-24"}'), null);
+});
+
 // ---- registerBooking: the human entry point --------------------------------
 
 test("registerBooking: books, marks booking_recorded, finalizes, sends the video", async () => {
@@ -259,9 +306,20 @@ test("registerBooking: books, marks booking_recorded, finalizes, sends the video
 
   assert.deepEqual(r, { ok: true, recordId: "recHUMAN1" });
   assert.equal(log.booked.length, 1);
-  assert.deepEqual(log.kv, [
-    { key: bookingRecordedKey(PHONE), value: String(NOW) },
-  ]);
+  // The marker carries the SLOT, so the capture guard can tell a re-confirmation
+  // of this class from a promise about a different one.
+  assert.equal(log.kv.length, 1);
+  assert.equal(log.kv[0]!.key, bookingRecordedKey(PHONE));
+  assert.deepEqual(JSON.parse(log.kv[0]!.value), {
+    ts: NOW,
+    trialDate: "2026-08-24",
+    trialTime: "19:00",
+  });
+  assert.deepEqual(parseBookingRecordedMarker(log.kv[0]!.value), {
+    ts: NOW,
+    trialDate: "2026-08-24",
+    trialTime: "19:00",
+  });
   assert.equal(log.sequences.length, 1);
   assert.deepEqual(log.videos, [PHONE]); // sendVideo defaults to TRUE
   assert.equal(log.notes.length, 0); // no `by` ⇒ no attribution note

@@ -16,6 +16,7 @@ import type {
 import {
   cancelPendingApprovals,
   claimHoldingSend,
+  getApprovalStatus,
   getContact,
   getPendingApprovals,
   insertEdit,
@@ -540,8 +541,10 @@ export async function postBookingCaptureCard(
     context(
       `${captureVerdictChip(capture)}  •  origen: ${SOURCE_ES[capture.source]}${capture.by ? ` (${capture.by})` : ""}`,
     ),
-    captureButtons(key, capture.verdict.ok),
   ];
+  // Fresh booking on file, but for another slot — say so before anyone taps.
+  if (capture.conflictNote) blocks.push(context(`⚠️ ${capture.conflictNote}`));
+  blocks.push(captureButtons(key, capture.verdict.ok));
   return postMessage(
     env,
     blocks,
@@ -699,6 +702,7 @@ export interface TimeoutQueries {
   claimHoldingSend: typeof claimHoldingSend;
   releaseHoldingClaim: typeof releaseHoldingClaim;
   claimApproval: typeof claimApproval;
+  getApprovalStatus: typeof getApprovalStatus;
 }
 
 export interface TimeoutDeps {
@@ -725,6 +729,7 @@ export async function runApprovalTimeouts(
     claimHoldingSend,
     releaseHoldingClaim,
     claimApproval,
+    getApprovalStatus,
   },
   deps: TimeoutDeps = { sendText },
 ): Promise<void> {
@@ -751,6 +756,15 @@ export async function runApprovalTimeouts(
         // (approved/edited/taken over) since the snapshot, so the lead already
         // has — or is about to get — a real answer. Stay quiet.
         if (!(await queries.claimHoldingSend(env.DB, a.id))) continue;
+        // Last look before an irreversible WhatsApp send: a human can resolve
+        // the draft in the seconds between the claim and the send, and then the
+        // holding line ("ahorita te confirmo") lands AFTER the real answer.
+        // Re-reading here shrinks that window from seconds to milliseconds — it
+        // cannot close it (there is no transaction spanning D1 and the Graph
+        // API), so this is best-effort narrowing, not a guarantee. The claim is
+        // NOT released: holding_sent=1 on a resolved row is harmless, and
+        // keeping it stops the next cron pass from trying again.
+        if ((await queries.getApprovalStatus(env.DB, a.id)) !== "pending") continue;
         try {
           // meta.holding=1: the inbox list skips holding lines when deriving a
           // chat's "last message", so the lead still shows as waiting (unread).

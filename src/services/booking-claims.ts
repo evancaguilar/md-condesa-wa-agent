@@ -68,6 +68,12 @@ export interface BookingCapture {
   source: HumanSendSource;
   by?: string;
   verdict: BookingVerdict;
+  /**
+   * Set when the lead ALREADY has a fresh registered booking, for a different
+   * slot than the one this text promises ("…esto parece OTRA clase"). Rendered
+   * on the card so whoever taps «Registrar» knows they're adding a second class.
+   */
+  conflictNote?: string;
   status: "open" | "registered" | "skipped";
   /** ts of the Slack card, so apply/skip can swap it. */
   slackTs?: string | null;

@@ -14,9 +14,12 @@ import {
   BOOKING_MODAL_FIELDS,
   type BookingGuardDeps,
 } from "../src/services/booking-guard.js";
-import { bookingRecordedKey } from "../src/services/booking-core.js";
+import {
+  bookingRecordedKey,
+  bookingRecordedValue,
+} from "../src/services/booking-core.js";
 import { validateSlot } from "../src/brain/tools.js";
-import { cdmxDateStr } from "../src/cron/time.js";
+import { cdmxDateStr, cdmxToEpoch } from "../src/cron/time.js";
 import type { BookingCapture } from "../src/services/booking-claims.js";
 import type { Contact, Env } from "../src/types.js";
 
@@ -25,7 +28,10 @@ import type { Contact, Env } from "../src/types.js";
 interface DbState {
   kv: Map<string, string>;
   contact: Partial<Contact> | null;
+  /** Backs hasScheduledFollowupOfKind (the dateless path). */
   hasBookingFollowup: boolean;
+  /** Backs scheduledFollowupsOfKind (the slot-exact path). */
+  followups: { kind: string; due_at: number }[];
   messages: { direction: string; body: string; ts: number }[];
 }
 
@@ -38,6 +44,7 @@ function fakeDb(over: Partial<DbState> = {}): {
     kv: new Map(),
     contact: { phone: "5215512345678", name: "Ana", status: "lead" },
     hasBookingFollowup: false,
+    followups: [],
     messages: [],
     ...over,
   };
@@ -87,6 +94,9 @@ function fakeDb(over: Partial<DbState> = {}): {
         sqls.push(sql);
         if (sql.includes("FROM messages")) {
           return { results: [...state.messages].reverse() as T[], meta: {} };
+        }
+        if (sql.includes("FROM followups")) {
+          return { results: state.followups as T[], meta: {} };
         }
         return { results: [] as T[], meta: {} };
       },
@@ -198,8 +208,10 @@ test("auditHumanSend: a non-claim send is a complete no-op", async () => {
 
 // ---- gate 2: the claim is already backed -----------------------------------
 
-test("auditHumanSend: a fresh booking_recorded marker means the claim is backed", async () => {
+test("auditHumanSend: a LEGACY bare-epoch marker is still recognized as backing", async () => {
   const { db, state } = fakeDb();
+  // Rows written before the marker carried its slot: no slot to compare, so
+  // they back any claim (the pre-slice behavior) for their 72h lifetime.
   state.kv.set(bookingRecordedKey(PHONE), String(NOW - 3600));
   const { deps, log } = harness();
 
@@ -209,11 +221,117 @@ test("auditHumanSend: a fresh booking_recorded marker means the claim is backed"
   assert.equal(state.kv.has(bookingClaimThrottleKey(PHONE, cdmxDateStr(NOW))), false);
 });
 
-test("auditHumanSend: a scheduled booking-kind followup also counts as backed", async () => {
-  const { db } = fakeDb({ hasBookingFollowup: true });
+test("auditHumanSend: a fresh marker for the SAME slot backs the claim", async () => {
+  const { db, state } = fakeDb();
+  state.kv.set(
+    bookingRecordedKey(PHONE),
+    bookingRecordedValue(NOW - 3600, "2026-08-25", "19:00"),
+  );
   const { deps, log } = harness();
 
   await auditHumanSend(envWith(db), PHONE, CONFIRMED, "approved", undefined, deps);
+
+  assert.equal(log.cards.length, 0);
+});
+
+test("auditHumanSend: a fresh marker for ANOTHER slot cards, with the mismatch note", async () => {
+  const { db, state } = fakeDb();
+  state.kv.set(
+    bookingRecordedKey(PHONE),
+    bookingRecordedValue(NOW - 3600, "2026-08-25", "19:00"),
+  );
+  const { deps, log } = harness();
+
+  // Saturday 11:00 — a DIFFERENT class from the Tuesday 19:00 on file.
+  await auditHumanSend(
+    envWith(db),
+    PHONE,
+    "¡Listo! Ya quedó agendado tu Jiu-Jitsu el sábado a las 11 am 🙌",
+    "approved",
+    undefined,
+    deps,
+  );
+
+  assert.equal(log.cards.length, 1);
+  const capture = log.cards[0]!.capture;
+  assert.equal(capture.trialDate, "2026-08-29");
+  assert.equal(
+    capture.conflictNote,
+    "Ya hay un registro para 2026-08-25 19:00 — esto parece OTRA clase",
+  );
+});
+
+test("auditHumanSend: a DATELESS claim + a fresh marker stays backed (no false card)", async () => {
+  const { db, state } = fakeDb();
+  state.kv.set(
+    bookingRecordedKey(PHONE),
+    bookingRecordedValue(NOW - 3600, "2026-08-25", "19:00"),
+  );
+  const { deps, log } = harness();
+
+  await auditHumanSend(
+    envWith(db),
+    PHONE,
+    "¡Perfecto! Ya quedó agendado, cualquier cosa me avisas 🙌",
+    "approved",
+    undefined,
+    deps,
+  );
+
+  assert.equal(log.cards.length, 0);
+  assert.equal(log.fetches, 0); // backed ⇒ it never even parses
+});
+
+test("auditHumanSend: a scheduled same_day followup on the claimed date backs it", async () => {
+  // computeTrialSequence puts same_day at class−4h (clamped into 09:00–21:00),
+  // so its CDMX due date IS the trial date.
+  const { db } = fakeDb({
+    followups: [{ kind: "same_day", due_at: cdmxToEpoch(2026, 8, 25, 15, 0, 0) }],
+  });
+  const { deps, log } = harness();
+
+  await auditHumanSend(envWith(db), PHONE, CONFIRMED, "approved", undefined, deps);
+
+  assert.equal(log.cards.length, 0);
+});
+
+test("auditHumanSend: a day_before followup backs the NEXT day's claim", async () => {
+  // day_before fires at 18:00 CDMX the day before the class.
+  const { db } = fakeDb({
+    followups: [{ kind: "day_before", due_at: cdmxToEpoch(2026, 8, 24, 18, 0, 0) }],
+  });
+  const { deps, log } = harness();
+
+  await auditHumanSend(envWith(db), PHONE, CONFIRMED, "approved", undefined, deps);
+
+  assert.equal(log.cards.length, 0);
+});
+
+test("auditHumanSend: a sequence armed for ANOTHER date does not back the claim", async () => {
+  const { db } = fakeDb({
+    followups: [{ kind: "same_day", due_at: cdmxToEpoch(2026, 8, 27, 15, 0, 0) }],
+  });
+  const { deps, log } = harness();
+
+  await auditHumanSend(envWith(db), PHONE, CONFIRMED, "approved", undefined, deps);
+
+  assert.equal(log.cards.length, 1);
+  // No fresh marker ⇒ nothing concrete to point at, so no mismatch note.
+  assert.equal(log.cards[0]!.capture.conflictNote, undefined);
+});
+
+test("auditHumanSend: a dateless claim is backed by ANY scheduled booking followup", async () => {
+  const { db } = fakeDb({ hasBookingFollowup: true });
+  const { deps, log } = harness();
+
+  await auditHumanSend(
+    envWith(db),
+    PHONE,
+    "¡Perfecto! Ya quedó agendado 🙌",
+    "approved",
+    undefined,
+    deps,
+  );
 
   assert.equal(log.cards.length, 0);
 });

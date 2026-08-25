@@ -732,6 +732,29 @@ export async function hasScheduledFollowupOfKind(
   return row !== null;
 }
 
+/**
+ * The scheduled followups of `kinds` for a phone, with their due_at — the
+ * slot-aware version of hasScheduledFollowupOfKind. booking-guard maps each
+ * row's due_at back to the trial date it was derived from, so an OLD booking
+ * can't back a claim about a DIFFERENT class.
+ */
+export async function scheduledFollowupsOfKind(
+  db: D1Database,
+  phone: string,
+  kinds: readonly string[],
+): Promise<Array<{ kind: string; due_at: number }>> {
+  if (kinds.length === 0) return [];
+  const placeholders = kinds.map((_, i) => `?${i + 2}`).join(", ");
+  const { results } = await db
+    .prepare(
+      `SELECT kind, due_at FROM followups
+       WHERE phone = ?1 AND status = 'scheduled' AND kind IN (${placeholders})`,
+    )
+    .bind(phone, ...kinds)
+    .all<{ kind: string; due_at: number }>();
+  return results;
+}
+
 // ---- approvals: atomic claim ----
 
 /**

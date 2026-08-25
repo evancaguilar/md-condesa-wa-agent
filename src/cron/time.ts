@@ -62,6 +62,22 @@ export function cdmxIso(date: string, time: string): string {
 }
 
 /**
+ * The (nowCdmxIso, weekdayIdx) pair parseBookingHints takes: "YYYY-MM-DDTHH:mm"
+ * in CDMX plus that day's index (0=Mon … 6=Sun, the brain/tools.weekdayIndex
+ * convention). Shared by the capture guard and the nightly reconciliation so
+ * both resolve "el sábado" against the exact same clock.
+ */
+export function cdmxHintContext(epoch: number): { iso: string; weekdayIdx: number } {
+  const p = cdmxParts(epoch);
+  const noonUtc = new Date(Date.UTC(p.year, p.month - 1, p.day, 12));
+  return {
+    iso: `${p.year}-${pad2(p.month)}-${pad2(p.day)}T${pad2(p.hour)}:${pad2(p.minute)}`,
+    // getUTCDay: 0=Sun … 6=Sat → 0=Mon … 6=Sun.
+    weekdayIdx: (noonUtc.getUTCDay() + 6) % 7,
+  };
+}
+
+/**
  * Clamp a target send epoch into the 09:00–21:00 CDMX quiet-hours window.
  * Before 09:00 same day → push to 09:00 that day. At/after 21:00 → push to
  * 09:00 the next day. Otherwise unchanged.

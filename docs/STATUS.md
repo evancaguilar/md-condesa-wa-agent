@@ -2,6 +2,16 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-08-25**.
 
+### Hardening slice — precision fixes from an external review (2026-08-25)
+
+Five tightenings, no behavior changes beyond the ones described. Tests 573 → **586**, green; no D1 migration (kv + an existing table only).
+
+- **Slot-exact capture guard** (booking-core/booking-guard): `booking_recorded:<phone>` now stores `{"ts","trialDate","trialTime"}` instead of a bare epoch (the reader still accepts legacy bare-epoch rows, which back any claim for their 72h life). `auditHumanSend` parses the sent text FIRST; when the copy names a date, only a marker for that same date/time or an anti-no-show sequence armed for it counts as backed — a fresh booking no longer masks a NEW unbacked promise for a different class. Dateless copy keeps the old "any fresh marker" rule (no false positives on vague texts). A mismatch card carries `⚠️ Ya hay un registro para <fecha> <hora> — esto parece OTRA clase`. Followup→trial-date mapping is derived from `computeTrialSequence` (same_day ⇒ its CDMX due date; day_before ⇒ +1 day; trial_confirm carries no date signal).
+- **Slot-exact nightly reconciliation** (booking-recon): a dated claim now needs a booking on that same CDMX calendar day (day granularity — the digest's job is "does this class exist at all"); dateless claims keep the ±7/14d window. Digest lines gained `— prometido <fecha>, en Airtable: <fecha|ninguna clase>`.
+- **Airtable schema drift can't drop essentials** (airtable.ts): an `UNKNOWN_FIELD_NAME` 422 on the phone or trial-datetime column now throws `AirtableWriteError` ("booking aborted, fix the base or client.gen mapping") instead of dropping the field and reporting a dateless "successful" booking. Everything else keeps drop-and-retry.
+- **finalizeBooking step isolation**: Slack FYI / sequence / qualification / lead sync each get their own try/catch, so a Slack outage can never cost the lead their anti-no-show reminders.
+- **Atomic auto-send cap + pre-send re-check**: `tryClaimAutoSendSlot` (INSERT OR IGNORE + guarded UPDATE) replaces the read-modify-write bump and is claimed immediately before delivery (released if delivery degrades to an approval); the pure gate's count is now only a pre-screen. The Slack holding line re-reads the approval's status after winning `claimHoldingSend` and stays quiet if a human resolved it in between — best-effort narrowing, not elimination (no transaction spans D1 and the Graph API).
+
 ### 15-day conversation audit — findings + pending actions (2026-08-25)
 
 Full report (artifact): "Radiografía del Agente". 185 convos / 226 approvals / 128 edits reviewed by a 22-agent fleet; every critical finding verified against raw transcripts (56 confirmed, 9 adjusted, 0 refuted). Headlines: only 9.7% of leads reach an evidenced booking; 23% of approval drafts EXPIRE unanswered (65% die overnight); ALL 226 approvals were confidence:low (structural — the persona's "high" definition is unreachable); link-push campaigns (Reto 7.6%, Kids 4.5%) convert half of the in-chat-booking baby flow (16.1%); overlay §1 actively instructed offering Thursday sparring ("ni menciones que uno es sparring"); 18/128 owner edits are schedule corrections (Friday afternoons invented, Sunday kids offered, Mini MT days wrong).

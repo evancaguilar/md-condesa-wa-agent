@@ -11,6 +11,7 @@ import { listRecentBookings } from "../services/airtable.js";
 import { cdmxParts } from "./time.js";
 import {
   findUnbackedConfirmations,
+  type Mismatch,
   type ReconBooking,
 } from "./booking-recon-core.js";
 
@@ -25,6 +26,13 @@ function pad2(n: number): string {
 function fechaCdmx(epoch: number): string {
   const p = cdmxParts(epoch);
   return `${pad2(p.day)}/${pad2(p.month)} ${pad2(p.hour)}:${pad2(p.minute)}`;
+}
+
+/** " — prometido 2026-08-29, en Airtable: 2026-08-28" for a dated claim. */
+function slotLine(m: Mismatch): string {
+  if (!m.claimedDate) return "";
+  const has = m.nearestBookingDate ? m.nearestBookingDate : "ninguna clase";
+  return ` — prometido ${m.claimedDate}, en Airtable: ${has}`;
 }
 
 export interface BookingReconDeps {
@@ -53,7 +61,10 @@ export async function runBookingRecon(
   if (mismatches.length === 0) return 0;
 
   const lines = mismatches
-    .map((m) => `• ${m.phone} — "${m.snippet}" (${fechaCdmx(m.ts)})`)
+    .map(
+      (m) =>
+        `• ${m.phone} — "${m.snippet}" (${fechaCdmx(m.ts)})${slotLine(m)}`,
+    )
     .join("\n");
   await deps.slack.postNote(
     `🕵️ Reconciliación de agendados — ${mismatches.length} confirmación(es) SIN registro en Airtable:\n${lines}\nRevisa y regístralos a mano.`,

@@ -34,12 +34,61 @@ export interface FinalizeBookingInput extends BookTrialInput {
 }
 
 /**
- * kv marker written on every HUMAN registration: `booking_recorded:<phone>` =
- * epoch seconds. booking-guard treats a marker younger than 72h as proof that a
- * confirmation is backed, so re-confirming the same class never re-cards.
+ * kv marker written on every HUMAN registration: `booking_recorded:<phone>`.
+ * booking-guard treats a marker younger than 72h as proof that a confirmation
+ * is backed, so re-confirming the same class never re-cards.
  */
 export function bookingRecordedKey(phone: string): string {
   return `booking_recorded:${phone}`;
+}
+
+/** What a `booking_recorded:<phone>` value carries once parsed. */
+export interface BookingRecordedMarker {
+  /** When the booking was registered (epoch seconds). */
+  ts: number;
+  /** The registered slot — absent on LEGACY bare-epoch rows. */
+  trialDate?: string;
+  trialTime?: string;
+}
+
+/**
+ * The marker value: JSON `{"ts":…,"trialDate":"YYYY-MM-DD","trialTime":"HH:mm"}`.
+ * The slot is stored (it used to be a bare epoch) so booking-guard can tell
+ * "they re-confirmed THIS class" from "they just promised ANOTHER one".
+ */
+export function bookingRecordedValue(
+  ts: number,
+  trialDate: string,
+  trialTime: string,
+): string {
+  return JSON.stringify({ ts, trialDate, trialTime });
+}
+
+/**
+ * Read a marker in EITHER shape: the JSON above, or a legacy bare epoch string
+ * (rows written before the slot was recorded still live in prod kv for up to
+ * 72h after a deploy). Legacy rows come back without a slot, which callers
+ * treat as "backs any claim" — the pre-slice behavior.
+ */
+export function parseBookingRecordedMarker(
+  raw: string | null,
+): BookingRecordedMarker | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const p = JSON.parse(trimmed) as Partial<BookingRecordedMarker>;
+      if (!Number.isFinite(p.ts)) return null;
+      const marker: BookingRecordedMarker = { ts: Number(p.ts) };
+      if (typeof p.trialDate === "string" && p.trialDate) marker.trialDate = p.trialDate;
+      if (typeof p.trialTime === "string" && p.trialTime) marker.trialTime = p.trialTime;
+      return marker;
+    } catch {
+      return null;
+    }
+  }
+  const ts = Number.parseInt(trimmed, 10);
+  return Number.isFinite(ts) ? { ts } : null;
 }
 
 export interface PlannedBookingSequence {
@@ -140,15 +189,15 @@ export function realBookingDeps(): BookingCoreDeps {
  * FYI card, the anti-no-show sequence keyed to that record, the stored
  * qualification, and the `booking_created` lead sync.
  *
- * Lifted verbatim from routeResult's `book` branch — including the
- * `includeConfirm:false` sequence option (the confirmation goes out inline, so
- * the scheduled trial_confirm is only for web-form bookers) and the inner
- * try/catch that isolates a qualification/sync failure from the rest.
+ * Lifted from routeResult's `book` branch — including the `includeConfirm:false`
+ * sequence option (the confirmation goes out inline, so the scheduled
+ * trial_confirm is only for web-form bookers).
  *
- * Deliberate change vs. the old inline code: this NEVER throws. The old branch
- * let a Slack or sequence failure propagate out of routeResult, which meant the
- * lead never got their confirmation text. Swallowing (+logging) is strictly
- * safer and invisible unless something is already broken.
+ * Deliberate change vs. the old inline code: this NEVER throws, and each step is
+ * INDEPENDENTLY isolated so one failure can't skip the ones after it. The old
+ * branch let a Slack or sequence failure propagate out of routeResult, which
+ * meant the lead never got their confirmation text. Swallowing (+logging) is
+ * strictly safer and invisible unless something is already broken.
  *
  * `opts` only exists for group bookings (slice 5): called once PER PERSON so
  * everyone gets their own Slack FYI, with the sequence/lead-sync parts switched
@@ -173,11 +222,21 @@ export async function finalizeBooking(
   // undefined = "no opinion" → the record's own id (the single-booking default).
   // null = an explicit "someone else already armed this slot's sequence".
   const sequenceKey = opts?.sequenceKey === undefined ? b.recordId : opts.sequenceKey;
+
+  // EVERY step gets its own try/catch: a Slack outage must never cost the lead
+  // their anti-no-show reminders (the step that actually gets people to show
+  // up), and a failed qualification write must never skip the CRM sync. They
+  // used to share one try, so the first failure ate every later step.
   try {
     await slack.postBookingFyi(booking);
-    // Chat booking: the bot/human confirms inline, so skip the scheduled
-    // trial_confirm (it's for web-form bookers detected via syncBookings).
-    if (sequenceKey !== null) {
+  } catch (err) {
+    console.error("[finalizeBooking] slack_fyi failed", err);
+  }
+
+  // Chat booking: the bot/human confirms inline, so skip the scheduled
+  // trial_confirm (it's for web-form bookers detected via syncBookings).
+  if (sequenceKey !== null) {
+    try {
       await deps.scheduleTrialSequence(
         env,
         b.phone,
@@ -185,14 +244,14 @@ export async function finalizeBooking(
         cdmxIso(b.trialDate, b.trialTime),
         { includeConfirm: false },
       );
+    } catch (err) {
+      console.error("[finalizeBooking] sequence failed", err);
     }
-  } catch (err) {
-    console.error(`[booking] finalize failed for ${b.phone}:`, err);
   }
+
   if (opts?.skipLeadSync) return;
   // Persist qualification (gives classifyProgram real data) then sync the
-  // booking to Airtable + fire program rules. Isolated so a sync failure never
-  // derails the caller's confirmation/video path.
+  // booking to Airtable + fire program rules.
   try {
     await deps.setQualification(
       env.DB,
@@ -203,9 +262,13 @@ export async function finalizeBooking(
         name: b.name,
       }),
     );
+  } catch (err) {
+    console.error("[finalizeBooking] qualification failed", err);
+  }
+  try {
     await deps.syncLead(env, b.phone, "booking_created");
   } catch (err) {
-    console.warn(`[booking] booking sync failed for ${b.phone}:`, err);
+    console.error("[finalizeBooking] lead_sync failed", err);
   }
 }
 
@@ -276,7 +339,11 @@ export async function registerBooking(
   // Written BEFORE the (best-effort) finalize work so the "this claim is
   // backed" marker exists even if Slack/D1 hiccups after the Airtable write.
   try {
-    await deps.kvSet(env.DB, bookingRecordedKey(booking.phone), String(deps.now()));
+    await deps.kvSet(
+      env.DB,
+      bookingRecordedKey(booking.phone),
+      bookingRecordedValue(deps.now(), booking.trialDate, booking.trialTime),
+    );
   } catch (err) {
     console.error(`[booking] recorded marker failed for ${booking.phone}:`, err);
   }

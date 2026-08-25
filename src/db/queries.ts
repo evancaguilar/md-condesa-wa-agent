@@ -335,6 +335,21 @@ export async function getPendingApprovals(
   return results;
 }
 
+/**
+ * Current status of one approval (null when the row is gone). A point read used
+ * right before an irreversible send, to narrow the claim→send race.
+ */
+export async function getApprovalStatus(
+  db: D1Database,
+  id: number,
+): Promise<ApprovalStatus | null> {
+  const row = await db
+    .prepare(`SELECT status FROM pending_approvals WHERE id = ?1`)
+    .bind(id)
+    .first<{ status: ApprovalStatus }>();
+  return row?.status ?? null;
+}
+
 export async function markHoldingSent(db: D1Database, id: number): Promise<void> {
   await db
     .prepare(`UPDATE pending_approvals SET holding_sent = 1 WHERE id = ?1`)
@@ -596,6 +611,42 @@ export async function kvClaimIfAbsentOrOlder(
     .bind(key, String(nowSec), minAgeSeconds)
     .run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Atomic counter claim: bumps `key` by one and returns true ONLY if the stored
+ * value was still below `limit`. Two statements, no read-modify-write window —
+ * the UPDATE's WHERE is what enforces the cap, so two concurrent claimants can
+ * never both squeeze past the last slot. Missing/garbage rows start at 0.
+ */
+export async function kvIncrementIfBelow(
+  db: D1Database,
+  key: string,
+  limit: number,
+): Promise<boolean> {
+  await db
+    .prepare(`INSERT OR IGNORE INTO kv(key, value) VALUES(?1, '0')`)
+    .bind(key)
+    .run();
+  const res = await db
+    .prepare(
+      `UPDATE kv SET value = CAST(value AS INTEGER) + 1
+       WHERE key = ?1 AND CAST(value AS INTEGER) < ?2`,
+    )
+    .bind(key, limit)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** Gives a kvIncrementIfBelow claim back (never below zero). */
+export async function kvDecrement(db: D1Database, key: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE kv SET value = CAST(value AS INTEGER) - 1
+       WHERE key = ?1 AND CAST(value AS INTEGER) > 0`,
+    )
+    .bind(key)
+    .run();
 }
 
 /** bot_enabled defaults to true when the kv row is absent. */

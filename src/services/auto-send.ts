@@ -19,13 +19,16 @@
 //                   FIRST reply of a conversation is always human-reviewed;
 //                   the lane only speeds up chats already signed off on once.
 //   cap           — AUTO_SEND_DAILY_CAP auto-sends per CDMX day. A blast radius
-//                   limit: if the lane misbehaves it stops on its own.
+//                   limit: if the lane misbehaves it stops on its own. The gate
+//                   below only PRE-SCREENS the count; the binding decision is
+//                   tryClaimAutoSendSlot, claimed atomically right before the
+//                   send so concurrent webhooks can't overshoot the cap.
 //
 // The master override is unchanged: TRAINING_WHEELS off ⇒ the old wheels-off
 // path already auto-sends and this lane never runs; kv switch off ⇒ the lane is
 // completely dead and every reply queues for approval exactly like today.
 
-import { kvGet, kvSet } from "../db/queries.js";
+import { kvDecrement, kvGet, kvIncrementIfBelow, kvSet } from "../db/queries.js";
 import { hasResolvedApproval } from "../db/queries-admin.js";
 import { cdmxDateStr } from "../cron/time.js";
 import { claimsBooking } from "./booking-claims.js";
@@ -119,18 +122,26 @@ export async function getAutoSendCount(
 }
 
 /**
- * Read-modify-write bump of the per-day counter; returns the new count. The
- * key is day-scoped so a new CDMX day starts at zero with no cleanup step (a
- * lost race would undercount by one — acceptable for a blast-radius cap).
+ * Atomically claim ONE of the day's auto-send slots: true only if the counter
+ * was still below `cap`, and it has now been bumped. This — not the pure gate's
+ * `dailyCount < cap` pre-screen — is what actually enforces the cap: the old
+ * read-modify-write bump let two concurrent webhooks both read `cap-1` and both
+ * send. The key is day-scoped, so a new CDMX day starts at zero with no cleanup.
  */
-export async function bumpAutoSendCount(
+export function tryClaimAutoSendSlot(
   db: D1Database,
   cdmxDay: string,
-): Promise<number> {
-  const key = autoSendCountKey(cdmxDay);
-  const next = parseCount(await kvGet(db, key)) + 1;
-  await kvSet(db, key, String(next));
-  return next;
+  cap: number = AUTO_SEND_DAILY_CAP,
+): Promise<boolean> {
+  return kvIncrementIfBelow(db, autoSendCountKey(cdmxDay), cap);
+}
+
+/** Hand a claimed slot back when the send never happened (delivery degraded). */
+export function releaseAutoSendSlot(
+  db: D1Database,
+  cdmxDay: string,
+): Promise<void> {
+  return kvDecrement(db, autoSendCountKey(cdmxDay));
 }
 
 /** True when a human already approved/edited at least one draft for `phone`. */
@@ -153,7 +164,7 @@ export interface AutoSendLaneInput {
 export interface AutoSendLaneResult extends AutoSendDecision {
   /** Auto-sends already made today, BEFORE this one. */
   dailyCount: number;
-  /** CDMX day the decision was made on — pass it to bumpAutoSendCount. */
+  /** CDMX day the decision was made on — pass it to tryClaimAutoSendSlot. */
   day: string;
   /** Cap, so the caller can render "n/cap hoy" without re-importing it. */
   cap: number;

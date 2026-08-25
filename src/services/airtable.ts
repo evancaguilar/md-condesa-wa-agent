@@ -335,21 +335,40 @@ export async function updateRecord(
 }
 
 /**
- * POST a new record, tolerating schema drift: on an UNKNOWN_FIELD_NAME 422 we
- * drop the named field and retry (a few times) rather than failing outright.
- * Returns the created record's id + fields.
+ * Columns a booking is MEANINGLESS without: who it's for, and when the class
+ * is. Dropping either one and reporting success is worse than failing loudly —
+ * it produces a "booked" lead with no date that nobody ever shows up for.
  */
-async function createWithDriftRetry(
+export function essentialLeadFields(map: AirtableLeadsMap = leadsMap()): Set<string> {
+  return new Set([map.phone, map.trialDateTime]);
+}
+
+/**
+ * POST a new record, tolerating schema drift: on an UNKNOWN_FIELD_NAME 422 we
+ * drop the named field and retry (a few times) rather than failing outright —
+ * UNLESS the missing column is an essential one (see above), which aborts the
+ * write with a message naming the field so the base (or the client map) gets
+ * fixed. Returns the created record's id + fields.
+ */
+export async function createWithDriftRetry(
   env: Env,
   table: string,
   fields: Record<string, unknown>,
 ): Promise<{ id: string; fields: Record<string, unknown> }> {
   const attempt: Record<string, unknown> = { ...fields };
+  const essential = essentialLeadFields();
   for (let i = 0; i < 4; i++) {
     const r = await createRecord(env, table, attempt);
     if (r.ok) return { id: r.id, fields: r.fields };
     if (r.unknownField) {
       const bad = extractUnknownFieldName(r.detail);
+      if (bad && essential.has(bad)) {
+        throw new AirtableWriteError(
+          `Airtable no longer has field "${bad}" — booking aborted, fix the base or client.gen mapping`,
+          true,
+          422,
+        );
+      }
       if (bad && bad in attempt) {
         console.warn(
           `[airtable] create dropping unknown field "${bad}" (${r.detail})`,

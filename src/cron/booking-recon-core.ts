@@ -4,7 +4,8 @@
 // silently left unbooked. No D1/Airtable/Slack imports here — wiring lives
 // in booking-recon.ts.
 
-import { claimsBooking } from "../services/booking-claims.js";
+import { claimsBooking, parseBookingHints } from "../services/booking-claims.js";
+import { cdmxDateStr, cdmxHintContext } from "./time.js";
 
 export interface ReconSend {
   phone: string;
@@ -21,6 +22,10 @@ export interface Mismatch {
   phone: string;
   ts: number;
   snippet: string;
+  /** CDMX date the copy actually promised, when it states one. */
+  claimedDate?: string;
+  /** Closest booking this lead DOES have (CDMX date), or null if none at all. */
+  nearestBookingDate?: string | null;
 }
 
 const SEVEN_DAYS_S = 7 * 24 * 3600;
@@ -45,26 +50,46 @@ function last10(phone: string): string {
   return digitsOnly(phone).slice(-10);
 }
 
-function isBacked(send: ReconSend, bookings: ReconBooking[]): boolean {
+/** Trial epochs (seconds) this lead has on file, oldest-first order preserved. */
+function trialEpochsFor(send: ReconSend, bookings: ReconBooking[]): number[] {
   const key = last10(send.phone);
-  if (!key) return false;
-  return bookings.some((b) => {
-    if (last10(b.phone) !== key) return false;
-    if (!b.trialDateTimeIso) return false;
-    const trialEpochMs = Date.parse(b.trialDateTimeIso);
-    if (Number.isNaN(trialEpochMs)) return false;
-    const trialEpochS = Math.floor(trialEpochMs / 1000);
-    return (
-      trialEpochS >= send.ts - SEVEN_DAYS_S &&
-      trialEpochS <= send.ts + FOURTEEN_DAYS_S
-    );
-  });
+  if (!key) return [];
+  const out: number[] = [];
+  for (const b of bookings) {
+    if (last10(b.phone) !== key) continue;
+    if (!b.trialDateTimeIso) continue;
+    const ms = Date.parse(b.trialDateTimeIso);
+    if (Number.isNaN(ms)) continue;
+    out.push(Math.floor(ms / 1000));
+  }
+  return out;
 }
 
 /**
- * Returns one Mismatch per phone (the latest claiming send) for every send
- * that claims a completed booking but has no Airtable trial datetime within
- * [ts-7d, ts+14d] on a matching phone (last 10 digits).
+ * The CDMX date the copy promised, when it states one. Same parser the capture
+ * guard uses, with the clock taken from the send itself so "el sábado" resolves
+ * against the day it was WRITTEN, not the day the cron runs.
+ */
+function claimedDateOf(send: ReconSend): string | undefined {
+  const { iso, weekdayIdx } = cdmxHintContext(send.ts);
+  return parseBookingHints(send.body, iso, weekdayIdx).trialDate;
+}
+
+/** Noon CDMX of a YYYY-MM-DD, for date-distance math. */
+function noonEpoch(ymd: string): number {
+  return Math.floor(Date.parse(`${ymd}T12:00:00-06:00`) / 1000);
+}
+
+/**
+ * Returns one Mismatch per phone (the latest claiming send) for every send that
+ * claims a completed booking Airtable can't back, on a matching phone (last 10
+ * digits). Two sharpnesses:
+ *
+ *  - the copy names a DATE ⇒ a booking must fall on that same CDMX calendar day.
+ *    Day granularity on purpose: the recon's job is "does this class exist at
+ *    all", and a staff member writing 6 pm for a 6:30 class is not a lost lead.
+ *  - the copy names no date ⇒ the original [ts-7d, ts+14d] window rule, so a
+ *    vague "ya quedó agendado" doesn't spam the digest.
  */
 export function findUnbackedConfirmations(
   sends: ReconSend[],
@@ -83,13 +108,32 @@ export function findUnbackedConfirmations(
 
   const mismatches: Mismatch[] = [];
   for (const send of latestClaimByPhone.values()) {
-    if (!isBacked(send, bookings)) {
-      mismatches.push({
-        phone: send.phone,
-        ts: send.ts,
-        snippet: send.body.slice(0, 120),
-      });
+    const trials = trialEpochsFor(send, bookings);
+    const claimedDate = claimedDateOf(send);
+    const backed = claimedDate
+      ? trials.some((t) => cdmxDateStr(t) === claimedDate)
+      : trials.some(
+          (t) => t >= send.ts - SEVEN_DAYS_S && t <= send.ts + FOURTEEN_DAYS_S,
+        );
+    if (backed) continue;
+    const m: Mismatch = {
+      phone: send.phone,
+      ts: send.ts,
+      snippet: send.body.slice(0, 120),
+    };
+    if (claimedDate) {
+      m.claimedDate = claimedDate;
+      // What the lead DOES have, so the digest can say "prometido X, hay Y".
+      const target = noonEpoch(claimedDate);
+      let nearest: number | null = null;
+      for (const t of trials) {
+        if (nearest === null || Math.abs(t - target) < Math.abs(nearest - target)) {
+          nearest = t;
+        }
+      }
+      m.nearestBookingDate = nearest === null ? null : cdmxDateStr(nearest);
     }
+    mismatches.push(m);
   }
   return mismatches;
 }

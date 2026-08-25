@@ -79,6 +79,7 @@ interface QueryLog {
   claims: number[];
   releases: number[];
   resolved: { id: number; status: ApprovalStatus }[];
+  statusReads: number;
 }
 
 function makeQueries(
@@ -86,9 +87,11 @@ function makeQueries(
   over: {
     claimHoldingSend?: boolean;
     claimApproval?: boolean;
+    /** What the row's status reads as in the claim→send gap. */
+    statusAfterClaim?: ApprovalStatus;
   } = {},
 ): { queries: TimeoutQueries; log: QueryLog } {
-  const log: QueryLog = { claims: [], releases: [], resolved: [] };
+  const log: QueryLog = { claims: [], releases: [], resolved: [], statusReads: 0 };
   const queries: TimeoutQueries = {
     async getPendingApprovals() {
       return rows;
@@ -110,6 +113,10 @@ function makeQueries(
     async claimApproval(_db, id, status) {
       log.resolved.push({ id, status });
       return over.claimApproval ?? true;
+    },
+    async getApprovalStatus() {
+      log.statusReads++;
+      return over.statusAfterClaim ?? "pending";
     },
   };
   return { queries, log };
@@ -174,6 +181,23 @@ test("runApprovalTimeouts: winning the claim sends ONE holding line (meta holdin
   assert.equal(slackCalls.length, 1);
   assert.equal(slackCalls[0]!.method, "chat.postMessage");
   assert.ok(slackCalls[0]!.body.text!.includes("#42"));
+});
+
+test("runApprovalTimeouts: a draft resolved between claim and send is NOT interrupted", async () => {
+  slackCalls.length = 0;
+  // The human hit Aprobar in the milliseconds after claimHoldingSend won: the
+  // lead is already getting the real answer, so the holding line must not go
+  // out. The claim stays (holding_sent=1 on a resolved row is harmless).
+  const { queries, log } = makeQueries([approval()], { statusAfterClaim: "approved" });
+  const { deps, log: sendLog } = makeDeps();
+
+  await runApprovalTimeouts(envWith(fakeDb()), queries, deps);
+
+  assert.deepEqual(log.claims, [42]);
+  assert.equal(log.statusReads, 1);
+  assert.equal(sendLog.sends.length, 0);
+  assert.equal(slackCalls.length, 0);
+  assert.equal(log.releases.length, 0, "the claim is kept, not released");
 });
 
 test("runApprovalTimeouts: WindowClosedError keeps the claim (no release, no ping)", async () => {

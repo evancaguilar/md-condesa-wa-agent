@@ -25,9 +25,12 @@ import {
   kvSetIfAbsent,
   recentMessages,
 } from "../db/queries.js";
-import { hasScheduledFollowupOfKind } from "../db/queries-admin.js";
+import {
+  hasScheduledFollowupOfKind,
+  scheduledFollowupsOfKind,
+} from "../db/queries-admin.js";
 import { BOOKING_KINDS } from "../cron/nudges.js";
-import { cdmxDateStr, cdmxParts } from "../cron/time.js";
+import { cdmxDateStr, cdmxHintContext, DAY } from "../cron/time.js";
 import { isNudgePhrase } from "../cron/booking-recon-core.js";
 import {
   claimsBooking,
@@ -39,10 +42,12 @@ import {
 } from "./booking-claims.js";
 import {
   bookingRecordedKey,
+  parseBookingRecordedMarker,
   registerBooking,
+  type BookingRecordedMarker,
   type RegisterBookingResult,
 } from "./booking-core.js";
-import { normalizeDiscipline, validateSlot, weekdayIndex } from "../brain/tools.js";
+import { normalizeDiscipline, validateSlot } from "../brain/tools.js";
 import { callAnthropic, type ToolUseContent } from "../brain/claude.js";
 import { accrueChatUsage } from "./usage.js";
 import {
@@ -116,8 +121,7 @@ export function realGuardDeps(): BookingGuardDeps {
  *
  * Gates, in order (each one is a cheap exit before the expensive one below):
  *  1. the text doesn't claim a completed booking          → nothing to do
- *  2. a `booking_recorded:<phone>` marker <72h old, OR a scheduled booking-kind
- *     followup for this lead                              → already backed
+ *  2. the claimed SLOT is already backed (see isBookingBacked) → nothing to do
  *  3. a capture was already opened for this lead today    → throttled
  *  4. parse → validate → persist the capture → post the Slack card
  */
@@ -136,7 +140,12 @@ export async function auditHumanSend(
     if (isNudgePhrase(text)) return;
 
     const now = deps.now();
-    if (await isBookingBacked(env, phone, now)) return;
+    // Parse FIRST: the backed check needs the claimed slot to know whether an
+    // existing booking is THIS class or a different one.
+    const ctx = cdmxHintContext(now);
+    const claimedSlot = parseBookingHints(text, ctx.iso, ctx.weekdayIdx);
+    const backing = await isBookingBacked(env, phone, now, claimedSlot);
+    if (backing.backed) return;
 
     // Daily throttle: one card per lead per CDMX day, atomically claimed so two
     // concurrent sends can't both open a capture.
@@ -159,6 +168,12 @@ export async function auditHumanSend(
     };
     if (contact?.name) capture.name = contact.name;
     if (by) capture.by = by;
+    if (backing.conflict) {
+      const { trialDate, trialTime } = backing.conflict;
+      capture.conflictNote =
+        `Ya hay un registro para ${trialDate}${trialTime ? ` ${trialTime}` : ""}` +
+        ` — esto parece OTRA clase`;
+    }
     applyHints(capture, parsed.hints);
 
     const key = bookingCaptureKey(now, phone);
@@ -171,21 +186,87 @@ export async function auditHumanSend(
   }
 }
 
-/** True when something already backs a booking claim for this lead. */
+export interface BackedCheck {
+  backed: boolean;
+  /** A fresh marker exists, but for a DIFFERENT slot than the one claimed. */
+  conflict?: { trialDate: string; trialTime?: string };
+}
+
+/**
+ * Trial dates implied by a lead's scheduled anti-no-show rows. The offsets come
+ * from computeTrialSequence (cron/followups.ts), which derives every due_at from
+ * the class datetime:
+ *   - `same_day`   = class − 4h, clamped into 09:00–21:00 CDMX ⇒ its CDMX due
+ *     date IS the trial date (the clamp only ever moves an early class forward
+ *     to 09:00 the same day);
+ *   - `day_before` = 18:00 CDMX the day before (inside the window, never
+ *     clamped) ⇒ its due date + 1 day is the trial date;
+ *   - `trial_confirm` = when the booking was DETECTED, not the class → carries
+ *     no date signal, so it is ignored here.
+ */
+function trialDatesFromFollowups(
+  rows: Array<{ kind: string; due_at: number }>,
+): Set<string> {
+  const dates = new Set<string>();
+  for (const r of rows) {
+    if (r.kind === "same_day") dates.add(cdmxDateStr(r.due_at));
+    else if (r.kind === "day_before") dates.add(cdmxDateStr(r.due_at + DAY));
+  }
+  return dates;
+}
+
+/** Does a fresh marker cover the slot this text just claimed? */
+function markerCovers(marker: BookingRecordedMarker, hints: BookingHints): boolean {
+  // LEGACY bare-epoch marker: no slot to compare, so it backs anything — the
+  // pre-slice behavior, kept for the ≤72h of legacy rows still in prod kv.
+  if (!marker.trialDate) return true;
+  if (marker.trialDate !== hints.trialDate) return false;
+  // Time only discriminates when BOTH sides state one (exact HH:mm).
+  if (marker.trialTime && hints.trialTime) return marker.trialTime === hints.trialTime;
+  return true;
+}
+
+/**
+ * Is this booking claim already backed by a real record?
+ *
+ * With a DATE in the claim the check is slot-exact: only a marker for that same
+ * date (and time, when both state one) or an anti-no-show sequence armed for
+ * that date counts. An old booking therefore stops masking a new, unbacked
+ * promise for a different class — and when it is fresh, we say so on the card.
+ *
+ * Without a date (vague "ya quedó agendado") ANY fresh marker or booking-kind
+ * followup still counts, exactly like before: cardsing every vague re-confirmation
+ * would be pure false-positive noise.
+ */
 async function isBookingBacked(
   env: Env,
   phone: string,
   now: number,
-): Promise<boolean> {
-  const marker = Number.parseInt(
-    (await kvGet(env.DB, bookingRecordedKey(phone))) ?? "",
-    10,
-  );
-  if (Number.isFinite(marker) && now - marker < RECORDED_MARKER_TTL_SECONDS) {
-    return true;
+  hints: BookingHints,
+): Promise<BackedCheck> {
+  const marker = parseBookingRecordedMarker(await kvGet(env.DB, bookingRecordedKey(phone)));
+  const fresh =
+    marker !== null && now - marker.ts < RECORDED_MARKER_TTL_SECONDS ? marker : null;
+
+  if (!hints.trialDate) {
+    if (fresh) return { backed: true };
+    // The anti-no-show sequence only exists when a real Airtable record does.
+    return { backed: await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS) };
   }
-  // The anti-no-show sequence only exists when a real Airtable record does.
-  return await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS);
+
+  if (fresh && markerCovers(fresh, hints)) return { backed: true };
+  const rows = await scheduledFollowupsOfKind(env.DB, phone, BOOKING_KINDS);
+  if (trialDatesFromFollowups(rows).has(hints.trialDate)) return { backed: true };
+  if (fresh?.trialDate) {
+    return {
+      backed: false,
+      conflict: {
+        trialDate: fresh.trialDate,
+        ...(fresh.trialTime ? { trialTime: fresh.trialTime } : {}),
+      },
+    };
+  }
+  return { backed: false };
 }
 
 /** Copy the parsed fields onto a capture record (undefined never overwrites). */
@@ -204,17 +285,6 @@ export interface ParsedBooking {
   verdict: BookingVerdict;
 }
 
-/** CDMX "YYYY-MM-DDTHH:mm" + weekday index (0=Mon … 6=Sun) for an epoch. */
-function cdmxContext(epochSec: number): { iso: string; weekdayIdx: number } {
-  const p = cdmxParts(epochSec);
-  const pad = (n: number): string => (n < 10 ? `0${n}` : String(n));
-  const date = `${p.year}-${pad(p.month)}-${pad(p.day)}`;
-  return {
-    iso: `${date}T${pad(p.hour)}:${pad(p.minute)}`,
-    weekdayIdx: weekdayIndex(date) ?? 0,
-  };
-}
-
 /**
  * Deterministic regex parse first; ONE cheap model call fills the gaps only
  * when the regex pass isn't `full`. The regex result always wins on the fields
@@ -227,7 +297,7 @@ export async function parseBookingFromText(
   now: number,
   deps: BookingGuardDeps = realGuardDeps(),
 ): Promise<ParsedBooking> {
-  const { iso, weekdayIdx } = cdmxContext(now);
+  const { iso, weekdayIdx } = cdmxHintContext(now);
   const hints = parseBookingHints(text, iso, weekdayIdx);
 
   let merged = hints;

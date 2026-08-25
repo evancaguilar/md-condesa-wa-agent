@@ -5,6 +5,7 @@ import {
   type ReconBooking,
   type ReconSend,
 } from "../src/cron/booking-recon-core.js";
+import { cdmxToEpoch } from "../src/cron/time.js";
 
 const NOW = 1_800_000_000; // arbitrary fixed "now" epoch seconds
 const DAY = 24 * 3600;
@@ -34,8 +35,9 @@ test("booking-recon: booking backs the claim via +52/521/(55)-formatted phones (
     ];
     const bookings: ReconBooking[] = [
       {
+        // "mañana" relative to the send ⇒ the SAME CDMX day as the claim.
         phone: bookingPhone,
-        trialDateTimeIso: new Date((sendTs + 2 * DAY) * 1000).toISOString(),
+        trialDateTimeIso: new Date((sendTs + DAY) * 1000).toISOString(),
       },
     ];
     const mismatches = findUnbackedConfirmations(sends, bookings, NOW);
@@ -87,6 +89,51 @@ test("booking-recon: a backed claim within the -7d..+14d window produces no mism
     { phone: "5215512345678", trialDateTimeIso: new Date((sendTs + DAY) * 1000).toISOString() },
   ];
   assert.equal(findUnbackedConfirmations(sends, bookings, NOW).length, 0);
+});
+
+// ---- slot-exact matching (a dated claim needs a booking on THAT day) --------
+
+// Thursday 2026-08-27 10:00 CDMX — "el sábado" from here is 2026-08-29.
+const THU = cdmxToEpoch(2026, 8, 27, 10, 0, 0);
+const SATURDAY_CLAIM = "¡Listo! Ya quedó agendado, nos vemos el sábado a las 2 pm.";
+
+test("booking-recon: a dated claim IS backed by a booking on that same CDMX day", () => {
+  const sends: ReconSend[] = [{ phone: "5215512345678", ts: THU, body: SATURDAY_CLAIM }];
+  const bookings: ReconBooking[] = [
+    { phone: "5215512345678", trialDateTimeIso: "2026-08-29T14:00:00-06:00" },
+  ];
+  assert.equal(findUnbackedConfirmations(sends, bookings, THU + 3600).length, 0);
+});
+
+test("booking-recon: a booking the day BEFORE the promised one is a mismatch", () => {
+  const sends: ReconSend[] = [{ phone: "5215512345678", ts: THU, body: SATURDAY_CLAIM }];
+  const bookings: ReconBooking[] = [
+    // In-window under the old ±7/14d rule, but the wrong class.
+    { phone: "5215512345678", trialDateTimeIso: "2026-08-28T14:00:00-06:00" },
+  ];
+  const mismatches = findUnbackedConfirmations(sends, bookings, THU + 3600);
+  assert.equal(mismatches.length, 1);
+  assert.equal(mismatches[0].claimedDate, "2026-08-29");
+  assert.equal(mismatches[0].nearestBookingDate, "2026-08-28");
+});
+
+test("booking-recon: a dated claim with NO booking at all reports nearest = null", () => {
+  const sends: ReconSend[] = [{ phone: "5215512345678", ts: THU, body: SATURDAY_CLAIM }];
+  const mismatches = findUnbackedConfirmations(sends, [], THU + 3600);
+  assert.equal(mismatches.length, 1);
+  assert.equal(mismatches[0].claimedDate, "2026-08-29");
+  assert.equal(mismatches[0].nearestBookingDate, null);
+});
+
+test("booking-recon: a DATELESS claim keeps the ±7/14d window rule (regression)", () => {
+  const sends: ReconSend[] = [
+    { phone: "5215512345678", ts: THU, body: "¡Perfecto! Ya quedó agendado." },
+  ];
+  const bookings: ReconBooking[] = [
+    { phone: "5215512345678", trialDateTimeIso: "2026-09-03T14:00:00-06:00" },
+  ];
+  const mismatches = findUnbackedConfirmations(sends, bookings, THU + 3600);
+  assert.equal(mismatches.length, 0);
 });
 
 test("booking-recon: sends that don't claim a booking are ignored", () => {

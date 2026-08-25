@@ -5,13 +5,14 @@ import {
   AUTO_SEND_DAILY_CAP,
   AUTO_SEND_KV,
   autoSendCountKey,
-  bumpAutoSendCount,
   decideAutoSend,
   evaluateAutoSendLane,
   getAutoSendCount,
   hasPriorResolvedApproval,
   isAutoSendEnabled,
+  releaseAutoSendSlot,
   setAutoSendEnabled,
+  tryClaimAutoSendSlot,
   type AutoSendGateInput,
 } from "../src/services/auto-send.js";
 import { cdmxDateStr, cdmxToEpoch } from "../src/cron/time.js";
@@ -182,8 +183,32 @@ function fakeDb(
       },
       async run() {
         calls.push({ sql, binds });
+        const key = String(binds[0]);
+        // CAST('muchas' AS INTEGER) is 0 in SQLite — mirror that here.
+        const asInt = (v: string | undefined): number => {
+          const n = Number.parseInt(v ?? "", 10);
+          return Number.isFinite(n) ? n : 0;
+        };
+        if (sql.includes("INSERT OR IGNORE INTO kv")) {
+          if (store.has(key)) return { results: [], meta: { changes: 0 } };
+          store.set(key, String(binds[1]));
+          return { results: [], meta: { changes: 1 } };
+        }
         if (sql.includes("INSERT INTO kv")) {
-          store.set(String(binds[0]), String(binds[1]));
+          store.set(key, String(binds[1]));
+          return { results: [], meta: { changes: 1 } };
+        }
+        if (sql.includes("UPDATE kv SET value = CAST(value AS INTEGER) + 1")) {
+          const cur = asInt(store.get(key));
+          if (cur >= Number(binds[1])) return { results: [], meta: { changes: 0 } };
+          store.set(key, String(cur + 1));
+          return { results: [], meta: { changes: 1 } };
+        }
+        if (sql.includes("UPDATE kv SET value = CAST(value AS INTEGER) - 1")) {
+          const cur = asInt(store.get(key));
+          if (cur <= 0) return { results: [], meta: { changes: 0 } };
+          store.set(key, String(cur - 1));
+          return { results: [], meta: { changes: 1 } };
         }
         return { results: [], meta: { changes: 1 } };
       },
@@ -221,27 +246,59 @@ test("setAutoSendEnabled writes 1/0 to the master switch", async () => {
   assert.equal(f.store.get(AUTO_SEND_KV), "0");
 });
 
-test("bumpAutoSendCount: absent key starts at 1, then increments", async () => {
+test("tryClaimAutoSendSlot: absent key starts at 1, then increments", async () => {
   const f = fakeDb();
-  assert.equal(await bumpAutoSendCount(f.db, DAY_STR), 1);
-  assert.equal(await bumpAutoSendCount(f.db, DAY_STR), 2);
+  assert.equal(await tryClaimAutoSendSlot(f.db, DAY_STR), true);
+  assert.equal(await tryClaimAutoSendSlot(f.db, DAY_STR), true);
   assert.equal(f.store.get(autoSendCountKey(DAY_STR)), "2");
 });
 
-test("bumpAutoSendCount: builds on an existing count and ignores garbage", async () => {
+test("tryClaimAutoSendSlot: builds on an existing count and ignores garbage", async () => {
   const f = fakeDb({ [autoSendCountKey(DAY_STR)]: "7" });
-  assert.equal(await bumpAutoSendCount(f.db, DAY_STR), 8);
+  assert.equal(await tryClaimAutoSendSlot(f.db, DAY_STR), true);
+  assert.equal(await getAutoSendCount(f.db, DAY_STR), 8);
   const g = fakeDb({ [autoSendCountKey(DAY_STR)]: "muchas" });
-  assert.equal(await bumpAutoSendCount(g.db, DAY_STR), 1);
+  assert.equal(await tryClaimAutoSendSlot(g.db, DAY_STR), true);
+  assert.equal(await getAutoSendCount(g.db, DAY_STR), 1);
 });
 
-test("bumpAutoSendCount: the counter rolls over with the CDMX day", async () => {
+test("tryClaimAutoSendSlot: the counter rolls over with the CDMX day", async () => {
   const f = fakeDb();
-  await bumpAutoSendCount(f.db, "2026-08-25");
-  await bumpAutoSendCount(f.db, "2026-08-25");
-  assert.equal(await bumpAutoSendCount(f.db, "2026-08-26"), 1);
+  await tryClaimAutoSendSlot(f.db, "2026-08-25");
+  await tryClaimAutoSendSlot(f.db, "2026-08-25");
+  assert.equal(await tryClaimAutoSendSlot(f.db, "2026-08-26"), true);
   assert.equal(await getAutoSendCount(f.db, "2026-08-25"), 2);
   assert.equal(await getAutoSendCount(f.db, "2026-08-26"), 1);
+});
+
+test("tryClaimAutoSendSlot: one below the cap wins, AT the cap loses", async () => {
+  const below = fakeDb({ [autoSendCountKey(DAY_STR)]: String(AUTO_SEND_DAILY_CAP - 1) });
+  assert.equal(await tryClaimAutoSendSlot(below.db, DAY_STR, AUTO_SEND_DAILY_CAP), true);
+  assert.equal(await getAutoSendCount(below.db, DAY_STR), AUTO_SEND_DAILY_CAP);
+  // …and the very next claim, now AT the cap, is refused without bumping.
+  assert.equal(await tryClaimAutoSendSlot(below.db, DAY_STR, AUTO_SEND_DAILY_CAP), false);
+  assert.equal(await getAutoSendCount(below.db, DAY_STR), AUTO_SEND_DAILY_CAP);
+});
+
+test("tryClaimAutoSendSlot: two concurrent-ish claims for the LAST slot — only one wins", async () => {
+  // The whole point of the atomic claim: the old read-modify-write bump let
+  // both of these read cap-1 and both send.
+  const f = fakeDb({ [autoSendCountKey(DAY_STR)]: String(AUTO_SEND_DAILY_CAP - 1) });
+  const [a, b] = await Promise.all([
+    tryClaimAutoSendSlot(f.db, DAY_STR, AUTO_SEND_DAILY_CAP),
+    tryClaimAutoSendSlot(f.db, DAY_STR, AUTO_SEND_DAILY_CAP),
+  ]);
+  assert.deepEqual([a, b].filter(Boolean).length, 1);
+  assert.equal(await getAutoSendCount(f.db, DAY_STR), AUTO_SEND_DAILY_CAP);
+});
+
+test("releaseAutoSendSlot: gives a claim back, and never goes below zero", async () => {
+  const f = fakeDb();
+  await tryClaimAutoSendSlot(f.db, DAY_STR);
+  await releaseAutoSendSlot(f.db, DAY_STR);
+  assert.equal(await getAutoSendCount(f.db, DAY_STR), 0);
+  await releaseAutoSendSlot(f.db, DAY_STR);
+  assert.equal(await getAutoSendCount(f.db, DAY_STR), 0);
 });
 
 test("getAutoSendCount: unknown day reads as 0", async () => {

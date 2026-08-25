@@ -1,8 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AirtableWriteError,
   buildPatchFields,
   buildLeadFields,
+  createWithDriftRetry,
+  essentialLeadFields,
   schemaSummary,
   leadsMap,
   normalizeMxPhone,
@@ -12,7 +15,7 @@ import {
   DEFAULT_LEADS_MAP,
   type BaseSchema,
 } from "../src/services/airtable.js";
-import type { RuleAction } from "../src/types.js";
+import type { Env, RuleAction } from "../src/types.js";
 
 // ---- buildPatchFields ---------------------------------------------------
 
@@ -210,4 +213,119 @@ test("buildLeadFields stores IG ids verbatim with per-channel Canal", () => {
   const wa = buildLeadFields(null, { phone: "5215512345678" }, map);
   assert.equal(wa[map.phone], "+5215512345678");
   assert.equal(wa[map.source], map.sourceValue);
+});
+
+// ---- createWithDriftRetry (schema drift vs. essential columns) ------------
+//
+// A 422 UNKNOWN_FIELD_NAME normally means "someone renamed a column in the
+// base": we drop that field and retry rather than losing the whole write. But
+// two columns carry the booking itself — the phone and the trial datetime — and
+// silently dropping either would produce a "successful" booking with no date
+// that nobody ever shows up for, so those abort the write instead.
+
+/** Stubs global fetch: every field name in `unknown` 422s once, then 200 OK. */
+function stubAirtable(unknown: string[]): { calls: Record<string, unknown>[] } {
+  const calls: Record<string, unknown>[] = [];
+  const remaining = new Set(unknown);
+  (globalThis as unknown as { fetch: unknown }).fetch = async (
+    _url: string,
+    init?: { body?: string },
+  ): Promise<unknown> => {
+    const body = JSON.parse(init?.body ?? "{}") as { fields: Record<string, unknown> };
+    calls.push(body.fields);
+    const bad = [...remaining].find((f) => f in body.fields);
+    if (bad) {
+      remaining.delete(bad);
+      return {
+        ok: false,
+        status: 422,
+        async json() {
+          return {
+            error: {
+              type: "UNKNOWN_FIELD_NAME",
+              message: `Unknown field name: "${bad}"`,
+            },
+          };
+        },
+        async text() {
+          return "";
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { id: "recNEW1", fields: body.fields };
+      },
+      async text() {
+        return "";
+      },
+    };
+  };
+  return { calls };
+}
+
+const AT_ENV = {
+  AIRTABLE_PAT: "pat-test",
+  AIRTABLE_BASE_ID: "appTEST",
+} as unknown as Env;
+
+function bookingFields(): Record<string, unknown> {
+  const m = leadsMap();
+  return {
+    [m.phone]: "+5215512345678",
+    [m.trialDateTime]: "2026-08-25T19:00:00-06:00",
+    [m.ad]: "anuncio (123)",
+  };
+}
+
+test("createWithDriftRetry drops a NON-essential unknown field and still creates", async () => {
+  const m = leadsMap();
+  const { calls } = stubAirtable([m.ad]);
+
+  const made = await createWithDriftRetry(AT_ENV, "Leads", bookingFields());
+
+  assert.equal(made.id, "recNEW1");
+  assert.equal(calls.length, 2);
+  assert.equal(m.ad in calls[1]!, false); // dropped on the retry…
+  assert.equal(calls[1]![m.trialDateTime], "2026-08-25T19:00:00-06:00"); // …the class survived
+});
+
+test("createWithDriftRetry ABORTS when the trial-datetime column is gone", async () => {
+  const m = leadsMap();
+  const { calls } = stubAirtable([m.trialDateTime]);
+
+  const err = await createWithDriftRetry(AT_ENV, "Leads", bookingFields()).then(
+    () => null,
+    (e: unknown) => e,
+  );
+  if (!(err instanceof AirtableWriteError)) {
+    throw new Error(`expected AirtableWriteError, got ${String(err)}`);
+  }
+  assert.ok(err.message.includes(m.trialDateTime));
+  assert.match(err.message, /booking aborted/);
+  assert.equal(calls.length, 1); // no "successful" dateless retry
+});
+
+test("createWithDriftRetry ABORTS when the phone column is gone", async () => {
+  const m = leadsMap();
+  stubAirtable([m.phone]);
+
+  const err = await createWithDriftRetry(AT_ENV, "Leads", bookingFields()).then(
+    () => null,
+    (e: unknown) => e,
+  );
+  if (!(err instanceof AirtableWriteError)) {
+    throw new Error(`expected AirtableWriteError, got ${String(err)}`);
+  }
+  assert.ok(err.message.includes(m.phone));
+});
+
+test("essentialLeadFields is exactly {phone, trial datetime}", () => {
+  const m = leadsMap();
+  assert.deepEqual(
+    [...essentialLeadFields()].sort(),
+    [m.phone, m.trialDateTime].sort(),
+  );
 });

@@ -61,7 +61,12 @@ import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
 import { channelOf } from "../services/channel.js";
 import { bookingApprovalKey, awaitingReplyKey } from "../services/approvals.js";
-import { bumpAutoSendCount, evaluateAutoSendLane } from "../services/auto-send.js";
+import {
+  evaluateAutoSendLane,
+  getAutoSendCount,
+  releaseAutoSendSlot,
+  tryClaimAutoSendSlot,
+} from "../services/auto-send.js";
 import { CLIENT } from "../client.gen.js";
 import {
   fetchMediaBytes,
@@ -624,19 +629,28 @@ async function routeResult(
       message: result.message,
     });
     if (lane.auto) {
-      // Same delivery path as the wheels-off send: stores the outbound row and
-      // arms the nudge drip. A closed window returns false — deliverOrDraft
-      // already queued the approval, so we neither count nor announce it.
-      const delivered = await deliverOrDraft(
-        env,
-        ports,
-        ctx,
-        result.message,
-        "high",
-        history,
-      );
-      if (delivered) {
-        const dailyCount = await bumpAutoSendCount(env.DB, lane.day);
+      // The cap is claimed ATOMICALLY here — after every other gate passed and
+      // immediately before delivery — so two concurrent webhooks can never both
+      // take the last slot of the day. Losing the claim falls through to the
+      // approval queue exactly like the pure gate's `cap` block would.
+      if (await tryClaimAutoSendSlot(env.DB, lane.day, lane.cap)) {
+        // Same delivery path as the wheels-off send: stores the outbound row and
+        // arms the nudge drip. A closed window returns false — deliverOrDraft
+        // already queued the approval, so we give the slot back and announce
+        // nothing.
+        const delivered = await deliverOrDraft(
+          env,
+          ports,
+          ctx,
+          result.message,
+          "high",
+          history,
+        );
+        if (!delivered) {
+          await releaseAutoSendSlot(env.DB, lane.day);
+          return;
+        }
+        const dailyCount = await getAutoSendCount(env.DB, lane.day);
         // FYI only — never blocks the reply that already landed.
         try {
           await ports.slack.postAutoSentFyi({
@@ -648,8 +662,8 @@ async function routeResult(
         } catch (err) {
           console.error("[inbound] auto-send FYI failed", phone, err);
         }
+        return;
       }
-      return;
     }
   }
 
