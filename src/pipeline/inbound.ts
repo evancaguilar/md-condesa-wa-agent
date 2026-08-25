@@ -53,6 +53,7 @@ import {
   firstReplyDecision,
   firstReplyFor,
   firstReplyKey,
+  hasRealQuestion,
   matchCampaignTiered,
   normalizeText,
 } from "./campaigns.js";
@@ -426,7 +427,14 @@ export async function processInbound(
               ? `⚡ Nuevo lead — campaña «${matchedCampaign.name}» (${msg.phone}). Respuesta automática enviada; la IA contesta a partir de su próximo mensaje.`
               : `🔁 Lead volvió a llegar por la campaña «${matchedCampaign.name}» (${msg.phone}). Bienvenida reenviada.`;
           ctx.waitUntil(ports.slack.postNote(note).catch(() => {}));
-          return;
+          // The canned welcome answers the AD, not the lead. Audit 2026-08:
+          // 4/20 conversations in chunk 00 had their opening question
+          // swallowed right here ("¿Es apto para niños?", "¿costo?") — the
+          // lead got the welcome and never an answer. When the first message
+          // carries a real question, fall through so they get BOTH: the
+          // instant welcome now, plus a real reply through the normal
+          // debounce → brain → approval path.
+          if (!hasRealQuestion(body, matchedCampaign.trigger_phrase)) return;
         } catch (err) {
           // WindowClosed can't happen here (last_inbound was just touched); any
           // other send failure degrades to a normal AI reply this turn.

@@ -6,6 +6,7 @@ import {
   firstReplyDecision,
   firstReplyFor,
   firstReplyKey,
+  hasRealQuestion,
   matchCampaign,
   matchCampaignByAdId,
   matchCampaignByAdText,
@@ -389,4 +390,56 @@ test("adIdToLearn: malformed source ids are rejected (SQL LIKE safety)", () => {
   assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, "12%3"), null);
   assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, "12 3"), null);
   assert.equal(adIdToLearn({ id: 1, kind: "ad_text" }, "a".repeat(200)), null);
+});
+
+// ---- hasRealQuestion -----------------------------------------------------
+// Audit 2026-08: 4/20 conversations in chunk 00 had their opening question
+// swallowed by the campaign first-reply gate (canned welcome, then silence).
+
+const TRIGGER = "Hola, quiero información del Reto Gladiador";
+
+test("hasRealQuestion: the trigger phrase alone is not a question", () => {
+  assert.equal(hasRealQuestion(TRIGGER, TRIGGER), false);
+});
+
+test("hasRealQuestion: a Meta prefill variant without the greeting is still boilerplate", () => {
+  assert.equal(hasRealQuestion("Quiero información del Reto Gladiador", TRIGGER), false);
+});
+
+test("hasRealQuestion: any '?' counts", () => {
+  assert.equal(hasRealQuestion(`${TRIGGER}. ¿costo?`, TRIGGER), true);
+  assert.equal(hasRealQuestion("Es apto para niños?", TRIGGER), true);
+});
+
+test("hasRealQuestion: a bare '¿' counts too", () => {
+  assert.equal(hasRealQuestion("¿costo", TRIGGER), true);
+});
+
+test("hasRealQuestion: enough extra words beyond the trigger counts", () => {
+  assert.equal(
+    hasRealQuestion(`${TRIGGER} me interesa para mi hijo de 7 años`, TRIGGER),
+    true,
+  );
+});
+
+test("hasRealQuestion: a few extra characters do not count", () => {
+  assert.equal(hasRealQuestion(`${TRIGGER}!! gracias`, TRIGGER), false);
+});
+
+test("hasRealQuestion: punctuation/diacritic-only differences do not count", () => {
+  assert.equal(
+    hasRealQuestion("¡Hola! Quiero informacion del Reto Gladiador.", TRIGGER),
+    false,
+  );
+});
+
+test("hasRealQuestion: a long unprompted message with no trigger counts", () => {
+  assert.equal(
+    hasRealQuestion("Hola, vi el anuncio y quiero saber si tienen clases para bebes", null),
+    true,
+  );
+});
+
+test("hasRealQuestion: a short message with no trigger does not count", () => {
+  assert.equal(hasRealQuestion("Hola", null), false);
 });

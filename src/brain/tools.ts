@@ -21,7 +21,7 @@ export interface AnthropicTool {
 const sendReply: AnthropicTool = {
   name: "send_reply",
   description:
-    "Terminal tool — end EVERY turn with exactly one call. Sends (or drafts) the reply to the lead on WhatsApp. Mirror the lead's language. Set confidence 'low' when unsure, when the answer requires a price/policy not in the KB, or when anything feels off — 'low' routes to human approval instead of auto-sending.",
+    "Terminal tool — end EVERY turn with exactly one call. Sends (or drafts) the reply to the lead on WhatsApp. Mirror the lead's language. Confidence: 'high' is the default for a routine reply; drop to 'low' only when a box of the confidence checklist in the system prompt fails — 'low' routes to human approval instead of auto-sending, and can delay the lead up to 12 hours.",
   input_schema: {
     type: "object",
     properties: {
@@ -35,7 +35,7 @@ const sendReply: AnthropicTool = {
         type: "string",
         enum: ["high", "low"],
         description:
-          "'high' only when fully grounded in the KB and safe to auto-send. Otherwise 'low'.",
+          "'high' is the DEFAULT for a routine reply: use it when the 8-box confidence checklist in the system prompt passes. 'low' when ANY box fails (unbacked fact, no schedule row, unapproved price, unbacked booking claim, a 'te confirmo' promise, an escalation trigger, you had to guess, or capacity/other-location/first minor booking). Low is NOT free — it routes to human approval and can delay the lead up to 12 hours.",
       },
       escalation_reason: {
         type: "string",

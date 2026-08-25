@@ -31,7 +31,10 @@ import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, "..");
-const TOKEN_LIMIT = 9000;
+// Raised 9000 → 11000 with the 2026-08 conversation-audit KB pack (Friday /
+// Sunday / Mini-MT schedule guards + "Datos que preguntan seguido"). Both
+// system blocks carry a 1h-TTL cache_control, so the cost delta is marginal.
+const TOKEN_LIMIT = 11000;
 
 async function main() {
   const clientId = process.env.CLIENT || "md-condesa";
