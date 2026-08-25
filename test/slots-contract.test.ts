@@ -50,23 +50,32 @@ test("SLOTS: mini Muay Thai bookable under BOTH audiences", () => {
   }
 });
 
-// ---- Sparring: carried, never bookable ------------------------------------
+// ---- Sparring hours: bookable again (owner policy, 2026-08-25) ------------
+// The professor pulls first-timers aside for a mini-lesson while the group
+// spars, so jue 6/7 pm and sáb 11 am take trials like any other class. No
+// generated slot sets `trial: false` any more — the mechanism itself is still
+// covered by the hand-authored fixtures in brain-slot.test.ts.
 
-test("SLOTS: Muay Thai sparring (jue 18/19, sáb 11) is rejected as SPARRING", () => {
+test("SLOTS: Muay Thai sparring hours (jue 18/19, sáb 11) are bookable", () => {
   for (const [date, time] of [
     [THU, "18:00"],
     [THU, "19:00"],
     [SAT, "11:00"],
   ]) {
     const r = validateSlot(date, time, "adult", "muay", SLOTS);
-    assert.equal(r.ok, false, `${date} ${time} should not be bookable`);
-    assert.match(r.reason ?? "", /SPARRING/);
-    assert.ok((r.alternatives ?? []).length > 0, `${date} ${time} needs alternatives`);
-    assert.ok(!(r.alternatives ?? []).includes(time), "sparring time offered back");
+    assert.equal(r.ok, true, `${date} ${time} should be bookable`);
   }
 });
 
-test("SLOTS: sparring is Muay-Thai-only — Thu 18:00 Jiu-Jitsu still books", () => {
+test("SLOTS: no generated slot is closed to trials", () => {
+  assert.equal(
+    SLOTS.filter((s) => s.trial === false).length,
+    0,
+    "sparring hours reopened — nothing should carry trial:false",
+  );
+});
+
+test("SLOTS: Thu 18:00 Jiu-Jitsu still books alongside the Muay Thai hour", () => {
   assert.equal(validateSlot(THU, "18:00", "adult", "jiu", SLOTS).ok, true);
 });
 
@@ -96,6 +105,7 @@ test("SLOTS: unknown discipline gets the self-defense corrective", () => {
   const r = validateSlot(SAT, "09:00", "adult", "defensa personal (mujeres)", SLOTS);
   assert.equal(r.ok, false);
   assert.match(r.reason ?? "", /not a bookable discipline/);
-  assert.match(r.reason ?? "", /jiu/);
-  assert.match(r.reason ?? "", /muay/);
+  // Owner policy 2026-08-25: route self-defense to all four disciplines.
+  assert.match(r.reason ?? "", /foundations of MMA/);
+  assert.match(r.reason ?? "", /jiu, muay, mma or box/);
 });

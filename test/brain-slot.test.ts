@@ -18,9 +18,12 @@ const SCHED: Slot[] = [
   { weekday: 5, time: "11:00", discipline: "jiu", audience: "kid" },
 ];
 
-// Sparring: real classes that exist on the grid but never take a trial.
-// Thu(3) 18:00 muay is sparring, 19:00 muay is a normal class, and jiu runs at
-// the same 18:00 hour. Sat(5) 11:00 muay is sparring with nothing else that day.
+// `trial: false`: real classes that exist on the grid but never take a trial.
+// The compiled grid no longer sets the flag (the Muay Thai sparring hours
+// reopened to trials — owner, 2026-08-25), so these hand-authored fixtures are
+// what keeps the mechanism covered end to end.
+// Thu(3) 18:00 muay is closed, 19:00 muay is a normal class, and jiu runs at
+// the same 18:00 hour. Sat(5) 11:00 muay is closed with nothing else that day.
 const SPAR: Slot[] = [
   { weekday: 3, time: "18:00", discipline: "muay", audience: "adult", trial: false },
   { weekday: 3, time: "19:00", discipline: "muay", audience: "adult" },
@@ -80,23 +83,23 @@ test("validateSlot rejects a malformed date", () => {
   assert.equal(r.ok, false);
 });
 
-// ---- sparring slots (trial: false) ---------------------------------------
+// ---- slots closed to trials (trial: false) --------------------------------
 
-test("validateSlot never books a sparring slot, and says why", () => {
+test("validateSlot never books a trial:false slot, and says why", () => {
   // 2026-08-27 is a Thursday.
   const r = validateSlot("2026-08-27", "18:00", "adult", "muay", SPAR);
   assert.equal(r.ok, false);
   assert.match(r.reason ?? "", /SPARRING/);
 });
 
-test("validateSlot's alternatives exclude sparring slots", () => {
+test("validateSlot's alternatives exclude trial:false slots", () => {
   const r = validateSlot("2026-08-27", "18:00", "adult", "muay", SPAR);
-  // 19:00 is bookable; the requested 18:00 sparring must not be offered back.
+  // 19:00 is bookable; the requested 18:00 closed hour must not be offered back.
   assert.deepEqual(r.alternatives, ["19:00"]);
 });
 
-test("sparring with no bookable class that day offers another day/discipline", () => {
-  // 2026-08-29 is a Saturday — 11:00 muay is sparring and nothing else runs.
+test("a trial:false slot with nothing else that day offers another day/discipline", () => {
+  // 2026-08-29 is a Saturday — 11:00 muay is closed and nothing else runs.
   const r = validateSlot("2026-08-29", "11:00", "adult", "muay", SPAR);
   assert.equal(r.ok, false);
   assert.match(r.reason ?? "", /SPARRING/);
@@ -105,7 +108,7 @@ test("sparring with no bookable class that day offers another day/discipline", (
 });
 
 test("a co-timed class in another discipline still validates", () => {
-  // Thu 18:00 muay is sparring, but Thu 18:00 jiu is a normal class.
+  // Thu 18:00 muay is closed, but Thu 18:00 jiu is a normal class.
   assert.equal(validateSlot("2026-08-27", "18:00", "adult", "jiu", SPAR).ok, true);
 });
 
@@ -121,8 +124,9 @@ test("validateSlot rejects an unknown discipline with a corrective", () => {
   const r = validateSlot("2026-07-06", "18:00", "adult", "defensa personal", SCHED);
   assert.equal(r.ok, false);
   assert.match(r.reason ?? "", /not a bookable discipline/);
-  assert.match(r.reason ?? "", /jiu/);
-  assert.match(r.reason ?? "", /muay/);
+  // Self-defense routes to all four disciplines (owner policy, 2026-08-25).
+  assert.match(r.reason ?? "", /foundations of MMA/);
+  assert.match(r.reason ?? "", /jiu, muay, mma or box/);
 });
 
 test("isKnownDiscipline tracks the client's service keys", () => {

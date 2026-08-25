@@ -35,12 +35,14 @@ test("nextTrialSlot: 2h lead time skips classes that are too close", () => {
   assert.equal(slot?.label, "mañana martes 4:00 pm");
 });
 
-test("nextTrialSlot: Thursday evening adult Muay Thai never lands on sparring", () => {
-  // Thu 18:00 + 19:00 muay are trial:false (sparring) → jump to Friday 07:00.
+test("nextTrialSlot: Thursday evening adult Muay Thai proposes the sparring hour", () => {
+  // Owner policy 2026-08-25: jue 18:00 + 19:00 muay take trials again (the
+  // professor gives first-timers a mini-lesson). 18:00 is inside the 2h lead
+  // from 17:00, so the proposal is the same evening at 19:00.
   const slot = nextTrialSlot("Muay Thai", "adult", THU(17));
-  assert.equal(slot?.date, "2026-08-28");
-  assert.equal(slot?.time, "07:00");
-  assert.equal(slot?.label, "mañana viernes 7:00 am");
+  assert.equal(slot?.date, "2026-08-27");
+  assert.equal(slot?.time, "19:00");
+  assert.equal(slot?.label, "hoy a las 7:00 pm");
 });
 
 test("nextTrialSlot: Sunday kid lead never gets a Sunday slot", () => {
@@ -81,11 +83,13 @@ test("nextTrialSlot: empty schedule → null (copy falls back to generic)", () =
   assert.equal(nextTrialSlot("muay", "adult", MON(10), []), null);
 });
 
+// The compiled grid no longer flags anything `trial: false`; this hand-authored
+// grid keeps the skip logic covered.
 test("nextTrialSlot: a trial:false-only grid yields nothing", () => {
-  const sparringOnly = [
+  const closedOnly = [
     { weekday: 0, time: "18:00", discipline: "muay", audience: "adult" as const, trial: false },
   ];
-  assert.equal(nextTrialSlot("muay", "adult", MON(10), sparringOnly), null);
+  assert.equal(nextTrialSlot("muay", "adult", MON(10), closedOnly), null);
 });
 
 test("formatSlotLabel: hoy / mañana / el <día>, es + en", () => {

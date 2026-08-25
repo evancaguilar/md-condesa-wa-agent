@@ -202,9 +202,11 @@ export interface ValidateResult {
  * True iff a BOOKABLE class of `discipline`/`audience` runs on the weekday of
  * `trialDate` at `trialTime`. On failure, returns a corrective reason (+
  * same-day alternatives) so the executor can hand the model a useful
- * tool_result. Slots flagged `trial: false` (Muay Thai sparring) exist in the
- * schedule but never take a trial — they get their own reason instead of a
- * misleading "no such class", and never show up as an alternative.
+ * tool_result. Slots flagged `trial: false` exist in the schedule but never take
+ * a trial — they get their own reason instead of a misleading "no such class",
+ * and never show up as an alternative. (No generated slot carries the flag since
+ * the owner reopened the Muay Thai sparring hours to trials on 2026-08-25; the
+ * branch below stays as the generic handler for any future closed class.)
  *
  * `schedule` defaults to the generated SLOTS but is injectable for tests.
  */
@@ -224,12 +226,12 @@ export function validateSlot(
   const aud = audience.trim().toLowerCase();
 
   if (!isKnownDiscipline(disc)) {
-    // "defensa personal" is the recurring one: it's a benefit of Jiu-Jitsu and
-    // Muay Thai, not a class on the grid, and the model sometimes books it.
+    // "defensa personal" is the recurring one: it's a benefit of every
+    // discipline, not a class on the grid, and the model sometimes books it.
     const keys = CLIENT.services.map((s) => s.key);
     const selfDefense =
       keys.includes("jiu") && keys.includes("muay")
-        ? ` Self-defense ("defensa personal", incl. para mujeres) is taught INSIDE Jiu-Jitsu and Muay Thai — pick jiu or muay and retry.`
+        ? ` Self-defense ("defensa personal", incl. para mujeres) is taught through ALL our disciplines — they are the foundations of MMA, the best self-defense there is. Pick jiu, muay, mma or box and retry.`
         : "";
     return {
       ok: false,
@@ -247,8 +249,9 @@ export function validateSlot(
 
   const alternatives = [...new Set(bookable.map((s) => s.time))].sort();
 
-  // The requested hour exists but is a sparring session — say so, or the model
+  // The requested hour exists but is closed to trials — say so, or the model
   // just re-proposes it (the KB lists it) or tells the lead it doesn't exist.
+  // Inert today: nothing in the generated grid sets `trial: false`.
   if (sameDayDisc.some((s) => s.time === time && s.trial === false)) {
     const tail = alternatives.length
       ? ` Same-day trial options: ${alternatives.join(", ")} CDMX.`

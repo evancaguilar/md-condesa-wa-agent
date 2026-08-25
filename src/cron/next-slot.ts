@@ -2,8 +2,9 @@
 //
 // The ONLY source of schedule truth here is the generated SLOTS
 // (src/brain/slots.gen.ts, weekday 0=Mon … 6=Sun) — never a hand-written table,
-// never a guess. Slots flagged `trial: false` (Muay Thai sparring) exist on the
-// grid but never take a trial, so they are skipped.
+// never a guess. Slots flagged `trial: false` exist on the grid but never take a
+// trial, so they are skipped. (Nothing in the generated grid carries the flag
+// since the Muay Thai sparring hours reopened to trials — owner, 2026-08-25.)
 //
 // Everything is pure over (discipline, audience, nowEpoch, schedule) so the
 // nudge copy can be unit-tested with a fake clock.
@@ -58,7 +59,8 @@ const WEEKDAY_EN = [
  *
  * - `discipline`: the lead's discipline (free text — "BJJ", "Muay Thai", "baby"
  *   are all fine). null, empty, or something that isn't a bookable service
- *   ("defensa personal") ⇒ any discipline of that audience.
+ *   ("defensa personal" — taught through all four disciplines, never bookable
+ *   by that name) ⇒ any discipline of that audience.
  * - `audience`: "adult" or "kid" — kids/baby leads must never be offered an
  *   adult class and vice versa.
  * - today counts only when the class is ≥ SLOT_LEAD_SECONDS away.

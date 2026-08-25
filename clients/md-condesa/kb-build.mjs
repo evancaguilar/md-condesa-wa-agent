@@ -184,9 +184,14 @@ function parentParticipates(cls) {
  * (jiu/muay/mma/box/baby) so validateSlot can match the model's tool input.
  *
  * Two internal markers ride along:
- *   - `trial: false` → the class exists but never takes a trial booking
- *     (Muay Thai sparring, `s: true` on the site). Carried through to the
- *     generated slots so validateSlot can say WHY instead of "no such class".
+ *   - `trial: false` → the class exists but never takes a trial booking.
+ *     Carried through to the generated slots so validateSlot can say WHY
+ *     instead of "no such class". POLICY CHANGE (owner, 2026-08-25): the Muay
+ *     Thai sparring hours (`s: true` on the site — jue 6/7 pm, sáb 11 am) are
+ *     bookable again; the professor pulls first-timers aside for a mini-lesson
+ *     while the group spars. So NO slot sets this flag today — the mechanism
+ *     stays wired end to end (here → renderSlotsTs → validateSlot) for the next
+ *     class that needs it.
  *   - `dual: true`   → parent-participation class; expandDualAudience() below
  *     mirrors it into the other audience. Stripped before emission.
  */
@@ -202,9 +207,8 @@ function buildSlots(schedule) {
         const prev = byKey.get(key);
         if (prev) {
           // Same (day, time, program, audience) twice: read it the permissive
-          // way — a regular class at that hour makes the slot bookable even if
-          // a sparring group shares the mat.
-          if (!cls.s) delete prev.trial;
+          // way — any class at that hour makes the slot bookable.
+          delete prev.trial;
           if (parentParticipates(cls)) prev.dual = true;
           continue;
         }
@@ -214,7 +218,8 @@ function buildSlots(schedule) {
           discipline: cls.n, // jiu|muay|mma|box|baby
           audience, // 'adult'|'kid'
         };
-        if (cls.s) out.trial = false;
+        // No `out.trial = false` here: sparring hours take trials again
+        // (owner, 2026-08-25 — see the header note).
         if (parentParticipates(cls)) out.dual = true;
         byKey.set(key, out);
       }
