@@ -16,6 +16,8 @@ import { runDueFollowups, syncBookings, syncStudents } from "./followups.js";
 import { runBudgetReport } from "./budget.js";
 import { maybeRunEditTuning } from "../services/edit-tuner.js";
 import { runBookingRecon } from "./booking-recon.js";
+import { runNightlyAudit } from "./nightly-audit.js";
+import { KB } from "../kb.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
 import { kvGet, kvSet } from "../db/queries.js";
@@ -77,6 +79,23 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     await safe("syncBookings", () =>
       syncBookings(env, undefined, { slack: cronDeps.slack }),
     );
+  }
+
+  // Once daily at 05:00 CDMX (kv date mark): the OPUS nightly audit of the
+  // last 24h of conversations, posted to Slack before the team wakes up.
+  // Report-only — it never touches leads, campaigns, or code.
+  if (p.hour === 5) {
+    const today = cdmxDateStr(nowEpoch);
+    if ((await kvGet(env.DB, "nightly_audit_mark")) !== today) {
+      await kvSet(env.DB, "nightly_audit_mark", today);
+      await safe("nightlyAudit", () =>
+        runNightlyAudit(env, {
+          postNote: async (_env, text) => cronDeps.slack.postNote(text),
+          kb: KB,
+          now: nowEpoch,
+        }),
+      );
+    }
   }
 
   // Once daily at 10:00 CDMX (guarded by a kv date mark).
