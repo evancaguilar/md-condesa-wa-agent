@@ -114,6 +114,8 @@ import {
   editAndSend,
   discardApproval,
   type ApprovalResult,
+  surenessKey,
+  guardedApprovalKey,
 } from "../services/approvals.js";
 import { runKbChat, applyProposal, accrueChatUsage } from "../services/kb-editor.js";
 import { auditHumanSend, parseBookingFromText } from "../services/booking-guard.js";
@@ -1197,6 +1199,10 @@ async function handleApprovalsList(env: Env): Promise<Response> {
   const items = await Promise.all(
     pending.map(async (a) => {
       const contact = await getContact(env.DB, a.phone);
+      // kv side-channels ride along so the panel (and best-bet debugging) can
+      // see what the timeout cron will see.
+      const surenessRaw = await kvGet(env.DB, surenessKey(a.id));
+      const surenessNum = Number(surenessRaw);
       return {
         id: a.id,
         phone: a.phone,
@@ -1204,6 +1210,9 @@ async function handleApprovalsList(env: Env): Promise<Response> {
         draft: a.draft,
         context: a.context,
         createdAt: a.created_at,
+        sureness:
+          surenessRaw !== null && Number.isFinite(surenessNum) ? surenessNum : null,
+        guarded: (await kvGet(env.DB, guardedApprovalKey(a.id))) === "1",
       };
     }),
   );
@@ -1766,6 +1775,7 @@ function brainResultJson(result: BrainResult): Record<string, unknown> {
         message: result.message,
         language: result.language,
         confidence: result.confidence,
+        sureness: result.sureness ?? null,
       };
     case "draft":
       return {
@@ -1773,6 +1783,7 @@ function brainResultJson(result: BrainResult): Record<string, unknown> {
         message: result.message,
         language: result.language,
         confidence: result.confidence,
+        sureness: result.sureness ?? null,
         reason: result.reason,
       };
     case "escalate":

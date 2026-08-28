@@ -567,6 +567,18 @@ async function routeResult(
   result: BrainResult,
   history: StoredMessage[],
 ): Promise<void> {
+  // Belt-and-braces sentinel stop (2026-08-27: a lead RECEIVED a literal
+  // "<sin_respuesta>"). The welcome-turn early return upstream is the normal
+  // path; if a sentinel reaches here through any other route — a retried
+  // webhook, a turn where justSentWelcome was lost — silence is what the
+  // model asked for, and the literal token must never hit WhatsApp.
+  if (
+    (result.action === "send" || result.action === "draft") &&
+    isNoReplySentinel(result.message)
+  ) {
+    console.log(`[routeResult] no-reply sentinel suppressed for ${ctx.phone}`);
+    return;
+  }
   const phone = ctx.phone;
 
   if (result.action === "escalate") {

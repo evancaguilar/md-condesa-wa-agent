@@ -22,6 +22,7 @@ import {
   insertEdit,
   kvGet,
   kvSet,
+  kvClaimIfAbsentOrOlder,
   releaseHoldingClaim,
   resolveApproval,
   setContactStatus,
@@ -801,6 +802,20 @@ export async function runApprovalTimeouts(
         // (approved/edited/taken over) since the snapshot, so the lead already
         // has — or is about to get — a real answer. Stay quiet.
         if (!(await queries.claimHoldingSend(env.DB, a.id))) continue;
+        // Per-PHONE cap on top of the per-approval flag: rapid-fire inbound
+        // messages each spawn their own approval, and on 2026-08-27 a lead got
+        // THREE "¡Gracias por escribir!" in a row. One holding line per phone
+        // per 45 min is plenty; the claim above already stops this approval
+        // from retrying, so losing the phone-level claim just stays quiet.
+        if (
+          !(await kvClaimIfAbsentOrOlder(
+            env.DB,
+            `holding_line:${a.phone}`,
+            now,
+            45 * 60,
+          ))
+        )
+          continue;
         // Last look before an irreversible WhatsApp send: a human can resolve
         // the draft in the seconds between the claim and the send, and then the
         // holding line ("ahorita te confirmo") lands AFTER the real answer.
