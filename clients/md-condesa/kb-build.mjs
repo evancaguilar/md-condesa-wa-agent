@@ -269,7 +269,12 @@ function withBabyTrialSlots(slots) {
  */
 function expandDualAudience(slots) {
   const keyOf = (s) => `${s.weekday}|${s.time}|${s.discipline}|${s.audience}`;
-  const strip = ({ dual, ...rest }) => rest;
+  // `dual` is build-internal; what ships is `pp: true` (parent participation)
+  // on BOTH sides of the mirror. validateSlot accepts pp slots for either
+  // audience, but nextTrialSlot must never PROPOSE one to a generic lead —
+  // that is how adults got nudged with "Baby Fight Club hoy 11:00 am"
+  // (2026-08-26 incident).
+  const strip = ({ dual, ...rest }) => (dual ? { ...rest, pp: true } : rest);
   const seen = new Set(slots.map(keyOf));
   const out = slots.map(strip);
   for (const s of slots) {

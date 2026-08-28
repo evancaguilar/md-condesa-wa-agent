@@ -11,6 +11,7 @@ import {
   markFollowup,
   dueFollowups,
   kvGet,
+  phoneForRecordId,
   kvSet,
   kvDelete,
   getContact,
@@ -19,6 +20,10 @@ import {
   cancelFollowups,
   lastBotMessage,
 } from "../db/queries.js";
+import {
+  bookingRecordedKey,
+  parseBookingRecordedMarker,
+} from "../services/booking-core.js";
 import { cancelFollowupsByKinds, getCampaign } from "../db/queries-admin.js";
 import {
   sendText,
@@ -635,7 +640,21 @@ export async function syncBookings(
       const trialEpoch = Math.floor(Date.parse(rec.trialDateTimeIso) / 1000);
       if (Number.isFinite(trialEpoch) && trialEpoch > nowSec()) {
         await upsertContact(env.DB, { phone, name: rec.name ?? null });
-        await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso);
+        // trial_confirm is ONLY for bookings this system has never seen (a
+        // web-form booker). A record whose sequence already exists, or a phone
+        // with a recent booking_recorded marker (chat/manual booking — the
+        // confirmation was already sent inline), must not get a second
+        // confirmation + video ~15 min later, which is exactly what every
+        // in-chat booking got on 2026-08-25/26.
+        const knownRecord = (await phoneForRecordId(env.DB, rec.id)) !== null;
+        const marker = parseBookingRecordedMarker(
+          await kvGet(env.DB, bookingRecordedKey(phone)),
+        );
+        const recentlyConfirmedInline =
+          marker !== null && nowSec() - marker.ts < 72 * 3600;
+        await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso, {
+          includeConfirm: !knownRecord && !recentlyConfirmedInline,
+        });
         await cancelFollowupsByKinds(env.DB, phone, ALL_NUDGE_KINDS);
         scheduled++;
       }

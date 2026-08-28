@@ -223,6 +223,22 @@ export async function finalizeBooking(
   // null = an explicit "someone else already armed this slot's sequence".
   const sequenceKey = opts?.sequenceKey === undefined ? b.recordId : opts.sequenceKey;
 
+  // "This phone has a REAL Airtable booking" marker. registerBooking writes it
+  // earlier (crash-safety), but BRAIN bookings reach finalize directly — and
+  // without the marker every post-booking "nos vemos mañana" ack was demoted
+  // to a low draft and its approval raised a false capture card (the José
+  // Luis double-registration, 2026-08-26). Last write wins on multi-person
+  // turns; any recent marker backs the phone's claims.
+  try {
+    await deps.kvSet(
+      env.DB,
+      bookingRecordedKey(b.phone),
+      bookingRecordedValue(deps.now(), b.trialDate, b.trialTime),
+    );
+  } catch (err) {
+    console.error("[finalizeBooking] recorded marker failed", err);
+  }
+
   // EVERY step gets its own try/catch: a Slack outage must never cost the lead
   // their anti-no-show reminders (the step that actually gets people to show
   // up), and a failed qualification write must never skip the CRM sync. They

@@ -17,13 +17,15 @@ const MON = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 24, h, m, 0);
 const THU = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 27, h, m, 0);
 const SUN = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 30, h, m, 0);
 
-test("nextTrialSlot: Monday morning, kid Muay Thai → today's 15:15", () => {
+test("nextTrialSlot: Monday morning, kid Muay Thai → today's 16:00 Kids", () => {
+  // 15:15 exists on the grid but is Mini Muay Thai (3–5, parent-participation,
+  // pp: true) — a generic kid pick must land on the Kids class, not Mini.
   const slot = nextTrialSlot("muay", "kid", MON(10));
   assert.equal(slot?.date, "2026-08-24");
   assert.equal(slot?.weekday, 0);
-  assert.equal(slot?.time, "15:15");
+  assert.equal(slot?.time, "16:00");
   assert.equal(slot?.discipline, "muay");
-  assert.equal(slot?.label, "hoy a las 3:15 pm");
+  assert.equal(slot?.label, "hoy a las 4:00 pm");
 });
 
 test("nextTrialSlot: 2h lead time skips classes that are too close", () => {
@@ -50,8 +52,8 @@ test("nextTrialSlot: Sunday kid lead never gets a Sunday slot", () => {
   assert.ok(slot);
   assert.notEqual(slot?.weekday, 6); // 6 = Sunday
   assert.equal(slot?.date, "2026-08-31"); // the following Monday
-  assert.equal(slot?.time, "15:15");
-  assert.equal(slot?.label, "mañana lunes 3:15 pm");
+  assert.equal(slot?.time, "16:00"); // Kids Muay Thai, never the pp Mini class
+  assert.equal(slot?.label, "mañana lunes 4:00 pm");
 });
 
 test("nextTrialSlot: kid audience never returns an adult class", () => {
@@ -76,7 +78,27 @@ test("nextTrialSlot: unbookable discipline text falls back to any class", () => 
   const slot = nextTrialSlot("defensa personal", "adult", MON(10));
   assert.ok(slot, "should still propose something");
   assert.equal(slot?.date, "2026-08-24");
-  assert.equal(slot?.time, "15:15");
+  // 15:15 (Mini MT, pp) is skipped: the fallback lands on a REAL adult class.
+  assert.equal(slot?.time, "18:00");
+  assert.equal(slot?.discipline, "jiu");
+});
+
+// Regression pin for the 2026-08-26 incident: Wednesday-morning adult nudges
+// proposed "Baby Fight Club hoy a las 11:00 am" because the dual-audience
+// (pp) baby mirror looked like the soonest adult slot.
+test("nextTrialSlot: generic picks never propose a parent-participation slot", () => {
+  const WED = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 26, h, m, 0);
+  for (const audience of ["adult", "kid"] as const) {
+    const slot = nextTrialSlot(null, audience, WED(8, 15));
+    assert.ok(slot);
+    assert.notEqual(slot?.discipline, "baby", JSON.stringify(slot));
+    assert.notEqual(slot?.time, "15:15", JSON.stringify(slot));
+    assert.notEqual(slot?.time, "13:15", JSON.stringify(slot));
+  }
+  // An EXPLICIT baby pick still lands on the baby grid (Wed 11:00).
+  const baby = nextTrialSlot("baby", "kid", WED(8, 15));
+  assert.equal(baby?.discipline, "baby");
+  assert.equal(baby?.time, "11:00");
 });
 
 test("nextTrialSlot: empty schedule → null (copy falls back to generic)", () => {

@@ -1,5 +1,5 @@
 {
-  "version": "2026-08-25+ac3a7a3202b2",
+  "version": "2026-08-28+670917722bc8",
   "slots": [
     {
       "weekday": 0,
@@ -53,7 +53,8 @@
       "weekday": 0,
       "time": "15:15",
       "discipline": "muay",
-      "audience": "kid"
+      "audience": "kid",
+      "pp": true
     },
     {
       "weekday": 0,
@@ -257,7 +258,8 @@
       "weekday": 2,
       "time": "15:15",
       "discipline": "muay",
-      "audience": "kid"
+      "audience": "kid",
+      "pp": true
     },
     {
       "weekday": 2,
@@ -503,7 +505,8 @@
       "weekday": 5,
       "time": "13:15",
       "discipline": "muay",
-      "audience": "kid"
+      "audience": "kid",
+      "pp": true
     },
     {
       "weekday": 5,
@@ -527,43 +530,50 @@
       "weekday": 2,
       "time": "11:00",
       "discipline": "baby",
-      "audience": "adult"
+      "audience": "adult",
+      "pp": true
     },
     {
       "weekday": 5,
       "time": "14:00",
       "discipline": "baby",
-      "audience": "adult"
+      "audience": "adult",
+      "pp": true
     },
     {
       "weekday": 0,
       "time": "15:15",
       "discipline": "muay",
-      "audience": "adult"
+      "audience": "adult",
+      "pp": true
     },
     {
       "weekday": 2,
       "time": "15:15",
       "discipline": "muay",
-      "audience": "adult"
+      "audience": "adult",
+      "pp": true
     },
     {
       "weekday": 5,
       "time": "13:15",
       "discipline": "muay",
-      "audience": "adult"
+      "audience": "adult",
+      "pp": true
     },
     {
       "weekday": 2,
       "time": "11:00",
       "discipline": "baby",
-      "audience": "kid"
+      "audience": "kid",
+      "pp": true
     },
     {
       "weekday": 5,
       "time": "14:00",
       "discipline": "baby",
-      "audience": "kid"
+      "audience": "kid",
+      "pp": true
     }
   ]
 }

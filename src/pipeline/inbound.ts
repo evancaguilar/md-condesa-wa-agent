@@ -22,6 +22,7 @@ import {
   hasOutboundMessage,
   insertMessageIfNew,
   isBotEnabled,
+  kvGet,
   kvSet,
   kvSetIfAbsent,
   kvClaimIfAbsentOrOlder,
@@ -83,10 +84,13 @@ import {
 } from "../services/media.js";
 import { lookupAdMeta } from "../services/ad-meta.js";
 import {
+  bookingRecordedKey,
   finalizeBooking,
+  parseBookingRecordedMarker,
   planBookingSequences,
   type FinalizeBookingInput,
 } from "../services/booking-core.js";
+import { RECORDED_MARKER_TTL_SECONDS } from "../services/booking-guard.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
@@ -510,6 +514,21 @@ export async function processInbound(
     }
   }
 
+  // A recent real booking backs this phone's booking-claim language — without
+  // it, guardUnbackedBookingClaim demotes every post-booking "nos vemos
+  // mañana" ack to a low draft (~15 of 61 queued approvals on 2026-08-26).
+  let recordedBooking: ConvoContext["recordedBooking"];
+  try {
+    const marker = parseBookingRecordedMarker(
+      await kvGet(env.DB, bookingRecordedKey(msg.phone)),
+    );
+    if (marker && nowSec - marker.ts < RECORDED_MARKER_TTL_SECONDS) {
+      recordedBooking = marker;
+    }
+  } catch (err) {
+    console.error("[inbound] recordedBooking read failed", msg.phone, err);
+  }
+
   const cdmx = cdmxNow();
   const brainCtx: ConvoContext = {
     phone: msg.phone,
@@ -523,6 +542,7 @@ export async function processInbound(
     campaign,
     adRef,
     justSentWelcome,
+    recordedBooking,
   };
 
   const result = await ports.brain.respond(brainCtx);
@@ -561,6 +581,13 @@ async function routeResult(
   }
 
   if (result.action === "book") {
+    // A booking makes every still-pending approval card stale: those drafts
+    // were written BEFORE the booking existed, and approving one later
+    // contradicts it (2026-08-25: Mariana was booked for jueves 8 am, then a
+    // pre-booking draft went out 43 min later asking her to pick a slot
+    // again). queueApproval supersedes its own; this path must too.
+    await supersedeStalePending(env, ports, phone);
+
     // The brain already created the Airtable record(s) (inside its tool loop)
     // and handed us the recordId(s). finalizeBooking does the shared
     // post-booking work — Slack FYI card, anti-no-show sequence keyed to that
@@ -649,7 +676,12 @@ async function routeResult(
     result.action === "send" && result.confidence === "high" && !ctx.trainingWheels;
 
   if (autoSend) {
-    await deliverOrDraft(env, ports, ctx, result.message, "high", history);
+    const delivered = await deliverOrDraft(env, ports, ctx, result.message, "high", history);
+    // Same staleness rule as the book branch: a reply built from the full
+    // conversation just went out, so any older pending card is obsolete.
+    // (deliverOrDraft === false means it queued an approval itself, and
+    // queueApproval already superseded the older ones.)
+    if (delivered) await supersedeStalePending(env, ports, phone);
     return;
   }
 
@@ -689,6 +721,7 @@ async function routeResult(
           await releaseAutoSendSlot(env.DB, lane.day);
           return;
         }
+        await supersedeStalePending(env, ports, phone);
         const dailyCount = await getAutoSendCount(env.DB, lane.day);
         // FYI only — never blocks the reply that already landed.
         try {
@@ -778,6 +811,35 @@ async function deliverOrDraft(
   // student/opted-out contacts are no-ops.
   await armNudges(env, ctx.phone);
   return true;
+}
+
+
+/**
+ * Marks every still-pending approval for `phone` superseded (best-effort).
+ * Used by the paths that send WITHOUT queueing — booking confirmations and
+ * direct high-sureness sends — where the freshly delivered reply makes any
+ * older pending card stale. queueApproval has its own inline version (it
+ * additionally links the replacement card id).
+ */
+async function supersedeStalePending(
+  env: Env,
+  ports: Ports,
+  phone: string,
+): Promise<void> {
+  try {
+    const stale = await getPendingApprovals(env.DB, phone);
+    for (const s of stale) {
+      try {
+        if (await supersedeApproval(env.DB, s.id)) {
+          await ports.slack.markSuperseded(s, null);
+        }
+      } catch (err) {
+        console.error("supersede stale approval failed", s.id, err);
+      }
+    }
+  } catch (err) {
+    console.error("supersede stale sweep failed", phone, err);
+  }
 }
 
 async function queueApproval(

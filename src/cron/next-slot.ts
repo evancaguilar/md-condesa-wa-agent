@@ -89,6 +89,12 @@ export function nextTrialSlot(
           s.weekday === wd &&
           s.audience === audience &&
           s.trial !== false &&
+          // Parent-participation slots (baby / Mini Muay Thai) are dual-audience
+          // so validateSlot accepts them, but proposing one to a generic lead is
+          // wrong for BOTH audiences (an adult gets a toddler class; an
+          // unknown-age kid probably belongs in Kids, not Mini). Only an
+          // explicit baby pick may land on them.
+          (s.pp !== true || wantKey === "baby") &&
           (wantKey === null || s.discipline === wantKey),
       )
       .slice()

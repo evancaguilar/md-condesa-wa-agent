@@ -282,6 +282,13 @@ export interface ConvoContext {
    * Absent on every ordinary turn.
    */
   justSentWelcome?: string;
+  /**
+   * A recent REAL booking for this phone (kv `booking_recorded:<phone>`,
+   * younger than 72h), when one exists. Backs booking-claim language in the
+   * reply: with this present, guardUnbackedBookingClaim lets "nos vemos
+   * mañana"-style acks through instead of demoting them to low drafts.
+   */
+  recordedBooking?: { ts: number; trialDate?: string; trialTime?: string };
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */
@@ -410,7 +417,8 @@ export interface SlackPort {
   /** FYI card for a reply the gated auto-send lane sent without approval. */
   postAutoSentFyi(fyi: AutoSentFyi): Promise<void>;
   /** Swaps a stale pending card to "reemplazada por #newId" (new draft covers it). */
-  markSuperseded(a: PendingApproval, newId: number): Promise<void>;
+  /** newId null = superseded by a direct send/booking, not by a newer card. */
+  markSuperseded(a: PendingApproval, newId: number | null): Promise<void>;
 }
 
 export interface AirtablePort {

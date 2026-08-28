@@ -308,8 +308,12 @@ test("registerBooking: books, marks booking_recorded, finalizes, sends the video
   assert.equal(log.booked.length, 1);
   // The marker carries the SLOT, so the capture guard can tell a re-confirmation
   // of this class from a promise about a different one.
-  assert.equal(log.kv.length, 1);
-  assert.equal(log.kv[0]!.key, bookingRecordedKey(PHONE));
+  // Written twice: once by registerBooking (crash-safety, before finalize)
+  // and once by finalizeBooking (so BRAIN bookings — which skip register —
+  // also leave the marker). Same key + value; last write wins.
+  assert.equal(log.kv.length, 2);
+  for (const w of log.kv) assert.equal(w.key, bookingRecordedKey(PHONE));
+  assert.equal(log.kv[1]!.value, log.kv[0]!.value);
   assert.deepEqual(JSON.parse(log.kv[0]!.value), {
     ts: NOW,
     trialDate: "2026-08-24",

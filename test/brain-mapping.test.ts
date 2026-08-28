@@ -865,6 +865,19 @@ test("guard downgrades an 'agendado' claim with no booking to a low draft", () =
   }
 });
 
+test("guard lets a claim through when a recent REAL booking backs it", () => {
+  // 2026-08-26 incident: after the brain booked a trial, every later
+  // "nos vemos mañana" ack was demoted to a low draft because the guard had
+  // no memory of the booking. A recordedBooking marker (read from kv by the
+  // pipeline, <72h) backs the claim.
+  const r = guardUnbackedBookingClaim(
+    sendRes("¡Perfecto! Ya quedó agendado 🙌 Nos vemos el sábado a las 2 pm."),
+    { ts: 1_787_700_000, trialDate: "2026-08-29", trialTime: "14:00" },
+  );
+  assert.equal(r.action, "send");
+  if (r.action === "send") assert.equal(r.sureness, 95);
+});
+
 test("guard leaves offers to book (infinitive) untouched", () => {
   const r = guardUnbackedBookingClaim(sendRes("¿Te gustaría agendar tu clase muestra? Puedo agendarte el sábado."));
   assert.equal(r.action, "send");

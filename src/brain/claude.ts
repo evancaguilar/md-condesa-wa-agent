@@ -198,7 +198,10 @@ export function createBrain(deps: BrainDeps): BrainPort {
           // (types.ts union carries the followupMessage + recordId on 'book').
           if (pendingBookings.length) return bookResult(pendingBookings);
           return guardUnverifiedSlotClaim(
-            guardUnbackedBookingClaim(sendResult(sendReply, pendingFollowup)),
+            guardUnbackedBookingClaim(
+              sendResult(sendReply, pendingFollowup),
+              ctx.recordedBooking,
+            ),
             ctx,
           );
         }
@@ -631,9 +634,16 @@ export function sendResult(
  * (services/slack-timeouts.ts). No sureness ⇒ the draft can only ever be
  * resolved by a human, or expire at 12h.
  */
-export function guardUnbackedBookingClaim(res: BrainResult): BrainResult {
+export function guardUnbackedBookingClaim(
+  res: BrainResult,
+  recordedBooking?: ConvoContext["recordedBooking"],
+): BrainResult {
   if (res.action !== "send" && res.action !== "draft") return res;
   if (!CLAIMS_BOOKED.test(res.message)) return res;
+  // A recent REAL Airtable booking for this phone (kv marker, <72h — read in
+  // the pipeline) backs the claim: post-booking acks like "¡nos vemos mañana!"
+  // are exactly what a lead expects to hear and must not queue as low drafts.
+  if (recordedBooking) return res;
   return {
     action: "draft",
     message: res.message,

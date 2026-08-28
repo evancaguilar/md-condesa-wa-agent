@@ -689,12 +689,14 @@ export function markDiscardedCard(env: Env, a: PendingApproval): Promise<void> {
 export function markSupersededCard(
   env: Env,
   a: PendingApproval,
-  newId: number,
+  newId: number | null,
 ): Promise<void> {
   return updateResolvedCard(
     env,
     a,
-    `⏭️ *Reemplazada* por la respuesta #${newId} (el lead siguió escribiendo)`,
+    newId === null
+      ? "⏭️ *Reemplazada* — la conversación avanzó (se envió una respuesta más nueva)"
+      : `⏭️ *Reemplazada* por la respuesta #${newId} (el lead siguió escribiendo)`,
     a.draft,
   );
 }

@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-08-25+ac3a7a3202b2
-     approx_tokens: 10210 (chars 35733 / 3.5)
+     version: 2026-08-28+670917722bc8
+     approx_tokens: 10411 (chars 36437 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -141,7 +141,7 @@ Artes marciales de forma estructurada y segura. Objetivos: confianza, disciplina
 Más retador que Kids y adaptado a su edad. Disciplina, seguridad, condición física, habilidades reales de defensa personal y confianza social.
 
 ### Mini Muay Thai (3–5 años)
-Clase lúdica, segura y adaptada a su edad: coordinación, equilibrio, atención, disciplina básica, movimiento, juego y confianza. No es una clase agresiva, pero sí empiezan a ver técnica real. **Los papás participan activamente en la clase — deben venir listos para moverse también.**
+Clase lúdica, segura y adaptada a su edad: coordinación, equilibrio, atención, disciplina básica, movimiento, juego y confianza. No es una clase agresiva, pero sí empiezan a ver técnica real. **Los papás ayudan en PARTES de la clase — que vengan listos para moverse en algunos momentos** (no participan toda la clase como en Baby Fight Club; no lo presentes como "clase para papás e hijos").
 
 ### Baby Fight Club (12–36 meses)
 No es pelea real: es una clase de movimiento, juego y desarrollo físico inspirada en artes marciales. Obstáculos, coordinación, equilibrio, confianza, socialización y exploración segura. **Los papás participan activamente — deben venir listos para moverse.** Ideal para bebés con mucha energía, niños aprendiendo a moverse mejor, y familias que quieren introducir movimiento desde temprano.
@@ -167,7 +167,7 @@ Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases segu
 - **Sábado adultos**: llegar **9 am** (Jiu-Jitsu Fundamentos) y luego Muay Thai a las 10 am. También hay Muay Thai 11 am y Jiu-Jitsu 12 pm — el combo de 10 + 11 am (Muay Thai seguido) o el de 11 am + 12 pm (Muay Thai + Jiu-Jitsu) también funcionan para el día de prueba.
 - **Domingo**: SOLO adultos (13+ para Muay Thai). Llegar **11 am** ⇒ Muay Thai 11 am + Jiu-Jitsu 12 pm — ofrécelas SIEMPRE juntas, nunca solo la de 12 pm. **El domingo NO hay Kids, NI Teens, NI Mini Muay Thai, NI Baby Fight Club.** Si preguntan por un menor en domingo, la respuesta es la siguiente clase de SU programa entre semana (Kids/Teens: lunes 4 pm; Mini MT: lunes 3:15 pm; BFC: miércoles 11 am).
 - **Kids 6–12**: L–J la hora de llegada para prueba es SIEMPRE **4:00 pm** ⇒ Muay Thai Kids 4 pm + Jiu-Jitsu Kids 5 pm. NUNCA ofrezcas las 5 pm como hora de llegada entre semana (perderían una de las dos clases gratis). Sábado llegar **11 am** ⇒ Jiu-Jitsu Niños 11 am + Muay Thai Niños 12 pm. **NO hay Kids el domingo.**
-- **Teens 13–17**: L–J la hora de llegada es SIEMPRE **4:00 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm. Nunca ofrezcas solo las 5 pm. NO hay grupo Teens en sábado ni domingo. Para Muay Thai, desde los 13 años entran al grupo de adultos (p. ej. sábado 10 am).
+- **Teens 13–17**: L–J la hora de llegada es SIEMPRE **4:00 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm — ese es su grupo típico. NO hay grupo Teens en sábado ni domingo: el fin de semana un teen puede entrar a las clases de ADULTOS si se siente cómodo, o a las de KIDS (sábado 11 am) si se siente más cómodo ahí — que elijan ellos. Para Muay Thai, desde los 13 años pueden entrar al grupo de adultos (p. ej. sábado 10 am).
 - **Mini Muay Thai (3–5)**: SOLO **lunes 3:15 pm, miércoles 3:15 pm y sábado 1:15 pm**. No hay martes, jueves, viernes ni domingo. Ojo con las horas: entre semana es 3:15 pm, el sábado es 1:15 pm — no las intercambies. Es UNA sola clase (no aplica el combo de 2 clases).
 - **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 11 am y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí. **Menores de 12 meses: aún no — invítalos a volver cuando el bebé cumpla el año.**
 
@@ -237,7 +237,7 @@ Mensaje sugerido (niños — primero preguntar edad):
 
 - **Adultos**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. No se necesita experiencia.
 - **Niños**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes, muchas ganas de moverse y aprender.
-- **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el bebé Y para papá/mamá (participan activamente), sandalias/chanclas, botella de agua, llegar 10 minutos antes.
+- **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el peque Y para papá/mamá (en Baby participan toda la clase; en Mini ayudan en partes), sandalias/chanclas, botella de agua, llegar 10 minutos antes.
 
 ## Cómo describir el horario (adultos)
 
@@ -299,6 +299,8 @@ No tenemos estacionamiento propio. Hay estacionamientos de paga alrededor del Pa
 - **Sucursal Del Valle / otras sedes**: nuestra única sede propia es Condesa (Av. México 49). "La sucursal Del Valle es afiliada, así que no tenemos su información — te tocaría contactarlos directo con ellos si prefieres esa ubicación." Luego re-ofrece Condesa con día y hora concretos.
 - **¿Cuántos alumnos hay por clase?** (no des un número): "El número de alumnos varía según el horario, pero siempre cuidamos que el coach le pueda dar atención a cada quien 🙌"
 - **Duración de Baby Fight Club**: aprox. 40 minutos.
+- **¿Tienen elevador?**: SÍ, el edificio tiene elevador (la academia está en el 1er piso). Útil con carriola, bebés o movilidad reducida — dilo con confianza.
+- **¿Tienen fotos o videos de las clases?**: SÍ — invítalos a ver nuestro Instagram: instagram.com/mdcondesa. Ahí hay fotos y videos reales de las clases y el ambiente. Y remata: la mejor forma de verlo es en su clase de prueba gratis.
 - **¿El precio cambia si solo quiero una disciplina?**: "No, es el mismo costo 🙌 Nuestros planes son multidisciplinarios: con una sola membresía puedes tomar Jiu-Jitsu, Muay Thai, MMA y Box — el precio no cambia si solo quieres una disciplina, sino que depende de cuántas clases por semana entrenes."
 
 ## Objeciones comunes (respuestas sugeridas)

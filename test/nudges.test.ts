@@ -236,7 +236,9 @@ test("nudgeCopy: adults close with a concrete slot from the real schedule", () =
   for (const kind of NUDGE_KINDS) {
     const body = nudgeCopy(c, kind, null, MON10);
     assert.ok(
-      body.includes("Te puedo apartar lugar en Muay Thai hoy a las 3:15 pm"),
+      // 18:00 = the real adult Muay class; 15:15 is Mini (pp) and must never
+      // be proposed to an adult.
+      body.includes("Te puedo apartar lugar en Muay Thai hoy a las 6:00 pm"),
       `${kind}: ${body}`,
     );
     assert.ok(body.includes("¿te late?"), `${kind}: ${body}`);
@@ -267,7 +269,7 @@ test("nudgeCopy: kids/baby speak plural to the parent and propose a KID slot", (
   const kid = nudgeCopy(contact({ qualification: JSON.stringify({ audience: "kid" }) }), "nudge_1h", null, MON10);
   assert.ok(kid.includes("Les puedo apartar lugar"), kid);
   assert.ok(kid.includes("¿les late?"), kid);
-  assert.ok(kid.includes("hoy a las 3:15 pm"), kid); // Mon 15:15 kid Muay Thai
+  assert.ok(kid.includes("hoy a las 4:00 pm"), kid); // Mon 16:00 Kids Muay Thai (not pp Mini 15:15)
   assert.ok(kid.includes("https://mdcondesa.com/clase-prueba-ninos/"), kid);
   assert.ok(!kid.includes("clase-prueba-adultos"), kid);
 
