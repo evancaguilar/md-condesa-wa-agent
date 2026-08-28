@@ -161,6 +161,11 @@ export function createBrain(deps: BrainDeps): BrainPort {
     // anti-no-show sequence.
     const pendingBookings: PendingBooking[] = [];
     let pendingFollowup: { hoursFromNow: number; note: string } | null = null;
+    // One-shot recovery for the "wrote the reply as prose, skipped send_reply"
+    // failure mode that appeared with adaptive thinking (2026-08-25): those
+    // text-only turns become sureness-less low drafts that ALWAYS queue and
+    // that best-bet can never rescue (the 2:15am no_tool_call card, 2026-08-28).
+    let retriedNoTool = false;
 
     try {
       for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -209,8 +214,20 @@ export function createBrain(deps: BrainDeps): BrainPort {
         // No terminal tool yet — process the non-terminal tools, feed results
         // back, and loop. (book_trial / set_followup / escalate-without-send.)
         if (toolUses.length === 0) {
-          // Model produced only text and no tool — synthesize a low-confidence
-          // draft from any text so the pipeline still has something to review.
+          // Model produced only text and no tool. Retry ONCE with an explicit
+          // corrective nudge — recovering the tool call restores sureness and
+          // the auto-send/best-bet lanes. A second miss still falls back to a
+          // reviewable low draft.
+          if (!retriedNoTool && iter < MAX_ITERATIONS - 1) {
+            retriedNoTool = true;
+            messages.push({ role: "assistant", content: resp.content });
+            messages.push({
+              role: "user",
+              content:
+                "[sistema] Tu turno DEBE terminar con una llamada a la herramienta send_reply (con sureness 0-100). Emite AHORA tu respuesta anterior como send_reply, sin cambiar el texto del mensaje.",
+            });
+            continue;
+          }
           await flushUsage(deps.accrueUsage, usageAcc);
           return textFallback(resp, ctx);
         }

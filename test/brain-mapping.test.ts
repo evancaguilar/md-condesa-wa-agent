@@ -151,6 +151,75 @@ test("send_reply high → action:send", async () => {
   assert.equal(accrued, 1, "usage flushed once");
 });
 
+test("text-only response → ONE corrective retry recovers send_reply", async () => {
+  // Adaptive-thinking failure mode (2026-08-28): the model writes the reply as
+  // prose and skips the tool. The retry nudge must recover the normal path so
+  // the reply keeps its sureness (auto-send / best-bet stay alive).
+  const textOnly = {
+    stop_reason: "end_turn",
+    usage: usage(),
+    content: [{ type: "text", text: "¡Va! Sábado 2 pm entonces 🙌" }],
+  };
+  const recovered = {
+    stop_reason: "tool_use",
+    usage: usage(),
+    content: [
+      {
+        type: "tool_use",
+        id: "tu9",
+        name: "send_reply",
+        input: {
+          message: "¡Va! Sábado 2 pm entonces 🙌",
+          language: "es",
+          confidence: "high",
+          sureness: 85,
+        },
+      },
+    ],
+  };
+  const { fetchImpl, calls, bodies } = mockFetch([textOnly, recovered]);
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    fetchImpl,
+  });
+  const r = await brain.respond(ctx("sábado"));
+  assert.equal(calls(), 2, "exactly one retry");
+  assert.equal(r.action, "send");
+  if (r.action === "send") assert.equal(r.sureness, 85);
+  // The nudge rode in as a plain user message on the second call.
+  const second = bodies()[1]!;
+  const last = second.messages[second.messages.length - 1]!;
+  assert.equal(last.role, "user");
+  assert.ok(String(last.content).includes("send_reply"), String(last.content));
+});
+
+test("text-only twice → falls back to a reviewable no_tool_call draft", async () => {
+  const textOnly = {
+    stop_reason: "end_turn",
+    usage: usage(),
+    content: [{ type: "text", text: "Solo texto otra vez" }],
+  };
+  const { fetchImpl, calls } = mockFetch([textOnly, textOnly]);
+  const brain = createBrain({
+    apiKey: "k",
+    kb: "KB",
+    airtable: okAirtable,
+    accrueUsage: async () => {},
+    fetchImpl,
+  });
+  const r = await brain.respond(ctx("hola"));
+  assert.equal(calls(), 2);
+  assert.equal(r.action, "draft");
+  if (r.action === "draft") {
+    assert.equal(r.reason, "no_tool_call");
+    assert.equal(r.message, "Solo texto otra vez");
+    assert.equal(r.sureness, undefined);
+  }
+});
+
 test("send_reply with literal \\n sequences → real newlines in the draft", async () => {
   const { fetchImpl } = mockFetch([
     sendReplyResp("low", "¡Hola! 👋 Bienvenido/a 🥋 \\n\\n¿La clase sería para ti?"),
