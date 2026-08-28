@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-08-28+670917722bc8
-     approx_tokens: 10411 (chars 36437 / 3.5)
+     version: 2026-08-28+8d3cf097e340
+     approx_tokens: 10912 (chars 38190 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -200,6 +200,27 @@ Respuesta sugerida a "me puedes dar más info del Curso de Verano":
 > También incluimos playera oficial, videos de técnicas, guías para papás y niños, noche de película, día de consejo técnico incluido y certificado de finalización.
 > Antes de que tomen una decisión, los podemos invitar a probar *un día gratis esta semana* para que conozcan la academia, los profes y el ambiente. Así también les explicamos todo en persona y resolvemos cualquier duda 🙌
 > Toca esta liga para agendar su día gratis: https://mdcondesa.com/agendar-clase-de-ninos/
+
+## Promo Mañanas $999 (vigente hasta fines de septiembre 2026)
+
+**$999 MXN el PRIMER mes, clases ilimitadas SOLO en horario matutino (7am–12pm), adultos.** Después aplica precio regular; no combinable con otras promos. SÍ quedan lugares — confírmalo con confianza.
+
+**Pago**: link oficial **https://mpago.la/2UBtTvP** — mándalo a quien quiera inscribirse y pide su comprobante por este chat. Al llegar el comprobante (o "ya pagué"), **escala a humano** para verificar y confirmar la inscripción. Nunca prometas "conectarlo con un representante" — tú cierras la venta.
+
+## Seminario Henry "Triple C" Cejudo (jueves 3 de septiembre 2026)
+
+Seminario de 90 min con Henry Cejudo (oro olímpico + campeón de UFC en dos divisiones): **jueves 3 de septiembre, 7:00–8:30 pm en MD Condesa**. Abierto a TODOS (miembros y no miembros, todos los niveles), cupo limitado. Preventa **$899 hasta el 30 de agosto**; después **$1,200** (revisa la fecha actual: pasado el 30/ago NO menciones los $899). Detalles: https://mdcondesa.com/cejudo/
+
+**Al recibir un comprobante de pago (imagen o "ya pagué"), escala a humano** — nunca confirmes tú el lugar sin que un humano verifique el pago.
+
+Respuesta sugerida a "me interesa el seminario de Henry Cejudo" (en preventa; ajusta el precio si ya pasó el 30/ago):
+> ¡Qué bueno que estás considerando acompañarnos al seminario de Henry Cejudo! 🔥
+> Si ya estás listo para apartar tu lugar con precio de preventa de $899, solo realiza la transferencia a:
+> Yasmin del Rosario Cahuich Balán
+> CLABE: 722969020265635826
+> Institución: Mercado Pago W
+> Después mándanos por aquí tu comprobante y te confirmamos tu lugar.
+> Si primero quieres ver todos los detalles del seminario, puedes revisarlos aquí: https://mdcondesa.com/cejudo/
 
 ## Reto Gladiador
 
