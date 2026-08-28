@@ -34,9 +34,18 @@ import { CLIENT } from "../client.gen.js";
 export const CLAIMS_BOOKED =
   /(?<!\bno\s(?:has\s|ha\s)?)\bagendad[oa]s?\b|\breservad[oa]s?\b|\bbooked\b|\byou'?re all set\b|\bte esper(?:amos|o)\b(?=[^.?!]*(?:hoy|mañana|lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo|\d{1,2}\s*(?::\d{2})?\s*[ap]m))|\bqued(?:ó|o)\s+(?:agendad|apartad|reservad)\w*|\bya\s+quedaste\b|\bconfirmad[oa]s?\b(?!\?)|\bnos vemos\b(?=[^.!?]*(?:hoy|mañana|lunes|martes|mi[ée]rcoles|jueves|viernes|s[áa]bado|domingo|\d{1,2}\s*(?::\d{2})?\s*[ap]m)(?:[^.!?]*[.!]|[^.!?]*$))/i;
 
+/**
+ * A message that ASKS for the data needed to book ("¿me confirmas tu nombre…
+ * para dejarlo agendado?") proves the booking has NOT happened yet — even
+ * though it contains "agendado". These false positives produced most of the
+ * capture-card + recon noise on 2026-08-27/28 (Tannya, ☪️, CARLA cards).
+ */
+const ASKS_TO_BOOK =
+  /(?:me\s+(?:confirmas|compartes|pasas|dices)|conf[ií]rmame|comp[áa]rteme)[^.?!]{0,60}nombre|\bpara\s+(?:dejarl[oa]s?|dejarte|dejarles|poder)\s+agendar|\bpara\s+dejarl[oa]s?\s+agendad/i;
+
 /** True when `text` reads as a confirmed (not offered) booking claim. */
 export function claimsBooking(text: string): boolean {
-  return CLAIMS_BOOKED.test(text);
+  return CLAIMS_BOOKED.test(text) && !ASKS_TO_BOOK.test(text);
 }
 
 // ---- shared booking-capture vocabulary -----------------------------------
@@ -148,6 +157,33 @@ const CHILD_NAME_RE =
 function parseDate(t: string, todayYmd: string, weekdayIdx: number): string | undefined {
   const iso = /\b(\d{4}-\d{2}-\d{2})\b/.exec(t);
   if (iso) return iso[1];
+
+  // "5 de septiembre" — an explicit day-month beats every relative branch
+  // below. Without this, "el sábado 5 de septiembre" resolved to the NEAREST
+  // Saturday and the recon flagged perfectly correct Sept-5 bookings as
+  // broken (digest of 2026-08-28).
+  const dm =
+    /\b(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/.exec(
+      t,
+    );
+  if (dm) {
+    const MONTHS: Record<string, number> = {
+      enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7,
+      agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11,
+      diciembre: 12,
+    };
+    const day = Number(dm[1]);
+    const mon = MONTHS[dm[2]!]!;
+    if (day >= 1 && day <= 31) {
+      const year = Number(todayYmd.slice(0, 4));
+      const pad = (n: number): string => String(n).padStart(2, "0");
+      let ymd = `${year}-${pad(mon)}-${pad(day)}`;
+      // Promises are about the future: a date that already passed (with a
+      // 2-day grace for "ayer te agendé" phrasing) means NEXT year.
+      if (ymd < addDays(todayYmd, -2)) ymd = `${year + 1}-${pad(mon)}-${pad(day)}`;
+      return ymd;
+    }
+  }
 
   // "pasado mañana" must be tested before the bare "mañana".
   if (/\bpasado\s+manana\b/.test(t)) return addDays(todayYmd, 2);

@@ -14,6 +14,47 @@ test("claimsBooking: 'ya quedó agendado' matches", () => {
   assert.equal(claimsBooking("¡Perfecto! Ya quedó agendado 🙌"), true);
 });
 
+test("claimsBooking: asking for the NAME to book is not a claim (2026-08-28 noise)", () => {
+  // The three real false positives that raised capture cards / recon lines.
+  assert.equal(
+    claimsBooking("¡Perfecto! Para dejarlo agendado, ¿me confirmas tu nombre y el nombre de tu bebé? 😊"),
+    false,
+  );
+  assert.equal(
+    claimsBooking("¡Va, sin bronca! 🙌 Entonces los esperamos el sábado 5 de septiembre: Mini Muay Thai 1:15 pm y Baby Fight Club 2 pm.\n\n¿Me confirmas tu nombre y el de cada peque para dejarlo agendado?"),
+    false,
+  );
+  assert.equal(
+    claimsBooking("Sábado 5 de septiembre a las 2 pm entonces. ¿Me confirmas tu nombre y el de tu bebé para dejarlos agendados?"),
+    false,
+  );
+  // A REAL confirmation stays a claim even with a trailing courtesy question.
+  assert.equal(
+    claimsBooking("¡Perfecto Estrella! Ya quedó agendado 🙌 Nos vemos el sábado 5 de septiembre a las 2 pm. ¿Alguna duda?"),
+    true,
+  );
+});
+
+test("parseBookingHints: explicit '5 de septiembre' beats the bare weekday", () => {
+  // Sent on Thu 2026-08-27: "el sábado" alone used to resolve to 08-29.
+  const h = parseBookingHints(
+    "Nos vemos el sábado 5 de septiembre a las 2 pm",
+    "2026-08-27T19:00:00-06:00",
+    3,
+  );
+  assert.equal(h.trialDate, "2026-09-05");
+  assert.equal(h.trialTime, "14:00");
+});
+
+test("parseBookingHints: a passed day-month rolls to next year", () => {
+  const h = parseBookingHints(
+    "Quedó para el 3 de enero a las 10 am",
+    "2026-08-27T19:00:00-06:00",
+    3,
+  );
+  assert.equal(h.trialDate, "2027-01-03");
+});
+
 test("claimsBooking: 'Ya quedaste apartado' matches", () => {
   assert.equal(claimsBooking("Ya quedaste apartado para el sábado."), true);
 });

@@ -45,7 +45,9 @@ test("booking-recon: booking backs the claim via +52/521/(55)-formatted phones (
   }
 });
 
-test("booking-recon: booking 20 days out is NOT backed (outside the +14d window)", () => {
+test("booking-recon: booking 35 days out is NOT backed (outside the +30d window)", () => {
+  // Was +14d; widened to +30d (2026-08-28) after "nos vemos el sábado"
+  // claims for a correctly-registered class 16 days out spammed the digest.
   const sendTs = NOW - DAY;
   const sends: ReconSend[] = [
     { phone: "5215512345678", ts: sendTs, body: "Ya quedó agendado, nos vemos pronto." },
@@ -53,7 +55,7 @@ test("booking-recon: booking 20 days out is NOT backed (outside the +14d window)
   const bookings: ReconBooking[] = [
     {
       phone: "5215512345678",
-      trialDateTimeIso: new Date((sendTs + 20 * DAY) * 1000).toISOString(),
+      trialDateTimeIso: new Date((sendTs + 35 * DAY) * 1000).toISOString(),
     },
   ];
   const mismatches = findUnbackedConfirmations(sends, bookings, NOW);
@@ -105,16 +107,35 @@ test("booking-recon: a dated claim IS backed by a booking on that same CDMX day"
   assert.equal(findUnbackedConfirmations(sends, bookings, THU + 3600).length, 0);
 });
 
-test("booking-recon: a booking the day BEFORE the promised one is a mismatch", () => {
-  const sends: ReconSend[] = [{ phone: "5215512345678", ts: THU, body: SATURDAY_CLAIM }];
+test("booking-recon: EXPLICIT date, booking the day before ⇒ still a mismatch", () => {
+  // Day-exactness only applies when the copy states a real calendar date;
+  // "el sábado 29 de agosto" is explicit, so a booking on the 28th flags.
+  const sends: ReconSend[] = [
+    {
+      phone: "5215512345678",
+      ts: THU,
+      body: "¡Listo! Ya quedó agendado, nos vemos el sábado 29 de agosto a las 2 pm.",
+    },
+  ];
   const bookings: ReconBooking[] = [
-    // In-window under the old ±7/14d rule, but the wrong class.
     { phone: "5215512345678", trialDateTimeIso: "2026-08-28T14:00:00-06:00" },
   ];
   const mismatches = findUnbackedConfirmations(sends, bookings, THU + 3600);
   assert.equal(mismatches.length, 1);
   assert.equal(mismatches[0].claimedDate, "2026-08-29");
   assert.equal(mismatches[0].nearestBookingDate, "2026-08-28");
+});
+
+test("booking-recon: WEEKDAY-ONLY claim is backed by any nearby future booking", () => {
+  // "el sábado" with no calendar date is ambiguous (Raquel, 2026-08-28: her
+  // Sept-12 class was registered, yet the digest flagged her). Weekday-only
+  // claims fall back to the wide window instead of exact-day matching.
+  const sends: ReconSend[] = [{ phone: "5215512345678", ts: THU, body: SATURDAY_CLAIM }];
+  const bookings: ReconBooking[] = [
+    { phone: "5215512345678", trialDateTimeIso: "2026-09-12T14:00:00-06:00" },
+  ];
+  const mismatches = findUnbackedConfirmations(sends, bookings, THU + 3600);
+  assert.equal(mismatches.length, 0);
 });
 
 test("booking-recon: a dated claim with NO booking at all reports nearest = null", () => {

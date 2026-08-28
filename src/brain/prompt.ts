@@ -127,6 +127,15 @@ export function buildContextBlock(ctx: ConvoContext): string {
     windowLine,
     "Resolve any relative date ('hoy', 'mañana', 'el sábado') against `now`/`weekday` above.",
     "The timestamp is 24h ISO. Any class time LATER today than `now` is still bookable for TODAY (e.g. at 01:49 it is 1:49 AM — today's 7:00 AM class has NOT passed).",
+    ...(ctx.recordedBooking
+      ? [
+          `Reserva YA registrada en Airtable para este lead${
+            ctx.recordedBooking.trialDate
+              ? `: ${ctx.recordedBooking.trialDate} ${ctx.recordedBooking.trialTime ?? ""}`.trimEnd()
+              : ""
+          }. NO llames book_trial otra vez para esa misma clase — confírmala o resuelve dudas; solo re-agenda si el lead PIDE cambiarla.`,
+        ]
+      : []),
     "</context>",
   ];
 

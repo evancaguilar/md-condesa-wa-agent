@@ -546,6 +546,19 @@ export async function processInbound(
   };
 
   const result = await ports.brain.respond(brainCtx);
+  // The 8s debounce is check-then-act: two inbound messages a few seconds
+  // apart can BOTH pass the newest-wamid check and run overlapping brain turns
+  // (2026-08-28, Axel: three replies in 40 seconds). If a newer inbound landed
+  // while THIS turn was thinking, the newer turn — which sees the fuller
+  // history — owns the reply. Booking turns are exempt: their Airtable record
+  // already exists, so the confirmation must still reach the lead.
+  if (result.action !== "book") {
+    const newestAfter = await newestInboundWamid(env.DB, msg.phone);
+    if (newestAfter !== null && newestAfter !== msg.wamid) {
+      console.log(`[inbound] turn superseded mid-brain for ${msg.phone}`);
+      return;
+    }
+  }
   // The welcome already said everything: the model asked us to stay quiet.
   // Only honored on a welcome turn, and never for a booking/escalation (those
   // carry side effects a human must see).

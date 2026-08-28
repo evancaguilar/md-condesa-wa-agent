@@ -30,6 +30,7 @@ export interface Mismatch {
 
 const SEVEN_DAYS_S = 7 * 24 * 3600;
 const FOURTEEN_DAYS_S = 14 * 24 * 3600;
+const THIRTY_DAYS_S = 30 * 24 * 3600;
 
 /** Nudge/reminder copy that happens to contain a bare "agendad…" token but is
  *  NOT a completed-booking claim ("todavía no has agendado tu clase…"). The
@@ -110,11 +111,21 @@ export function findUnbackedConfirmations(
   for (const send of latestClaimByPhone.values()) {
     const trials = trialEpochsFor(send, bookings);
     const claimedDate = claimedDateOf(send);
-    const backed = claimedDate
-      ? trials.some((t) => cdmxDateStr(t) === claimedDate)
-      : trials.some(
-          (t) => t >= send.ts - SEVEN_DAYS_S && t <= send.ts + FOURTEEN_DAYS_S,
-        );
+    // A date derived from a BARE weekday ("nos vemos el sábado") is ambiguous
+    // — 2026-08-28's digest flagged two perfectly-registered bookings because
+    // "el sábado" resolved to the wrong Saturday. Only hold the copy to an
+    // exact calendar day when it stated one explicitly (day-month, ISO, or
+    // hoy/mañana); weekday-only claims are backed by ANY nearby future trial.
+    const explicitDate =
+      /\b\d{1,2}\s+de\s+\p{L}+|\b\d{4}-\d{2}-\d{2}\b|\bhoy\b|\bma[ñn]ana\b/iu.test(
+        send.body,
+      );
+    const backed =
+      claimedDate && explicitDate
+        ? trials.some((t) => cdmxDateStr(t) === claimedDate)
+        : trials.some(
+            (t) => t >= send.ts - SEVEN_DAYS_S && t <= send.ts + THIRTY_DAYS_S,
+          );
     if (backed) continue;
     const m: Mismatch = {
       phone: send.phone,
