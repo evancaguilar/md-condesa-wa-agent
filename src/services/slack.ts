@@ -22,6 +22,7 @@ import {
   insertEdit,
   kvGet,
   kvSet,
+  kvSetIfAbsent,
   kvClaimIfAbsentOrOlder,
   releaseHoldingClaim,
   resolveApproval,
@@ -795,6 +796,27 @@ export async function runApprovalTimeouts(
       guarded: guardedRaw === "1",
     };
     const decision = decideTimeout(view, now);
+
+    // TEMP diagnostic (2026-08-27): best-bet has never fired in prod while
+    // rows sat 2h+. The first time a row crosses 75 min still pending without
+    // best-betting, post WHY the gate held it — once per approval, so the next
+    // occurrence explains itself. Remove once the cause is fixed.
+    if (
+      decision.kind !== "bestbet" &&
+      now - a.created_at > 75 * 60 &&
+      (await kvSetIfAbsent(env.DB, `bb_diag:${a.id}`, String(now)))
+    ) {
+      const winOpen =
+        view.lastInboundAt !== null && now - view.lastInboundAt < 24 * 3600;
+      try {
+        await postNote(
+          env,
+          `🔬 best-bet NO disparó para #${a.id} (${a.phone}) · edad ${Math.round((now - a.created_at) / 60)}m · sureness=${view.sureness ?? "∅"} · guarded=${view.guarded} · ventana=${winOpen ? "abierta" : "cerrada"} · awaiting=${String(view.awaitingReply)}`,
+        );
+      } catch (err) {
+        console.error("[timeouts] bb_diag note failed", a.id, err);
+      }
+    }
 
     try {
       if (decision.kind === "hold") {
