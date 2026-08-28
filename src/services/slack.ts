@@ -802,7 +802,7 @@ export async function runApprovalTimeouts(
     // best-betting, post WHY the gate held it — once per approval, so the next
     // occurrence explains itself. Remove once the cause is fixed.
     if (
-      decision.kind !== "bestbet" &&
+      (decision.kind === "none" || decision.kind === "hold") &&
       now - a.created_at > 75 * 60 &&
       (await kvSetIfAbsent(env.DB, `bb_diag:${a.id}`, String(now)))
     ) {
