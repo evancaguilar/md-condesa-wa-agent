@@ -1,6 +1,16 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-25**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-28**.
+
+### Auditor nocturno Opus + fixes del día (2026-08-28)
+
+**Auditor nocturno (owner-directed).** Cron diario 05:00 CDMX: compacta las conversaciones de las últimas 24h (plantillas repetidas → `[plantilla #N]`), adjunta la parrilla generada + el KB como verdad de referencia y las aprobaciones con latencia, y pide a **claude-opus-5** (thinking adaptativo, effort high) un reporte a #wa-leads: números, problemas con teléfono + cita, sugerencias. Solo reporta. `callAnthropic` ganó override de modelo. ~$0.20-0.40/noche, acreditado en usage_log (src/cron/nightly-audit.ts).
+
+**Fixes de la revisión del 28/08** (todo verde, 679 tests): carrera del debounce — turnos de cerebro concurrentes (Axel: 3 respuestas en 40s) ahora se descartan si llegó un mensaje más nuevo mientras pensaba (book exento); `<context>` avisa cuando ya hay reserva registrada; `claimsBooking` ya no cuenta "¿me confirmas tu nombre para dejarlo agendado?" como reserva hecha (falsos capture cards); `parseBookingHints` entiende "5 de septiembre" (día-mes explícito gana al weekday); el recon solo exige día exacto con fecha explícita y la ventana sin fecha pasó a ±7/+30d (digest del 28/08: 6 flags, ~0-1 reales).
+
+**Del 27/08 (noche):** los 4 bugs del day-after arreglados (pp slots fuera de nudges, marker booking_recorded en el camino del cerebro + guard con memoria, trial_confirm duplicado, supersede de tarjetas viejas al agendar/enviar directo); sentinel `<sin_respuesta>` hard-stop; holding line máx 1/tel/45min; reintento único cuando el modelo no llama send_reply (causa raíz de que best-bet nunca disparara — 0 auto_sent con sureness=∅, confirmado por la nota bb_diag); KB: elevador sí, Mini MT papás ayudan en partes, IG para fotos, Teens fin de semana, seminario Cejudo (3/sep, preventa $899, CLABE + comprobante → humano), promo Mañanas $999 con link de pago mpago.la/2UBtTvP y cierre por el bot.
+
+**Pendiente Evan:** pegar firstReply/info nuevos en las 2 campañas mañanas $999 (textos entregados 27/08); enviar a Meta las plantillas d2-d5 (docs/templates.md — un envío d5 ya se omitió) y las 3 plantillas de blast por definir.
 
 ### Over-offering fixes — double welcome + impossible hours (2026-08-25, later)
 
