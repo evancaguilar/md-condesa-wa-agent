@@ -37,6 +37,11 @@ export interface BlastAudience {
   adults: BlastCandidate[];
   kids: BlastCandidate[];
   baby: BlastCandidate[];
+  /** Leads whose 24h window is OPEN (wrote <24h ago): excluded from the paid
+   *  template blast, but reachable FREE via free-form — the `freeform` mode
+   *  (2026-08-28: ManyChat's dead credit line blocked all template delivery;
+   *  these were the only leads reachable that night). */
+  inWindow: { adults: BlastCandidate[]; kids: BlastCandidate[]; baby: BlastCandidate[] };
   excluded: { booked: number; inWindow: number; notLead: number };
 }
 
@@ -55,6 +60,7 @@ export function planBlastAudience(
     adults: [],
     kids: [],
     baby: [],
+    inWindow: { adults: [], kids: [], baby: [] },
     excluded: { booked: 0, inWindow: 0, notLead: 0 },
   };
   for (const c of contacts) {
@@ -66,15 +72,14 @@ export function planBlastAudience(
       out.excluded.booked++;
       continue;
     }
-    if ((c.last_inbound_at ?? 0) > nowEpoch - 24 * 3600) {
-      out.excluded.inWindow++;
-      continue;
-    }
     const program = classifyProgram(c, c.campaign_name ?? null);
     const cand: BlastCandidate = { phone: c.phone, name: c.name, program };
-    if (program === "adults") out.adults.push(cand);
-    else if (program === "kids") out.kids.push(cand);
-    else out.baby.push(cand);
+    const windowOpen = (c.last_inbound_at ?? 0) > nowEpoch - 24 * 3600;
+    const bucket = windowOpen ? out.inWindow : out;
+    if (windowOpen) out.excluded.inWindow++;
+    if (program === "adults") bucket.adults.push(cand);
+    else if (program === "kids") bucket.kids.push(cand);
+    else bucket.baby.push(cand);
   }
   return out;
 }
@@ -91,6 +96,9 @@ export interface BlastPayload {
    *  approved templates came back ZERO-variable — Meta stripped the
    *  placeholders on submit). 0 ⇒ send with no components. Default 2. */
   n?: 0 | 2;
+  /** Free-form text (freeform mode): sent with sendText to an OPEN-window
+   *  lead instead of a template. When set, t/l/p2 are ignored. */
+  txt?: string;
 }
 
 export function encodeBlastNote(p: BlastPayload): string {
@@ -102,7 +110,13 @@ export function decodeBlastNote(note: string | null): BlastPayload | null {
   try {
     const p = JSON.parse(note) as Partial<BlastPayload>;
     if (typeof p.t === "string" && typeof p.l === "string" && typeof p.p2 === "string") {
-      return { t: p.t, l: p.l, p2: p.p2, ...(p.n === 0 ? { n: 0 as const } : {}) };
+      return {
+        t: p.t,
+        l: p.l,
+        p2: p.p2,
+        ...(p.n === 0 ? { n: 0 as const } : {}),
+        ...(typeof p.txt === "string" && p.txt ? { txt: p.txt } : {}),
+      };
     }
   } catch {
     /* malformed note ⇒ skip the row */

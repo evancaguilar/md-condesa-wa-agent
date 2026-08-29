@@ -51,6 +51,13 @@ test("planBlastAudience: splits by program and excludes booked / active / non-le
   assert.deepEqual(a.kids.map((c) => c.phone), ["5215500000002"]);
   assert.deepEqual(a.baby.map((c) => c.phone), ["5215500000003"]);
   assert.deepEqual(a.excluded, { booked: 1, inWindow: 1, notLead: 2 });
+  // The open-window lead is NOT lost: it lands in the freeform bucket.
+  assert.deepEqual(a.inWindow.adults.map((c) => c.phone), ["5215500000005"]);
+});
+
+test("blast note: freeform txt survives the round-trip", () => {
+  const p = { t: "", l: "", p2: "", txt: "¡Hola! Mañana sábado hay clase 🙌" };
+  assert.deepEqual(decodeBlastNote(encodeBlastNote(p)), p);
 });
 
 test("planBlastAudience: qualification audience=kid routes to kids without a campaign", () => {

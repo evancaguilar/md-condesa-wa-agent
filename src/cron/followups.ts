@@ -236,6 +236,14 @@ async function processOne(
         await markFollowup(env.DB, f.id, "skipped_optout");
         return;
       }
+      if (payload.txt) {
+        // Freeform blast: free text to an open-window lead. If the window
+        // closed between queue and send, tryText skips quietly — never a
+        // template fallback (that is exactly the paid path this mode avoids).
+        await tryText(env, f.phone, payload.txt);
+        await markFollowup(env.DB, f.id, "sent");
+        return;
+      }
       // greetingName drops handles/emoji junk; Meta rejects empty params.
       const greeting = name || "👋";
       await sendTemplate(

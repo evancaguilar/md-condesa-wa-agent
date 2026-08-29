@@ -1712,6 +1712,11 @@ async function handleBlastPreview(req: Request, env: Env): Promise<Response> {
       adults: audience.adults.length,
       kids: audience.kids.length,
       baby: audience.baby.length,
+      inWindow: {
+        adults: audience.inWindow.adults.length,
+        kids: audience.inWindow.kids.length,
+        baby: audience.inWindow.baby.length,
+      },
       excluded: audience.excluded,
     },
     samples: {
@@ -1775,11 +1780,17 @@ async function handleBlastQueue(
     runId?: string;
     since?: number;
     dailyCap?: number;
+    /** "freeform": FREE-form text to the leads whose 24h window is OPEN (no
+     *  template, no Meta billing). Default "template": paid templates to the
+     *  out-of-window audience. */
+    mode?: "template" | "freeform";
     groups?: {
       group?: string;
       template?: string;
       lang?: string;
       param2?: string;
+      /** freeform mode: the message text for this group. */
+      text?: string;
       /** Cap this group to its N freshest leads (omit = everyone). */
       limit?: number;
       /** Body-variable count of the template (0 = fixed text, no params). */
@@ -1798,12 +1809,16 @@ async function handleBlastQueue(
   }
   const since = typeof body.since === "number" ? body.since : BLAST_DEFAULT_SINCE;
   const now = nowSec();
+  const mode = body.mode === "freeform" ? "freeform" : "template";
   const audience = await loadBlastAudience(env, since, now);
-  const byGroup: Record<Program, BlastCandidate[]> = {
-    adults: audience.adults,
-    kids: audience.kids,
-    baby: audience.baby,
-  };
+  const byGroup: Record<Program, BlastCandidate[]> =
+    mode === "freeform"
+      ? {
+          adults: audience.inWindow.adults,
+          kids: audience.inWindow.kids,
+          baby: audience.inWindow.baby,
+        }
+      : { adults: audience.adults, kids: audience.kids, baby: audience.baby };
   const groups: {
     group: Program;
     candidates: BlastCandidate[];
@@ -1814,7 +1829,11 @@ async function handleBlastQueue(
     if (key !== "adults" && key !== "kids" && key !== "baby") {
       return { response: json({ error: `grupo desconocido: ${String(g.group)}` }, 400) };
     }
-    if (!g.template || (!g.param2 && g.nParams !== 0)) {
+    if (mode === "freeform") {
+      if (!g.text || g.text.trim().length < 10) {
+        return { response: json({ error: `text obligatorio para ${key} en modo freeform` }, 400) };
+      }
+    } else if (!g.template || (!g.param2 && g.nParams !== 0)) {
       return { response: json({ error: `template y param2 obligatorios para ${key}` }, 400) };
     }
     const limit =
@@ -1822,12 +1841,15 @@ async function handleBlastQueue(
     groups.push({
       group: key,
       candidates: limit ? byGroup[key].slice(0, limit) : byGroup[key],
-      payload: {
-        t: g.template,
-        l: g.lang ?? "es_MX",
-        p2: g.param2 ?? "",
-        ...(g.nParams === 0 ? { n: 0 as const } : {}),
-      },
+      payload:
+        mode === "freeform"
+          ? { t: "", l: "", p2: "", txt: (g.text ?? "").trim() }
+          : {
+              t: g.template ?? "",
+              l: g.lang ?? "es_MX",
+              p2: g.param2 ?? "",
+              ...(g.nParams === 0 ? { n: 0 as const } : {}),
+            },
     });
   }
   const queued = await queueBlast(env, {
