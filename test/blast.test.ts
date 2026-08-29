@@ -85,6 +85,8 @@ test("blastDueAt: a late-evening start clamps into the next morning", () => {
 test("blast note round-trips; garbage decodes to null", () => {
   const p = { t: "adult_follow_up", l: "es_MX", p2: "sábado 9:00 am" };
   assert.deepEqual(decodeBlastNote(encodeBlastNote(p)), p);
+  const zero = { t: "bebe", l: "es_MX", p2: "", n: 0 as const };
+  assert.deepEqual(decodeBlastNote(encodeBlastNote(zero)), zero);
   assert.equal(decodeBlastNote("not json"), null);
   assert.equal(decodeBlastNote(null), null);
   assert.equal(decodeBlastNote(JSON.stringify({ t: "x" })), null);

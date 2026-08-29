@@ -85,8 +85,12 @@ export interface BlastPayload {
   t: string;
   /** Template language code exactly as approved (e.g. "es_MX"). */
   l: string;
-  /** {{2}} — the class-day text for this group. */
+  /** {{2}} — the class-day text; empty string for zero-variable templates. */
   p2: string;
+  /** Body-variable count the template REALLY has (2026-08-28: all three
+   *  approved templates came back ZERO-variable — Meta stripped the
+   *  placeholders on submit). 0 ⇒ send with no components. Default 2. */
+  n?: 0 | 2;
 }
 
 export function encodeBlastNote(p: BlastPayload): string {
@@ -98,7 +102,7 @@ export function decodeBlastNote(note: string | null): BlastPayload | null {
   try {
     const p = JSON.parse(note) as Partial<BlastPayload>;
     if (typeof p.t === "string" && typeof p.l === "string" && typeof p.p2 === "string") {
-      return { t: p.t, l: p.l, p2: p.p2 };
+      return { t: p.t, l: p.l, p2: p.p2, ...(p.n === 0 ? { n: 0 as const } : {}) };
     }
   } catch {
     /* malformed note ⇒ skip the row */

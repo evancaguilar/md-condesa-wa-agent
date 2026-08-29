@@ -238,7 +238,13 @@ async function processOne(
       }
       // greetingName drops handles/emoji junk; Meta rejects empty params.
       const greeting = name || "👋";
-      await sendTemplate(env, f.phone, payload.t, payload.l, blastComponents(greeting, payload.p2));
+      await sendTemplate(
+        env,
+        f.phone,
+        payload.t,
+        payload.l,
+        payload.n === 0 ? undefined : blastComponents(greeting, payload.p2),
+      );
       await markFollowup(env.DB, f.id, "sent");
       return;
     }

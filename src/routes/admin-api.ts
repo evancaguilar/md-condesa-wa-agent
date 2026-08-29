@@ -1766,6 +1766,8 @@ async function handleBlastQueue(
       param2?: string;
       /** Cap this group to its N freshest leads (omit = everyone). */
       limit?: number;
+      /** Body-variable count of the template (0 = fixed text, no params). */
+      nParams?: number;
     }[];
   }>(req);
   if (body.confirm !== true) {
@@ -1796,7 +1798,7 @@ async function handleBlastQueue(
     if (key !== "adults" && key !== "kids" && key !== "baby") {
       return { response: json({ error: `grupo desconocido: ${String(g.group)}` }, 400) };
     }
-    if (!g.template || !g.param2) {
+    if (!g.template || (!g.param2 && g.nParams !== 0)) {
       return { response: json({ error: `template y param2 obligatorios para ${key}` }, 400) };
     }
     const limit =
@@ -1804,7 +1806,12 @@ async function handleBlastQueue(
     groups.push({
       group: key,
       candidates: limit ? byGroup[key].slice(0, limit) : byGroup[key],
-      payload: { t: g.template, l: g.lang ?? "es_MX", p2: g.param2 },
+      payload: {
+        t: g.template,
+        l: g.lang ?? "es_MX",
+        p2: g.param2 ?? "",
+        ...(g.nParams === 0 ? { n: 0 as const } : {}),
+      },
     });
   }
   const queued = await queueBlast(env, {
