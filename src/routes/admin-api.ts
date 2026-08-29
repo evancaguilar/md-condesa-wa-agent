@@ -91,6 +91,15 @@ import {
 } from "../services/staff-send.js";
 import { shiftOutOfQuiet } from "../cron/quiet.js";
 import {
+  blastComponents,
+  loadBlastAudience,
+  queueBlast,
+  type BlastCandidate,
+  type BlastPayload,
+} from "../services/blast.js";
+import type { Program } from "../cron/nudge-copy.js";
+import { sendTemplate } from "../services/send.js";
+import {
   markRead,
   sendMedia,
   sendText,
@@ -275,6 +284,24 @@ export async function handleAdminApi(
       displayName: session.displayName,
       role: session.role,
     });
+  }
+
+  // ---- template blasts (owner-only; see services/blast.ts) ----
+  if (path === "/admin/api/blast/preview" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    return handleBlastPreview(req, env);
+  }
+  if (path === "/admin/api/blast/test" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    return handleBlastTest(req, env);
+  }
+  if (path === "/admin/api/blast/queue" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const res = await handleBlastQueue(req, env);
+    if (res.note) {
+      ctx.waitUntil(ports.slack.postNote(res.note).catch(() => {}));
+    }
+    return res.response;
   }
 
   // ---- staff users (owner-only) ----
@@ -1652,6 +1679,132 @@ function cdmxNow(): CdmxNow {
  * the BrainResult straight to JSON. bookTrial is a no-op stub so a booking never
  * hits Airtable.
  */
+// ---- template blasts -------------------------------------------------------
+
+/** Default window start: 2026-08-01 00:00 CDMX ("no agendaron en agosto"). */
+const BLAST_DEFAULT_SINCE = Math.floor(Date.parse("2026-08-01T00:00:00-06:00") / 1000);
+
+async function handleBlastPreview(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ since?: number }>(req);
+  const since = typeof body.since === "number" ? body.since : BLAST_DEFAULT_SINCE;
+  const audience = await loadBlastAudience(env, since, nowSec());
+  const sample = (list: BlastCandidate[]): { phone: string; name: string | null }[] =>
+    list.slice(0, 8).map((c) => ({ phone: c.phone, name: c.name }));
+  return json({
+    since,
+    counts: {
+      adults: audience.adults.length,
+      kids: audience.kids.length,
+      baby: audience.baby.length,
+      excluded: audience.excluded,
+    },
+    samples: {
+      adults: sample(audience.adults),
+      kids: sample(audience.kids),
+      baby: sample(audience.baby),
+    },
+  });
+}
+
+/** One real template send to a named phone — smoke-tests the template name,
+ *  language code, and variable count before any bulk queue. */
+async function handleBlastTest(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{
+    phone?: string;
+    template?: string;
+    lang?: string;
+    param2?: string;
+  }>(req);
+  const phone = (body.phone ?? "").replace(/\D/g, "");
+  if (!phone || !body.template || !body.param2) {
+    return json({ error: "phone, template y param2 son obligatorios" }, 400);
+  }
+  try {
+    const wamid = await sendTemplate(
+      env,
+      phone,
+      body.template,
+      body.lang ?? "es_MX",
+      blastComponents("\u{1F44B}", body.param2),
+      { force: true },
+    );
+    return json({ ok: true, wamid });
+  } catch (err) {
+    return json(
+      { ok: false, error: err instanceof Error ? err.message : String(err) },
+      502,
+    );
+  }
+}
+
+async function handleBlastQueue(
+  req: Request,
+  env: Env,
+): Promise<{ response: Response; note?: string }> {
+  const body = await readJson<{
+    confirm?: boolean;
+    runId?: string;
+    since?: number;
+    dailyCap?: number;
+    groups?: { group?: string; template?: string; lang?: string; param2?: string }[];
+  }>(req);
+  if (body.confirm !== true) {
+    return { response: json({ error: "confirm:true requerido" }, 400) };
+  }
+  const runId = (body.runId ?? "").trim();
+  if (!/^[a-z0-9_-]{3,40}$/.test(runId)) {
+    return { response: json({ error: "runId invalido (a-z0-9_-, 3-40)" }, 400) };
+  }
+  if (!Array.isArray(body.groups) || body.groups.length === 0) {
+    return { response: json({ error: "groups vacio" }, 400) };
+  }
+  const since = typeof body.since === "number" ? body.since : BLAST_DEFAULT_SINCE;
+  const now = nowSec();
+  const audience = await loadBlastAudience(env, since, now);
+  const byGroup: Record<Program, BlastCandidate[]> = {
+    adults: audience.adults,
+    kids: audience.kids,
+    baby: audience.baby,
+  };
+  const groups: {
+    group: Program;
+    candidates: BlastCandidate[];
+    payload: BlastPayload;
+  }[] = [];
+  for (const g of body.groups) {
+    const key = g.group as Program;
+    if (key !== "adults" && key !== "kids" && key !== "baby") {
+      return { response: json({ error: `grupo desconocido: ${String(g.group)}` }, 400) };
+    }
+    if (!g.template || !g.param2) {
+      return { response: json({ error: `template y param2 obligatorios para ${key}` }, 400) };
+    }
+    groups.push({
+      group: key,
+      candidates: byGroup[key],
+      payload: { t: g.template, l: g.lang ?? "es_MX", p2: g.param2 },
+    });
+  }
+  const queued = await queueBlast(env, {
+    runId,
+    groups,
+    startEpoch: now,
+    ...(typeof body.dailyCap === "number" ? { dailyCap: body.dailyCap } : {}),
+  });
+  if (queued === null) {
+    return { response: json({ error: "runId ya usado (blast duplicado)" }, 409) };
+  }
+  const detail = groups.map((g) => `${g.group}:${g.candidates.length}`).join(", ");
+  return {
+    response: json({
+      ok: true,
+      queued,
+      groups: groups.map((g) => ({ group: g.group, count: g.candidates.length })),
+    }),
+    note: `\u{1F4E3} Blast "${runId}" encolado: ${queued} plantillas (${detail}). Salen en tandas de 50 cada 5 min, 09:00-21:00, tope ${body.dailyCap ?? 250}/dia.`,
+  };
+}
+
 async function handleSandbox(req: Request, env: Env): Promise<Response> {
   const body = await readJson<{
     messages?: { role?: string; body?: string }[];

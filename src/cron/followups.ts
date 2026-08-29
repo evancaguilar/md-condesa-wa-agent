@@ -43,6 +43,7 @@ import {
 } from "./time.js";
 import { isQuietHour, next8am, shiftOutOfQuiet } from "./quiet.js";
 import { greetingName } from "./display-name.js";
+import { blastComponents, decodeBlastNote } from "../services/blast.js";
 import {
   listRecentBookings,
   listStudents,
@@ -226,6 +227,21 @@ async function processOne(
       await deps.slack.postAttendanceCheck({ phone: f.phone, name, recordId });
       await markFollowup(env.DB, f.id, "sent");
       return;
+
+    case "blast": {
+      // Owner-approved template blast (services/blast.ts). Payload rides in
+      // the note; a malformed row is skipped, never retried forever.
+      const payload = decodeBlastNote(f.note);
+      if (!payload) {
+        await markFollowup(env.DB, f.id, "skipped_optout");
+        return;
+      }
+      // greetingName drops handles/emoji junk; Meta rejects empty params.
+      const greeting = name || "👋";
+      await sendTemplate(env, f.phone, payload.t, payload.l, blastComponents(greeting, payload.p2));
+      await markFollowup(env.DB, f.id, "sent");
+      return;
+    }
 
     case "custom":
       // generic custom follow-up (set_followup): warm text if in-window, else

@@ -236,6 +236,10 @@ export type FollowupKind =
   | "nudge_d3"
   | "nudge_d4"
   | "nudge_d5"
+  /** One-off owner-approved template blast. note = JSON {t: template name,
+   *  l: language code, p2: {{2}} class text}; airtable_record_id =
+   *  'blast:<runId>' so UNIQUE(phone,kind,record) dedupes per run. */
+  | "blast"
   /** Staff-composed reply queued from the dashboard composer ("send later").
    *  note = JSON {text, by}; airtable_record_id = 'later:<client token>' so the
    *  UNIQUE(phone, kind, airtable_record_id) index dedupes per submit instead of
