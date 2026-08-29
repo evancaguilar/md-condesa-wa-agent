@@ -1746,7 +1746,14 @@ async function handleBlastQueue(
     runId?: string;
     since?: number;
     dailyCap?: number;
-    groups?: { group?: string; template?: string; lang?: string; param2?: string }[];
+    groups?: {
+      group?: string;
+      template?: string;
+      lang?: string;
+      param2?: string;
+      /** Cap this group to its N freshest leads (omit = everyone). */
+      limit?: number;
+    }[];
   }>(req);
   if (body.confirm !== true) {
     return { response: json({ error: "confirm:true requerido" }, 400) };
@@ -1779,9 +1786,11 @@ async function handleBlastQueue(
     if (!g.template || !g.param2) {
       return { response: json({ error: `template y param2 obligatorios para ${key}` }, 400) };
     }
+    const limit =
+      typeof g.limit === "number" && g.limit > 0 ? Math.floor(g.limit) : undefined;
     groups.push({
       group: key,
-      candidates: byGroup[key],
+      candidates: limit ? byGroup[key].slice(0, limit) : byGroup[key],
       payload: { t: g.template, l: g.lang ?? "es_MX", p2: g.param2 },
     });
   }

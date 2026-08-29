@@ -147,9 +147,12 @@ export async function loadBlastAudience(
   nowEpoch: number,
 ): Promise<BlastAudience> {
   const { results: contacts } = await env.DB.prepare(
+    // Newest lead first: a per-group `limit` then takes the FRESHEST leads,
+    // who are far likelier to still be shopping than a week-3 ghost.
     `SELECT c.*, ca.name AS campaign_name
        FROM contacts c LEFT JOIN campaigns ca ON ca.id = c.campaign_id
-      WHERE (c.created_at >= ?1 OR COALESCE(c.last_inbound_at, 0) >= ?1)`,
+      WHERE (c.created_at >= ?1 OR COALESCE(c.last_inbound_at, 0) >= ?1)
+      ORDER BY COALESCE(c.last_inbound_at, c.created_at) DESC`,
   )
     .bind(sinceEpoch)
     .all<Contact & { campaign_name: string | null }>();
