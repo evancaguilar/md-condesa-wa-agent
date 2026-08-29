@@ -1714,18 +1714,31 @@ async function handleBlastTest(req: Request, env: Env): Promise<Response> {
     template?: string;
     lang?: string;
     param2?: string;
+    /** Explicit body params (0..n) — overrides the default 2-param shape, so
+     *  the smoke test can discover how many variables a template REALLY has. */
+    params?: string[];
   }>(req);
   const phone = (body.phone ?? "").replace(/\D/g, "");
-  if (!phone || !body.template || !body.param2) {
-    return json({ error: "phone, template y param2 son obligatorios" }, 400);
+  if (!phone || !body.template || (!body.param2 && !Array.isArray(body.params))) {
+    return json({ error: "phone, template y param2 (o params[]) son obligatorios" }, 400);
   }
+  const components = Array.isArray(body.params)
+    ? body.params.length === 0
+      ? undefined
+      : [
+          {
+            type: "body",
+            parameters: body.params.map((t) => ({ type: "text", text: t })),
+          },
+        ]
+    : blastComponents("\u{1F44B}", body.param2 ?? "");
   try {
     const wamid = await sendTemplate(
       env,
       phone,
       body.template,
       body.lang ?? "es_MX",
-      blastComponents("\u{1F44B}", body.param2),
+      components,
       { force: true },
     );
     return json({ ok: true, wamid });
