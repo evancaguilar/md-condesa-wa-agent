@@ -56,6 +56,9 @@ export interface StatusEvent {
   status: string; // sent|delivered|read|failed
   recipient: string;
   ts: number;
+  /** Meta's error payload when status === "failed" (e.g. 131049 = per-user
+   *  marketing limit; 131026 = undeliverable). Compacted to one string. */
+  error?: string;
 }
 
 export interface EchoEvent {
@@ -381,6 +384,12 @@ export function parseWebhook(payload: unknown): WebhookEvent[] {
             status?: string;
             recipient_id?: string;
             timestamp?: string;
+            errors?: {
+              code?: number;
+              title?: string;
+              message?: string;
+              error_data?: { details?: string };
+            }[];
           }[];
         };
       }[];
@@ -434,12 +443,20 @@ export function parseWebhook(payload: unknown): WebhookEvent[] {
         events.push(ev);
       }
       for (const s of value.statuses ?? []) {
+        const err = (s.errors ?? [])
+          .map((e) =>
+            [e.code, e.title, e.message, e.error_data?.details]
+              .filter(Boolean)
+              .join(" | "),
+          )
+          .join(" ;; ");
         events.push({
           type: "status",
           wamid: s.id ?? "",
           status: s.status ?? "",
           recipient: s.recipient_id ?? "",
           ts: toEpoch(s.timestamp),
+          ...(err ? { error: err } : {}),
         });
       }
     }

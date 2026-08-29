@@ -11,6 +11,7 @@ import {
   isOwnWamid,
   setHumanOverride,
   upsertContact,
+  kvSet,
 } from "../db/queries.js";
 import { processInbound } from "../pipeline/inbound.js";
 import { channelOf, displayContact, type Channel } from "../services/channel.js";
@@ -77,7 +78,19 @@ async function processEvents(
       }
       if (ev.type === "inbound") await onInbound(env, ctx, ports, ev);
       else if (ev.type === "echo") await onEcho(env, ports, ev);
-      // statuses + app_state_sync: log only (already normalized; nothing to do).
+      else if (ev.type === "status" && ev.status === "failed") {
+        // A FAILED delivery is the only status worth keeping: Meta accepts
+        // sends synchronously and reports non-delivery here (2026-08-28: blast
+        // smoke tests "sent" but never arrived — this is where the why lives).
+        // kv-keyed by ts+wamid; /admin/api/wa-failures reads the newest.
+        console.error(`[webhook] delivery FAILED to ${ev.recipient}: ${ev.error ?? "(sin detalle)"}`);
+        await kvSet(
+          env.DB,
+          `wa_fail:${String(ev.ts).padStart(12, "0")}:${ev.wamid.slice(-24)}`,
+          JSON.stringify({ to: ev.recipient, ts: ev.ts, error: ev.error ?? null }),
+        );
+      }
+      // other statuses + app_state_sync: nothing to do.
     } catch (err) {
       console.error("webhook event error", ev.type, err);
     }

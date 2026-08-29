@@ -286,6 +286,22 @@ export async function handleAdminApi(
     });
   }
 
+  // Recent FAILED WhatsApp deliveries (status webhooks) — newest first.
+  if (path === "/admin/api/wa-failures" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT key, value FROM kv WHERE key LIKE 'wa_fail:%' ORDER BY key DESC LIMIT 50`,
+    ).all<{ key: string; value: string }>();
+    return json({
+      items: results.map((r) => {
+        try {
+          return JSON.parse(r.value) as unknown;
+        } catch {
+          return { raw: r.value };
+        }
+      }),
+    });
+  }
+
   // ---- template blasts (owner-only; see services/blast.ts) ----
   if (path === "/admin/api/blast/preview" && method === "POST") {
     if (session.role !== "owner") return json({ error: "forbidden" }, 403);
