@@ -167,9 +167,11 @@ function renderClientTs(cfg, persona, version) {
       nudges: !!cfg.features?.nudges,
       airtableSync: !!cfg.features?.airtableSync,
       safety: !!cfg.features?.safety,
+      marketingMetrics: !!cfg.features?.marketingMetrics,
     },
     ...(cfg.safety ? { safety: cfg.safety } : {}),
     ...(cfg.airtableLeads ? { airtableLeads: cfg.airtableLeads } : {}),
+    ...(cfg.airtableMetrics ? { airtableMetrics: cfg.airtableMetrics } : {}),
     copy: cfg.copy,
   };
   return (

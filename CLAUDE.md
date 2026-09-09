@@ -12,6 +12,7 @@ WhatsApp AI agent for MD Self Defense Academy Condesa (martial-arts gym, CDMX). 
 - Inbound pipeline (src/pipeline/inbound.ts) gate order is contractual: dedupe → kill switch → opt-out → campaign tagging → student → human override → crisis → campaign first-reply (instant pre-written welcome, no brain/approval) → debounce → brain → route.
 - Slack approval flow (src/services/slack.ts, approvals.ts): Aprobar/Editar/Tomar control. TRAINING_WHEELS=1 → every reply needs approval.
 - Cron (*/5 min): anti-no-show sequence, lead-nudge drips (day-1 + extended d2–d5), Airtable syncBookings + result watcher, approval timeouts. Quiet hours 21:30–08:00 CDMX for all unsolicited sends.
+- Marketing metrics (docs/marketing-metrics.md): Airtable does the math (rollups on Días/Meses/Anuncios Meta/Campañas Meta); the cron imports Meta spend (05:30), links leads/students every 15 min, posts an 08:00 Slack brief. Owner routes `/admin/api/metrics/*`. Column names live in `airtableMetrics` in client.mjs — never hardcode them.
 - Admin dashboard `/admin` (src/ui/admin.html, single inline-script SPA): Inicio, Chats, Aprobaciones, KB overlay, Editor (IA proposes KB edits/campaigns/rules), Campañas (+ Reglas), Probar sandbox.
 - Airtable base `appcX38TBVltyxHR6`, table `Leads` = CRM. Lead-sync upserts by `Phone E164`; rules engine (docs/airtable-rules-plan.md) applies natural-language rules to any field.
 

@@ -10,7 +10,8 @@
 import type { Env } from "../types.js";
 import { kvGet, kvSet } from "../db/queries.js";
 
-const GRAPH = "https://graph.facebook.com/v23.0";
+/** Graph API base (version pin shared with meta-insights.ts). */
+export const GRAPH = "https://graph.facebook.com/v23.0";
 const KV_PREFIX = "ad_meta:";
 /** Retry a cached lookup failure after a day (token/permission may get fixed). */
 const MISS_RETRY_SECONDS = 24 * 3600;
@@ -20,6 +21,8 @@ export interface AdMeta {
   name: string | null;
   /** Meta campaign name the ad belongs to (NOT our dashboard campaigns). */
   campaignName: string | null;
+  /** Meta campaign id (metrics: links Anuncios Meta → Campañas Meta). */
+  campaignId: string | null;
 }
 
 interface CachedAdMeta extends Partial<AdMeta> {
@@ -45,8 +48,14 @@ export async function lookupAdMeta(
     const cached = await kvGet(env.DB, key);
     if (cached) {
       const parsed = JSON.parse(cached) as CachedAdMeta;
-      if (!parsed.miss) {
-        return { name: parsed.name ?? null, campaignName: parsed.campaignName ?? null };
+      // Entries cached before campaignId existed (2026-09) lack the key
+      // entirely → fall through and refresh once so metrics get the id.
+      if (!parsed.miss && "campaignId" in parsed) {
+        return {
+          name: parsed.name ?? null,
+          campaignName: parsed.campaignName ?? null,
+          campaignId: parsed.campaignId ?? null,
+        };
       }
       const age = Math.floor(Date.now() / 1000) - (parsed.ts ?? 0);
       if (age < MISS_RETRY_SECONDS) return null;
@@ -58,7 +67,7 @@ export async function lookupAdMeta(
 
   try {
     const res = await fetch(
-      `${GRAPH}/${adId}?fields=name,campaign{name}`,
+      `${GRAPH}/${adId}?fields=name,campaign{id,name}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     if (!res.ok) {
@@ -71,11 +80,12 @@ export async function lookupAdMeta(
     }
     const data = (await res.json()) as {
       name?: string;
-      campaign?: { name?: string };
+      campaign?: { id?: string; name?: string };
     };
     const meta: AdMeta = {
       name: data.name ?? null,
       campaignName: data.campaign?.name ?? null,
+      campaignId: data.campaign?.id ?? null,
     };
     await kvSet(env.DB, key, JSON.stringify(meta)).catch(() => {});
     return meta;

@@ -220,3 +220,8 @@ P0 manual setup (docs/phase0-checklist.md) → **P1 Q&A + booking** on Meta test
 ## File-ownership rules for parallel agents
 
 A creates the scaffold and shared contracts first. B, C, D then work in parallel and may ONLY create/edit files they own (B: `src/brain/*`, `tools/compile-kb.mjs`, `kb/*`; C: `src/routes/slack.ts`, `src/services/slack.ts`; D: `src/services/airtable.ts`, `src/cron/*`). If a parallel workstream needs a change to a shared file (`types.ts`, `queries.ts`, `schema.sql`, `index.ts`, `package.json`), it writes the request to its own `docs/notes-<letter>.md` instead of editing; E applies them at integration.
+
+## Marketing metrics feeder (2026-09-09)
+
+See docs/marketing-metrics.md. Cron additions (all gated by `CLIENT.features.marketingMetrics` + `env.META_AD_ACCOUNT_ID`, each in `safe()`): `adSpendBackfill` every tick (one 7-day chunk until kv `ad_spend_backfill_done`), `leadLinkSweep` + `studentLinkSweep` in the 15-min Airtable slot, `adSpendDaily` in the 05:30–06:59 window (kv `ad_spend_mark`), `metricsBrief` at 08:00 (kv `metrics_brief_mark`). Owner routes: `GET /admin/api/metrics/probe`, `POST /admin/api/metrics/{pull,sweep,relink-students,brief}`. Modules: services/meta-insights.ts (Graph insights, Bearer header, paging), services/metrics-airtable.ts (batch upsert with `performUpsert`, link sweeps, exceptions), cron/ad-spend.ts, cron/metrics-link.ts, cron/metrics-brief.ts.
+

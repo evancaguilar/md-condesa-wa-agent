@@ -15,6 +15,28 @@ import type {
   Ports,
   StoredMessage,
 } from "../types.js";
+import { CLIENT } from "../client.gen.js";
+import { cdmxDateStr, DAY } from "../cron/time.js";
+import { probeMetaAds } from "../services/meta-insights.js";
+import { MetricsSchemaError, relinkDuplicateStudents } from "../services/metrics-airtable.js";
+import {
+  KV_BACKFILL_CURSOR,
+  KV_BACKFILL_DONE,
+  KV_SPEND_CURRENCY,
+  KV_SPEND_LAST_ERROR,
+  KV_SPEND_LAST_OK,
+  KV_SPEND_MARK,
+  addDays,
+  pullAdSpend,
+} from "../cron/ad-spend.js";
+import {
+  KV_LINK_ERROR,
+  KV_LINK_LAST_OK,
+  metricsSinceIso,
+  runLeadLinkSweep,
+  runStudentLinkSweep,
+} from "../cron/metrics-link.js";
+import { runMetricsBrief } from "../cron/metrics-brief.js";
 import {
   authenticateLogin,
   buildSetCookie,
@@ -318,6 +340,19 @@ export async function handleAdminApi(
       ctx.waitUntil(ports.slack.postNote(res.note).catch(() => {}));
     }
     return res.response;
+  }
+
+  // ---- marketing metrics (owner-only; docs/marketing-metrics.md) ----
+  if (path.startsWith("/admin/api/metrics/")) {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    if (path === "/admin/api/metrics/probe" && method === "GET") return handleMetricsProbe(env);
+    if (path === "/admin/api/metrics/pull" && method === "POST") return handleMetricsPull(req, env);
+    if (path === "/admin/api/metrics/sweep" && method === "POST") return handleMetricsSweep(req, env);
+    if (path === "/admin/api/metrics/relink-students" && method === "POST") {
+      return handleMetricsRelink(req, env);
+    }
+    if (path === "/admin/api/metrics/brief" && method === "POST") return handleMetricsBrief(env, ports);
+    return json({ error: "not_found" }, 404);
   }
 
   // ---- staff users (owner-only) ----
@@ -2023,5 +2058,94 @@ function brainResultJson(result: BrainResult): Record<string, unknown> {
           trialTime: result.trialTime,
         },
       };
+  }
+}
+
+// ---- marketing metrics (owner-only; docs/marketing-metrics.md) ----
+
+function metricsErrorResponse(err: unknown): Response {
+  const message = err instanceof Error ? err.message : String(err);
+  return json(
+    { ok: false, error: message, schema: err instanceof MetricsSchemaError },
+    err instanceof MetricsSchemaError ? 422 : 502,
+  );
+}
+
+/** Go/no-go: token + ad account + one-day pull, plus the feeder's kv state. Never the token. */
+async function handleMetricsProbe(env: Env): Promise<Response> {
+  const now = nowSec();
+  const probe = await probeMetaAds(env, cdmxDateStr(now - DAY));
+  const kv = (k: string) => kvGet(env.DB, k);
+  return json({
+    ...probe,
+    featureEnabled: CLIENT.features.marketingMetrics === true,
+    metricsSince: env.METRICS_SINCE ?? null,
+    state: {
+      spendMark: await kv(KV_SPEND_MARK),
+      spendLastOk: await kv(KV_SPEND_LAST_OK),
+      spendLastError: await kv(KV_SPEND_LAST_ERROR),
+      currency: await kv(KV_SPEND_CURRENCY),
+      backfillCursor: await kv(KV_BACKFILL_CURSOR),
+      backfillDone: await kv(KV_BACKFILL_DONE),
+      briefMark: await kv("metrics_brief_mark"),
+      linkLastOk: await kv(KV_LINK_LAST_OK),
+      linkError: await kv(KV_LINK_ERROR),
+    },
+  });
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Manual spend pull for a window (≤ 31 days) — backfill/repair without waiting for 05:30. */
+async function handleMetricsPull(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ since?: string; until?: string }>(req);
+  const since = body.since ?? "";
+  const until = body.until ?? since;
+  if (!DATE_RE.test(since) || !DATE_RE.test(until) || until < since) {
+    return json({ error: "since/until must be YYYY-MM-DD and since <= until" }, 400);
+  }
+  if (addDays(since, 31) < until) return json({ error: "window too large (max 31 days)" }, 400);
+  try {
+    return json({ ok: true, ...(await pullAdSpend(env, since, until)) });
+  } catch (err) {
+    return metricsErrorResponse(err);
+  }
+}
+
+/** Run the lead + student link sweeps now with a bigger cap (backfill). */
+async function handleMetricsSweep(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ limit?: number }>(req);
+  const limit = Math.max(1, Math.min(2000, Math.floor(Number(body.limit ?? 500)) || 500));
+  try {
+    const leads = await runLeadLinkSweep(env, {}, { limit });
+    const students = await runStudentLinkSweep(env, {}, { limit: Math.min(limit, 500) });
+    return json({ ok: true, leads, students });
+  } catch (err) {
+    return metricsErrorResponse(err);
+  }
+}
+
+/** Duplicate-student relink (payment-automation race). dryRun defaults to true. */
+async function handleMetricsRelink(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ dryRun?: boolean }>(req);
+  const dryRun = body.dryRun !== false;
+  const sinceIso = metricsSinceIso(env);
+  if (!sinceIso) return json({ error: "METRICS_SINCE unset" }, 400);
+  try {
+    return json({ ok: true, dryRun, ...(await relinkDuplicateStudents(env, { dryRun, sinceIso })) });
+  } catch (err) {
+    return metricsErrorResponse(err);
+  }
+}
+
+/** Post the daily brief now (also returns the text). */
+async function handleMetricsBrief(env: Env, ports: Ports): Promise<Response> {
+  try {
+    const text = await runMetricsBrief(env, nowSec(), {
+      postNote: (t) => ports.slack.postNote(t),
+    });
+    return json({ ok: true, text });
+  } catch (err) {
+    return metricsErrorResponse(err);
   }
 }

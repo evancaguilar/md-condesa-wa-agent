@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS edits(id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEX
 CREATE TABLE IF NOT EXISTS usage_log(day TEXT PRIMARY KEY, input_tokens INTEGER DEFAULT 0, cached_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0);
 
 CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);  -- bot_enabled flag, airtable sync cursor, budget alert marks, training_wheels override, admin login rate-limit
+-- Marketing metrics (docs/marketing-metrics.md) keys: ad_spend_mark, ad_spend_last_ok,
+-- ad_spend_last_error, ad_spend_currency, ad_spend_backfill_cursor, ad_spend_backfill_done,
+-- metrics_brief_mark, metrics_link_last_ok, metrics_link_error, metrics_link_note:<day>.
 
 -- ---- Admin dashboard: KB overlay, revision audit log, and campaigns ----
 

@@ -22,6 +22,9 @@ import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
 import { kvGet, kvSet } from "../db/queries.js";
 import { CLIENT } from "../client.gen.js";
+import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./ad-spend.js";
+import { runLeadLinkSweep, runStudentLinkSweep } from "./metrics-link.js";
+import { runMetricsBrief } from "./metrics-brief.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -73,12 +76,30 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     await cronDeps.runApprovalTimeouts(env, pending);
   });
 
+  // Marketing metrics feeder (docs/marketing-metrics.md): gated by the client
+  // feature flag AND the ad-account var, so other clients / a bare deploy skip it.
+  const metrics = CLIENT.features.marketingMetrics === true && !!env.META_AD_ACCOUNT_ID;
+  const metricsNote = (t: string): Promise<void> => cronDeps.slack.postNote(t);
+
+  // Every tick: one 7-day backfill chunk of Meta spend until the kv done-flag.
+  if (metrics) {
+    await safe("adSpendBackfill", () =>
+      runAdSpendBackfillStep(env, nowEpoch, { slack: cronDeps.slack }),
+    );
+  }
+
   // Every ~15 min (minute % 15 < 5): booking sync + result watcher.
   // Feature-gated: clients without an Airtable pipeline skip the syncs entirely.
   if (CLIENT.features.airtableSync && p.minute % 15 < 5) {
     await safe("syncBookings", () =>
       syncBookings(env, undefined, { slack: cronDeps.slack }),
     );
+    // Metrics links: leads → Día/Mes/Anuncio, students → Lead (sequential so the
+    // two never burst the shared Airtable rate limit together).
+    if (metrics) {
+      await safe("leadLinkSweep", () => runLeadLinkSweep(env, { postNote: metricsNote }));
+      await safe("studentLinkSweep", () => runStudentLinkSweep(env, { postNote: metricsNote }));
+    }
   }
 
   // Once daily at 05:00 CDMX (kv date mark): the OPUS nightly audit of the
@@ -94,6 +115,30 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
           kb: KB,
           now: nowEpoch,
         }),
+      );
+    }
+  }
+
+  // Marketing metrics: yesterday's Meta spend (05:30–06:59 CDMX window, kv date
+  // mark set BEFORE the run — a failure waits for tomorrow, whose 3-day window
+  // covers the gap).
+  if (metrics && shouldRunDailyPull(p)) {
+    const today = cdmxDateStr(nowEpoch);
+    if ((await kvGet(env.DB, "ad_spend_mark")) !== today) {
+      await kvSet(env.DB, "ad_spend_mark", today);
+      await safe("adSpendDaily", () =>
+        runDailyAdSpend(env, nowEpoch, { slack: cronDeps.slack }),
+      );
+    }
+  }
+
+  // Marketing metrics: 08:00 CDMX Slack brief (yesterday + month to date).
+  if (metrics && p.hour === 8) {
+    const today = cdmxDateStr(nowEpoch);
+    if ((await kvGet(env.DB, "metrics_brief_mark")) !== today) {
+      await kvSet(env.DB, "metrics_brief_mark", today);
+      await safe("metricsBrief", () =>
+        runMetricsBrief(env, nowEpoch, { postNote: metricsNote }),
       );
     }
   }

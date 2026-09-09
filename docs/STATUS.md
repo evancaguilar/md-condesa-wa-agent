@@ -1,6 +1,15 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-08-28**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-09**.
+
+### Marketing metrics feeder + attribution repair (2026-09-09)
+
+Full owner guide: **docs/marketing-metrics.md**. Airtable does the math (5 new tables `Ad Spend Diario`, `Anuncios Meta`, `Campañas Meta`, `Días`, `Meses` + rollups/formulas on Leads/Alumnos/Movimientos); the worker feeds it: Meta spend import (05:30 CDMX, 3-day re-pull, chunked backfill from `METRICS_SINCE`=2026-07-01), lead→Día/Mes/Anuncio and student→Lead link sweeps (every 15 min, same slot as syncBookings), 08:00 Slack brief (English) with exceptions. New modules: src/services/meta-insights.ts, src/services/metrics-airtable.ts, src/cron/ad-spend.ts, metrics-link.ts, metrics-brief.ts. Owner endpoints `/admin/api/metrics/{probe,pull,sweep,relink-students,brief}`. Gated by `features.marketingMetrics` + `META_AD_ACCOUNT_ID`. No D1 migration (kv only).
+
+**Attribution bug found + fixed:** the Airtable "Auto create payment" automation linked the payment to the student by *name text*, racing the "Se inscribió" automation → phone-less duplicate students without `Lead Original` (since July: 64 paid students linked, 42 not). The "Se inscribió" automation now has the payment step inside (linked by record id) as a **draft**.
+
+**Pendiente Evan:** (1) `GET /admin/api/metrics/probe` — if it reports a permission error, paste the creative-flywheel `META_ACCESS_TOKEN` as the encrypted secret `ADS_ACCESS_TOKEN` in the Cloudflare dashboard and re-probe; (2) publish the consolidated "Se inscribió" automation (open → Update) and turn **"Auto create payment" OFF** at the same moment; (3) `POST /admin/api/metrics/relink-students {"dryRun":true}` → review → `{"dryRun":false}`; (4) set percent formatting on the `Show Rate` / `Close Rate` / `Conversión` formula fields in Airtable (display only); (5) eyeball `Meses` 2026-08 `Gasto` vs Ads Manager August.
+
 
 ### Auditor nocturno Opus + fixes del día (2026-08-28)
 

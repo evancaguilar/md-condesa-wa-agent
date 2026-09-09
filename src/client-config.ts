@@ -66,6 +66,9 @@ export interface ClientFeatures {
   instagram?: boolean;
   /** Facebook Messenger channel. Optional: absent = off. */
   messenger?: boolean;
+  /** Marketing-funnel metrics feeder (Meta spend import, lead/student link
+   *  sweeps, daily Slack brief). Requires `airtableMetrics`. Optional: absent = off. */
+  marketingMetrics?: boolean;
 }
 
 /**
@@ -106,6 +109,109 @@ export interface AirtableLeadsMap {
   childName: string;
 }
 
+/**
+ * Table + column names of the marketing-metrics contract in the client's
+ * Airtable base (see docs/marketing-metrics.md). Airtable does the math
+ * (rollups/formulas); the worker only writes spend rows + link fields and reads
+ * the period rollups for the Slack brief. Every name lives here so a rename in
+ * the base is a config change, never a code change.
+ */
+export interface AirtableMetricsMap {
+  tables: {
+    spend: string;
+    ads: string;
+    campaigns: string;
+    days: string;
+    months: string;
+    students: string;
+    movements: string;
+  };
+  /** Ad Spend Diario columns (one row per ad per day; upsert key = `key`). */
+  spend: {
+    key: string;
+    date: string;
+    account: string;
+    adId: string;
+    adName: string;
+    adSetName: string;
+    adSetId: string;
+    campaignId: string;
+    campaignName: string;
+    spend: string;
+    impressions: string;
+    clicks: string;
+    reach: string;
+    conversations: string;
+    updated: string;
+    adLink: string;
+    campaignLink: string;
+    dayLink: string;
+    monthLink: string;
+  };
+  ads: { adId: string; name: string; adSet: string; campaignLink: string };
+  campaigns: { campaignId: string; name: string };
+  /** Leads columns the sweeps read (formulas) and write (links). */
+  leads: {
+    created: string;
+    dayText: string;
+    monthText: string;
+    adId: string;
+    dayLink: string;
+    monthLink: string;
+    adLink: string;
+    pendingAttendance: string;
+  };
+  /** Alumnos columns for the student↔lead linker + exceptions. */
+  students: {
+    name: string;
+    phone: string;
+    leadLink: string;
+    created: string;
+    totalPaid: string;
+    eligibleIncome: string;
+  };
+  /** Movimientos columns for the exceptions counts. */
+  movements: {
+    date: string;
+    concept: string;
+    type: string;
+    typeIncome: string;
+    conceptSurplus: string;
+    studentLink: string;
+  };
+  /** Rollup/formula names shared by Días and Meses (read for the brief). */
+  periods: {
+    /** Primary field of Días / Meses (the key the worker links by). */
+    dayKey: string;
+    monthKey: string;
+    spend: string;
+    conversations: string;
+    leads: string;
+    paidLeads: string;
+    unknownLeads: string;
+    booked: string;
+    pastTrials: string;
+    showed: string;
+    pending: string;
+    closed: string;
+    closedAfterTrial: string;
+    directCloses: string;
+    marked: string;
+    revenue: string;
+    revenue90: string;
+    cpl: string;
+    costPerBooking: string;
+    costPerShow: string;
+    costPerClose: string;
+    showRate: string;
+    closeRate: string;
+    roas: string;
+    roas90: string;
+    /** Meses only. */
+    provisional: string;
+  };
+}
+
 export interface ClientConfig {
   /** Folder name under clients/ (e.g. "md-condesa", "iasmin"). */
   clientId: string;
@@ -134,6 +240,8 @@ export interface ClientConfig {
   safety?: SafetyConfig;
   /** Real Leads-table column names; unset keys use the English defaults. */
   airtableLeads?: Partial<AirtableLeadsMap>;
+  /** Marketing-metrics table/column names (required when features.marketingMetrics). */
+  airtableMetrics?: AirtableMetricsMap;
   copy: ClientCopy;
 }
 

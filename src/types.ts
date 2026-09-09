@@ -47,6 +47,10 @@ export interface Env {
   BOOKING_VIDEO_URL?: string;
   /** Facebook Page id backing Messenger + IG DMs. Optional (see PAGE_ACCESS_TOKEN). */
   FB_PAGE_ID?: string;
+  /** Meta ad account for the spend import ("act_<id>"). Unset = metrics jobs skip. */
+  META_AD_ACCOUNT_ID?: string;
+  /** First day (YYYY-MM-DD, CDMX) covered by the metrics backfill + link sweeps. */
+  METRICS_SINCE?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;

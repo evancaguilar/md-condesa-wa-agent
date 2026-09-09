@@ -133,11 +133,11 @@ export function normalizeMxPhone(raw: string): string {
   return d;
 }
 
-function baseUrl(env: Env, table: string): string {
+export function baseUrl(env: Env, table: string): string {
   return `${API}/${env.AIRTABLE_BASE_ID}/${encodeURIComponent(table)}`;
 }
 
-async function airtableFetch(
+export async function airtableFetch(
   env: Env,
   url: string,
   init: RequestInit,
@@ -228,18 +228,18 @@ interface CreateResult {
 }
 
 /** Shape of an Airtable JSON error body (or a bare string in odd cases). */
-type AirtableErrorBody = {
+export type AirtableErrorBody = {
   error?: { type?: string; message?: string } | string;
 };
 
-interface ParsedAirtableError {
+export interface ParsedAirtableError {
   detail: string;
   unknownField: boolean; // 422 UNKNOWN_FIELD_NAME
   invalidFormula: boolean; // 422 INVALID_FILTER_BY_FORMULA
 }
 
 /** Shared error extractor for createRecord/updateRecord/findLeadByPhone. */
-function parseAirtableError(status: number, data: AirtableErrorBody): ParsedAirtableError {
+export function parseAirtableError(status: number, data: AirtableErrorBody): ParsedAirtableError {
   const errObj = typeof data.error === "object" ? data.error : undefined;
   const detail =
     errObj?.message ??
