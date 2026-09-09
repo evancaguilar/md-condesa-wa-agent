@@ -123,6 +123,10 @@ function money(v: number | null, cur: string): string {
 function pct(v: number | null): string {
   return v === null ? "—" : `${Math.round(v * 100)}%`;
 }
+/** Cost-per-X reads as "—" until there is spend (0 ÷ leads is not a price). */
+function cost(v: number | null, spend: number | null, cur: string): string {
+  return spend ? money(v, cur) : "—";
+}
 function x(v: number | null): string {
   return v === null ? "—" : `${(Math.round(v * 10) / 10).toFixed(1)}x`;
 }
@@ -153,7 +157,7 @@ export function formatBrief(a: BriefInput): string {
     if (d.paidLeads !== null) src.push(`${n0(d.paidLeads)} from ads`);
     if ((d.unknownLeads ?? 0) > 0) src.push(`${n0(d.unknownLeads)} unknown`);
     lines.push(
-      `Spend ${money(d.spend, cur)} · ${n0(d.leads)} leads${src.length ? ` (${src.join(", ")})` : ""} · CPL ${money(d.cpl, cur)} · ${n0(d.booked)} booked · ${n0(d.showed)} showed · ${n0(d.closed)} closed · revenue ${money(d.revenue, cur)}`,
+      `Spend ${money(d.spend, cur)} · ${n0(d.leads)} leads${src.length ? ` (${src.join(", ")})` : ""} · CPL ${cost(d.cpl, d.spend, cur)} · ${n0(d.booked)} booked · ${n0(d.showed)} showed · ${n0(d.closed)} closed · revenue ${money(d.revenue, cur)}`,
     );
   }
   const mo = a.monthRow;
@@ -165,7 +169,7 @@ export function formatBrief(a: BriefInput): string {
       `*${label}* (leads created in ${monthName(a.month).slice(0, 3)}, outcomes as of today)${mo.provisional ? " ⚠️ provisional" : ""}`,
     );
     lines.push(
-      `Spend ${money(mo.spend, cur)} · ${n0(mo.leads)} leads (${n0(mo.paidLeads)} from ads${(mo.unknownLeads ?? 0) > 0 ? `, ${n0(mo.unknownLeads)} unknown` : ""}) · CPL ${money(mo.cpl, cur)} · cost/booking ${money(mo.costPerBooking, cur)} · cost/show ${money(mo.costPerShow, cur)} · cost/close ${money(mo.costPerClose, cur)}`,
+      `Spend ${money(mo.spend, cur)} · ${n0(mo.leads)} leads (${n0(mo.paidLeads)} from ads${(mo.unknownLeads ?? 0) > 0 ? `, ${n0(mo.unknownLeads)} unknown` : ""}) · CPL ${cost(mo.cpl, mo.spend, cur)} · cost/booking ${cost(mo.costPerBooking, mo.spend, cur)} · cost/show ${cost(mo.costPerShow, mo.spend, cur)} · cost/close ${cost(mo.costPerClose, mo.spend, cur)}`,
     );
     lines.push(
       `Show rate ${pct(mo.showRate)} (${n0(mo.showed)}/${n0(mo.pastTrials)}, ${n0(mo.pending)} pending) · close rate ${pct(mo.closeRate)} (${n0(mo.closedAfterTrial)}/${n0(mo.showed)}${(mo.directCloses ?? 0) > 0 ? `, +${n0(mo.directCloses)} direct` : ""}) · revenue ${money(mo.revenue, cur)} · ROAS ${x(mo.roas)} (90d ${x(mo.roas90)})`,

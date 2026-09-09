@@ -100,6 +100,20 @@ test("formatBrief: no rows → explicit no-data lines, never synced", () => {
   assert.ok(!text.includes("Exceptions:"));
 });
 
+test("formatBrief: zero spend renders every cost metric as — (0 ÷ leads is not a price)", () => {
+  const text = formatBrief({
+    day: "2026-09-08",
+    month: "2026-09",
+    dayRow: periodFromRecord(row({ Gasto: 0, CPL: 0 }), M),
+    monthRow: periodFromRecord(row({ Gasto: 0, CPL: 0, "Costo por Agendada": 0, "Costo por Asistencia": 0, "Costo por Cierre": 0 }), M),
+    exceptions: null,
+    currency: "MXN",
+    spendSyncedAt: null,
+  });
+  assert.match(text, /Spend MXN 0 · 95 leads .* · CPL — · 40 booked/);
+  assert.match(text, /CPL — · cost\/booking — · cost\/show — · cost\/close —/);
+});
+
 test("formatBrief: blank ratios render as — and Meta-vs-attributed hint fires on a gap", () => {
   const text = formatBrief({
     day: "2026-09-08",
