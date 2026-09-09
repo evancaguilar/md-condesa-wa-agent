@@ -322,7 +322,13 @@ export async function batchPatch(
 export async function listRecords(
   env: Env,
   table: string,
-  o: { filterByFormula?: string; fields?: string[]; maxRecords?: number; pageSize?: number } = {},
+  o: {
+    filterByFormula?: string;
+    fields?: string[];
+    maxRecords?: number;
+    pageSize?: number;
+    sort?: { field: string; direction: "asc" | "desc" };
+  } = {},
 ): Promise<MetricsRecord[]> {
   const out: MetricsRecord[] = [];
   let offset: string | undefined;
@@ -330,6 +336,10 @@ export async function listRecords(
     const qs = new URLSearchParams();
     if (o.filterByFormula) qs.set("filterByFormula", o.filterByFormula);
     for (const f of o.fields ?? []) qs.append("fields[]", f);
+    if (o.sort) {
+      qs.set("sort[0][field]", o.sort.field);
+      qs.set("sort[0][direction]", o.sort.direction);
+    }
     qs.set("pageSize", String(Math.min(o.pageSize ?? 100, o.maxRecords ?? 100)));
     if (o.maxRecords) qs.set("maxRecords", String(o.maxRecords));
     if (offset) qs.set("offset", offset);
@@ -550,10 +560,13 @@ export async function linkStudentsSweep(
   m: AirtableMetricsMap = metricsMap(),
 ): Promise<StudentSweepStats> {
   const s = m.students;
+  // Newest first: a handful of students with no matching lead stay in this filter
+  // forever, and a fixed-order scan of `limit` rows would never reach new ones.
   const rows = await listRecords(env, m.tables.students, {
     filterByFormula: unlinkedStudentsFormula(o.sinceIso, m),
     fields: [s.phone, s.name],
     maxRecords: o.limit,
+    sort: { field: s.created, direction: "desc" },
   });
   const patches: { id: string; fields: Record<string, unknown> }[] = [];
   let ambiguous = 0;

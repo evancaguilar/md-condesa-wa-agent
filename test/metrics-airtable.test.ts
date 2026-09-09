@@ -220,11 +220,13 @@ test("listRecords: fields[] + formula on the URL, offset pagination, maxRecords 
     filterByFormula: "{Día} = ''",
     fields: ["Día Lead", "Ad ID"],
     maxRecords: 3,
+    sort: { field: "Fecha de creación", direction: "desc" },
   });
   assert.equal(rows.length, 3);
   assert.equal(calls.length, 2);
   assert.ok(calls[0]!.url.includes("filterByFormula=") && calls[0]!.url.includes("fields%5B%5D=D"));
   assert.ok(calls[0]!.url.includes("maxRecords=3"));
+  assert.ok(calls[0]!.url.includes("sort%5B0%5D%5Bdirection%5D=desc"));
   assert.ok(calls[1]!.url.includes("offset=itrNext"));
   assert.ok(calls.every((c) => c.method === "GET"));
 });
