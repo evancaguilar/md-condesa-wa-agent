@@ -56,12 +56,14 @@ Fix shipped in three parts:
 
 | When (CDMX) | Job | Notes |
 |---|---|---|
-| every 5 min | `adSpendBackfill` | one 7-day chunk from `METRICS_SINCE` (2026-07-01) to yesterday, then kv `ad_spend_backfill_done`. Slack note when done. |
-| every 15 min | `leadLinkSweep` (≤300), `studentLinkSweep` (≤100) | links leads → Día/Mes/Anuncio and students → Lead. No cursor: linked rows drop out of the filter, so a failed tick just retries. |
-| 05:30–06:59 | `adSpendDaily` | re-pulls the last 3 days + today (Meta restates for ~72 h; upsert is idempotent). kv `ad_spend_mark` is set before the run, so a failure waits for tomorrow, whose window covers the gap. |
+| ticks at minute 5–14, 20–29, 35–44, 50–59 | `leadLinkSweep` (≤40), `studentLinkSweep` (≤5) | links leads → Día/Mes/Anuncio and students → Lead. No cursor: linked rows drop out of the filter, so a failed tick just retries. |
+| same ticks | `adSpendBackfill` | one 2-day chunk from `METRICS_SINCE` (2026-07-01) to yesterday (≈35 ticks ≈ 3 h), then kv `ad_spend_backfill_done` + a Slack note. Skipped on the tick that runs the daily pull. |
+| 05:35–06:59 | `adSpendDaily` | re-pulls the last 3 days + today (Meta restates for ~72 h; upsert is idempotent). kv `ad_spend_mark` is set before the run, so a failure waits for tomorrow, whose window covers the gap. |
 | 08:00 | `metricsBrief` | reads yesterday's `Días` row + the month's `Meses` row, posts to Slack. kv `metrics_brief_mark`. |
 
 kv keys: `ad_spend_mark`, `ad_spend_last_ok`, `ad_spend_last_error`, `ad_spend_currency`, `ad_spend_backfill_cursor`, `ad_spend_backfill_done`, `metrics_brief_mark`, `metrics_link_last_ok`, `metrics_link_error`, `metrics_link_note:<day>`.
+
+**Why the small batches:** Cloudflare caps *subrequests* per invocation (50 on this plan) and every Airtable, Graph or Slack call is one. The metrics work therefore runs on the cron ticks the booking sync does not use and each job is sized to ~10–15 requests; the admin endpoints have the same caps (loop them). This is also why a manual sweep of 300 leads + students failed with "Too many subrequests" on 2026-09-09.
 
 Safety: everything is gated by `features.marketingMetrics` (clients/md-condesa/client.mjs) **and** the `META_AD_ACCOUNT_ID` var; every job runs inside the cron's `safe()` so a failure never touches replies or bookings. Airtable writes are batched (10) and paced (~3 rps) to stay under the 5 rps per-base limit shared with the live lead sync. A renamed Airtable column stops the affected job, stores kv `metrics_link_error` / `ad_spend_last_error` and posts ONE Slack note per day — fix the base (or the names in `airtableMetrics` in client.mjs) and it resumes by itself.
 
@@ -70,15 +72,26 @@ Safety: everything is gated by `features.marketingMetrics` (clients/md-condesa/c
 | Call | What |
 |---|---|
 | `GET /admin/api/metrics/probe` | token source, ad account (name, currency, timezone), a one-day insights pull, and all kv state. **Run this first**; a permission error means: paste the creative-flywheel system-user token (your shell's `META_ACCESS_TOKEN`) as the encrypted secret `ADS_ACCESS_TOKEN` in Cloudflare → Workers → md-condesa-wa-agent → Settings → Variables, then re-probe. |
-| `POST /admin/api/metrics/pull {"since":"2026-09-01","until":"2026-09-08"}` | import a window now (≤ 31 days). Run it twice: the second run reports `created: 0`. |
-| `POST /admin/api/metrics/sweep {"limit":1000}` | run both link sweeps now with a bigger cap (backfill). Repeat until `linked: 0`. |
+| `POST /admin/api/metrics/pull {"since":"2026-09-05","until":"2026-09-08"}` | import a window now (≤ 4 days per call). Run it twice: the second run reports `created: 0`. |
+| `POST /admin/api/metrics/sweep {"target":"leads","limit":100}` | link up to 100 leads now (`target:"students"` → up to 10 students). Loop until `linked: 0`. |
 | `POST /admin/api/metrics/relink-students {"dryRun":true}` | duplicate-student repair (see §4). |
 | `POST /admin/api/metrics/brief` | post the Slack brief now; returns the text. |
 
-From your logged-in browser tab on the worker origin, e.g.:
+From your logged-in browser tab on the worker origin (DevTools console), e.g.:
 
 ```js
 await (await fetch("/admin/api/metrics/probe", { credentials: "include" })).json()
+```
+
+Backfill loop (links every lead since July in ~25 calls; the cron does the same on its own in a few hours):
+
+```js
+for (let i = 0; i < 40; i++) {
+  const r = await (await fetch("/admin/api/metrics/sweep", { method: "POST", credentials: "include",
+    headers: { "content-type": "application/json" }, body: JSON.stringify({ target: "leads", limit: 100 }) })).json();
+  console.log(i, r.scanned, r.linked, r.errors);
+  if (!r.ok || r.linked === 0) break;
+}
 ```
 
 ## 7. Airtable field dictionary (what the worker writes / reads)

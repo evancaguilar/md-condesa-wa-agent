@@ -59,7 +59,7 @@ test("formatBrief: full rows → yesterday + MTD + exceptions, no NaN, provision
     month: "2026-09",
     dayRow: periodFromRecord(row({ Gasto: 1234, "Total Leads": 12, "Leads Pagados": 10, Desconocidos: 1, Agendaron: 5, Asistieron: 3, Cerraron: 1, Ingresos: 2996, CPL: 123.4 }), M),
     monthRow: periodFromRecord(row(), M),
-    exceptions: { pendingAttendance: 4, unlinkedPaidStudents: 3, incomeWithoutStudent: 9, incomeWithoutConcept: 14 },
+    exceptions: { pendingAttendance: 4, unlinkedPaidStudents: 3, incomeWithoutStudent: 9, incomeWithoutConcept: 300 },
     currency: "MXN",
     spendSyncedAt: "2026-09-09T11:32:00.000Z",
   });
@@ -69,7 +69,7 @@ test("formatBrief: full rows → yesterday + MTD + exceptions, no NaN, provision
   assert.match(text, /⚠️ provisional/);
   assert.match(text, /Spend MXN 9,870 · 95 leads \(80 from ads, 3 unknown\) · CPL MXN 123 · cost\/booking MXN 247 · cost\/show MXN 449 · cost\/close MXN 1,097/);
   assert.match(text, /Show rate 73% \(22\/30, 4 pending\) · close rate 41% \(9\/22, \+2 direct\) · revenue MXN 26,964 · ROAS 2.7x \(90d 2.0x\)/);
-  assert.match(text, /Exceptions: 4 trials awaiting attendance · 3 paid students without lead · 9 payments without student · 14 payments without concept/);
+  assert.match(text, /Exceptions: 4 trials awaiting attendance · 3 paid students without lead · 9 payments without student · 300\+ payments without concept/);
   assert.match(text, /Spend synced 2026-09-09 05:32 CDMX/);
   assert.ok(!/NaN|undefined|null/.test(text));
 });

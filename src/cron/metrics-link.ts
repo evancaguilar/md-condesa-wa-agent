@@ -15,8 +15,12 @@ import {
   type SweepStats,
 } from "../services/metrics-airtable.js";
 
-export const LEAD_SWEEP_PER_TICK = 300;
-export const STUDENT_SWEEP_PER_TICK = 100;
+// Cloudflare caps SUBREQUESTS per invocation (50 on the free plan) and every
+// Airtable/Graph call is one. A lead sweep costs 1 list + 1 PATCH per 10 leads;
+// a student sweep costs 1 list + 1 lookup per student + 1 PATCH per 10. These
+// caps keep both under ~12 requests so they coexist with the rest of the tick.
+export const LEAD_SWEEP_PER_TICK = 40;
+export const STUDENT_SWEEP_PER_TICK = 5;
 export const KV_LINK_ERROR = "metrics_link_error";
 export const KV_LINK_LAST_OK = "metrics_link_last_ok";
 

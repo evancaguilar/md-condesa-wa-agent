@@ -2104,7 +2104,9 @@ async function handleMetricsPull(req: Request, env: Env): Promise<Response> {
   if (!DATE_RE.test(since) || !DATE_RE.test(until) || until < since) {
     return json({ error: "since/until must be YYYY-MM-DD and since <= until" }, 400);
   }
-  if (addDays(since, 31) < until) return json({ error: "window too large (max 31 days)" }, 400);
+  // ~25 ads × 4 days = 100 rows = 10 PATCH batches + insights/campaign/ad upserts,
+  // inside Cloudflare's per-invocation subrequest cap. Loop calls for longer spans.
+  if (addDays(since, 3) < until) return json({ error: "window too large (max 4 days per call)" }, 400);
   try {
     return json({ ok: true, ...(await pullAdSpend(env, since, until)) });
   } catch (err) {
@@ -2112,14 +2114,23 @@ async function handleMetricsPull(req: Request, env: Env): Promise<Response> {
   }
 }
 
-/** Run the lead + student link sweeps now with a bigger cap (backfill). */
+/**
+ * Run ONE link sweep now (backfill). `target`: "leads" (default, ≤100 per call =
+ * 1 list + 10 PATCH) or "students" (≤10 per call = 1 list + 10 lookups + 1 PATCH).
+ * Caps keep each call inside Cloudflare's per-invocation subrequest limit; loop
+ * the call until `linked` is 0.
+ */
 async function handleMetricsSweep(req: Request, env: Env): Promise<Response> {
-  const body = await readJson<{ limit?: number }>(req);
-  const limit = Math.max(1, Math.min(2000, Math.floor(Number(body.limit ?? 500)) || 500));
+  const body = await readJson<{ limit?: number; target?: string }>(req);
+  const target = body.target === "students" ? "students" : "leads";
+  const max = target === "students" ? 10 : 100;
+  const limit = Math.max(1, Math.min(max, Math.floor(Number(body.limit ?? max)) || max));
   try {
-    const leads = await runLeadLinkSweep(env, {}, { limit });
-    const students = await runStudentLinkSweep(env, {}, { limit: Math.min(limit, 500) });
-    return json({ ok: true, leads, students });
+    const result =
+      target === "students"
+        ? await runStudentLinkSweep(env, {}, { limit })
+        : await runLeadLinkSweep(env, {}, { limit });
+    return json({ ok: true, target, limit, ...result });
   } catch (err) {
     return metricsErrorResponse(err);
   }

@@ -23,6 +23,9 @@ export const KV_SPEND_LAST_ERROR = "ad_spend_last_error";
 export const KV_SPEND_CURRENCY = "ad_spend_currency";
 export const KV_BACKFILL_CURSOR = "ad_spend_backfill_cursor";
 export const KV_BACKFILL_DONE = "ad_spend_backfill_done";
+/** Days per backfill chunk: ~25 ads × 2 days = 50 rows = 5 PATCH batches, plus the
+ *  insights page + campaign/ad upserts ≈ 10 subrequests — safe inside one tick. */
+export const BACKFILL_CHUNK_DAYS = 2;
 
 /** Daily window: [today-lookback, today] in CDMX. */
 export function dailyPullWindow(
@@ -130,7 +133,7 @@ export async function runDailyAdSpend(
     await kvSet(env.DB, KV_SPEND_LAST_OK, iso(nowEpoch));
     if (r.currency) await kvSet(env.DB, KV_SPEND_CURRENCY, r.currency);
     try {
-      await fillNamelessAds(env);
+      await fillNamelessAds(env, undefined, 10);
     } catch (err) {
       console.warn(`[ad-spend] fillNamelessAds: ${String(err)}`);
     }
@@ -165,7 +168,7 @@ export async function runAdSpendBackfillStep(
   if (!env.METRICS_SINCE) return "skipped";
   if (await kvGet(env.DB, KV_BACKFILL_DONE)) return "skipped";
   const cursor = await kvGet(env.DB, KV_BACKFILL_CURSOR);
-  const chunk = nextBackfillChunk(cursor, env.METRICS_SINCE, cdmxDateStr(nowEpoch));
+  const chunk = nextBackfillChunk(cursor, env.METRICS_SINCE, cdmxDateStr(nowEpoch), BACKFILL_CHUNK_DAYS);
   if (!chunk) {
     await kvSet(env.DB, KV_BACKFILL_DONE, iso(nowEpoch));
     return "done";

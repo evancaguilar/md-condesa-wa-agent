@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  BACKFILL_CHUNK_DAYS,
   addDays,
   dailyPullWindow,
   nextBackfillChunk,
@@ -49,4 +50,11 @@ test("nextBackfillChunk walks 7-day windows from since to yesterday, then null",
   // since == yesterday → one single-day chunk, then done
   assert.deepEqual(nextBackfillChunk(null, "2026-09-08", today), { since: "2026-09-08", until: "2026-09-08", next: null });
   assert.equal(nextBackfillChunk(null, "2026-09-09", today), null);
+  // the cron uses 2-day chunks (BACKFILL_CHUNK_DAYS)
+  assert.deepEqual(nextBackfillChunk(null, "2026-07-01", today, BACKFILL_CHUNK_DAYS), {
+    since: "2026-07-01",
+    until: "2026-07-02",
+    next: "2026-07-03",
+  });
+  assert.equal(BACKFILL_CHUNK_DAYS, 2);
 });

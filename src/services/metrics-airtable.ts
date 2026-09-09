@@ -403,7 +403,7 @@ export async function upsertAdSpendRows(
 export async function fillNamelessAds(
   env: Env,
   m: AirtableMetricsMap = metricsMap(),
-  limit = 50,
+  limit = 10,
 ): Promise<{ filled: number; misses: number }> {
   const rows = await listRecords(env, m.tables.ads, {
     filterByFormula: `{${m.ads.name}} = ''`,
@@ -709,6 +709,10 @@ export async function getPeriodRow(
   return rows[0]?.fields ?? null;
 }
 
+/** Exceptions are counted by paging (Airtable has no count endpoint); each one
+ *  stops at this cap (3 pages) so the brief stays within the subrequest budget. */
+export const EXCEPTION_CAP = 300;
+
 export interface ExceptionCounts {
   pendingAttendance: number;
   unlinkedPaidStudents: number;
@@ -730,12 +734,14 @@ export async function exceptionCounts(
     env.AIRTABLE_TRIALS_TABLE,
     `AND({${m.leads.pendingAttendance}} = 1, IS_AFTER(CREATED_TIME(), '${since}'))`,
     m.leads.dayText,
+    EXCEPTION_CAP,
   );
   const unlinkedPaidStudents = await countRecords(
     env,
     m.tables.students,
     `AND({${m.students.leadLink}} = '', {${m.students.eligibleIncome}} > 0, IS_AFTER(CREATED_TIME(), '${since}'))`,
     m.students.name,
+    EXCEPTION_CAP,
   );
   const incomeBase = `{${mv.type}} = '${fq(mv.typeIncome)}', IS_AFTER({${mv.date}}, DATEADD('${sinceDate}', -1, 'days'))`;
   const incomeWithoutStudent = await countRecords(
@@ -743,12 +749,14 @@ export async function exceptionCounts(
     m.tables.movements,
     `AND(${incomeBase}, {${mv.concept}} != '${fq(mv.conceptSurplus)}', {${mv.studentLink}} = '')`,
     mv.date,
+    EXCEPTION_CAP,
   );
   const incomeWithoutConcept = await countRecords(
     env,
     m.tables.movements,
     `AND(${incomeBase}, {${mv.concept}} = '')`,
     mv.date,
+    EXCEPTION_CAP,
   );
   return { pendingAttendance, unlinkedPaidStudents, incomeWithoutStudent, incomeWithoutConcept };
 }

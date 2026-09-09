@@ -7,6 +7,7 @@ import type { AirtableMetricsMap } from "../client-config.js";
 import { kvGet } from "../db/queries.js";
 import { cdmxDateStr, cdmxMonthStr, cdmxParts, DAY } from "./time.js";
 import {
+  EXCEPTION_CAP,
   exceptionCounts,
   getPeriodRow,
   metricsMap,
@@ -164,8 +165,9 @@ export function formatBrief(a: BriefInput): string {
   }
   const e = a.exceptions;
   if (e) {
+    const c = (v: number): string => (v >= EXCEPTION_CAP ? `${EXCEPTION_CAP}+` : n0(v));
     lines.push(
-      `Exceptions: ${n0(e.pendingAttendance)} trials awaiting attendance · ${n0(e.unlinkedPaidStudents)} paid students without lead · ${n0(e.incomeWithoutStudent)} payments without student · ${n0(e.incomeWithoutConcept)} payments without concept`,
+      `Exceptions: ${c(e.pendingAttendance)} trials awaiting attendance · ${c(e.unlinkedPaidStudents)} paid students without lead · ${c(e.incomeWithoutStudent)} payments without student · ${c(e.incomeWithoutConcept)} payments without concept`,
     );
   }
   const synced = a.spendSyncedAt ? fmtSynced(a.spendSyncedAt) : "never";
