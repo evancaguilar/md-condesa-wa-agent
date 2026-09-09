@@ -70,6 +70,19 @@ const KEYS = [
   "roas90",
 ] as const;
 
+/**
+ * Pure. The column names to request for a period row. Días and Meses share the
+ * 23 metric columns; only Meses has `Provisional` (and each table's own primary
+ * key is never requested — asking Días for "Mes" is an unknown-field 422).
+ */
+export function periodFieldList(
+  m: AirtableMetricsMap = metricsMap(),
+  o: { withProvisional: boolean } = { withProvisional: false },
+): string[] {
+  const fields = KEYS.map((k) => m.periods[k]);
+  return o.withProvisional ? [...fields, m.periods.provisional] : fields;
+}
+
 /** Pure. Airtable row fields (by column name) → typed metrics. */
 export function periodFromRecord(
   fields: Record<string, unknown>,
@@ -192,9 +205,14 @@ export async function runMetricsBrief(
   const m = metricsMap();
   const day = cdmxDateStr(nowEpoch - DAY);
   const month = cdmxMonthStr(nowEpoch - DAY);
-  const fields = Object.values(m.periods);
-  const dayFields = await getPeriodRow(env, m.tables.days, m.periods.dayKey, day, fields);
-  const monthFields = await getPeriodRow(env, m.tables.months, m.periods.monthKey, month, fields);
+  const dayFields = await getPeriodRow(env, m.tables.days, m.periods.dayKey, day, periodFieldList(m));
+  const monthFields = await getPeriodRow(
+    env,
+    m.tables.months,
+    m.periods.monthKey,
+    month,
+    periodFieldList(m, { withProvisional: true }),
+  );
   let exceptions: ExceptionCounts | null = null;
   const sinceIso = metricsSinceIso(env);
   if (sinceIso) {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { formatBrief, monthName, periodFromRecord, weekdayName } from "../src/cron/metrics-brief.js";
+import { formatBrief, monthName, periodFieldList, periodFromRecord, weekdayName } from "../src/cron/metrics-brief.js";
 import { DEFAULT_METRICS_MAP } from "../src/services/metrics-airtable.js";
 
 const M = DEFAULT_METRICS_MAP;
@@ -35,6 +35,16 @@ function row(over: Record<string, unknown> = {}): Record<string, unknown> {
     ...over,
   };
 }
+
+test("periodFieldList never requests a table's own key; Provisional only for Meses", () => {
+  const days = periodFieldList(M);
+  assert.equal(days.length, 23);
+  assert.ok(!days.includes("Día") && !days.includes("Mes") && !days.includes("Provisional"));
+  assert.ok(days.includes("Gasto") && days.includes("Total Leads") && days.includes("ROAS 90d"));
+  const months = periodFieldList(M, { withProvisional: true });
+  assert.equal(months.length, 24);
+  assert.ok(months.includes("Provisional") && !months.includes("Mes"));
+});
 
 test("weekdayName / monthName", () => {
   assert.equal(weekdayName("2026-09-08"), "Tue");
