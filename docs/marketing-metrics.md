@@ -14,7 +14,7 @@ Owner guide (English). Built 2026-09-09. Spec history: `~/.claude/plans/please-w
 | Airtable `Campañas Meta` | the same per Meta campaign. |
 | Airtable `Ad Spend Diario` | raw Meta spend, one row per ad per day (the fact table). Do not edit by hand: the next import overwrites. |
 | Slack `#wa-leads`, 08:00 CDMX | *Marketing funnel* brief: yesterday, month to date, exceptions, last spend sync. |
-| Interface `📊 Dashboard General` | pages **📣 Marketing** (current month, trend, by campaign, by ad) and **⚠️ Excepciones** (things staff should fix). |
+| Interface `📊 Dashboard General` | pages **📣 Marketing** (current month, trend, by campaign, by ad) and **⚠️ Excepciones** (closes with unknown origin, trials without a result, paid students without a lead, income without student / concept). |
 
 Every number in Meses/Días/Anuncios/Campañas is an Airtable rollup or formula, so it updates the moment staff mark a result or a payment lands. Click any count to drill into the actual leads.
 
