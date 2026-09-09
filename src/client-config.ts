@@ -160,6 +160,10 @@ export interface AirtableMetricsMap {
     monthLink: string;
     adLink: string;
     pendingAttendance: string;
+    /** 0/1 strict-close formula and the Origen formula ("Desconocido" = no evidence). */
+    closed: string;
+    origin: string;
+    originUnknown: string;
   };
   /** Alumnos columns for the student↔lead linker + exceptions. */
   students: {

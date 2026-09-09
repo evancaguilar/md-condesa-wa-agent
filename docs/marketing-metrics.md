@@ -22,7 +22,7 @@ Every number in Meses/Días/Anuncios/Campañas is an Airtable rollup or formula,
 
 | Metric | Definition |
 |---|---|
-| Leads | Leads rows created in the period. `Origen` on each lead: **Pagado** (arrived through an ad — `Ad` carries a Meta ad id), **Orgánico** (`Adquisición`/`Canal` say so), **Desconocido** (no evidence). |
+| Leads | Leads rows created in the period. `Origen` on each lead: **Pagado** (arrived through an ad — `Ad` carries a Meta ad id — or `Adquisición` = Pagado), **Orgánico** (`Adquisición`/`Canal` say so), **Desconocido** (no evidence). **Staff knob:** setting `Adquisición` on a lead fixes its origin by hand. |
 | CPL | Gasto / Leads Pagados. Meta's own "conversaciones iniciadas" sits next to it as a sanity check. |
 | Booked (`Agendó`) | the lead has a `Fecha Clase Prueba` (unique lead, not attempts). |
 | Show rate | `Asistieron` / `Pruebas Vencidas` — only trials whose date already passed count; `Pendientes` shows past trials nobody marked yet. `Asistió` = `Resultado Clase Prueba` contains "Asistió" or "Se inscribió". |
@@ -105,6 +105,8 @@ for (let i = 0; i < 40; i++) {
 All names live in `clients/md-condesa/client.mjs` → `airtableMetrics` (compiled into `src/client.gen.ts` by `npm run build`). Rename a column in Airtable → change the name there → build, commit, push. Never hand-edit `client.gen.ts`.
 
 ## 8. Reading the numbers well
+
+- **Most paying leads since August have unknown origin.** They were created by hand (no channel, no ad) instead of marking the bot's lead row, so ROAS cannot credit an ad. Fix going forward: when someone enrolls, mark "Se inscribió" on the lead row that already exists for their phone (the bot's row carries the ad), or set `Adquisición` on the new row. The brief and the Excepciones page list "closes with unknown origin" for exactly this.
 
 - **Read months, not days.** Shows and closes are attributed to the lead's arrival date, so a day looks bad for a week and a month is *provisional* for ~45 days.
 - **Compare cohorts with ROAS 90d**, not lifetime ROAS (old months keep growing).

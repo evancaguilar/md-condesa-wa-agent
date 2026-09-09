@@ -167,7 +167,7 @@ export function formatBrief(a: BriefInput): string {
   if (e) {
     const c = (v: number): string => (v >= EXCEPTION_CAP ? `${EXCEPTION_CAP}+` : n0(v));
     lines.push(
-      `Exceptions: ${c(e.pendingAttendance)} trials awaiting attendance · ${c(e.unlinkedPaidStudents)} paid students without lead · ${c(e.incomeWithoutStudent)} payments without student · ${c(e.incomeWithoutConcept)} payments without concept`,
+      `Exceptions: ${c(e.pendingAttendance)} trials awaiting attendance · ${c(e.closedUnknownOrigin)} closes with unknown origin (set Adquisición) · ${c(e.unlinkedPaidStudents)} paid students without lead · ${c(e.incomeWithoutStudent)} payments without student · ${c(e.incomeWithoutConcept)} payments without concept`,
     );
   }
   const synced = a.spendSyncedAt ? fmtSynced(a.spendSyncedAt) : "never";

@@ -130,7 +130,10 @@ export const CLIENT: ClientConfig = {
       "dayLink": "Día",
       "monthLink": "Mes",
       "adLink": "Anuncio",
-      "pendingAttendance": "Asistencia Pendiente"
+      "pendingAttendance": "Asistencia Pendiente",
+      "closed": "Cerró",
+      "origin": "Origen",
+      "originUnknown": "Desconocido"
     },
     "students": {
       "name": "Alumno",

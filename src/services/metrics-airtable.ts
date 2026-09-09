@@ -68,6 +68,9 @@ export const DEFAULT_METRICS_MAP: AirtableMetricsMap = {
     monthLink: "Mes",
     adLink: "Anuncio",
     pendingAttendance: "Asistencia Pendiente",
+    closed: "Cerró",
+    origin: "Origen",
+    originUnknown: "Desconocido",
   },
   students: {
     name: "Alumno",
@@ -718,6 +721,8 @@ export interface ExceptionCounts {
   unlinkedPaidStudents: number;
   incomeWithoutStudent: number;
   incomeWithoutConcept: number;
+  /** Leads that closed (paid) but have no origin evidence — ROAS can't credit them. */
+  closedUnknownOrigin: number;
 }
 
 /** The four operational exceptions the brief surfaces (since `sinceIso`). */
@@ -758,5 +763,12 @@ export async function exceptionCounts(
     mv.date,
     EXCEPTION_CAP,
   );
-  return { pendingAttendance, unlinkedPaidStudents, incomeWithoutStudent, incomeWithoutConcept };
+  const closedUnknownOrigin = await countRecords(
+    env,
+    env.AIRTABLE_TRIALS_TABLE,
+    `AND({${m.leads.closed}} = 1, {${m.leads.origin}} = '${fq(m.leads.originUnknown)}', IS_AFTER(CREATED_TIME(), '${since}'))`,
+    m.leads.dayText,
+    EXCEPTION_CAP,
+  );
+  return { pendingAttendance, unlinkedPaidStudents, incomeWithoutStudent, incomeWithoutConcept, closedUnknownOrigin };
 }

@@ -115,6 +115,9 @@ export default {
       monthLink: "Mes",
       adLink: "Anuncio",
       pendingAttendance: "Asistencia Pendiente",
+      closed: "Cerró",
+      origin: "Origen",
+      originUnknown: "Desconocido",
     },
     students: {
       name: "Alumno",
