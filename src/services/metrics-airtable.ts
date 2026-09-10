@@ -602,6 +602,13 @@ export function unattributedLeadsFormula(
   return `AND({${lm.ad}} = '', {${lm.phone}} != '', IS_AFTER(CREATED_TIME(), '${fq(sinceIso)}'))`;
 }
 
+/** The result of a twin sweep page: stats plus the cursor for the next page. */
+export interface TwinSweepStats extends SweepStats {
+  matched: number;
+  /** createdTime of the last row scanned (oldest-first walk), or null when the page was short. */
+  nextCursor: string | null;
+}
+
 /**
  * Pure. Given a lead without ad and the other leads on its phone, pick the
  * attribution to copy: the EARLIEST twin that carries an ad label (first touch).
@@ -631,12 +638,14 @@ export async function attributeTwinLeadsSweep(
   env: Env,
   o: { limit: number; sinceIso: string; paceMs?: number },
   lm: { phone: string; ad: string; campaign: string } = leadsMap(),
-): Promise<SweepStats & { matched: number }> {
+): Promise<TwinSweepStats> {
+  // Oldest-first walk from the cursor: rows without a twin stay in the filter
+  // forever, so a fixed newest-first page would re-read them every time.
   const rows = await listRecords(env, env.AIRTABLE_TRIALS_TABLE, {
     filterByFormula: unattributedLeadsFormula(o.sinceIso, lm),
     fields: [lm.phone, lm.campaign],
     maxRecords: o.limit,
-    sort: { field: "Fecha de Creación", direction: "desc" },
+    sort: { field: "Fecha de Creación", direction: "asc" },
   });
   const patches: { id: string; fields: Record<string, unknown> }[] = [];
   for (let i = 0; i < rows.length; i++) {
@@ -654,7 +663,14 @@ export async function attributeTwinLeadsSweep(
   const st = patches.length
     ? await batchPatch(env, env.AIRTABLE_TRIALS_TABLE, patches)
     : { created: 0, updated: 0, errors: [] };
-  return { scanned: rows.length, linked: st.updated, matched: patches.length, errors: st.errors };
+  const last = rows[rows.length - 1];
+  return {
+    scanned: rows.length,
+    linked: st.updated,
+    matched: patches.length,
+    errors: st.errors,
+    nextCursor: rows.length >= o.limit && last?.createdTime ? last.createdTime : null,
+  };
 }
 
 // ---- duplicate students (payment-automation race) ----

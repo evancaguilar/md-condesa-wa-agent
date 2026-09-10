@@ -14,6 +14,7 @@ import {
   linkStudentsSweep,
   type StudentSweepStats,
   type SweepStats,
+  type TwinSweepStats,
 } from "../services/metrics-airtable.js";
 
 // Cloudflare caps SUBREQUESTS per invocation (50 on the free plan) and every
@@ -26,6 +27,8 @@ export const STUDENT_SWEEP_PER_TICK = 5;
 export const TWIN_SWEEP_PER_TICK = 8;
 export const KV_LINK_ERROR = "metrics_link_error";
 export const KV_LINK_LAST_OK = "metrics_link_last_ok";
+/** createdTime cursor of the twin sweep's oldest-first walk (resets when a page is short). */
+export const KV_TWIN_CURSOR = "metrics_twin_cursor";
 
 export interface NoteDeps {
   postNote?: (text: string) => Promise<void>;
@@ -99,11 +102,15 @@ export async function runTwinAttributionSweep(
   env: Env,
   deps: NoteDeps = {},
   o: { limit?: number } = {},
-): Promise<SweepStats & { matched: number }> {
+): Promise<TwinSweepStats> {
   const sinceIso = metricsSinceIso(env);
-  if (!sinceIso) return { scanned: 0, linked: 0, matched: 0, errors: ["METRICS_SINCE unset"] };
+  if (!sinceIso) return { scanned: 0, linked: 0, matched: 0, errors: ["METRICS_SINCE unset"], nextCursor: null };
   try {
-    return await attributeTwinLeadsSweep(env, { limit: o.limit ?? TWIN_SWEEP_PER_TICK, sinceIso });
+    const cursor = (await kvGet(env.DB, KV_TWIN_CURSOR)) ?? sinceIso;
+    const r = await attributeTwinLeadsSweep(env, { limit: o.limit ?? TWIN_SWEEP_PER_TICK, sinceIso: cursor });
+    // Short page = end of the range: start the next walk from the beginning.
+    await kvSet(env.DB, KV_TWIN_CURSOR, r.nextCursor ?? sinceIso);
+    return r;
   } catch (err) {
     await noteSchemaError(env, deps, "twins", err);
     throw err;
