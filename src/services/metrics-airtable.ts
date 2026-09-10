@@ -520,13 +520,14 @@ export async function findLeadsByPhone(
   env: Env,
   phone: string,
   max = 2,
+  extraFields: string[] = [],
 ): Promise<MetricsRecord[]> {
   const digits = normalizeMxPhone(phone).replace(/\D/g, "");
   if (digits.length < 10) return [];
   const lm = leadsMap();
   return listRecords(env, env.AIRTABLE_TRIALS_TABLE, {
     filterByFormula: phoneMatchFormula(lm.phone, digits.slice(-10)),
-    fields: [lm.phone],
+    fields: [lm.phone, ...extraFields],
     maxRecords: max,
   });
 }
@@ -589,6 +590,71 @@ export async function linkStudentsSweep(
     ? await batchPatch(env, m.tables.students, patches)
     : { created: 0, updated: 0, errors: [] };
   return { scanned: rows.length, linked: st.updated, errors: st.errors, ambiguous, none };
+}
+
+// ---- twin leads (form/manual row for a phone the bot already attributed) ----
+
+/** Leads with a phone but no `Ad`, created on/after `sinceIso` (newest first). */
+export function unattributedLeadsFormula(
+  sinceIso: string,
+  lm: { phone: string; ad: string } = leadsMap(),
+): string {
+  return `AND({${lm.ad}} = '', {${lm.phone}} != '', IS_AFTER(CREATED_TIME(), '${fq(sinceIso)}'))`;
+}
+
+/**
+ * Pure. Given a lead without ad and the other leads on its phone, pick the
+ * attribution to copy: the EARLIEST twin that carries an ad label (first touch).
+ */
+export function twinAttribution(
+  twins: readonly MetricsRecord[],
+  selfId: string,
+  lm: { ad: string; campaign: string } = leadsMap(),
+): { ad: string; campaign: string | null } | null {
+  const withAd = twins
+    .filter((t) => t.id !== selfId && typeof t.fields[lm.ad] === "string" && /\d{13,}/.test(t.fields[lm.ad] as string))
+    .sort((a, b) => (a.createdTime ?? "").localeCompare(b.createdTime ?? ""));
+  const t = withAd[0];
+  if (!t) return null;
+  const camp = t.fields[lm.campaign];
+  return { ad: t.fields[lm.ad] as string, campaign: typeof camp === "string" && camp ? camp : null };
+}
+
+/**
+ * Copy the bot's ad attribution onto same-phone rows created by the booking
+ * form or by hand (the row where staff mark results and enrollments). Fills
+ * `Ad` (and `Campaña` when blank) — never overwrites. Exactly the Karina case:
+ * bot row 17:23 with the ad, form row 17:27 without it, enrollment lands on the
+ * second. Cap ≈ 1 list + N lookups + 1 PATCH per call.
+ */
+export async function attributeTwinLeadsSweep(
+  env: Env,
+  o: { limit: number; sinceIso: string; paceMs?: number },
+  lm: { phone: string; ad: string; campaign: string } = leadsMap(),
+): Promise<SweepStats & { matched: number }> {
+  const rows = await listRecords(env, env.AIRTABLE_TRIALS_TABLE, {
+    filterByFormula: unattributedLeadsFormula(o.sinceIso, lm),
+    fields: [lm.phone, lm.campaign],
+    maxRecords: o.limit,
+    sort: { field: "Fecha de Creación", direction: "desc" },
+  });
+  const patches: { id: string; fields: Record<string, unknown> }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (i > 0) await sleep(o.paceMs ?? PACE_MS);
+    const r = rows[i]!;
+    const phone = textField(r.fields, lm.phone);
+    if (!phone) continue;
+    const twins = await findLeadsByPhone(env, phone, 5, [lm.ad, lm.campaign]);
+    const attr = twinAttribution(twins, r.id, lm);
+    if (!attr) continue;
+    const fields: Record<string, unknown> = { [lm.ad]: attr.ad };
+    if (attr.campaign && !textField(r.fields, lm.campaign)) fields[lm.campaign] = attr.campaign;
+    patches.push({ id: r.id, fields });
+  }
+  const st = patches.length
+    ? await batchPatch(env, env.AIRTABLE_TRIALS_TABLE, patches)
+    : { created: 0, updated: 0, errors: [] };
+  return { scanned: rows.length, linked: st.updated, matched: patches.length, errors: st.errors };
 }
 
 // ---- duplicate students (payment-automation race) ----

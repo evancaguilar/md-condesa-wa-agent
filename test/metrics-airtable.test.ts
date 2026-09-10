@@ -16,6 +16,8 @@ import {
   spendKey,
   spendRowFields,
   studentLinkDecision,
+  twinAttribution,
+  unattributedLeadsFormula,
   unlinkedLeadsFormula,
   unlinkedStudentsFormula,
 } from "../src/services/metrics-airtable.js";
@@ -229,4 +231,22 @@ test("listRecords: fields[] + formula on the URL, offset pagination, maxRecords 
   assert.ok(calls[0]!.url.includes("sort%5B0%5D%5Bdirection%5D=desc"));
   assert.ok(calls[1]!.url.includes("offset=itrNext"));
   assert.ok(calls.every((c) => c.method === "GET"));
+});
+
+test("twinAttribution copies the EARLIEST same-phone lead that carries an ad label", () => {
+  const lm = { ad: "Ad", campaign: "Campaña" };
+  const twins = [
+    { id: "self", createdTime: "2026-09-09T17:27:07.000Z", fields: { Ad: "" } },
+    { id: "late", createdTime: "2026-09-10T10:00:00.000Z", fields: { Ad: "Otro (120200000000000001)", Campaña: "Kids" } },
+    { id: "bot", createdTime: "2026-09-09T17:23:47.000Z", fields: { Ad: "¡Agenda tu Día Gratis! (120249684011870518)", Campaña: "Reto Gladiador" } },
+    { id: "noad", createdTime: "2026-09-01T00:00:00.000Z", fields: { Ad: "headline without id" } },
+  ];
+  assert.deepEqual(twinAttribution(twins, "self", lm), {
+    ad: "¡Agenda tu Día Gratis! (120249684011870518)",
+    campaign: "Reto Gladiador",
+  });
+  assert.equal(twinAttribution([twins[0]!, twins[3]!], "self", lm), null);
+  assert.equal(twinAttribution([twins[2]!], "bot", lm), null); // never itself
+  assert.equal(unattributedLeadsFormula("2026-07-01T06:00:00.000Z", { phone: "# de Teléfono", ad: "Ad" }),
+    "AND({Ad} = '', {# de Teléfono} != '', IS_AFTER(CREATED_TIME(), '2026-07-01T06:00:00.000Z'))");
 });

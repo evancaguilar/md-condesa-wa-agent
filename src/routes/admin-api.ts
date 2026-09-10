@@ -35,6 +35,7 @@ import {
   metricsSinceIso,
   runLeadLinkSweep,
   runStudentLinkSweep,
+  runTwinAttributionSweep,
 } from "../cron/metrics-link.js";
 import { runMetricsBrief } from "../cron/metrics-brief.js";
 import {
@@ -2122,14 +2123,16 @@ async function handleMetricsPull(req: Request, env: Env): Promise<Response> {
  */
 async function handleMetricsSweep(req: Request, env: Env): Promise<Response> {
   const body = await readJson<{ limit?: number; target?: string }>(req);
-  const target = body.target === "students" ? "students" : "leads";
-  const max = target === "students" ? 10 : 100;
+  const target = body.target === "students" ? "students" : body.target === "twins" ? "twins" : "leads";
+  const max = target === "students" ? 10 : target === "twins" ? 20 : 100;
   const limit = Math.max(1, Math.min(max, Math.floor(Number(body.limit ?? max)) || max));
   try {
     const result =
       target === "students"
         ? await runStudentLinkSweep(env, {}, { limit })
-        : await runLeadLinkSweep(env, {}, { limit });
+        : target === "twins"
+          ? await runTwinAttributionSweep(env, {}, { limit })
+          : await runLeadLinkSweep(env, {}, { limit });
     return json({ ok: true, target, limit, ...result });
   } catch (err) {
     return metricsErrorResponse(err);

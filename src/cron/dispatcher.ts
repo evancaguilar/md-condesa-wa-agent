@@ -23,7 +23,7 @@ import type { CronDeps } from "./deps.js";
 import { kvGet, kvSet } from "../db/queries.js";
 import { CLIENT } from "../client.gen.js";
 import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./ad-spend.js";
-import { runLeadLinkSweep, runStudentLinkSweep } from "./metrics-link.js";
+import { runLeadLinkSweep, runStudentLinkSweep, runTwinAttributionSweep } from "./metrics-link.js";
 import { runMetricsBrief } from "./metrics-brief.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
@@ -89,6 +89,7 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   if (metricsSlot) {
     await safe("leadLinkSweep", () => runLeadLinkSweep(env, { postNote: metricsNote }));
     await safe("studentLinkSweep", () => runStudentLinkSweep(env, { postNote: metricsNote }));
+    await safe("twinAttributionSweep", () => runTwinAttributionSweep(env, { postNote: metricsNote }));
     let pulledToday = false;
     if (shouldRunDailyPull(p)) {
       const today = cdmxDateStr(nowEpoch);

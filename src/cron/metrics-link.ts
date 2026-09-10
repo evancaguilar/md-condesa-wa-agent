@@ -9,6 +9,7 @@ import { kvGet, kvSet } from "../db/queries.js";
 import { cdmxDateStr, cdmxToEpoch } from "./time.js";
 import {
   MetricsSchemaError,
+  attributeTwinLeadsSweep,
   linkLeadsSweep,
   linkStudentsSweep,
   type StudentSweepStats,
@@ -21,6 +22,8 @@ import {
 // caps keep both under ~12 requests so they coexist with the rest of the tick.
 export const LEAD_SWEEP_PER_TICK = 40;
 export const STUDENT_SWEEP_PER_TICK = 5;
+/** Twin attribution: 1 list + 1 lookup per lead + 1 PATCH. */
+export const TWIN_SWEEP_PER_TICK = 8;
 export const KV_LINK_ERROR = "metrics_link_error";
 export const KV_LINK_LAST_OK = "metrics_link_last_ok";
 
@@ -87,6 +90,22 @@ export async function runStudentLinkSweep(
     return await linkStudentsSweep(env, { limit: o.limit ?? STUDENT_SWEEP_PER_TICK, sinceIso });
   } catch (err) {
     await noteSchemaError(env, deps, "students", err);
+    throw err;
+  }
+}
+
+/** Copy the bot's ad onto same-phone form/manual leads (newest first). */
+export async function runTwinAttributionSweep(
+  env: Env,
+  deps: NoteDeps = {},
+  o: { limit?: number } = {},
+): Promise<SweepStats & { matched: number }> {
+  const sinceIso = metricsSinceIso(env);
+  if (!sinceIso) return { scanned: 0, linked: 0, matched: 0, errors: ["METRICS_SINCE unset"] };
+  try {
+    return await attributeTwinLeadsSweep(env, { limit: o.limit ?? TWIN_SWEEP_PER_TICK, sinceIso });
+  } catch (err) {
+    await noteSchemaError(env, deps, "twins", err);
     throw err;
   }
 }
