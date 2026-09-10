@@ -10,6 +10,8 @@ Full owner guide: **docs/marketing-metrics.md**. Airtable does the math (5 new t
 
 **Pendiente Evan:** (1) `GET /admin/api/metrics/probe` — if it reports a permission error, paste the creative-flywheel `META_ACCESS_TOKEN` as the encrypted secret `ADS_ACCESS_TOKEN` in the Cloudflare dashboard and re-probe; (2) publish the consolidated "Se inscribió" automation (open → Update) and turn **"Auto create payment" OFF** at the same moment; (3) `POST /admin/api/metrics/relink-students {"dryRun":true}` → review → `{"dryRun":false}`; (4) set percent formatting on the `Show Rate` / `Close Rate` / `Conversión` formula fields in Airtable (display only); (5) eyeball `Meses` 2026-08 `Gasto` vs Ads Manager August.
 
+**2026-09-10 site attribution:** website booking forms now credit the ad (site repo `js/attribution.js` + hidden `Ad`/`Adquisición` questions on the 4 Airtable forms; see marketing-metrics.md §10). Evan's items (2) and the two record fixes from 09-10 are done. Open: worker should append `utm_source=whatsapp&utm_content=<ad id>` to booking links the bot sends (no link-click ads exist in Ads Manager).
+
 
 ### Auditor nocturno Opus + fixes del día (2026-08-28)
 
