@@ -118,3 +118,7 @@ All names live in `clients/md-condesa/client.mjs` → `airtableMetrics` (compile
 ## 9. Deferred on purpose
 
 Appointment-history table (Slots links cover bookings partially; KPIs count unique leads) · Slack Sí/No attendance write-back (you chose manual marking) · destructive merge of duplicate students (relink only) · 30/60-day and first-payment ROAS · fully loaded CAC (no staff/tool cost data) · /admin metrics tab · retiring the dead `com.evan.md-metrics` launchd job and `Metrics Diarias`.
+
+## 10. Status log
+
+- **2026-09-10:** Meta token set, spend backfilled from July 1 (1,373 rows). All leads since July linked; 3 students linked by phone; 3 duplicate students relinked. New **twin sweep** (`target:"twins"`, cursor kv `metrics_twin_cursor`, 8 leads/tick) copies the bot's ad onto same-phone form/manual rows — 61 repaired. Finding: August had 193 bookings / 26 enrollments but only 54 / 2 on ad rows; the website's embedded Airtable booking forms create ad-less rows. Next build: UTM `{{ad.id}}` on ads + hidden prefilled `Ad`/`Adquisición` on the forms (site repo). Pending Evan: publish "Se inscribió" automation + turn off "Auto create payment"; Omar García student → lead "Maro"; Leonardo Acosta lead → Adquisición Pagado.
