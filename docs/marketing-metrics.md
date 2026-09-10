@@ -22,7 +22,7 @@ Every number in Meses/Días/Anuncios/Campañas is an Airtable rollup or formula,
 
 | Metric | Definition |
 |---|---|
-| Leads | Leads rows created in the period. `Origen` on each lead: **Pagado** (arrived through an ad — `Ad` carries a Meta ad id — or `Adquisición` = Pagado), **Orgánico** (`Adquisición`/`Canal` say so), **Desconocido** (no evidence). **Staff knob:** setting `Adquisición` on a lead fixes its origin by hand. |
+| Leads | Leads rows created in the period. `Origen` on each lead: **Pagado** (arrived through an ad — `Ad` carries a Meta ad id — or `Adquisición` = Pagado, or `Vio anuncio` contains «Sí»), **Orgánico** (`Adquisición`/`Canal` say so), **Desconocido** (no evidence). **Staff knobs:** `Adquisición` = how they found us; `Vio anuncio` = whether an ad influenced them (separate question, see docs/origen-attribution.md). |
 | CPL | Gasto / Leads Pagados. Meta's own "conversaciones iniciadas" sits next to it as a sanity check. |
 | Booked (`Agendó`) | the lead has a `Fecha Clase Prueba` (unique lead, not attempts). |
 | Show rate | `Asistieron` / `Pruebas Vencidas` — only trials whose date already passed count; `Pendientes` shows past trials nobody marked yet. `Asistió` = `Resultado Clase Prueba` contains "Asistió" or "Se inscribió". |
@@ -96,7 +96,7 @@ for (let i = 0; i < 40; i++) {
 
 ## 7. Airtable field dictionary (what the worker writes / reads)
 
-- **Leads** (new): `Ad ID`, `Día Lead`, `Mes Lead`, `Origen`, `Es Lead Pagado`, `Es Desconocido`, `Agendó`, `Prueba Vencida`, `Asistió`, `Asistencia Pendiente`, `Inscrito (marcado)`, `Alumnos Inscritos`, `Ingresos Lead`, `Ingresos Lead 90d`, `Cerró`, `Cerró Tras Prueba`, `Cierre Directo`, the `… Pagado` variants (formulas/rollups) and the three **links the worker writes**: `Día`, `Mes`, `Anuncio`.
+- **Leads** (new): `Vio anuncio` (multi select, staff/waiver answer), `WA Pregunta Origen` (tap-to-send wa.me link), `Ad ID`, `Día Lead`, `Mes Lead`, `Origen`, `Es Lead Pagado`, `Es Desconocido`, `Agendó`, `Prueba Vencida`, `Asistió`, `Asistencia Pendiente`, `Inscrito (marcado)`, `Alumnos Inscritos`, `Ingresos Lead`, `Ingresos Lead 90d`, `Cerró`, `Cerró Tras Prueba`, `Cierre Directo`, the `… Pagado` variants (formulas/rollups) and the three **links the worker writes**: `Día`, `Mes`, `Anuncio`.
 - **Alumnos** (new): `Fecha Lead` (lookup), `Ingresos Elegibles`, `Ingresos Elegibles 90d` (rollups). The sweep writes `Lead Original`.
 - **Movimientos** (new): `Ingreso Elegible`, `Fecha Lead (alumno)`, `Ingreso Elegible 90d`.
 - **Ad Spend Diario** (worker-owned): `Clave` (upsert key `YYYY-MM-DD · <adId>`), `Fecha`, `Cuenta`, `Ad ID`, `Nombre Anuncio`, `Ad Set`, `Ad Set ID`, `Campaña Meta ID`, `Campaña Meta Nombre`, `Gasto`, `Impresiones`, `Clics`, `Alcance`, `Conversaciones (Meta)`, `Actualizado`, links `Anuncio`, `Campaña Meta`, `Día`, `Mes`.
@@ -120,5 +120,7 @@ All names live in `clients/md-condesa/client.mjs` → `airtableMetrics` (compile
 Appointment-history table (Slots links cover bookings partially; KPIs count unique leads) · Slack Sí/No attendance write-back (you chose manual marking) · destructive merge of duplicate students (relink only) · 30/60-day and first-payment ROAS · fully loaded CAC (no staff/tool cost data) · /admin metrics tab · retiring the dead `com.evan.md-metrics` launchd job and `Metrics Diarias`.
 
 ## 10. Status log
+
+- **2026-09-10 (later):** origin capture, two questions kept separate (docs/origen-attribution.md). Leads: `Vio anuncio` + `WA Pregunta Origen`; `Origen` counts `Vio anuncio` «Sí» as Pagado. Responsivas: `Cómo nos encontraste` + `Vio anuncio redes`; "Responsiva recibida" automation draft v3 propagates them to the linked Lead. Backlog = 20 closed leads with unknown origin since Aug 1. Pending Evan: create the `Origen pendiente` view + Excepciones section (recipe in the doc), publish the automation, add the two questions to the waiver app from the Mac.
 
 - **2026-09-10:** Meta token set, spend backfilled from July 1 (1,373 rows). All leads since July linked; 3 students linked by phone; 3 duplicate students relinked. New **twin sweep** (`target:"twins"`, cursor kv `metrics_twin_cursor`, 8 leads/tick) copies the bot's ad onto same-phone form/manual rows — 61 repaired. Finding: August had 193 bookings / 26 enrollments but only 54 / 2 on ad rows; the website's embedded Airtable booking forms create ad-less rows. Next build: UTM `{{ad.id}}` on ads + hidden prefilled `Ad`/`Adquisición` on the forms (site repo). Pending Evan: publish "Se inscribió" automation + turn off "Auto create payment"; Omar García student → lead "Maro"; Leonardo Acosta lead → Adquisición Pagado.

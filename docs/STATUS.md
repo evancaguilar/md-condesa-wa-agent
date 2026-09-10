@@ -1,6 +1,12 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-09**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-10**.
+
+### Origen: «¿cómo nos encontraste?» vs «¿viste anuncio?» (2026-09-10)
+
+Guide: **docs/origen-attribution.md**. Airtable only, no worker code. Leads gained `Vio anuncio` (multi select) and `WA Pregunta Origen` (tap-to-send wa.me link with the two-part question); `Origen` now counts `Vio anuncio` «Sí» as Pagado. Responsivas gained `Cómo nos encontraste` + `Vio anuncio redes`; the "Responsiva recibida" automation has a **draft v3** third step that writes them to the linked Lead (Adquisición + Vio anuncio, never downgrades Pagado). Backlog: 20 closed leads with unknown origin since Aug 1.
+
+**Pendiente Evan:** (1) create the Leads view `Origen pendiente` and the matching section on ⚠️ Excepciones (exact recipe in the doc; the MCP cannot create views or edit existing pages); (2) publish the automation draft (open → Update); (3) add the two required questions to the waiver app (repo on the Mac, spec in the doc), preview, deploy on your OK; (4) paste the 5-line staff instruction from the doc into #wa-leads.
 
 ### Marketing metrics feeder + attribution repair (2026-09-09)
 
