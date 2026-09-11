@@ -2,15 +2,20 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-11**.
 
-### WABA migration tooling (2026-09-11) — pending Evan
+### WABA migration DONE — 2274 now on WABA 1717538906028335 (2026-09-11)
 
-**Decision (Evan, 2026-09-11):** move the sales number +52 1 56 4199 2274 to a fresh WABA we create ourselves, because WABA 1582515279931864 carries ManyChat's shared credit line and cannot take our card — and from **2026-10-01** Meta stops delivering in-window replies on a WABA with no payment method (service messages become paid: MX ≈ US$0.0115, first 1,000/number/month free). Full steps: **docs/waba-migration-runbook.md**.
+**Executed 2026-09-11 (Evan + Claude in Chrome), runbook followed with two deviations.** New WABA **1717538906028335** ("MD Self Defense Condesa", currency MXN, verified/approved, ownership SELF) created from Business settings → WhatsApp accounts → Add → *Create a new WhatsApp Business account* → phone step **"Use a display name only"** (the new wizard has no number-less create and no WABA-name field; the display-name-only sender is inert). Card **MASTERCARD *5385** attached to it FIRST (UI-confirmed; `check` reported `newWabaHasFunding:false` because the token cannot read `primary_funding_id` — a false negative, not a missing card). Two-step on 2274 was already OFF in WhatsApp Manager (nothing toggled). Part 4 order actually run: `check` → **`subscribe` first** (empty WABA, so webhooks were live before the number landed) → `migrate` → `request_code` (SMS) → `verify_code` → `register` (PIN unchanged, still the one in the topology below) → `post_check`. All 7 calls returned `ok:true`, no `graphError`. `post_check`: CONNECTED, code VERIFIED, quality GREEN, name APPROVED on the new id. New **phone-number-id `1298937523303215`**; `WA_PHONE_NUMBER_ID` set in Cloudflare (Part 5) — live test passed: "hola" to 2274 → Slack card → Aprobar → reply landed; worker `post_check` shows `workerStillPointsAt: 1298937523303215`, `/health` ok/dbOk. Total outbound gap = the seconds between `register` and the Cloudflare save.
+
+- [x] Parts 1–5 done (see above).
+- [ ] Submit the template pack under WABA **1717538906028335** (docs/template-submission.md) — templates are WABA-scoped; this is what turns on the day-before / same-day reminders.
+- [ ] Leave WABA 1582515279931864 alone for a week; do not delete it. The credit-line tickets (ManyChat + Meta support) are now moot.
+- [ ] Bundle the `subscribe`-before-`migrate` ordering and the "Use a display name only" wizard path back into docs/waba-migration-runbook.md.
+
+**Original decision (Evan, 2026-09-11):** move the sales number +52 1 56 4199 2274 to a fresh WABA we create ourselves, because WABA 1582515279931864 carries ManyChat's shared credit line and cannot take our card — and from **2026-10-01** Meta stops delivering in-window replies on a WABA with no payment method (service messages become paid: MX ≈ US$0.0115, first 1,000/number/month free). Full steps: **docs/waba-migration-runbook.md**.
 
 Shipped: owner-only `GET|POST /admin/api/wa/migrate` (src/services/wa-migrate.ts) — one explicit Graph call per step (`check` → `migrate` [needs confirm `MIGRAR 2274`] → `request_code` → `verify_code` → `register` → `subscribe` → `post_check`), using the token already in Cloudflare; remembers the new phone-number-id in kv `wa_migration:new_phone_id`. Nothing runs on its own. Tests 722 → **728**.
 
-- [ ] Evan: Parts 1–3 in WhatsApp Manager (new WABA, card on it FIRST, two-step OFF on 2274), Part 4 from the /admin console, Part 5 = `WA_PHONE_NUMBER_ID` in the Cloudflare dashboard.
-- [ ] Then submit the template pack under the NEW WABA and update the number topology below (new WABA id, phone-number-id, PIN).
-- [ ] In parallel, free: ManyChat support + Meta Business Support tickets asking to revoke the credit-line allocation on 1582515279931864 (low odds; harmless).
+- [x] ~~Parts 1–5~~ — done 2026-09-11, see the section above.
 
 ### D1 rows-read budget: inbox query rewrite + indexes (2026-09-11)
 
@@ -34,7 +39,7 @@ Full owner guide: **docs/marketing-metrics.md**. Airtable does the math (5 new t
 
 **Pendiente Evan:** (1) `GET /admin/api/metrics/probe` — if it reports a permission error, paste the creative-flywheel `META_ACCESS_TOKEN` as the encrypted secret `ADS_ACCESS_TOKEN` in the Cloudflare dashboard and re-probe; (2) publish the consolidated "Se inscribió" automation (open → Update) and turn **"Auto create payment" OFF** at the same moment; (3) `POST /admin/api/metrics/relink-students {"dryRun":true}` → review → `{"dryRun":false}`; (4) set percent formatting on the `Show Rate` / `Close Rate` / `Conversión` formula fields in Airtable (display only); (5) eyeball `Meses` 2026-08 `Gasto` vs Ads Manager August.
 
-**2026-09-10 site attribution:** website booking forms now credit the ad (site repo `js/attribution.js` + hidden `Ad`/`Adquisición` questions on the 4 Airtable forms; see marketing-metrics.md §10). Evan's items (2) and the two record fixes from 09-10 are done. Open: worker should append `utm_source=whatsapp&utm_content=<ad id>` to booking links the bot sends (no link-click ads exist in Ads Manager).
+**2026-09-10 site attribution:** website booking forms now credit the ad (site repo `js/attribution.js` + hidden `Ad`/`Adquisición` questions on the 4 Airtable forms; see marketing-metrics.md §10). Evan's items (2) and the two record fixes from 09-10 are done. **2026-09-11:** the worker now appends `utm_source=whatsapp&utm_content=<ad id>&utm_campaign=<campaign>` to every booking/schedule link it sends when the lead's ad is known (`src/services/booking-link.ts`, nudges + follow-ups + canned welcome). Pending Evan: push (= deploy) and create the Leads view «Origen pendiente» + its section on ⚠️ Excepciones (the MCP cannot create views/sections).
 
 
 ### Auditor nocturno Opus + fixes del día (2026-08-28)
@@ -174,7 +179,7 @@ The /admin Chats inbox is now a team tool. Built via multi-agent workflow + 3-ve
 - [ ] **D1 migration** (console paste; mirrored at end of schema.sql): `ALTER TABLE contacts ADD COLUMN read_at INTEGER;` — until then read/unread is per-browser like before.
 - [ ] Create **fer/vale** accounts in /admin → Usuarios (needs the inbox-v1 admin_users migration) so the assign dropdown has people.
 - [ ] **Mark `oswinvaldes` +52 55 1909 4323 as baja** ("No y bloqueame", 2026-08-03 23:03 — NOT one of the 9 exact opt-out phrases, so the gate did NOT flag him; the polite reply was the brain). One tap now: his chat → status → 🚫 baja.
-- [ ] **Submit the template pack on WABA 1582515279931864 + payment method** — still the highest-leverage item: day-before/same-day reminders silently do nothing until then. Answer to the confirmation question: day-of confirm for a booking made days earlier REQUIRES a template (window closed) → `trial_reminder_same_day` (Utility) already covers it in the pack.
+- [ ] **Submit the template pack on WABA 1717538906028335** (payment method is now on that WABA) — still the highest-leverage item: day-before/same-day reminders silently do nothing until then. Answer to the confirmation question: day-of confirm for a booking made days earlier REQUIRES a template (window closed) → `trial_reminder_same_day` (Utility) already covers it in the pack.
 - [ ] Cloudflare → Workers Builds: confirm last night's + this morning's builds deployed (/health `rev` should be `40056eea736b`).
 
 Deferred by decision: broadcast/plantillas panels (phase 2, after templates+payment), profile photos (Meta doesn't expose them — skipped), nightly auto-arm of night mode (stays manual).
@@ -216,7 +221,7 @@ ALTER TABLE campaigns ADD COLUMN ad_keywords TEXT;
 
 ### Current number topology (changed a LOT on 2026-08-03 — trust this, not older sections)
 
-- **SALES (bot): +52 1 56 4199 2274** — phone-number-id **`1159187097288000`**, on WABA **1582515279931864** ("MD Self Defense Condesa WhatsApp Business App" — ManyChat's first-attempt WABA, now ours; app 2215578122600171 subscribed; NO ManyChat partner). Pure Cloud API number — NOT in any phone app, and cannot be put back in one without deregistering (coexistence re-entry has a 1–2 month cooldown). Two-step PIN: **152683**. Registered + verified 2026-08-03. Display name "MD Self Defense Condesa" (was in review at go-live; sends worked anyway).
+- **SALES (bot): +52 1 56 4199 2274** — phone-number-id **`1298937523303215`**, on WABA **1717538906028335** ("MD Self Defense Condesa", created 2026-09-11 by us, currency MXN, card MASTERCARD *5385 attached, app 2215578122600171 subscribed, no partner). Migrated 2026-09-11 from WABA 1582515279931864 / phone-number-id 1159187097288000 (ManyChat's first-attempt WABA with the shared credit line — now empty of live numbers; leave it, do not delete). Pure Cloud API number — NOT in any phone app, and cannot be put back in one without deregistering (coexistence re-entry has a 1–2 month cooldown). Two-step PIN: **152683**. Registered + verified 2026-08-03. Display name "MD Self Defense Condesa" (was in review at go-live; sends worked anyway).
 - **SUPPORT (humans): +52 55 3426 0813** — on the academy phone in WA Business app. Was BANNED ~2026-07-28 (bulk group-adds — NEVER bulk-add to groups, invite links only); appeal WON same day. Its Cloud API registration dropped during the ban and it is now SMB-classified (app-linked) → API sends give #133010 and /register is blocked ("SMB businesses"). It stays human-only until/unless we build embedded-signup coexistence (phase 2, maybe never).
 - **DEAD/DEBRIS:** WABA 890463570149597 (coexistence WABA from the eSIM ManyChat era) was DESTROYED when the app account was deleted — its phone-number-id 1208573689006666 is gone; +52 1 55 4132 7197 (first abandoned eSIM) sits Offline on WABA 1582515279931864; WABA 1895136994223683 holds unknown unverified number +52 1 55 2497 9988. Old real WABA 2227852814309146 holds only the banned-then-unbanned 0813.
 
@@ -261,8 +266,8 @@ ALTER TABLE contacts ADD COLUMN assigned_to TEXT;
 
 ### Open items (post-go-live)
 
-- [ ] ⚠️ **Payment method on WABA 1582515279931864** — blocked earlier by a shared-credit-line error on the old WABA; without it, template sends (d2–d5 drips, anti-no-show out-of-window, any blast) silently fail. In-window free-form replies are unaffected.
-- [ ] ⚠️ **Submit templates** (docs/template-submission.md) under WABA **1582515279931864** (templates are WABA-scoped; the pack was aimed at the old WABA).
+- [x] ~~Payment method on WABA 1582515279931864~~ — superseded 2026-09-11: 2274 now lives on WABA 1717538906028335, which has the card.
+- [ ] ⚠️ **Submit templates** (docs/template-submission.md) under WABA **1717538906028335** (templates are WABA-scoped; the pack was never submitted on the old WABA).
 - [ ] CTWA repoint to 2274 (2026-08-04, see section at top): most ad sets repointed + re-live; **verify every remaining active ad set's WhatsApp number** (at least one legacy ad set was stuck on the connect wizard — toggle destination or rebuild; a rebuild's new ad IDs must be appended in /admin → Campañas).
 - [ ] Anthropic auto-reload ON (avoid silent brain outage).
 - [ ] Watch display-name review status for 2274; watch quality rating (starts UNKNOWN).

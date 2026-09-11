@@ -26,6 +26,11 @@ import {
 } from "../services/booking-core.js";
 import { cancelFollowupsByKinds, getCampaign } from "../db/queries-admin.js";
 import {
+  attributionFor,
+  withAttribution,
+  type LinkAttribution,
+} from "../services/booking-link.js";
+import {
   sendText,
   sendTemplate,
   sendBookingVideo,
@@ -279,7 +284,7 @@ async function processOne(
           template: "no_show_followup",
           lang,
           params: [name],
-          freeform: messengerReminderText("no_show", name, lang),
+          freeform: messengerReminderText("no_show", name, lang, await linkAttribution(env, contact)),
         });
         await markFollowup(env.DB, f.id, outcome);
         return;
@@ -504,6 +509,26 @@ async function sendReminder(
 }
 
 /**
+ * utm attribution for the booking links this contact receives: their first-
+ * touch ad (contacts.ad_ref) + the D1 campaign name. Fail-soft: no ad → plain
+ * link, a campaign lookup error never blocks a send.
+ */
+async function linkAttribution(
+  env: Env,
+  contact: { ad_ref: string | null; campaign_id: number | null } | null,
+): Promise<LinkAttribution> {
+  let campaignName: string | null = null;
+  if (contact?.campaign_id != null) {
+    try {
+      campaignName = (await getCampaign(env.DB, contact.campaign_id))?.name ?? null;
+    } catch {
+      campaignName = null;
+    }
+  }
+  return attributionFor(contact, campaignName);
+}
+
+/**
  * Pure. Free-form stand-in copy for the WA reminder templates, used on IG/FB.
  * No prices/schedule — just warm nudges (source-of-truth rule).
  */
@@ -511,12 +536,13 @@ export function messengerReminderText(
   kind: "day_before" | "same_day" | "no_show" | "reengage",
   name: string,
   lang: string,
+  attr: LinkAttribution | null = null,
 ): string {
   const who = name ? ` ${name.split(/\s+/)[0] ?? ""}` : "";
   if (kind === "no_show") {
     return renderCopy(
       lang === "en" ? CLIENT.copy.noShowEn : CLIENT.copy.noShowEs,
-      { who, link: CLIENT.links.booking },
+      { who, link: withAttribution(CLIENT.links.booking, attr) },
     );
   }
   const gym = CLIENT.shortName;
@@ -760,7 +786,7 @@ async function processResult(
       await kvSet(env.DB, kvKey, marker);
       return;
     }
-    const link = CLIENT.links.booking;
+    const link = withAttribution(CLIENT.links.booking, await linkAttribution(env, contact));
     const body = renderCopy(
       lang === "en" ? CLIENT.copy.noShowEn : CLIENT.copy.noShowEs,
       { who, link },
@@ -796,7 +822,7 @@ async function processResult(
     }
     const body = renderCopy(
       lang === "en" ? CLIENT.copy.welcomeEn : CLIENT.copy.welcomeEs,
-      { who, link: CLIENT.links.schedule },
+      { who, link: withAttribution(CLIENT.links.schedule, await linkAttribution(env, contact)) },
     );
     try {
       await sendText(env, phone, body);

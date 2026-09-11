@@ -20,6 +20,7 @@
 import type { Contact, Language, Qualification } from "../types.js";
 import { CLIENT } from "../client.gen.js";
 import { greetingName } from "./display-name.js";
+import { attributionFor, withAttribution } from "../services/booking-link.js";
 import type { Slot } from "../brain/slots.gen.js";
 import { SLOTS } from "../brain/slots.gen.js";
 import {
@@ -211,7 +212,8 @@ export function nudgeCopy(
   const name = firstName(contact, q);
   const sp = nameSuffix(name);
   const disc = prettyDiscipline(q.discipline ?? "");
-  const link = programLink(program);
+  // utm on the link: the site prefills the booking form with the lead's ad.
+  const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
   const slot = nudgeSlot(contact, program, nowEpoch, schedule);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
 
@@ -333,11 +335,12 @@ export function extendedCopy(
   program: Program,
   nowEpoch: number = Math.floor(Date.now() / 1000),
   schedule: readonly Slot[] = SLOTS,
+  campaignName: string | null = null,
 ): string {
   const q = parseQualification(contact);
   const lang: Language = contact?.lang === "en" ? "en" : "es";
   const sp = nameSuffix(firstName(contact, q));
-  const link = programLink(program);
+  const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
   const slot = kind === "nudge_d5" ? null : nudgeSlot(contact, program, nowEpoch, schedule);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
   const table = lang === "en" ? EXTENDED_EN : EXTENDED_ES;

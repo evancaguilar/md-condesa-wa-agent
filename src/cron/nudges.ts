@@ -448,7 +448,7 @@ export async function processExtendedNudge(
       ? await deps.campaignName(env, contact.campaign_id)
       : null;
   const program = classifyProgram(contact, campaignName);
-  const body = extendedCopy(contact, kind, program, now);
+  const body = extendedCopy(contact, kind, program, now, undefined, campaignName);
 
   try {
     await deps.sendText(env, phone, body); // free-form (window open)
