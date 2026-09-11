@@ -21,6 +21,7 @@ import { KB } from "../kb.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
 import { kvGet, kvSet } from "../db/queries.js";
+import { ensureIndexes } from "../db/indexes.js";
 import { CLIENT } from "../client.gen.js";
 import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./ad-spend.js";
 import { runLeadLinkSweep, runStudentLinkSweep, runTwinAttributionSweep } from "./metrics-link.js";
@@ -67,6 +68,10 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       await kvSet(env.DB, "migr_idx_pending_approvals_created", "1");
     });
   }
+
+  // Additive indexes (src/db/indexes.ts): kv-guarded + per-isolate memo, so
+  // after the first successful tick this is one kv read per warm isolate.
+  await safe("ensureIndexes", () => ensureIndexes(env.DB));
 
   // Every tick: due followups + approval timeouts. Isolate failures so one
   // subsystem can't starve the others.

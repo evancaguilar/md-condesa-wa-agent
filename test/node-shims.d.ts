@@ -13,6 +13,7 @@ declare module "node:assert/strict" {
     deepEqual(actual: unknown, expected: unknown, message?: string): void;
     ok(value: unknown, message?: string): void;
     match(value: string, regexp: RegExp, message?: string): void;
+    doesNotMatch(value: string, regexp: RegExp, message?: string): void;
     rejects(block: () => Promise<unknown>, error?: RegExp | Error): Promise<void>;
   };
   export default assert;
@@ -71,4 +72,24 @@ interface CryptoKey {
 declare module "*.json" {
   const value: unknown;
   export default value;
+}
+
+// node:sqlite (Node ≥22.5) — real SQLite for query-shape tests
+// (test/conversations-list.test.ts). Positional params bind ?1, ?2, … in order.
+declare module "node:sqlite" {
+  export class DatabaseSync {
+    constructor(path: string);
+    exec(sql: string): void;
+    prepare(sql: string): StatementSync;
+    close(): void;
+  }
+  export class StatementSync {
+    all(...params: unknown[]): Record<string, unknown>[];
+    get(...params: unknown[]): Record<string, unknown> | undefined;
+    run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+  }
+}
+
+declare module "node:fs" {
+  export function readFileSync(path: string, encoding: string): string;
 }

@@ -138,3 +138,14 @@ ALTER TABLE contacts ADD COLUMN read_at INTEGER;  -- unix seconds the team last 
 -- so there is nothing to fail-soft in code.
 
 CREATE INDEX IF NOT EXISTS idx_pending_approvals_created ON pending_approvals(created_at);
+
+-- ---- Rows-read budget indexes (2026-09-11, after the D1 free-tier incident) ----
+-- Applied FROM THE WORKER (src/db/indexes.ts, kv guard `migr_idx_2026_09_11`,
+-- first cron tick or first inbox load after deploy) — nothing for Evan to paste.
+-- Mirrored here for fresh installs; all additive + idempotent.
+
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_phone ON pending_approvals(phone);
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals(status);
+CREATE INDEX IF NOT EXISTS idx_followups_status_due ON followups(status, due_at);
+CREATE INDEX IF NOT EXISTS idx_messages_direction_ts ON messages(direction, ts);
+CREATE INDEX IF NOT EXISTS idx_contacts_updated ON contacts(updated_at);

@@ -895,6 +895,17 @@ function notHoldingSql(col: string): string {
  * Conversation list for the Chats view: each contact with its last message,
  * count of still-pending approvals, and campaign name (if tagged). Ordered by
  * most-recent activity (last message ts, then contact updated_at).
+ *
+ * Shape (2026-09-11, after the D1 free-tier rows-read incident): the query is
+ * driven by `contacts`, never by a scan of `messages`. Pass 1 computes only
+ * what the ORDER BY needs — one index probe per contact on
+ * idx_messages_phone_ts for the newest non-holding message — then pages.
+ * Pass 2 fills the page's last-message body/direction (one rowid lookup) and
+ * the per-phone approval / inbound counts (idx_pending_approvals_phone,
+ * idx_messages_phone_ts). Cost ≈ contacts + a few rows per contact, versus the
+ * previous three full scans of messages + three of pending_approvals per
+ * call — which, polled every 5s from the dashboard, burned the 5M rows/day
+ * budget in hours.
  */
 export async function listConversations(
   db: D1Database,
@@ -909,73 +920,9 @@ export async function listConversations(
   const pattern = query ? likePattern(query) : null;
   const digits = query.replace(/\D/g, "");
   const digitsPattern = digits.length >= 4 ? "%" + digits + "%" : pattern;
-  // Optional columns are added per tier so each pre-migration fallback (an
-  // absent column fails at prepare time) keeps the list working: 2 =
-  // assigned_to + read_at, 1 = assigned_to only, 0 = base (today's minimum).
-  const sqlFor = (tier: number): string =>
-    `SELECT
-       c.phone                         AS phone,
-       c.name                          AS name,
-       c.status                        AS status,
-       c.human_override_until          AS humanOverrideUntil,
-       ${tier >= 1 ? "c.assigned_to                   AS assignedTo," : ""}
-       ${tier >= 2 ? "c.read_at                       AS readAt," : ""}
-       lm.body                         AS lastBody,
-       lm.ts                           AS lastTs,
-       lm.direction                    AS lastDirection,
-       COALESCE(pa.pendingCount, 0)    AS pendingCount,
-       COALESCE(hc.hiConfCount, 0)     AS hiConfCount,
-       COALESCE(aa.approvedAsIsCount, 0) AS approvedAsIsCount,
-       COALESCE(ic.inboundCount, 0)    AS inboundCount,
-       camp.name                       AS campaignName${
-         pattern
-           ? `,
-       (SELECT ms.body FROM messages ms
-        WHERE ms.phone = c.phone AND ms.body LIKE ?3 ESCAPE '\\'
-        ORDER BY ms.ts DESC LIMIT 1)   AS matchBody`
-           : ""
-       }
-     FROM contacts c
-     LEFT JOIN (
-       SELECT m.phone, m.body, m.ts, m.direction
-       FROM messages m
-       JOIN (
-         SELECT mi.phone, MAX(mi.ts) AS maxTs FROM messages mi
-         WHERE ${notHoldingSql("mi")}
-         GROUP BY mi.phone
-       ) last ON last.phone = m.phone AND last.maxTs = m.ts
-       WHERE ${notHoldingSql("m")}
-     ) lm ON lm.phone = c.phone
-     LEFT JOIN (
-       SELECT phone, COUNT(*) AS pendingCount
-       FROM pending_approvals WHERE status = 'pending' GROUP BY phone
-     ) pa ON pa.phone = c.phone
-     LEFT JOIN (
-       SELECT phone, COUNT(*) AS hiConfCount
-       FROM pending_approvals WHERE confidence = 'high' GROUP BY phone
-     ) hc ON hc.phone = c.phone
-     LEFT JOIN (
-       SELECT phone, COUNT(*) AS approvedAsIsCount
-       FROM pending_approvals WHERE status = 'approved' GROUP BY phone
-     ) aa ON aa.phone = c.phone
-     LEFT JOIN (
-       SELECT phone, COUNT(*) AS inboundCount
-       FROM messages WHERE direction = 'in' GROUP BY phone
-     ) ic ON ic.phone = c.phone
-     LEFT JOIN campaigns camp ON camp.id = c.campaign_id
-     ${
-       pattern
-         ? `WHERE (c.name LIKE ?3 ESCAPE '\\'
-            OR c.phone LIKE ?4
-            OR EXISTS (SELECT 1 FROM messages ms
-                       WHERE ms.phone = c.phone AND ms.body LIKE ?3 ESCAPE '\\'))`
-         : ""
-     }
-     ORDER BY COALESCE(lm.ts, c.updated_at) DESC
-     LIMIT ?1 OFFSET ?2`;
   const run = async (tier: number): Promise<ConversationRow[]> => {
     try {
-      const stmt = db.prepare(sqlFor(tier));
+      const stmt = db.prepare(conversationsSql(tier, pattern !== null));
       const bound = pattern
         ? stmt.bind(limit, offset, pattern, digitsPattern)
         : stmt.bind(limit, offset);
@@ -987,6 +934,92 @@ export async function listConversations(
     }
   };
   return run(2);
+}
+
+/**
+ * SQL for listConversations. Optional columns are added per tier so each
+ * pre-migration fallback (an absent column fails at prepare time) keeps the
+ * list working: 2 = assigned_to + read_at, 1 = assigned_to only, 0 = base.
+ * Exported for the SQLite-backed test that checks the query plan.
+ */
+export function conversationsSql(tier: number, search: boolean): string {
+  return `SELECT
+       p.phone                         AS phone,
+       p.name                          AS name,
+       p.status                        AS status,
+       p.human_override_until          AS humanOverrideUntil,
+       ${tier >= 1 ? "p.assigned_to                   AS assignedTo," : ""}
+       ${tier >= 2 ? "p.read_at                       AS readAt," : ""}
+       lm.body                         AS lastBody,
+       p.lastTs                        AS lastTs,
+       lm.direction                    AS lastDirection,
+       (SELECT COUNT(*) FROM pending_approvals pa
+        WHERE pa.phone = p.phone AND pa.status = 'pending')     AS pendingCount,
+       (SELECT COUNT(*) FROM pending_approvals pa
+        WHERE pa.phone = p.phone AND pa.confidence = 'high')    AS hiConfCount,
+       (SELECT COUNT(*) FROM pending_approvals pa
+        WHERE pa.phone = p.phone AND pa.status = 'approved')    AS approvedAsIsCount,
+       (SELECT COUNT(*) FROM messages mi
+        WHERE mi.phone = p.phone AND mi.direction = 'in')       AS inboundCount,
+       camp.name                       AS campaignName${
+         search
+           ? `,
+       (SELECT ms.body FROM messages ms
+        WHERE ms.phone = p.phone AND ms.body LIKE ?3 ESCAPE '\\'
+        ORDER BY ms.ts DESC LIMIT 1)   AS matchBody`
+           : ""
+       }
+     FROM (
+       SELECT * FROM (
+         SELECT c.phone, c.name, c.status, c.human_override_until,
+                ${tier >= 1 ? "c.assigned_to," : ""}
+                ${tier >= 2 ? "c.read_at," : ""}
+                c.campaign_id, c.updated_at,
+                (SELECT m.rowid FROM messages m
+                 WHERE m.phone = c.phone AND ${notHoldingSql("m")}
+                 ORDER BY m.ts DESC, m.rowid DESC LIMIT 1) AS lastRowid,
+                (SELECT m.ts FROM messages m
+                 WHERE m.phone = c.phone AND ${notHoldingSql("m")}
+                 ORDER BY m.ts DESC, m.rowid DESC LIMIT 1) AS lastTs
+         FROM contacts c
+         ${
+           search
+             ? `WHERE (c.name LIKE ?3 ESCAPE '\\'
+                OR c.phone LIKE ?4
+                OR EXISTS (SELECT 1 FROM messages ms
+                           WHERE ms.phone = c.phone AND ms.body LIKE ?3 ESCAPE '\\'))`
+             : ""
+         }
+       )
+       ORDER BY COALESCE(lastTs, updated_at) DESC
+       LIMIT ?1 OFFSET ?2
+     ) p
+     LEFT JOIN messages lm ON lm.rowid = p.lastRowid
+     LEFT JOIN campaigns camp ON camp.id = p.campaign_id
+     ORDER BY COALESCE(p.lastTs, p.updated_at) DESC`;
+}
+
+/**
+ * Cheap change fingerprint for the inbox poll: newest message rowid, newest
+ * approval id, pending-approval count, newest contact update. Every write the
+ * list renders bumps at least one of these (read/unread and assignment go
+ * through contacts.updated_at; approval transitions change the pending count
+ * or the max id). ~4 index-tip reads per call, so the dashboard can poll it
+ * every few seconds and only pay for listConversations when it changed.
+ * Campaign renames are the known gap — the SPA forces a full refresh every
+ * few minutes regardless.
+ */
+export async function conversationsEtag(db: D1Database): Promise<string> {
+  const row = await db
+    .prepare(
+      `SELECT
+         (SELECT MAX(rowid) FROM messages)                                  AS m,
+         (SELECT MAX(id) FROM pending_approvals)                            AS a,
+         (SELECT COUNT(*) FROM pending_approvals WHERE status = 'pending')  AS p,
+         (SELECT MAX(updated_at) FROM contacts)                             AS c`,
+    )
+    .first<{ m: number | null; a: number | null; p: number; c: number | null }>();
+  return `${row?.m ?? 0}.${row?.a ?? 0}.${row?.p ?? 0}.${row?.c ?? 0}`;
 }
 
 export interface EditRow {

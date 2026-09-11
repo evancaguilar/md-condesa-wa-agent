@@ -80,6 +80,7 @@ import {
   updateCampaign,
   getCampaign,
   listConversations,
+  conversationsEtag,
   listEdits,
   editsAfter,
   statsOverview,
@@ -103,6 +104,7 @@ import {
   namesForPhones,
 } from "../db/queries-admin.js";
 import { parseApprovalHistoryParams } from "../db/approvals-history.js";
+import { ensureIndexes } from "../db/indexes.js";
 import {
   sendStaffMedia,
   sendStaffText,
@@ -1070,6 +1072,16 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
   const offsetRaw = Number(url.searchParams.get("offset"));
   const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, 80) || null;
+  // The SPA polls this every few seconds. `etag` is the change fingerprint it
+  // got last time: when nothing the list renders has changed we answer with a
+  // handful of index reads instead of the full query (D1 rows-read budget).
+  // Search results are never short-circuited (q changes the result set).
+  const clientEtag = q ? null : url.searchParams.get("etag");
+  await ensureIndexes(env.DB);
+  const etag = q ? null : await conversationsEtag(env.DB);
+  if (clientEtag && etag && clientEtag === etag) {
+    return json({ unchanged: true, etag, now: nowSec() });
+  }
   const rows = await listConversations(env.DB, limit, offset, q);
   const now = nowSec();
   const items = rows.map((r) => ({
@@ -1089,7 +1101,7 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
     readAt: r.readAt ?? null,
     matchBody: r.matchBody ?? null,
   }));
-  return json({ items, now });
+  return json({ items, now, etag });
 }
 
 /**

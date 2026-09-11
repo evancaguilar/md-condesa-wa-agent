@@ -1,6 +1,20 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-09**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-11**.
+
+### D1 rows-read budget: inbox query rewrite + indexes (2026-09-11)
+
+**Incident (2026-09-10):** Cloudflare blocked D1 reads for the day ("exceeded the daily D1 free tier limit of 5,000,000 rows read", reset 00:00 UTC = 18:00 CDMX). Writes still worked, but every path reads first, so inbound leads were dropped after the 200 ack (Meta does not retry), Slack buttons errored, cron did nothing useful, the dashboard could not even log in. `/health` showed `dbOk:false`. **Root cause:** the Chats inbox polled `listConversations` every 5s and that query did three full scans of `messages` + three of `pending_approvals` per call; the chat-detail poll added a full `pending_approvals` scan every 5s (no phone index). Nothing was lost in storage; messages that arrived during the block are lost (check the WhatsApp Business app for that window).
+
+**Shipped:**
+- `listConversations` rewritten (src/db/queries-admin.ts, `conversationsSql`): driven by `contacts`, one index probe per contact for the newest non-holding message, then page, then per-page counts via indexes. Also fixes a latent duplicate row when two messages shared a `ts`.
+- `conversationsEtag` change fingerprint (`MAX(rowid) messages`, `MAX(id)` + pending count on `pending_approvals`, `MAX(updated_at) contacts`) — the SPA sends `&etag=` on every poll and gets `{unchanged:true}` for ~4 index reads when nothing moved; a full reload is forced every 15 min (covers campaign renames, the one thing the fingerprint misses). Poll cadence unchanged (5s / 10s with a chat open) because the steady-state cost is now trivial.
+- Indexes, **applied from the worker** (src/db/indexes.ts, kv guard `migr_idx_2026_09_11`, runs on the first cron tick / first inbox load after deploy, memoized per isolate; mirrored at the end of schema.sql — nothing to paste): `pending_approvals(phone)`, `pending_approvals(status)`, `followups(status, due_at)`, `messages(direction, ts)`, `contacts(updated_at)`. They also make cron's every-5-min `dueFollowups` / `getPendingApprovals`, the Inicio overview (`COUNT(DISTINCT phone)` over the week's inbound), and the chat-detail pending lookup index-only.
+- New test: test/conversations-list.test.ts runs the real query on `node:sqlite` loaded from schema.sql and pins the **query plan** (any full scan of `messages`/`pending_approvals` fails the suite). Tests 665 → **722**, green.
+
+**Verify after deploy:** `/health` → `rev` bumped; open Chats, Network tab → repeated `/admin/api/conversations?...&etag=` responses are `{"unchanged":true,...}`; Cloudflare dashboard → D1 → wa-agent-db → metrics: rows read should flatten to well under 1M/day. If it climbs toward 5M again, upgrade to Workers Paid ($5/mo, 25B rows/month) per Evan's call on 2026-09-11.
+
+**Related (not built):** Meta "Business Agent" emails (Sept 10) — Meta-hosted AI on the same Cloud API number; coexistence is via the handover protocol (`standby` webhook, thread control). Evaluated, not adopted: no approval-before-send, no custom persona/KB rules, $2/1M tokens per agent message. Watch the **Oct 1 2026** change instead: free-form service replies inside the 24h window become paid per message (payment method required in WhatsApp Manager → Billing by Sept 30 or delivery is suspended) — that hits THIS bot.
 
 ### Marketing metrics feeder + attribution repair (2026-09-09)
 

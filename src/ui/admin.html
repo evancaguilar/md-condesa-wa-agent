@@ -505,7 +505,7 @@ async function setTrainingWheels(on){
 }
 
 // ---------- CHATS (live inbox) ----------
-var chatsCache={items:[],openPhone:null,firstLoad:true,q:"",searchItems:null,searchSeq:0,filter:(function(){try{return localStorage.getItem("md_chatfilter")||"all";}catch(e){return "all";}})()};
+var chatsCache={items:[],openPhone:null,firstLoad:true,etag:null,etagAt:0,q:"",searchItems:null,searchSeq:0,filter:(function(){try{return localStorage.getItem("md_chatfilter")||"all";}catch(e){return "all";}})()};
 var chatState={phone:null,lastTs:0,seen:{},lastDay:"",pendKey:"",schedKey:"",laterToken:null,contact:null,windowOpen:true,tick:0,sending:false};
 
 function readMap(){ try{ return JSON.parse(localStorage.getItem("md_read")||"{}"); }catch(e){ return {}; } }
@@ -618,12 +618,21 @@ function chatsTick(){
   if(chatState.phone && el("bubWrap")){ detailTick(false); }
   if(!chatState.phone || chatState.tick%2===0){ loadChats(); }
 }
+// D1 rows-read budget (2026-09-10 incident): the poll sends the change
+// fingerprint from the last full load; the server answers {unchanged:true}
+// for ~4 index reads when nothing moved. A full reload is forced every
+// CHATS_FULL_REFRESH_MS anyway (covers the fingerprint's blind spots, e.g. a
+// campaign rename).
+var CHATS_FULL_REFRESH_MS=15*60*1000;
 async function loadChats(){
   var list=el("chatList"); if(!list) return;
   var data;
-  try{ data=await api("/conversations?limit=100&offset=0"); }
+  var useEtag=!!chatsCache.etag && !chatsCache.firstLoad && (Date.now()-chatsCache.etagAt)<CHATS_FULL_REFRESH_MS;
+  try{ data=await api("/conversations?limit=100&offset=0"+(useEtag?"&etag="+encodeURIComponent(chatsCache.etag):"")); }
   catch(e){ if(chatsCache.firstLoad && el("chatList")) list.innerHTML='<div class="card muted">No se pudieron cargar los chats.</div>'; return; }
   if(!el("chatList")) return;
+  if(data.unchanged){ renderChatList(); return; } // relTime labels still tick over
+  chatsCache.etag=data.etag||null; chatsCache.etagAt=Date.now();
   var prevUnread=state.unreadCount;
   chatsCache.items=data.items||[];
   var rm=readMap(), unread=0;
