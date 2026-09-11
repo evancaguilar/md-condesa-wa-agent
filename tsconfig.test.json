@@ -29,6 +29,7 @@
     "src/services/edit-tuner-core.ts",
     "src/db/queries-admin.ts",
     "src/db/indexes.ts",
+    "src/services/wa-migrate.ts",
     "src/db/approvals-history.ts",
     "src/cron/time.ts",
     "src/cron/quiet.ts",

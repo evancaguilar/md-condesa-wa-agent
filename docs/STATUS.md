@@ -2,6 +2,16 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-11**.
 
+### WABA migration tooling (2026-09-11) — pending Evan
+
+**Decision (Evan, 2026-09-11):** move the sales number +52 1 56 4199 2274 to a fresh WABA we create ourselves, because WABA 1582515279931864 carries ManyChat's shared credit line and cannot take our card — and from **2026-10-01** Meta stops delivering in-window replies on a WABA with no payment method (service messages become paid: MX ≈ US$0.0115, first 1,000/number/month free). Full steps: **docs/waba-migration-runbook.md**.
+
+Shipped: owner-only `GET|POST /admin/api/wa/migrate` (src/services/wa-migrate.ts) — one explicit Graph call per step (`check` → `migrate` [needs confirm `MIGRAR 2274`] → `request_code` → `verify_code` → `register` → `subscribe` → `post_check`), using the token already in Cloudflare; remembers the new phone-number-id in kv `wa_migration:new_phone_id`. Nothing runs on its own. Tests 722 → **728**.
+
+- [ ] Evan: Parts 1–3 in WhatsApp Manager (new WABA, card on it FIRST, two-step OFF on 2274), Part 4 from the /admin console, Part 5 = `WA_PHONE_NUMBER_ID` in the Cloudflare dashboard.
+- [ ] Then submit the template pack under the NEW WABA and update the number topology below (new WABA id, phone-number-id, PIN).
+- [ ] In parallel, free: ManyChat support + Meta Business Support tickets asking to revoke the credit-line allocation on 1582515279931864 (low odds; harmless).
+
 ### D1 rows-read budget: inbox query rewrite + indexes (2026-09-11)
 
 **Incident (2026-09-10):** Cloudflare blocked D1 reads for the day ("exceeded the daily D1 free tier limit of 5,000,000 rows read", reset 00:00 UTC = 18:00 CDMX). Writes still worked, but every path reads first, so inbound leads were dropped after the 200 ack (Meta does not retry), Slack buttons errored, cron did nothing useful, the dashboard could not even log in. `/health` showed `dbOk:false`. **Root cause:** the Chats inbox polled `listConversations` every 5s and that query did three full scans of `messages` + three of `pending_approvals` per call; the chat-detail poll added a full `pending_approvals` scan every 5s (no phone index). Nothing was lost in storage; messages that arrived during the block are lost (check the WhatsApp Business app for that window).

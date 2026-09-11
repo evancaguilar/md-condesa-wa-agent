@@ -105,6 +105,7 @@ import {
 } from "../db/queries-admin.js";
 import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
+import { migrationState, runMigrationStep, type MigrationInput } from "../services/wa-migrate.js";
 import {
   sendStaffMedia,
   sendStaffText,
@@ -356,6 +357,18 @@ export async function handleAdminApi(
     }
     if (path === "/admin/api/metrics/brief" && method === "POST") return handleMetricsBrief(env, ports);
     return json({ error: "not_found" }, 404);
+  }
+
+  // ---- one-time WABA migration (owner-only; docs/waba-migration-runbook.md) ----
+  if (path === "/admin/api/wa/migrate") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    if (method === "GET") return json(await migrationState(env));
+    if (method === "POST") {
+      const body = await readJson<MigrationInput>(req);
+      const result = await runMigrationStep(env, body);
+      return json(result, result.ok ? 200 : 502);
+    }
+    return json({ error: "method_not_allowed" }, 405);
   }
 
   // ---- staff users (owner-only) ----
