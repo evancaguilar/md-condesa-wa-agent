@@ -83,6 +83,7 @@ import {
   transcribe,
 } from "../services/media.js";
 import { lookupAdMeta } from "../services/ad-meta.js";
+import { attributionFor, decorateBookingLinks } from "../services/booking-link.js";
 import {
   bookingRecordedKey,
   finalizeBooking,
@@ -409,7 +410,16 @@ export async function processInbound(
   // <bienvenida_ya_enviada>) so this turn adds only what the welcome left out.
   let justSentWelcome: string | undefined;
   if (matchedCampaign && contact.status === "lead") {
-    const canned = firstReplyFor(matchedCampaign, false);
+    const rawCanned = firstReplyFor(matchedCampaign, false);
+    // Booking links inside the welcome carry the lead's ad as utm params so
+    // the site's form prefill credits it (see services/booking-link.ts).
+    const canned =
+      rawCanned === null
+        ? null
+        : decorateBookingLinks(
+            rawCanned,
+            attributionFor(contact, matchedCampaign.name, msg.referral?.sourceId),
+          );
     if (canned !== null) {
       const hasPriorOutbound = await hasOutboundMessage(env.DB, msg.phone);
       const hasActiveBooking =
