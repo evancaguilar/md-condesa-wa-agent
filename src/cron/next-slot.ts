@@ -70,8 +70,10 @@ export function nextTrialSlot(
   audience: "adult" | "kid",
   nowEpoch: number,
   schedule: readonly Slot[] = SLOTS,
+  closedDates: readonly { date: string }[] = CLIENT.closedDates ?? [],
 ): NextSlot | null {
   const wantKey = resolveDiscipline(discipline);
+  const closed = new Set(closedDates.map((c) => c.date));
   const earliest = nowEpoch + SLOT_LEAD_SECONDS;
   const p = cdmxParts(nowEpoch);
 
@@ -82,6 +84,7 @@ export function nextTrialSlot(
     const date = `${dp.year}-${pad2(dp.month)}-${pad2(dp.day)}`;
     const wd = weekdayIndex(date);
     if (wd === null) continue;
+    if (closed.has(date)) continue; // holiday / closure: never propose that day
 
     const candidates = schedule
       .filter(

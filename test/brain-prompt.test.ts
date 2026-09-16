@@ -235,3 +235,19 @@ test("isNoReplySentinel rejects anything carrying real words — never drop a le
   );
   assert.ok(!isNoReplySentinel("sin_respuesta"), "bare word is not the token");
 });
+
+test("closureLines: today's closure is loud, near closures listed, far/past ones silent", async () => {
+  const { closureLines } = await import("../src/brain/prompt.js");
+  const closed = [
+    { date: "2026-09-16", reason: "Día de la Independencia" },
+    { date: "2026-09-20" },
+    { date: "2026-11-02", reason: "Día de Muertos" },
+    { date: "2026-09-01" },
+  ];
+  const lines = closureLines("2026-09-16T15:04", closed);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0]!, /CERRADO HOY 2026-09-16 \(Día de la Independencia\)/);
+  assert.match(lines[1]!, /CERRADO el 2026-09-20/);
+  assert.deepEqual(closureLines("2026-10-01T10:00", closed), []);
+  assert.deepEqual(closureLines("garbage", closed), []);
+});

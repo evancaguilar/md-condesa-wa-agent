@@ -161,6 +161,11 @@ function renderClientTs(cfg, persona, version) {
       schedule: cfg.links?.schedule ?? cfg.links?.booking ?? "",
     },
     services: cfg.services ?? [],
+    closedDates: Array.isArray(cfg.closedDates)
+      ? cfg.closedDates
+          .filter((c) => c && /^\d{4}-\d{2}-\d{2}$/.test(String(c.date)))
+          .map((c) => ({ date: String(c.date), ...(c.reason ? { reason: String(c.reason) } : {}) }))
+      : [],
     persona,
     features: {
       booking: !!cfg.features?.booking,

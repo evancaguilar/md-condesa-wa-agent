@@ -4,6 +4,7 @@
 
 import { SLOTS, type Slot } from "./slots.gen.js";
 import { CLIENT } from "../client.gen.js";
+import type { ClosedDate } from "../client-config.js";
 
 export interface AnthropicTool {
   name: string;
@@ -185,6 +186,15 @@ export function isKnownDiscipline(key: string): boolean {
  * DST/offset edge cases, then read getUTCDay(); the day-of-week of a calendar
  * date is offset-independent, so this is safe and needs no timezone lib.
  */
+/** Pure. The closure row for a CDMX date, or null when the business is open. */
+export function closedDateInfo(
+  dateYmd: string,
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
+): ClosedDate | null {
+  const d = dateYmd.trim().slice(0, 10);
+  return closedDates.find((c) => c.date === d) ?? null;
+}
+
 export function weekdayIndex(dateYmd: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateYmd.trim());
   if (!m) return null;
@@ -256,10 +266,18 @@ export function validateSlot(
   audience: string,
   discipline: string,
   schedule: readonly Slot[] = SLOTS,
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
 ): ValidateResult {
   const wd = weekdayIndex(trialDate);
   if (wd === null) {
     return { ok: false, reason: `Invalid trial_date '${trialDate}' (expected YYYY-MM-DD).` };
+  }
+  const closed = closedDateInfo(trialDate, closedDates);
+  if (closed) {
+    return {
+      ok: false,
+      reason: `The academy is CLOSED on ${trialDate}${closed.reason ? ` (${closed.reason})` : ""} — no classes at all that day. Offer the next open day from the schedule in the KB.`,
+    };
   }
   const disc = normalizeDiscipline(discipline);
   const time = trialTime.trim();

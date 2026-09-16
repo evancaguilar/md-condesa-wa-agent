@@ -23,6 +23,12 @@ export default {
     { key: "box", label: "Boxing", match: "box|boxe" },
     { key: "baby", label: "Baby Fight Club", match: "baby" },
   ],
+  // Days the academy is CLOSED (CDMX dates). The brain is told in the per-turn
+  // context, nudges never propose a class on them, and book_trial rejects them.
+  // Add a row per holiday/closure; past dates are harmless (kept as history).
+  closedDates: [
+    { date: "2026-09-16", reason: "Día de la Independencia" },
+  ],
   features: {
     booking: true,
     nudges: true,

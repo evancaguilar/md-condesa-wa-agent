@@ -143,3 +143,26 @@ test("disciplineLabel: service key → client-facing name", () => {
   assert.equal(disciplineLabel("baby"), "Baby Fight Club");
   assert.equal(disciplineLabel("unknown"), "unknown");
 });
+
+// ---- closed dates (holidays) ----
+
+test("nextTrialSlot: a closed date is skipped for every audience; validateSlot rejects it", async () => {
+  const { validateSlot, closedDateInfo } = await import("../src/brain/tools.js");
+  const now = cdmxToEpoch(2026, 9, 16, 8, 0, 0); // Wed 2026-09-16 08:00 (Independence Day)
+  const closed = [{ date: "2026-09-16", reason: "Día de la Independencia" }];
+  // No closures ⇒ today's class is still proposed (CLIENT itself lists 09-16).
+  const open = nextTrialSlot("muay", "adult", now, undefined, []);
+  assert.equal(open?.date, "2026-09-16");
+  const shifted = nextTrialSlot("muay", "adult", now, undefined, closed);
+  assert.ok(shifted);
+  assert.notEqual(shifted!.date, "2026-09-16");
+  assert.ok(shifted!.date > "2026-09-16");
+  const kid = nextTrialSlot(null, "kid", now, undefined, closed);
+  assert.notEqual(kid?.date, "2026-09-16");
+  const v = validateSlot("2026-09-16", "19:00", "adult", "muay", undefined, closed);
+  assert.equal(v.ok, false);
+  assert.match(v.reason ?? "", /CLOSED on 2026-09-16 \(Día de la Independencia\)/);
+  assert.equal(validateSlot("2026-09-17", "07:00", "adult", "jiu", undefined, closed).ok, true);
+  assert.equal(closedDateInfo("2026-09-16", closed)?.reason, "Día de la Independencia");
+  assert.equal(closedDateInfo("2026-09-17", closed), null);
+});

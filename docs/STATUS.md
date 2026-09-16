@@ -2,6 +2,10 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-16**.
 
+### Closed dates (holidays) — bot stops offering today (2026-09-16)
+
+Evan reported the bot booking trials on Independence Day. Immediate fix: KB overlay section (D1, id 5) telling the brain today is closed. Durable fix: `closedDates: [{date, reason}]` in clients/md-condesa/client.mjs (compiled into `CLIENT.closedDates`; compile-kb whitelist updated). Honored in three places: `buildContextBlock` adds a loud "CERRADO HOY …" line (plus closures in the next 14 days), `nextTrialSlot` skips the date (nudges / best-bet never propose it), `validateSlot` rejects `book_trial` on it. Tests 748 → **750**. **Add each holiday the academy closes to that list** (only 2026-09-16 is there — Evan to confirm Nov 2 / Nov 16 / Dec 25 / Jan 1 etc.). The overlay section is deleted once the deploy is verified.
+
 ### Bulk sender v2 (template blasts) — ready for the marketing templates (2026-09-16)
 
 Owner guide: **docs/blasts.md**. The Aug-28 one-off sender (API-only, hard-wired to the old WABA's three program templates) became a real subsystem so the day Meta approves the marketing templates on WABA 1717538906028335, Evan can send from the dashboard without code.

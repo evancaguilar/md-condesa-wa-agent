@@ -216,6 +216,13 @@ export interface AirtableMetricsMap {
   };
 }
 
+export interface ClosedDate {
+  /** CDMX calendar date, "YYYY-MM-DD". */
+  date: string;
+  /** Shown to the brain ("Día de la Independencia"). */
+  reason?: string;
+}
+
 export interface ClientConfig {
   /** Folder name under clients/ (e.g. "md-condesa", "iasmin"). */
   clientId: string;
@@ -237,6 +244,9 @@ export interface ClientConfig {
   };
   /** Bookable services. Empty when features.booking is false. */
   services: ServiceDef[];
+  /** Days the business is closed (CDMX "YYYY-MM-DD"): no slots proposed, no
+   *  bookings accepted, and the brain is told in the per-turn context. */
+  closedDates?: ClosedDate[];
   /** Full persona + hard-policies system-prompt text (from persona.md). */
   persona: string;
   features: ClientFeatures;

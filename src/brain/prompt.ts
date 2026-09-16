@@ -15,6 +15,7 @@
 
 import type { ConvoContext } from "../types.js";
 import { CLIENT } from "../client.gen.js";
+import type { ClosedDate } from "../client-config.js";
 
 /**
  * Persona + hard policies. Stable across all turns (the KB is appended).
@@ -89,6 +90,39 @@ export function buildSystem(kb: string, overlay?: string): SystemBlock[] {
   return blocks;
 }
 
+/** Days ahead (incl. today) whose closures are announced in the context. */
+const CLOSURE_HORIZON_DAYS = 14;
+
+/**
+ * Pure. Closure lines for the <context> block: today's closure (loud — the
+ * model must not offer or confirm anything for today) plus any closure inside
+ * the next two weeks so it never proposes a class on a holiday.
+ */
+export function closureLines(
+  nowCdmx: string,
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
+): string[] {
+  const today = nowCdmx.slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(today);
+  if (!m) return [];
+  const base = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const out: string[] = [];
+  for (const c of closedDates) {
+    const cm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(c.date);
+    if (!cm) continue;
+    const days = Math.round((Date.UTC(Number(cm[1]), Number(cm[2]) - 1, Number(cm[3])) - base) / 86400000);
+    const why = c.reason ? ` (${c.reason})` : "";
+    if (days === 0) {
+      out.push(
+        `CERRADO HOY ${c.date}${why}: la academia NO abre hoy — no hay clases ni clases de prueba. NUNCA ofrezcas, propongas ni confirmes nada para hoy; ofrece a partir de mañana. Si el lead pregunta por hoy, dile que hoy estamos cerrados por el feriado.`,
+      );
+    } else if (days > 0 && days <= CLOSURE_HORIZON_DAYS) {
+      out.push(`CERRADO el ${c.date}${why}: no hay clases ese día — no lo ofrezcas ni agendes nada ahí.`);
+    }
+  }
+  return out;
+}
+
 /**
  * The per-turn <context> block. Volatile — must NOT go in the system prompt.
  * Rendered into the latest user message so the model can resolve relative dates
@@ -125,6 +159,7 @@ export function buildContextBlock(ctx: ConvoContext): string {
     `contact: { ${known.join(", ")} }`,
     ...(channelLine ? [channelLine] : []),
     windowLine,
+    ...closureLines(ctx.nowCdmx),
     "Resolve any relative date ('hoy', 'mañana', 'el sábado') against `now`/`weekday` above.",
     "The timestamp is 24h ISO. Any class time LATER today than `now` is still bookable for TODAY (e.g. at 01:49 it is 1:49 AM — today's 7:00 AM class has NOT passed).",
     ...(ctx.recordedBooking
