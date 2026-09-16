@@ -209,3 +209,35 @@ kids & baby → https://mdcondesa.com/clase-prueba-ninos/
 > ¡Hola {{1}}! Parece que quizá no es el momento para ustedes, y está bien 🙂 Este será nuestro último mensaje de seguimiento por el momento. Si más adelante te gustaría que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita aquí: https://mdcondesa.com/clase-prueba-ninos/
 >
 > _Responde BAJA para dejar de recibir mensajes._
+
+
+---
+
+# Blast templates (bulk sends, docs/blasts.md) — Marketing
+
+The dashboard's **Envíos** tab sends ANY approved template on the live WABA
+(`1717538906028335`), so these are guidelines, not a fixed list. What the sender
+supports and what Meta needs:
+
+- **Category: Marketing.** **Footer (FOOTER component):** _Responde BAJA para
+  dejar de recibir mensajes._ — the inbound pipeline opts the lead out on that
+  exact word and every queued blast row for them is skipped.
+- **Language: plain "Spanish" (`es`)** unless you deliberately create `es_MX`;
+  the dashboard reads the exact code from Meta, so either works — but the name +
+  language pair must be unique and is what you pick in the dropdown.
+- **Body variables:** any number of `{{n}}`. The tab creates one field per
+  variable; write `{nombre}` in a field to insert the contact's first name
+  (sender substitutes `👋` when the push name is junk/unknown — keep `{{1}}`
+  where that still reads naturally, e.g. "¡Hola {{1}}!"). In the sample field
+  Meta asks for, use `Ana`. Meta strips a body that is ONLY a variable — keep
+  real copy around them.
+- **Header:** none, or TEXT without variables, or IMAGE / VIDEO / DOCUMENT
+  (the tab asks for an https link at send time; Meta needs a sample file on
+  submission). Header text variables are NOT supported by the sender.
+- **Buttons:** URL and quick-reply buttons work (no variables in URLs).
+- Naming: lowercase + underscores, e.g. `promo_octubre_es`, `reto_noviembre_es`,
+  `bfc_regreso_es`. Avoid names that look like the system's utility templates.
+
+Suggested first three (copy TBD by Evan): a monthly promo (adults), a kids /
+Baby Fight Club invitation, and a "te esperamos de vuelta" reactivation for
+leads who never booked.

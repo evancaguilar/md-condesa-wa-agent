@@ -54,8 +54,11 @@ async function post(env: Env, body: unknown): Promise<string> {
   });
   const data = (await res.json()) as WaSendResponse;
   if (!res.ok || data.error || !data.messages?.[0]?.id) {
+    // The Graph error code rides in brackets so callers can classify without
+    // parsing Meta's prose (blast drain: template vs. recipient vs. transient).
+    const code = data.error?.code ? ` [${data.error.code}]` : "";
     throw new Error(
-      `WA send failed (${res.status}): ${data.error?.message ?? "no wamid returned"}`,
+      `WA send failed (${res.status})${code}: ${data.error?.message ?? "no wamid returned"}`,
     );
   }
   return data.messages[0].id;

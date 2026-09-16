@@ -51,6 +51,9 @@ export interface Env {
   META_AD_ACCOUNT_ID?: string;
   /** First day (YYYY-MM-DD, CDMX) covered by the metrics backfill + link sweeps. */
   METRICS_SINCE?: string;
+  /** WhatsApp Business Account that holds the sales number — lets the blast
+   *  tab list/validate message templates (docs/blasts.md). Unset = manual names. */
+  WA_WABA_ID?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;
@@ -240,9 +243,9 @@ export type FollowupKind =
   | "nudge_d3"
   | "nudge_d4"
   | "nudge_d5"
-  /** One-off owner-approved template blast. note = JSON {t: template name,
-   *  l: language code, p2: {{2}} class text}; airtable_record_id =
-   *  'blast:<runId>' so UNIQUE(phone,kind,record) dedupes per run. */
+  /** Owner-approved template blast row (src/services/blast.ts BlastPayload in
+   *  note; airtable_record_id = 'blast:<runId>' so UNIQUE(phone,kind,record)
+   *  dedupes per run). Drained by src/cron/blasts.ts, NOT by runDueFollowups. */
   | "blast"
   /** Staff-composed reply queued from the dashboard composer ("send later").
    *  note = JSON {text, by}; airtable_record_id = 'later:<client token>' so the
@@ -251,7 +254,14 @@ export type FollowupKind =
   | "staff_later"
   | "custom";
 
-export type FollowupStatus = "scheduled" | "sent" | "cancelled" | "skipped_optout";
+/** `paused` / `failed` are used by blast rows only (docs/blasts.md). */
+export type FollowupStatus =
+  | "scheduled"
+  | "sent"
+  | "cancelled"
+  | "skipped_optout"
+  | "paused"
+  | "failed";
 
 /** Row of the `followups` table. */
 export interface Followup {

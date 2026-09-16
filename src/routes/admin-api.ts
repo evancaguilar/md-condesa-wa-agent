@@ -117,12 +117,37 @@ import {
 } from "../services/staff-send.js";
 import { shiftOutOfQuiet } from "../cron/quiet.js";
 import {
-  blastComponents,
+  BLAST_HOUR_END,
+  BLAST_HOUR_START,
+  BLAST_PER_TICK,
+  BLAST_PER_TICK_MAX,
+  DEFAULT_DAILY_CAP,
+  DEFAULT_EXCLUDE_BLASTED_DAYS,
+  blastWindowOpen,
+  buildListAudience,
+  classifySendError,
+  contactsByPhone,
+  getRunMeta,
+  listRunFailures,
+  listRunMetas,
   loadBlastAudience,
+  loadRunCounts,
+  parseContactList,
   queueBlast,
+  recentlyBlastedPhones,
+  renderParams,
+  saveRunMeta,
+  setRunRowsStatus,
+  summarizeRuns,
+  templateComponents,
   type BlastCandidate,
+  type BlastHeader,
   type BlastPayload,
 } from "../services/blast.js";
+import { checkTemplateForRun, fetchTemplateCatalog, findTemplate } from "../services/blast-templates.js";
+import { KV_PER_TICK, sentTodayCount } from "../cron/blasts.js";
+import { normalizeMxPhone } from "../services/airtable.js";
+import { cdmxParts } from "../cron/time.js";
 import type { Program } from "../cron/nudge-copy.js";
 import { sendTemplate } from "../services/send.js";
 import {
@@ -328,22 +353,29 @@ export async function handleAdminApi(
     });
   }
 
-  // ---- template blasts (owner-only; see services/blast.ts) ----
-  if (path === "/admin/api/blast/preview" && method === "POST") {
+  // ---- template blasts (owner-only; docs/blasts.md, services/blast.ts) ----
+  if (path.startsWith("/admin/api/blast/")) {
     if (session.role !== "owner") return json({ error: "forbidden" }, 403);
-    return handleBlastPreview(req, env);
-  }
-  if (path === "/admin/api/blast/test" && method === "POST") {
-    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
-    return handleBlastTest(req, env);
-  }
-  if (path === "/admin/api/blast/queue" && method === "POST") {
-    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
-    const res = await handleBlastQueue(req, env);
-    if (res.note) {
-      ctx.waitUntil(ports.slack.postNote(res.note).catch(() => {}));
+    const by = session.displayName || session.user;
+    if (path === "/admin/api/blast/templates" && method === "GET") return handleBlastTemplates(env);
+    if (path === "/admin/api/blast/runs" && method === "GET") return handleBlastRuns(env);
+    const runM = /^\/admin\/api\/blast\/runs\/([a-z0-9_-]{3,40})\/(pause|resume|cancel|failures)$/.exec(path);
+    if (runM) {
+      if (runM[2] === "failures" && method === "GET") return handleBlastFailures(env, runM[1]!);
+      if (runM[2] !== "failures" && method === "POST") {
+        const res = await handleBlastRunAction(env, runM[1]!, runM[2]!, by);
+        if (res.note) ctx.waitUntil(ports.slack.postNote(res.note).catch(() => {}));
+        return res.response;
+      }
     }
-    return res.response;
+    if (path === "/admin/api/blast/preview" && method === "POST") return handleBlastPreview(req, env);
+    if (path === "/admin/api/blast/test" && method === "POST") return handleBlastTest(req, env);
+    if (path === "/admin/api/blast/queue" && method === "POST") {
+      const res = await handleBlastQueue(req, env, by);
+      if (res.note) ctx.waitUntil(ports.slack.postNote(res.note).catch(() => {}));
+      return res.response;
+    }
+    return json({ error: "not found" }, 404);
   }
 
   // ---- marketing metrics (owner-only; docs/marketing-metrics.md) ----
@@ -1756,180 +1788,348 @@ function cdmxNow(): CdmxNow {
  * the BrainResult straight to JSON. bookTrial is a no-op stub so a booking never
  * hits Airtable.
  */
-// ---- template blasts -------------------------------------------------------
+// ---- template blasts (docs/blasts.md) ----------------------------------------
 
-/** Default window start: 2026-08-01 00:00 CDMX ("no agendaron en agosto"). */
+/** Default CRM window start: 2026-08-01 00:00 CDMX. */
 const BLAST_DEFAULT_SINCE = Math.floor(Date.parse("2026-08-01T00:00:00-06:00") / 1000);
+const RUN_ID_RE = /^[a-z0-9_-]{3,40}$/;
 
-async function handleBlastPreview(req: Request, env: Env): Promise<Response> {
-  const body = await readJson<{ since?: number }>(req);
-  const since = typeof body.since === "number" ? body.since : BLAST_DEFAULT_SINCE;
-  const audience = await loadBlastAudience(env, since, nowSec());
-  const sample = (list: BlastCandidate[]): { phone: string; name: string | null }[] =>
-    list.slice(0, 8).map((c) => ({ phone: c.phone, name: c.name }));
+interface AudienceSpec {
+  source?: "crm" | "list";
+  /** crm: leads created/active since this epoch (default BLAST_DEFAULT_SINCE). */
+  since?: number;
+  /** crm: program groups to include (default all). */
+  groups?: string[];
+  /** crm: keep leads who already booked (default false). */
+  includeBooked?: boolean;
+  /** crm: "freeform" targets the OPEN-window leads with free text instead. */
+  mode?: "template" | "freeform";
+  /** list: pasted "phone[,name]" lines. */
+  list?: string;
+  /** list: drop current students (default true). */
+  excludeStudents?: boolean;
+  /** Skip phones that got any blast in the last N days (default 7; 0 = off). */
+  excludeBlastedDays?: number;
+  /** Cap the audience to its first N (freshest) recipients. */
+  limit?: number;
+}
+
+interface ResolvedAudience {
+  mode: "template" | "freeform";
+  candidates: BlastCandidate[];
+  excluded: Record<string, number>;
+  groups: Record<string, number>;
+  list?: { parsedRows: number; invalid: number; duplicates: number };
+}
+
+async function resolveAudience(
+  env: Env,
+  spec: AudienceSpec,
+  now: number,
+): Promise<ResolvedAudience | { error: string }> {
+  const days =
+    typeof spec.excludeBlastedDays === "number" && spec.excludeBlastedDays >= 0
+      ? spec.excludeBlastedDays
+      : DEFAULT_EXCLUDE_BLASTED_DAYS;
+  const recentlyBlasted = await recentlyBlastedPhones(env, days > 0 ? now - days * DAY : 0);
+  const limit = typeof spec.limit === "number" && spec.limit > 0 ? Math.floor(spec.limit) : null;
+  const mode: "template" | "freeform" = spec.mode === "freeform" ? "freeform" : "template";
+
+  if (spec.source === "list") {
+    const parsed = parseContactList(spec.list ?? "");
+    if (parsed.entries.length === 0) return { error: "La lista no tiene ningún teléfono válido." };
+    const known = await contactsByPhone(
+      env,
+      parsed.entries.map((e) => e.phone),
+    );
+    const a = buildListAudience(parsed.entries, known, {
+      excludeStudents: spec.excludeStudents !== false,
+      recentlyBlasted,
+    });
+    const candidates = limit ? a.candidates.slice(0, limit) : a.candidates;
+    return {
+      mode: "template",
+      candidates,
+      excluded: { ...a.excluded, overLimit: a.candidates.length - candidates.length },
+      groups: { list: candidates.length },
+      list: { parsedRows: parsed.entries.length + parsed.invalid + parsed.duplicates, invalid: parsed.invalid, duplicates: parsed.duplicates },
+    };
+  }
+
+  const since = typeof spec.since === "number" && spec.since > 0 ? spec.since : BLAST_DEFAULT_SINCE;
+  const audience = await loadBlastAudience(env, since, now, {
+    includeBooked: spec.includeBooked === true,
+    recentlyBlasted,
+  });
+  const wanted = new Set<Program>(
+    (Array.isArray(spec.groups) && spec.groups.length > 0 ? spec.groups : ["adults", "kids", "baby"]).filter(
+      (g): g is Program => g === "adults" || g === "kids" || g === "baby",
+    ),
+  );
+  const src = mode === "freeform" ? audience.inWindow : audience;
+  const groups: Record<string, number> = {};
+  let candidates: BlastCandidate[] = [];
+  for (const g of ["adults", "kids", "baby"] as const) {
+    if (!wanted.has(g)) continue;
+    groups[g] = src[g].length;
+    candidates = candidates.concat(src[g]);
+  }
+  const capped = limit ? candidates.slice(0, limit) : candidates;
+  return {
+    mode,
+    candidates: capped,
+    excluded: {
+      ...audience.excluded,
+      overLimit: candidates.length - capped.length,
+      ...(mode === "template" ? {} : { outOfWindow: audience.adults.length + audience.kids.length + audience.baby.length }),
+    },
+    groups,
+  };
+}
+
+function sample(list: BlastCandidate[]): { phone: string; name: string | null; program: string }[] {
+  return list.slice(0, 10).map((c) => ({ phone: c.phone, name: c.name, program: c.program }));
+}
+
+async function handleBlastTemplates(env: Env): Promise<Response> {
+  const cat = await fetchTemplateCatalog(env);
+  return json(cat, cat.ok || cat.wabaId ? 200 : 200);
+}
+
+async function handleBlastRuns(env: Env): Promise<Response> {
+  const now = nowSec();
+  const [metas, counts, sentToday, perTickRaw] = await Promise.all([
+    listRunMetas(env),
+    loadRunCounts(env),
+    sentTodayCount(env, now),
+    kvGet(env.DB, KV_PER_TICK),
+  ]);
   return json({
-    since,
-    counts: {
-      adults: audience.adults.length,
-      kids: audience.kids.length,
-      baby: audience.baby.length,
-      inWindow: {
-        adults: audience.inWindow.adults.length,
-        kids: audience.inWindow.kids.length,
-        baby: audience.inWindow.baby.length,
-      },
-      excluded: audience.excluded,
-    },
-    samples: {
-      adults: sample(audience.adults),
-      kids: sample(audience.kids),
-      baby: sample(audience.baby),
-    },
+    items: summarizeRuns(metas, counts),
+    sentToday,
+    perTick: Math.min(BLAST_PER_TICK_MAX, Math.max(1, Number(perTickRaw) || BLAST_PER_TICK)),
+    windowOpen: blastWindowOpen(now),
+    hours: `${BLAST_HOUR_START}:00–${BLAST_HOUR_END}:00`,
+    catalog: !!env.WA_WABA_ID,
   });
 }
 
+async function handleBlastRunAction(
+  env: Env,
+  id: string,
+  action: string,
+  by: string,
+): Promise<{ response: Response; note?: string }> {
+  if (!RUN_ID_RE.test(id)) return { response: json({ error: "runId inválido" }, 400) };
+  const meta = await getRunMeta(env, id);
+  if (!meta) return { response: json({ error: "envío no encontrado" }, 404) };
+  const now = nowSec();
+  if (action === "pause") {
+    if (meta.status !== "active") return { response: json({ error: `no se puede pausar (estado ${meta.status})` }, 409) };
+    const n = await setRunRowsStatus(env, id, ["scheduled"], "paused");
+    meta.status = "paused";
+    meta.pausedReason = `pausado por ${by}`;
+    meta.updatedAt = now;
+    await saveRunMeta(env, meta);
+    return { response: json({ ok: true, affected: n, status: meta.status }), note: `⏸️ Envío masivo *${meta.name}* pausado por ${by} (${n} pendientes).` };
+  }
+  if (action === "resume") {
+    if (meta.status !== "paused") return { response: json({ error: `no está pausado (estado ${meta.status})` }, 409) };
+    const n = await setRunRowsStatus(env, id, ["paused"], "scheduled");
+    meta.status = "active";
+    meta.pausedReason = null;
+    meta.updatedAt = now;
+    await saveRunMeta(env, meta);
+    return { response: json({ ok: true, affected: n, status: meta.status }), note: `▶️ Envío masivo *${meta.name}* reanudado por ${by} (${n} pendientes).` };
+  }
+  if (action === "cancel") {
+    if (meta.status === "cancelled" || meta.status === "done") return { response: json({ error: `ya terminó (estado ${meta.status})` }, 409) };
+    const n = await setRunRowsStatus(env, id, ["scheduled", "paused"], "cancelled");
+    meta.status = "cancelled";
+    meta.updatedAt = now;
+    await saveRunMeta(env, meta);
+    return { response: json({ ok: true, affected: n, status: meta.status }), note: `⛔ Envío masivo *${meta.name}* cancelado por ${by} (${n} no se enviarán).` };
+  }
+  return { response: json({ error: "acción desconocida" }, 400) };
+}
+
+async function handleBlastFailures(env: Env, id: string): Promise<Response> {
+  if (!RUN_ID_RE.test(id)) return json({ error: "runId inválido" }, 400);
+  return json({ items: await listRunFailures(env, id) });
+}
+
+async function handleBlastPreview(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ audience?: AudienceSpec; since?: number }>(req);
+  // v1 callers posted {since} at the top level; keep that working.
+  const spec: AudienceSpec = body.audience ?? { source: "crm", since: body.since };
+  const r = await resolveAudience(env, spec, nowSec());
+  if ("error" in r) return json({ error: r.error }, 400);
+  return json({
+    mode: r.mode,
+    total: r.candidates.length,
+    groups: r.groups,
+    excluded: r.excluded,
+    list: r.list ?? null,
+    samples: sample(r.candidates),
+  });
+}
+
+function headerFrom(raw: unknown): BlastHeader | null {
+  if (!raw || typeof raw !== "object") return null;
+  const h = raw as { type?: unknown; link?: unknown };
+  const type = typeof h.type === "string" ? h.type.toLowerCase() : "";
+  const link = typeof h.link === "string" ? h.link.trim() : "";
+  if (!link) return null;
+  if (type !== "image" && type !== "video" && type !== "document") return null;
+  return { type, link };
+}
+
 /** One real template send to a named phone — smoke-tests the template name,
- *  language code, and variable count before any bulk queue. */
+ *  language code, variable count and header before any bulk queue. */
 async function handleBlastTest(req: Request, env: Env): Promise<Response> {
   const body = await readJson<{
     phone?: string;
     template?: string;
     lang?: string;
-    param2?: string;
-    /** Explicit body params (0..n) — overrides the default 2-param shape, so
-     *  the smoke test can discover how many variables a template REALLY has. */
     params?: string[];
+    header?: { type?: string; link?: string };
+    text?: string;
+    name?: string;
+    /** v1 shape. */
+    param2?: string;
   }>(req);
-  const phone = (body.phone ?? "").replace(/\D/g, "");
-  if (!phone || !body.template || (!body.param2 && !Array.isArray(body.params))) {
-    return json({ error: "phone, template y param2 (o params[]) son obligatorios" }, 400);
-  }
-  const components = Array.isArray(body.params)
-    ? body.params.length === 0
-      ? undefined
-      : [
-          {
-            type: "body",
-            parameters: body.params.map((t) => ({ type: "text", text: t })),
-          },
-        ]
-    : blastComponents("\u{1F44B}", body.param2 ?? "");
+  const phone = normalizeMxPhone((body.phone ?? "").replace(/\D/g, ""));
+  if (!phone || phone.length < 10) return json({ error: "phone obligatorio" }, 400);
   try {
+    if (body.text && body.text.trim()) {
+      const wamid = await sendText(env, phone, body.text.trim());
+      return json({ ok: true, wamid, mode: "freeform" });
+    }
+    if (!body.template) return json({ error: "template obligatorio" }, 400);
+    const params = Array.isArray(body.params)
+      ? body.params.map((p) => String(p))
+      : typeof body.param2 === "string"
+        ? ["{nombre}", body.param2]
+        : [];
+    const payload: BlastPayload = {
+      t: body.template,
+      l: body.lang ?? "es",
+      v: params,
+      ...(headerFrom(body.header) ? { h: headerFrom(body.header)! } : {}),
+    };
     const wamid = await sendTemplate(
       env,
       phone,
-      body.template,
-      body.lang ?? "es_MX",
-      components,
+      payload.t,
+      payload.l,
+      templateComponents(payload, body.name ?? null),
       { force: true },
     );
-    return json({ ok: true, wamid });
+    return json({ ok: true, wamid, params: renderParams(params, body.name ?? null) });
   } catch (err) {
-    return json(
-      { ok: false, error: err instanceof Error ? err.message : String(err) },
-      502,
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    return json({ ok: false, error: msg, kind: classifySendError(msg).cls }, 502);
   }
+}
+
+function newRunId(now: number): string {
+  const p = cdmxParts(now);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const rnd = Math.random().toString(36).slice(2, 6);
+  return `b${String(p.year).slice(2)}${pad(p.month)}${pad(p.day)}${pad(p.hour)}${pad(p.minute)}${rnd}`;
 }
 
 async function handleBlastQueue(
   req: Request,
   env: Env,
+  by: string,
 ): Promise<{ response: Response; note?: string }> {
   const body = await readJson<{
     confirm?: boolean;
     runId?: string;
-    since?: number;
+    name?: string;
+    template?: { name?: string; lang?: string; params?: string[]; header?: { type?: string; link?: string } };
+    text?: string;
+    audience?: AudienceSpec;
+    startAt?: number;
     dailyCap?: number;
-    /** "freeform": FREE-form text to the leads whose 24h window is OPEN (no
-     *  template, no Meta billing). Default "template": paid templates to the
-     *  out-of-window audience. */
-    mode?: "template" | "freeform";
-    groups?: {
-      group?: string;
-      template?: string;
-      lang?: string;
-      param2?: string;
-      /** freeform mode: the message text for this group. */
-      text?: string;
-      /** Cap this group to its N freshest leads (omit = everyone). */
-      limit?: number;
-      /** Body-variable count of the template (0 = fixed text, no params). */
-      nParams?: number;
-    }[];
+    /** Skip the Meta catalog check (catalog unreachable). Owner's call. */
+    skipCheck?: boolean;
   }>(req);
-  if (body.confirm !== true) {
-    return { response: json({ error: "confirm:true requerido" }, 400) };
-  }
-  const runId = (body.runId ?? "").trim();
-  if (!/^[a-z0-9_-]{3,40}$/.test(runId)) {
-    return { response: json({ error: "runId invalido (a-z0-9_-, 3-40)" }, 400) };
-  }
-  if (!Array.isArray(body.groups) || body.groups.length === 0) {
-    return { response: json({ error: "groups vacio" }, 400) };
-  }
-  const since = typeof body.since === "number" ? body.since : BLAST_DEFAULT_SINCE;
+  if (body.confirm !== true) return { response: json({ error: "confirm:true requerido" }, 400) };
   const now = nowSec();
-  const mode = body.mode === "freeform" ? "freeform" : "template";
-  const audience = await loadBlastAudience(env, since, now);
-  const byGroup: Record<Program, BlastCandidate[]> =
-    mode === "freeform"
-      ? {
-          adults: audience.inWindow.adults,
-          kids: audience.inWindow.kids,
-          baby: audience.inWindow.baby,
-        }
-      : { adults: audience.adults, kids: audience.kids, baby: audience.baby };
-  const groups: {
-    group: Program;
-    candidates: BlastCandidate[];
-    payload: BlastPayload;
-  }[] = [];
-  for (const g of body.groups) {
-    const key = g.group as Program;
-    if (key !== "adults" && key !== "kids" && key !== "baby") {
-      return { response: json({ error: `grupo desconocido: ${String(g.group)}` }, 400) };
-    }
-    if (mode === "freeform") {
-      if (!g.text || g.text.trim().length < 10) {
-        return { response: json({ error: `text obligatorio para ${key} en modo freeform` }, 400) };
+  const runId = (body.runId ?? "").trim() || newRunId(now);
+  if (!RUN_ID_RE.test(runId)) return { response: json({ error: "runId inválido (a-z0-9_-, 3-40)" }, 400) };
+  const spec: AudienceSpec = body.audience ?? { source: "crm" };
+  const mode: "template" | "freeform" = spec.mode === "freeform" || (!!body.text && !body.template) ? "freeform" : "template";
+  spec.mode = mode;
+
+  let payload: BlastPayload;
+  let templateName = "";
+  let lang = "";
+  let params: string[] = [];
+  let header: BlastHeader | null = null;
+  if (mode === "freeform") {
+    const text = (body.text ?? "").trim();
+    if (text.length < 10) return { response: json({ error: "text obligatorio (≥10 caracteres) en modo libre" }, 400) };
+    payload = { t: "", l: "", txt: text };
+  } else {
+    templateName = (body.template?.name ?? "").trim();
+    lang = (body.template?.lang ?? "").trim();
+    params = Array.isArray(body.template?.params) ? body.template!.params!.map((p) => String(p)) : [];
+    header = headerFrom(body.template?.header);
+    if (!templateName || !lang) return { response: json({ error: "template.name y template.lang son obligatorios" }, 400) };
+    if (params.some((p) => !p.trim())) return { response: json({ error: "ninguna variable puede ir vacía" }, 400) };
+    if (body.skipCheck !== true) {
+      const cat = await fetchTemplateCatalog(env);
+      if (cat.ok) {
+        const check = checkTemplateForRun(findTemplate(cat.templates, templateName, lang), params, header);
+        if (!check.ok) return { response: json({ error: check.reason, templateCheck: true }, 422) };
+      } else if (env.WA_WABA_ID) {
+        return {
+          response: json(
+            { error: `No pude verificar la plantilla en Meta (${cat.error}). Reintenta o manda skipCheck:true bajo tu responsabilidad.` },
+            502,
+          ),
+        };
       }
-    } else if (!g.template || (!g.param2 && g.nParams !== 0)) {
-      return { response: json({ error: `template y param2 obligatorios para ${key}` }, 400) };
     }
-    const limit =
-      typeof g.limit === "number" && g.limit > 0 ? Math.floor(g.limit) : undefined;
-    groups.push({
-      group: key,
-      candidates: limit ? byGroup[key].slice(0, limit) : byGroup[key],
-      payload:
-        mode === "freeform"
-          ? { t: "", l: "", p2: "", txt: (g.text ?? "").trim() }
-          : {
-              t: g.template ?? "",
-              l: g.lang ?? "es_MX",
-              p2: g.param2 ?? "",
-              ...(g.nParams === 0 ? { n: 0 as const } : {}),
-            },
-    });
+    payload = { t: templateName, l: lang, v: params, ...(header ? { h: header } : {}) };
   }
+
+  const r = await resolveAudience(env, spec, now);
+  if ("error" in r) return { response: json({ error: r.error }, 400) };
+  if (r.candidates.length === 0) return { response: json({ error: "audiencia vacía: nadie cumple los filtros" }, 400) };
+
+  const startAt = typeof body.startAt === "number" && body.startAt > now ? Math.floor(body.startAt) : now;
+  const dailyCap = typeof body.dailyCap === "number" && body.dailyCap > 0 ? Math.floor(body.dailyCap) : DEFAULT_DAILY_CAP;
+  const name = (body.name ?? "").trim().slice(0, 80) || (templateName || "mensaje libre");
   const queued = await queueBlast(env, {
-    runId,
-    groups,
-    startEpoch: now,
-    ...(typeof body.dailyCap === "number" ? { dailyCap: body.dailyCap } : {}),
+    meta: {
+      id: runId,
+      name,
+      mode,
+      template: templateName,
+      lang,
+      params,
+      header,
+      text: mode === "freeform" ? payload.txt ?? null : null,
+      createdAt: now,
+      startAt,
+      dailyCap,
+      by,
+    },
+    candidates: r.candidates,
+    payload,
   });
-  if (queued === null) {
-    return { response: json({ error: "runId ya usado (blast duplicado)" }, 409) };
-  }
-  const detail = groups.map((g) => `${g.group}:${g.candidates.length}`).join(", ");
+  if (queued === null) return { response: json({ error: "runId ya usado (envío duplicado)" }, 409) };
+  const when = startAt > now ? ` a partir de ${cdmxDateStr(startAt)} ${String(cdmxParts(startAt).hour).padStart(2, "0")}:${String(cdmxParts(startAt).minute).padStart(2, "0")}` : "";
   return {
-    response: json({
-      ok: true,
-      queued,
-      groups: groups.map((g) => ({ group: g.group, count: g.candidates.length })),
-    }),
-    note: `\u{1F4E3} Blast "${runId}" encolado: ${queued} plantillas (${detail}). Salen en tandas de 50 cada 5 min, 09:00-21:00, tope ${body.dailyCap ?? 250}/dia.`,
+    response: json({ ok: true, runId, queued, groups: r.groups, excluded: r.excluded }),
+    note:
+      `📣 Envío masivo *${name}* encolado por ${by}: ${queued} destinatarios` +
+      (mode === "template" ? ` · plantilla ${templateName} (${lang})` : " · texto libre") +
+      `${when}. Sale en tandas cada 5 min, ${BLAST_HOUR_START}:00–${BLAST_HOUR_END}:00 CDMX, tope ${dailyCap}/día. Pausa o cancela en /admin → Envíos.`,
   };
 }
 

@@ -444,14 +444,15 @@ export async function scheduleFollowup(
     .run();
 }
 
-/** Scheduled followups due at or before `at` (default now). */
+/** Scheduled followups due at or before `at` (default now). Blast rows are
+ *  drained separately (src/cron/blasts.ts) with their own pacing and cap. */
 export async function dueFollowups(
   db: D1Database,
   at: number = now(),
 ): Promise<Followup[]> {
   const { results } = await db
     .prepare(
-      `SELECT * FROM followups WHERE status = 'scheduled' AND due_at <= ?1 ORDER BY due_at ASC`,
+      `SELECT * FROM followups WHERE status = 'scheduled' AND due_at <= ?1 AND kind <> 'blast' ORDER BY due_at ASC`,
     )
     .bind(at)
     .all<Followup>();

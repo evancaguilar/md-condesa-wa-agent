@@ -4,7 +4,7 @@ One-time submission artifact for go-live. **Copy source of truth is docs/templat
 
 ## Where
 
-business.facebook.com → **WhatsApp Manager** → account **"MD Self Defense Condesa"** (WABA `2227852814309146` — the one holding the REAL number +52 55 3426 0813; NOT the test WABA `1545530463899885`) → **Account tools → Message templates** → *Create template*. Templates belong to the WABA — submitting them under the test account makes them unusable on the real number.
+business.facebook.com → **WhatsApp Manager** → account **"MD Self Defense Condesa"** — **WABA `1717538906028335`, the one holding the sales number +52 1 56 4199 2274 since the 2026-09-11 migration** (NOT the old ManyChat WABA `1582515279931864`, nor the test WABA `1545530463899885`; templates are WABA-scoped and the worker sends from the new one) → **Account tools → Message templates** → *Create template*. Templates belong to the WABA — submitting them under the test account makes them unusable on the real number.
 
 ## Rules that will break sends if you miss them
 

@@ -48,7 +48,6 @@ import {
 } from "./time.js";
 import { isQuietHour, next8am, shiftOutOfQuiet } from "./quiet.js";
 import { greetingName } from "./display-name.js";
-import { blastComponents, decodeBlastNote } from "../services/blast.js";
 import {
   listRecentBookings,
   listStudents,
@@ -233,34 +232,11 @@ async function processOne(
       await markFollowup(env.DB, f.id, "sent");
       return;
 
-    case "blast": {
-      // Owner-approved template blast (services/blast.ts). Payload rides in
-      // the note; a malformed row is skipped, never retried forever.
-      const payload = decodeBlastNote(f.note);
-      if (!payload) {
-        await markFollowup(env.DB, f.id, "skipped_optout");
-        return;
-      }
-      if (payload.txt) {
-        // Freeform blast: free text to an open-window lead. If the window
-        // closed between queue and send, tryText skips quietly — never a
-        // template fallback (that is exactly the paid path this mode avoids).
-        await tryText(env, f.phone, payload.txt);
-        await markFollowup(env.DB, f.id, "sent");
-        return;
-      }
-      // greetingName drops handles/emoji junk; Meta rejects empty params.
-      const greeting = name || "👋";
-      await sendTemplate(
-        env,
-        f.phone,
-        payload.t,
-        payload.l,
-        payload.n === 0 ? undefined : blastComponents(greeting, payload.p2),
-      );
-      await markFollowup(env.DB, f.id, "sent");
+    case "blast":
+      // Never reached: dueFollowups excludes kind='blast'; the blast drain
+      // (src/cron/blasts.ts) paces and caps those rows itself. Leave the row
+      // alone so the drain picks it up.
       return;
-    }
 
     case "custom":
       // generic custom follow-up (set_followup): warm text if in-window, else

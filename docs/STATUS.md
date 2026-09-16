@@ -1,6 +1,18 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-11**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-16**.
+
+### Bulk sender v2 (template blasts) — ready for the marketing templates (2026-09-16)
+
+Owner guide: **docs/blasts.md**. The Aug-28 one-off sender (API-only, hard-wired to the old WABA's three program templates) became a real subsystem so the day Meta approves the marketing templates on WABA 1717538906028335, Evan can send from the dashboard without code.
+
+- **Dashboard tab Envíos** (owner only, src/ui/admin.html `VIEWS.envios`): template picker fed by Meta (`GET /admin/api/blast/templates`, APPROVED first, others disabled), one input per `{{n}}` (`{nombre}` = first name, 👋 fallback), media-header link, audience from CRM leads (since date, program groups, include-booked) or a pasted `phone,name` list (ManyChat export pastes as-is), no-repeat window (7 d), limit, preview with exclusions + sample, one-phone test, start time + daily cap (250 default), confirm checkbox, runs list with progress bars and ⏸/▶/⛔ + failure detail.
+- **Drain** (src/cron/blasts.ts, every tick after runDueFollowups): 6 sends/tick (kv `blast_per_tick`, max 10 — free-plan subrequest cap), 09:00–21:00 CDMX only, per-day cap from the run, rows **claimed before the Graph POST** (at-most-once). Errors are classified from the Graph code that wa.ts now puts in brackets (`WA send failed (404) [132001]: …`): template/account/auth/media → run auto-pauses + one Slack note; rate limits → retry (3×); everything else → row `failed` with the text. Completion note with totals. `dueFollowups` now excludes `kind='blast'`.
+- **Registry in kv** (`blast_run:<id>` JSON) + counts from `followups` — **no D1 migration**. New row statuses `paused` / `failed` (schema.sql comment only).
+- **Template preflight** (src/services/blast-templates.ts): queue refuses a template that is not APPROVED on the WABA, a wrong variable count, or a missing/mismatched media header. `WA_WABA_ID=1717538906028335` added to wrangler vars; without it the tab falls back to manual name+language.
+- Tests 728 → **748** (blast planning, catalog parsing/validation, drain with fake D1).
+
+**Pendiente Evan:** (1) submit the marketing templates (and the rest of the pack) under WABA 1717538906028335 — see docs/templates.md → "Blast templates" for the shape the sender supports; (2) first real blast: small audience (≤200), test on your phone first, watch the run card + Slack; (3) if the template dropdown says the catalog is unavailable, the WA token lacks `whatsapp_business_management` — manual mode still works.
 
 ### WABA migration DONE — 2274 now on WABA 1717538906028335 (2026-09-11)
 

@@ -354,8 +354,10 @@ var TABS=[
   {id:"kb",       icon:"📚",label:"KB"},
   {id:"editor",   icon:"✨",label:"Editor"},
   {id:"campanas", icon:"📣",label:"Camp"},
+  {id:"envios",   icon:"📨",label:"Envíos",owner:true},
   {id:"probar",   icon:"🧪",label:"Probar"}
 ];
+function visibleTabs(){ return TABS.filter(function(t){ return !t.owner || (state.me && state.me.role==="owner"); }); }
 var state={ pendingCount:0, poll:null, me:null, unreadCount:0, staff:[] };
 var BASE_TITLE=document.title||"MD Condesa";
 
@@ -371,11 +373,11 @@ function renderNav(){
   var active=currentHash();
   var side=el("side");
   var who=state.me?'<div class="muted sm" style="padding:4px 12px 10px">🙋 '+esc(state.me.displayName||state.me.user||"")+'</div>':"";
-  side.innerHTML='<div class="brand">MD CONDESA</div>'+who+TABS.map(function(t){
+  side.innerHTML='<div class="brand">MD CONDESA</div>'+who+visibleTabs().map(function(t){
     return '<button class="nav'+(t.id===active?" on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+tabBadge(t)+'</button>';
   }).join("")+'<div style="flex:1"></div><button class="nav" data-logout="1"><span class="ic">🚪</span>Salir</button>';
   var tabs=el("tabs");
-  tabs.innerHTML=TABS.map(function(t){
+  tabs.innerHTML=visibleTabs().map(function(t){
     return '<button class="'+(t.id===active?"on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+tabBadge(t)+'</button>';
   }).join("");
   qa("[data-go]").forEach(function(b){ b.onclick=function(){ location.hash="#"+b.getAttribute("data-go"); }; });
@@ -1982,6 +1984,227 @@ async function setCampStatus(id,status){
   try{ await api("/campaigns/"+id,{method:"PUT",body:{status:status}});
     toast("Campaña actualizada","ok"); loadCampaigns(); }
   catch(e){ toast("No se pudo actualizar","err"); }
+}
+
+// ---------- ENVÍOS (blasts) ----------
+var blastCat=null; // {ok, templates:[...]}
+VIEWS.envios=function(){
+  if(!state.me || state.me.role!=="owner"){ location.hash="#inicio"; return; }
+  var m=el("main");
+  m.innerHTML='<h1>Envíos masivos</h1>'
+    +'<div class="muted sm" style="margin-bottom:10px">Plantillas aprobadas por Meta a muchos contactos. Salen en tandas cada 5 min, solo 09:00–21:00 CDMX, con tope diario. Quien responda BAJA queda fuera para siempre.</div>'
+    +'<div id="blastRuns"><div class="loading"><span class="spin"></span></div></div>'
+    +'<div class="card" id="blastNew"><details class="collapsible"><summary>+ Nuevo envío</summary><div id="blastForm"><div class="loading"><span class="spin"></span></div></div></details></div>';
+  loadBlastRuns();
+  renderBlastForm();
+  startPoll(loadBlastRuns,10000);
+};
+function blastStatusChip(st){
+  if(st==="active") return '<span class="chip green">Enviando</span>';
+  if(st==="paused") return '<span class="chip amber">Pausado</span>';
+  if(st==="done") return '<span class="chip blue">Terminado</span>';
+  return '<span class="chip red">Cancelado</span>';
+}
+async function loadBlastRuns(){
+  var body=el("blastRuns"); if(!body) return;
+  var d;
+  try{ d=await api("/blast/runs"); }
+  catch(e){ body.innerHTML='<div class="card muted">No se pudieron cargar los envíos.</div>'; return; }
+  if(!el("blastRuns")) return;
+  var items=d.items||[];
+  var head='<div class="muted sm" style="margin-bottom:8px">Hoy: '+d.sentToday+' enviados · '+(d.windowOpen?'ventana abierta':'fuera de horario ('+esc(d.hours)+')')+' · '+d.perTick+' por tanda'
+    +(d.catalog?'':' · <span class="chip amber" title="WA_WABA_ID no configurado">catálogo de plantillas no disponible</span>')+'</div>';
+  if(!items.length){ body.innerHTML=head+'<div class="card muted">Sin envíos todavía.</div>'; return; }
+  body.innerHTML=head+items.map(blastRunCard).join("");
+  items.forEach(wireBlastRun);
+}
+function blastRunCard(r){
+  var c=r.counts, done=c.sent+c.failed+c.skipped+c.cancelled, pct=r.total?Math.round(100*done/r.total):0;
+  var what=r.mode==="freeform"?'texto libre':(esc(r.template)+' ('+esc(r.lang)+')');
+  var btns="";
+  if(r.status==="active") btns+='<button class="btn sm" data-ba="pause">⏸ Pausar</button>';
+  if(r.status==="paused") btns+='<button class="btn green sm" data-ba="resume">▶ Reanudar</button>';
+  if(r.status==="active"||r.status==="paused") btns+='<button class="btn red sm" data-ba="cancel">⛔ Cancelar</button>';
+  if(c.failed>0) btns+='<button class="btn sm" data-bf="1">Ver fallos ('+c.failed+')</button>';
+  var reason=r.pausedReason?'<div class="chip amber" style="margin-top:6px;white-space:normal">⚠ '+esc(r.pausedReason)+'</div>':"";
+  var when=r.startAt>Math.floor(Date.now()/1000)?' · inicia '+esc(fmtDate(r.startAt))+' '+new Date(r.startAt*1000).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}):"";
+  return '<div class="card" id="brun-'+esc(r.id)+'">'
+    +'<div class="between"><b>'+esc(r.name)+'</b>'+blastStatusChip(r.status)+'</div>'
+    +'<div class="muted sm" style="margin-top:4px">'+what+' · '+r.total+' destinatarios · por '+esc(r.by||"?")+' · '+esc(fmtDate(r.createdAt))+when+'</div>'
+    +'<div style="height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;margin-top:10px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--gold)"></div></div>'
+    +'<div class="muted sm" style="margin-top:6px">✅ '+c.sent+' enviados · ⏳ '+r.remaining+' pendientes · ❌ '+c.failed+' fallidos · 🚫 '+c.skipped+' baja · ⛔ '+c.cancelled+' cancelados</div>'
+    +reason
+    +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div><div class="bfail hidden muted sm" style="margin-top:8px"></div></div>';
+}
+function wireBlastRun(r){
+  var card=el("brun-"+r.id); if(!card) return;
+  qa("[data-ba]",card).forEach(function(b){
+    b.onclick=async function(){
+      var a=b.getAttribute("data-ba");
+      if(a==="cancel" && !confirm("¿Cancelar este envío? Los pendientes ya no saldrán.")) return;
+      try{ await api("/blast/runs/"+encodeURIComponent(r.id)+"/"+a,{method:"POST",body:{}}); toast("Listo","ok"); loadBlastRuns(); }
+      catch(e){ toast((e.data&&e.data.error)||"No se pudo","err"); }
+    };
+  });
+  var bf=q("[data-bf]",card), box=q(".bfail",card);
+  if(bf) bf.onclick=async function(){
+    if(!box.classList.contains("hidden")){ box.classList.add("hidden"); return; }
+    box.classList.remove("hidden"); box.textContent="Cargando…";
+    try{ var d=await api("/blast/runs/"+encodeURIComponent(r.id)+"/failures");
+      box.innerHTML=(d.items||[]).map(function(f){ return esc(f.phone)+' — '+esc(f.error||"?"); }).join("<br>")||"Sin detalle.";
+    }catch(e){ box.textContent="No se pudieron cargar los fallos."; }
+  };
+}
+async function loadBlastCatalog(force){
+  if(blastCat && !force) return blastCat;
+  try{ blastCat=await api("/blast/templates"); }catch(e){ blastCat={ok:false,templates:[],error:"error"}; }
+  return blastCat;
+}
+function blastTplLabel(t){
+  return t.name+' · '+t.language+' · '+t.status+(t.category?' · '+t.category:'');
+}
+async function renderBlastForm(){
+  var f=el("blastForm"); if(!f) return;
+  var cat=await loadBlastCatalog(false);
+  if(!el("blastForm")) return;
+  var opts='';
+  if(cat.ok && cat.templates.length){
+    opts=cat.templates.map(function(t,i){ return '<option value="'+i+'"'+(t.status!=="APPROVED"?' disabled':'')+'>'+esc(blastTplLabel(t))+'</option>'; }).join("");
+  }
+  var tplBlock = (cat.ok && cat.templates.length)
+    ? '<label class="lab">Plantilla (solo las APPROVED se pueden elegir)</label><select id="bTpl" class="field"><option value="">— elige —</option>'+opts+'</select>'
+      +'<div class="row" style="margin-top:6px"><button id="bReload" class="btn sm">↻ Recargar de Meta</button><span class="muted sm" id="bTplInfo"></span></div>'
+      +'<div id="bTplPreview" class="muted sm" style="margin-top:8px;white-space:pre-wrap"></div>'
+    : '<div class="chip amber" style="white-space:normal">Catálogo de Meta no disponible ('+esc(cat.error||"?")+'). Escribe el nombre exacto y el idioma.</div>'
+      +'<label class="lab">Nombre exacto de la plantilla</label><input id="bTplName" class="field" placeholder="promo_octubre_es" autocapitalize="none">'
+      +'<label class="lab">Idioma (código exacto: es, es_MX, en)</label><input id="bTplLang" class="field" value="es" autocapitalize="none">'
+      +'<label class="lab">Número de variables del cuerpo</label><input id="bTplVars" class="field" type="number" min="0" value="1">'
+      +'<label class="lab">Encabezado multimedia (tipo, vacío si no aplica)</label><select id="bHdrType" class="field"><option value="">ninguno</option><option value="image">image</option><option value="video">video</option><option value="document">document</option></select>';
+  f.innerHTML=
+    '<label class="lab">Nombre interno del envío</label><input id="bName" class="field" placeholder="Promo octubre — leads agosto">'
+    +tplBlock
+    +'<div id="bParams"></div>'
+    +'<div id="bHdrBox" class="hidden"><label class="lab">Link https del archivo del encabezado</label><input id="bHdrLink" class="field" placeholder="https://mdcondesa.com/media/promo.jpg"></div>'
+    +'<hr class="sep"><div style="font-weight:700">Audiencia</div>'
+    +'<div class="row" style="margin-top:6px;flex-wrap:wrap"><label><input type="radio" name="bSrc" value="crm" checked> Leads del CRM (D1)</label><label><input type="radio" name="bSrc" value="list"> Lista pegada (teléfono, nombre)</label></div>'
+    +'<div id="bCrm">'
+      +'<label class="lab">Leads activos desde</label><input id="bSince" class="field" type="date" value="2026-08-01">'
+      +'<div class="row" style="margin-top:8px;flex-wrap:wrap"><label><input type="checkbox" class="bGrp" value="adults" checked> Adultos</label><label><input type="checkbox" class="bGrp" value="kids" checked> Kids</label><label><input type="checkbox" class="bGrp" value="baby" checked> Baby</label></div>'
+      +'<div class="row" style="margin-top:6px;flex-wrap:wrap"><label><input type="checkbox" id="bBooked"> Incluir a quienes ya agendaron</label></div>'
+    +'</div>'
+    +'<div id="bList" class="hidden"><label class="lab">Una línea por contacto: teléfono, nombre (se aceptan CSV pegados)</label><textarea id="bListText" class="field ta" placeholder="5512345678, Ana\n+52 1 55 8765 4321, Beto"></textarea>'
+      +'<div class="row" style="margin-top:6px"><label><input type="checkbox" id="bExStudents" checked> Excluir alumnos actuales</label></div></div>'
+    +'<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:16px"><label class="lab" style="margin:0">No repetir a quien recibió un envío en los últimos <input id="bExDays" type="number" min="0" value="7" style="width:60px" class="field"> días</label>'
+    +'<label class="lab" style="margin:0">Máximo de destinatarios <input id="bLimit" type="number" min="1" placeholder="todos" style="width:90px" class="field"></label></div>'
+    +'<div class="row" style="margin-top:10px"><button id="bPreview" class="btn sm">👁 Vista previa</button><span id="bPrevOut" class="muted sm"></span></div>'
+    +'<div id="bPrevDetail" class="muted sm" style="margin-top:6px"></div>'
+    +'<hr class="sep"><div style="font-weight:700">Prueba</div>'
+    +'<div class="row" style="margin-top:6px"><input id="bTestPhone" class="field" placeholder="tu número (5215…)" style="margin:0"><input id="bTestName" class="field" placeholder="nombre de prueba" style="margin:0;max-width:160px"><button id="bTest" class="btn sm">Enviar prueba</button></div>'
+    +'<div id="bTestOut" class="muted sm" style="margin-top:6px"></div>'
+    +'<hr class="sep"><div style="font-weight:700">Programar</div>'
+    +'<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:16px"><label class="lab" style="margin:0">Inicio <input id="bStart" type="datetime-local" class="field" style="width:auto"></label><label class="lab" style="margin:0">Tope por día <input id="bCap" type="number" min="1" value="250" class="field" style="width:90px"></label></div>'
+    +'<div class="muted sm" style="margin-top:4px">Vacío = empieza en la próxima tanda dentro del horario. El tope diario protege el límite de Meta (250/día en una cuenta nueva; sube solo con buena calidad).</div>'
+    +'<label style="display:block;margin-top:12px"><input type="checkbox" id="bConfirm"> Confirmo que quiero enviar esta plantilla a <b id="bConfirmN">?</b> contactos</label>'
+    +'<button id="bQueue" class="btn gold" style="margin-top:10px;width:100%" disabled>Poner en cola</button>'
+    +'<div id="bQueueOut" class="muted sm" style="margin-top:6px"></div>';
+  wireBlastForm(cat);
+}
+function blastSelectedTpl(cat){
+  var sel=el("bTpl");
+  if(sel){ var i=sel.value; return i===""?null:cat.templates[Number(i)]; }
+  var n=el("bTplName")?el("bTplName").value.trim():"";
+  if(!n) return null;
+  return {name:n,language:(el("bTplLang").value.trim()||"es"),bodyVars:Number(el("bTplVars").value)||0,headerFormat:(el("bHdrType").value||"").toUpperCase()||null,manual:true};
+}
+function blastRenderParams(t){
+  var box=el("bParams"); if(!box) return;
+  if(!t){ box.innerHTML=""; el("bHdrBox").classList.add("hidden"); return; }
+  var html="";
+  for(var i=1;i<=t.bodyVars;i++){
+    html+='<label class="lab">Variable {{'+i+'}}'+(i===1?' — escribe {nombre} para el primer nombre del contacto':'')+'</label><input class="field bVar" data-i="'+i+'" value="'+(i===1?'{nombre}':'')+'">';
+  }
+  box.innerHTML=html;
+  var media=t.headerFormat && ["IMAGE","VIDEO","DOCUMENT"].indexOf(t.headerFormat)>=0;
+  el("bHdrBox").classList.toggle("hidden",!media);
+}
+function blastTemplateSpec(cat){
+  var t=blastSelectedTpl(cat); if(!t) return null;
+  var params=qa(".bVar").map(function(i){ return i.value; });
+  var spec={name:t.name,lang:t.language,params:params};
+  var media=t.headerFormat && ["IMAGE","VIDEO","DOCUMENT"].indexOf(t.headerFormat)>=0;
+  if(media){ spec.header={type:t.headerFormat.toLowerCase(),link:el("bHdrLink").value.trim()}; }
+  return spec;
+}
+function blastAudienceSpec(){
+  var src=(q('input[name="bSrc"]:checked')||{}).value||"crm";
+  var a={source:src, excludeBlastedDays:Number(el("bExDays").value)||0};
+  var lim=Number(el("bLimit").value); if(lim>0) a.limit=lim;
+  if(src==="crm"){
+    var d=el("bSince").value; if(d) a.since=Math.floor(new Date(d+"T00:00:00-06:00").getTime()/1000);
+    a.groups=qa(".bGrp").filter(function(c){return c.checked;}).map(function(c){return c.value;});
+    a.includeBooked=el("bBooked").checked;
+  } else {
+    a.list=el("bListText").value; a.excludeStudents=el("bExStudents").checked;
+  }
+  return a;
+}
+function wireBlastForm(cat){
+  var lastPreview=0;
+  qa('input[name="bSrc"]').forEach(function(r){ r.onchange=function(){
+    var crm=r.value==="crm"; if(!r.checked) return;
+    el("bCrm").classList.toggle("hidden",!crm); el("bList").classList.toggle("hidden",crm);
+  }; });
+  if(el("bTpl")){
+    el("bTpl").onchange=function(){
+      var t=blastSelectedTpl(cat); blastRenderParams(t);
+      var pv=el("bTplPreview");
+      if(t){ pv.textContent=(t.headerFormat?'['+t.headerFormat+']\n':'')+t.body+(t.footer?'\n'+t.footer:'')+(t.buttons&&t.buttons.length?'\n[botones: '+t.buttons.join(" · ")+']':''); if(!el("bName").value) el("bName").value=t.name; }
+      else pv.textContent="";
+    };
+    el("bReload").onclick=async function(){ el("bReload").disabled=true; await loadBlastCatalog(true); renderBlastForm(); };
+  } else {
+    ["bTplName","bTplLang","bTplVars","bHdrType"].forEach(function(id){ el(id).onchange=function(){ blastRenderParams(blastSelectedTpl(cat)); }; });
+    blastRenderParams(blastSelectedTpl(cat));
+  }
+  el("bPreview").onclick=async function(){
+    el("bPrevOut").textContent="…"; el("bPrevDetail").textContent="";
+    try{
+      var d=await api("/blast/preview",{method:"POST",body:{audience:blastAudienceSpec()}});
+      lastPreview=d.total; el("bConfirmN").textContent=d.total; el("bQueue").disabled=!(d.total>0);
+      el("bPrevOut").textContent=d.total+" destinatarios";
+      var ex=Object.keys(d.excluded||{}).filter(function(k){return d.excluded[k]>0;}).map(function(k){return k+": "+d.excluded[k];}).join(" · ");
+      var gr=Object.keys(d.groups||{}).map(function(k){return k+": "+d.groups[k];}).join(" · ");
+      var li=d.list?(' · lista: '+d.list.parsedRows+' filas, '+d.list.invalid+' inválidas, '+d.list.duplicates+' duplicadas'):"";
+      el("bPrevDetail").innerHTML='<div>'+esc(gr)+li+'</div>'+(ex?'<div>Excluidos — '+esc(ex)+'</div>':'')
+        +'<div style="margin-top:4px">Muestra: '+(d.samples||[]).map(function(s){return esc((s.name||"?")+" "+s.phone);}).join(", ")+'</div>';
+    }catch(e){ el("bPrevOut").textContent=(e.data&&e.data.error)||"No se pudo calcular"; el("bQueue").disabled=true; }
+  };
+  el("bTest").onclick=async function(){
+    var spec=blastTemplateSpec(cat); var phone=el("bTestPhone").value.trim();
+    if(!spec||!phone){ toast("Elige plantilla y escribe el número de prueba","err"); return; }
+    el("bTestOut").textContent="Enviando…";
+    try{
+      var d=await api("/blast/test",{method:"POST",body:{phone:phone,template:spec.name,lang:spec.lang,params:spec.params,header:spec.header,name:el("bTestName").value.trim()}});
+      el("bTestOut").textContent="✅ Enviada ("+d.wamid+"). Revisa tu WhatsApp.";
+    }catch(e){ el("bTestOut").textContent="❌ "+((e.data&&e.data.error)||"falló"); }
+  };
+  el("bQueue").onclick=async function(){
+    var spec=blastTemplateSpec(cat);
+    if(!spec){ toast("Elige una plantilla","err"); return; }
+    if(!el("bConfirm").checked){ toast("Marca la confirmación","err"); return; }
+    if(!lastPreview){ toast("Haz la vista previa primero","err"); return; }
+    if(!confirm("¿Poner en cola "+lastPreview+" envíos de "+spec.name+"? Esto manda mensajes reales.")) return;
+    var body={confirm:true,name:el("bName").value.trim(),template:spec,audience:blastAudienceSpec()};
+    var st=el("bStart").value; if(st){ body.startAt=Math.floor(new Date(st).getTime()/1000); }
+    var cap=Number(el("bCap").value); if(cap>0) body.dailyCap=cap;
+    var man=blastSelectedTpl(cat); if(man&&man.manual) body.skipCheck=true;
+    el("bQueue").disabled=true; el("bQueueOut").textContent="Encolando…";
+    try{
+      var d=await api("/blast/queue",{method:"POST",body:body});
+      el("bQueueOut").textContent="✅ "+d.queued+" en cola ("+d.runId+").";
+      toast("Envío en cola","ok"); lastPreview=0; el("bConfirm").checked=false; loadBlastRuns();
+    }catch(e){ el("bQueueOut").textContent="❌ "+((e.data&&e.data.error)||"no se pudo encolar"); el("bQueue").disabled=false; }
+  };
 }
 
 // ---------- PROBAR (sandbox) ----------

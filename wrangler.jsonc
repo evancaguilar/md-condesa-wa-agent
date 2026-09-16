@@ -30,6 +30,7 @@
     "BOOKING_VIDEO_URL": "https://mdcondesa.com/media/confirmar-reserva.mp4",
     // Marketing metrics feeder (src/cron/ad-spend.ts, metrics-link.ts, metrics-brief.ts).
     "META_AD_ACCOUNT_ID": "act_1334257084455191",
+    "WA_WABA_ID": "1717538906028335",
     "METRICS_SINCE": "2026-07-01"
   },
   // Text modules: the compiled KB (*.md, see src/kb.ts) and the admin SPA

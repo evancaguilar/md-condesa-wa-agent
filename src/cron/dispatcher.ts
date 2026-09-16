@@ -26,6 +26,7 @@ import { CLIENT } from "../client.gen.js";
 import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./ad-spend.js";
 import { runLeadLinkSweep, runStudentLinkSweep, runTwinAttributionSweep } from "./metrics-link.js";
 import { runMetricsBrief } from "./metrics-brief.js";
+import { runBlastBatch } from "./blasts.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -76,6 +77,9 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // Every tick: due followups + approval timeouts. Isolate failures so one
   // subsystem can't starve the others.
   await safe("runDueFollowups", () => runDueFollowups(env, cronDeps));
+  // Template blasts (docs/blasts.md): a few paced sends per tick, 09:00–21:00
+  // CDMX, under the run's daily cap; auto-pauses on template/account errors.
+  await safe("runBlastBatch", () => runBlastBatch(env, { slack: cronDeps.slack }, nowEpoch));
   await safe("runApprovalTimeouts", async () => {
     const pending = await getPendingApprovals(env.DB);
     await cronDeps.runApprovalTimeouts(env, pending);
