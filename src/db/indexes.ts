@@ -17,7 +17,13 @@
 
 import { kvGet, kvSet } from "./queries.js";
 
-export const INDEX_MIGRATION_KEY = "migr_idx_2026_09_11";
+// 2026-09-16 (second rows-read incident, same day the blast sender shipped):
+//   - followups(kind, status, due_at): the blast drain (every tick), the runs
+//     endpoint's per-run counts (dashboard poll) and the run pause/resume
+//     UPDATEs all filter on kind='blast' — without it each was a full scan of
+//     followups, and the Envíos tab polling every 10s burned the daily budget.
+// The guard key is bumped so existing installs run the new CREATE once.
+export const INDEX_MIGRATION_KEY = "migr_idx_2026_09_16";
 
 export const INDEX_SQL: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_pending_approvals_phone ON pending_approvals(phone)`,
@@ -25,6 +31,7 @@ export const INDEX_SQL: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_followups_status_due ON followups(status, due_at)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_direction_ts ON messages(direction, ts)`,
   `CREATE INDEX IF NOT EXISTS idx_contacts_updated ON contacts(updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_followups_kind_status_due ON followups(kind, status, due_at)`,
 ];
 
 // Per-isolate memo so a warm worker pays the kv read once, not per request.

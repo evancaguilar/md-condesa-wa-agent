@@ -422,6 +422,10 @@ export interface BlastRunMeta {
 }
 
 export const RUN_KEY_PREFIX = "blast_run:";
+/** kv flag "1" while at least one run is active — the drain reads ONLY this
+ *  when idle (one kv row per tick instead of a followups scan). Set on queue /
+ *  resume, recomputed on pause / cancel / done. */
+export const KV_BLAST_ACTIVE = "blast_active";
 /** followups.airtable_record_id of a run's rows: "blast:<runId>". */
 export const ROW_RID_PREFIX = "blast:";
 
@@ -642,6 +646,7 @@ export async function queueBlast(env: Env, spec: QueueBlastSpec): Promise<number
   if (!(await kvSetIfAbsent(env.DB, RUN_KEY_PREFIX + meta.id, encodeRunMeta(meta)))) {
     return null;
   }
+  await kvSet(env.DB, KV_BLAST_ACTIVE, "1");
   const note = encodeBlastNote(spec.payload);
   const dueAt = blastDueAt(meta.startAt);
   let queued = 0;
@@ -659,6 +664,14 @@ export async function queueBlast(env: Env, spec: QueueBlastSpec): Promise<number
     queued++;
   }
   return queued;
+}
+
+/** Recompute the idle flag from the run metas (kv only, no followups read). */
+export async function refreshActiveFlag(env: Env): Promise<boolean> {
+  const metas = await listRunMetas(env);
+  const active = metas.some((m) => m.status === "active");
+  await kvSet(env.DB, KV_BLAST_ACTIVE, active ? "1" : "0");
+  return active;
 }
 
 export async function getRunMeta(env: Env, id: string): Promise<BlastRunMeta | null> {

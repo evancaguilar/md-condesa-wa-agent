@@ -148,4 +148,5 @@ CREATE INDEX IF NOT EXISTS idx_pending_approvals_phone ON pending_approvals(phon
 CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals(status);
 CREATE INDEX IF NOT EXISTS idx_followups_status_due ON followups(status, due_at);
 CREATE INDEX IF NOT EXISTS idx_messages_direction_ts ON messages(direction, ts);
+CREATE INDEX IF NOT EXISTS idx_followups_kind_status_due ON followups(kind, status, due_at);  -- blast drain / runs counts (2026-09-16, kv guard migr_idx_2026_09_16)
 CREATE INDEX IF NOT EXISTS idx_contacts_updated ON contacts(updated_at);

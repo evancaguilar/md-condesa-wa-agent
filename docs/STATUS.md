@@ -2,6 +2,12 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-16**.
 
+### ⚠️ Second D1 rows-read incident — caused by the blast sender (2026-09-16, ~15:30 CDMX)
+
+Same symptom as 09-10: every admin route that reads a normal table threw (Cloudflare 1101 "Worker threw exception"), fail-soft routes (`/me`, `/staff`) and `/health` (`SELECT 1`) stayed green, inbound leads dropped after the 200 ack until the 00:00 UTC (18:00 CDMX) reset. **Cause:** the new blast code filtered `followups` on `kind='blast'` with no index — a full scan on every cron tick (drain) AND on every 10-s poll of the Envíos tab (per-run counts GROUP BY) while the tab was open for ~1 h. **Fix shipped:** index `followups(kind, status, due_at)` (worker-applied, kv guard `migr_idx_2026_09_16`; it can only be created once reads unblock), kv `blast_active` idle gate so a tick with no active run reads ONE kv row and never touches followups, the flag maintained on queue/pause/resume/cancel/done, tab poll 10 s → 30 s. Tests 750 → **751**.
+
+**Lesson (add to every new query):** any new filter on a big table needs an index in src/db/indexes.ts BEFORE it ships, and nothing in the dashboard may poll a table scan. **Evan:** this is the second outage from the 5M rows/day free cap — Workers Paid (US$5/mo, 25 B rows read) removes the cliff entirely; strongly recommended. Check the WhatsApp Business app for leads who wrote between ~15:30 and 18:00 CDMX today.
+
 ### Closed dates (holidays) — bot stops offering today (2026-09-16)
 
 Evan reported the bot booking trials on Independence Day. Immediate fix: KB overlay section (D1, id 5) telling the brain today is closed. Durable fix: `closedDates: [{date, reason}]` in clients/md-condesa/client.mjs (compiled into `CLIENT.closedDates`; compile-kb whitelist updated). Honored in three places: `buildContextBlock` adds a loud "CERRADO HOY …" line (plus closures in the next 14 days), `nextTrialSlot` skips the date (nudges / best-bet never propose it), `validateSlot` rejects `book_trial` on it. Tests 748 → **750**. **Add each holiday the academy closes to that list** (only 2026-09-16 is there — Evan to confirm Nov 2 / Nov 16 / Dec 25 / Jan 1 etc.). The overlay section is deleted once the deploy is verified.

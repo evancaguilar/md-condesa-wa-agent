@@ -16,6 +16,8 @@ import { sendTemplate, sendText, WindowClosedError } from "../services/send.js";
 import {
   BLAST_PER_TICK,
   BLAST_PER_TICK_MAX,
+  KV_BLAST_ACTIVE,
+  refreshActiveFlag,
   blastWindowOpen,
   classifySendError,
   decodeBlastNote,
@@ -88,6 +90,11 @@ export async function runBlastBatch(
     result.idle = "window";
     return result;
   }
+  // Idle gate: one kv read. Missing/"0" ⇒ no active run ⇒ no followups query.
+  if ((await kvGet(env.DB, KV_BLAST_ACTIVE)) !== "1") {
+    result.idle = "no_active_run";
+    return result;
+  }
   const limit = await perTickLimit(env);
   const { results: rows } = await env.DB.prepare(
     `SELECT f.id, f.phone, f.note, f.airtable_record_id AS rid,
@@ -99,7 +106,10 @@ export async function runBlastBatch(
     .bind(nowEpoch, limit)
     .all<DueBlastRow>();
   if (rows.length === 0) {
+    // Nothing due: either a future start or every active run is drained but
+    // its meta was not closed yet — recompute the flag so idle ticks stay cheap.
     result.idle = "nothing_due";
+    await refreshActiveFlag(env);
     return result;
   }
 
@@ -208,6 +218,7 @@ export async function runBlastBatch(
           meta.pausedReason = msg.slice(0, 300);
           meta.updatedAt = nowEpoch;
           await saveRunMeta(env, meta);
+          await refreshActiveFlag(env);
         }
       }
       result.pausedRun = runId || null;
@@ -232,6 +243,7 @@ export async function runBlastBatch(
       meta.status = "done";
       meta.updatedAt = nowEpoch;
       await saveRunMeta(env, meta);
+      await refreshActiveFlag(env);
       result.finishedRuns.push(runId);
       await deps.slack.postNote(
         `✅ Envío masivo *${meta.name}* terminado: ${c.sent} enviados · ${c.failed} fallidos · ${c.skipped} baja · ${c.cancelled} cancelados (de ${meta.total}).`,

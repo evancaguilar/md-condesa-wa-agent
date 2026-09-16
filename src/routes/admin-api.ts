@@ -135,6 +135,7 @@ import {
   parseContactList,
   queueBlast,
   recentlyBlastedPhones,
+  refreshActiveFlag,
   renderParams,
   saveRunMeta,
   setRunRowsStatus,
@@ -1931,6 +1932,7 @@ async function handleBlastRunAction(
     meta.pausedReason = `pausado por ${by}`;
     meta.updatedAt = now;
     await saveRunMeta(env, meta);
+    await refreshActiveFlag(env);
     return { response: json({ ok: true, affected: n, status: meta.status }), note: `⏸️ Envío masivo *${meta.name}* pausado por ${by} (${n} pendientes).` };
   }
   if (action === "resume") {
@@ -1940,6 +1942,7 @@ async function handleBlastRunAction(
     meta.pausedReason = null;
     meta.updatedAt = now;
     await saveRunMeta(env, meta);
+    await refreshActiveFlag(env);
     return { response: json({ ok: true, affected: n, status: meta.status }), note: `▶️ Envío masivo *${meta.name}* reanudado por ${by} (${n} pendientes).` };
   }
   if (action === "cancel") {
@@ -1948,6 +1951,7 @@ async function handleBlastRunAction(
     meta.status = "cancelled";
     meta.updatedAt = now;
     await saveRunMeta(env, meta);
+    await refreshActiveFlag(env);
     return { response: json({ ok: true, affected: n, status: meta.status }), note: `⛔ Envío masivo *${meta.name}* cancelado por ${by} (${n} no se enviarán).` };
   }
   return { response: json({ error: "acción desconocida" }, 400) };

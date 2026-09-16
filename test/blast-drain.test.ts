@@ -31,6 +31,10 @@ function fakeEnv(w: World): Env {
   const make = (sql: string): D1PreparedStatement => {
     let binds: unknown[] = [];
     const exec = (): { first?: unknown; all?: unknown[]; changes?: number } => {
+      if (sql.includes("SELECT key, value FROM kv")) {
+        // listRunMetas: `WHERE key LIKE 'blast_run:%'`
+        return { all: [...w.kv].filter(([k]) => k.startsWith("blast_run:")).map(([key, value]) => ({ key, value })) };
+      }
       if (sql.includes("SELECT value FROM kv")) {
         const v = w.kv.get(String(binds[0]));
         return { first: v === undefined ? null : { value: v } };
@@ -134,7 +138,10 @@ function world(n = 3, over: Partial<BlastRunMeta> = {}): World {
       c_name: i === 0 ? "Ana" : null,
       status: "scheduled",
     })),
-    kv: new Map([["blast_run:r1", encodeRunMeta(meta(over))]]),
+    kv: new Map([
+      ["blast_run:r1", encodeRunMeta(meta(over))],
+      ["blast_active", "1"],
+    ]),
     notes: [],
     sends: [],
   };
@@ -168,6 +175,7 @@ test("drain: sends the batch, claims rows before sending, records the day count,
   assert.ok(w.rows.every((x) => x.status === "sent"));
   assert.equal(w.kv.get(KV_SENT_DAY_PREFIX + cdmxDateStr(NOON)), "3");
   assert.deepEqual(r.finishedRuns, ["r1"]);
+  assert.equal(w.kv.get("blast_active"), "0"); // idle flag cleared → next ticks read one kv row
   assert.match(w.notes[0] ?? "", /terminado: 3 enviados/);
   assert.match(w.kv.get("blast_run:r1") ?? "", /"status":"done"/);
 });
@@ -234,4 +242,13 @@ test("drain: daily cap stops sending; opted-out rows are skipped; paused runs ar
   const r2 = await runBlastBatch(fakeEnv(p), deps(p), NOON);
   assert.equal(r2.sent, 0);
   assert.equal(p.rows[0]!.status, "scheduled");
+});
+
+test("drain: with no active run the tick reads only the kv flag", async () => {
+  const w = world(2);
+  w.kv.set("blast_active", "0");
+  const r = await runBlastBatch(fakeEnv(w), deps(w), NOON);
+  assert.equal(r.idle, "no_active_run");
+  assert.equal(w.sends.length, 0);
+  assert.equal(w.rows[0]!.status, "scheduled");
 });
