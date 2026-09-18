@@ -23,7 +23,14 @@ import { kvGet, kvSet } from "./queries.js";
 //     UPDATEs all filter on kind='blast' — without it each was a full scan of
 //     followups, and the Envíos tab polling every 10s burned the daily budget.
 // The guard key is bumped so existing installs run the new CREATE once.
-export const INDEX_MIGRATION_KEY = "migr_idx_2026_09_16";
+// 2026-09-17 (third rows-read incident, 7.46M rows in <1h of the UTC day):
+//   - messages(phone, ts): listConversations (Chats inbox, polled every 5 s)
+//     runs two correlated "latest message for this phone" subqueries per
+//     contact — D1 query insights showed ~600k rows read PER CALL. schema.sql
+//     has carried this index since the inbox shipped, but that block was a
+//     "Evan pastes in the console" migration and prod evidently never got it;
+//     applying it from the worker makes it guaranteed.
+export const INDEX_MIGRATION_KEY = "migr_idx_2026_09_17";
 
 export const INDEX_SQL: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_pending_approvals_phone ON pending_approvals(phone)`,
@@ -32,6 +39,7 @@ export const INDEX_SQL: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_messages_direction_ts ON messages(direction, ts)`,
   `CREATE INDEX IF NOT EXISTS idx_contacts_updated ON contacts(updated_at)`,
   `CREATE INDEX IF NOT EXISTS idx_followups_kind_status_due ON followups(kind, status, due_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts)`,
 ];
 
 // Per-isolate memo so a warm worker pays the kv read once, not per request.

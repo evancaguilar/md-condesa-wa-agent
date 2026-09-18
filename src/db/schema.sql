@@ -150,3 +150,4 @@ CREATE INDEX IF NOT EXISTS idx_followups_status_due ON followups(status, due_at)
 CREATE INDEX IF NOT EXISTS idx_messages_direction_ts ON messages(direction, ts);
 CREATE INDEX IF NOT EXISTS idx_followups_kind_status_due ON followups(kind, status, due_at);  -- blast drain / runs counts (2026-09-16, kv guard migr_idx_2026_09_16)
 CREATE INDEX IF NOT EXISTS idx_contacts_updated ON contacts(updated_at);
+CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts);  -- ALSO worker-applied since 2026-09-17 (kv guard migr_idx_2026_09_17): the console migration above was never run in prod

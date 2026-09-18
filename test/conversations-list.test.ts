@@ -235,3 +235,15 @@ test("ensureIndexes: creates once, kv-guarded, memoized per isolate", async () =
   assert.match(fx.sqls[fx.sqls.length - 1].sql, /FROM kv/);
   resetIndexMemoForTests();
 });
+
+// 2026-09-17: prod never got the console-pasted idx_messages_phone_ts, and
+// the inbox list read ~600k rows per call (third D1 rows-read outage). The
+// indexes the plan test above depends on must ALL ship in the worker-applied
+// batch, so a schema.sql-only index can never silently be missing in prod.
+test("worker-applied index batch covers every index the inbox plan relies on", () => {
+  const applied = INDEX_SQL.map((s) => /INDEX IF NOT EXISTS (\w+)/.exec(s)?.[1]);
+  for (const name of ["idx_messages_phone_ts", "idx_pending_approvals_phone", "idx_pending_approvals_status"]) {
+    assert.ok(applied.includes(name), `${name} must be in INDEX_SQL (src/db/indexes.ts)`);
+  }
+  assert.equal(INDEX_MIGRATION_KEY, "migr_idx_2026_09_17");
+});
