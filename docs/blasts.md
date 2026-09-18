@@ -61,7 +61,7 @@ checkbox; the code refuses to queue a template Meta has not approved.
 ## 3. What the cron does with it
 
 - Every 5-min tick, `runBlastBatch` sends up to **6** queued rows (kv
-  `blast_per_tick`, 1–10, if you ever want to change it) — ~70/hour, ~860 in a
+  `blast_per_tick`, 1–25 since Workers Paid, set via `POST /admin/api/blast/settings {perTick}`) — ~70/hour, ~860 in a
   full 09:00–21:00 day, so the daily cap is the real limit.
 - Each row is **claimed before the Graph call** (status `sent`), so a tick that
   dies mid-batch never double-sends.

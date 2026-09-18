@@ -145,7 +145,13 @@ import {
   type BlastHeader,
   type BlastPayload,
 } from "../services/blast.js";
-import { checkTemplateForRun, fetchTemplateCatalog, findTemplate } from "../services/blast-templates.js";
+import {
+  checkTemplateForRun,
+  createTemplate,
+  fetchTemplateCatalog,
+  findTemplate,
+  type CreateTemplateInput,
+} from "../services/blast-templates.js";
 import { KV_PER_TICK, sentTodayCount } from "../cron/blasts.js";
 import { normalizeMxPhone } from "../services/airtable.js";
 import { cdmxParts } from "../cron/time.js";
@@ -359,6 +365,24 @@ export async function handleAdminApi(
     if (session.role !== "owner") return json({ error: "forbidden" }, 403);
     const by = session.displayName || session.user;
     if (path === "/admin/api/blast/templates" && method === "GET") return handleBlastTemplates(env);
+    // Submit a template to Meta for review (2026-09-17; docs/blasts.md §1).
+    if (path === "/admin/api/blast/templates/create" && method === "POST") {
+      const body = (await req.json().catch(() => null)) as CreateTemplateInput | null;
+      if (!body || typeof body !== "object") return json({ error: "body inválido" }, 400);
+      const r = await createTemplate(env, body);
+      if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) enviada a Meta por ${by} → ${r.status ?? "?"}`).catch(() => {}));
+      return json(r, r.ok ? 200 : 400);
+    }
+    // Sends per cron tick (kv `blast_per_tick`, clamped 1..BLAST_PER_TICK_MAX).
+    if (path === "/admin/api/blast/settings" && method === "POST") {
+      const body = (await req.json().catch(() => null)) as { perTick?: unknown } | null;
+      const n = Math.floor(Number(body?.perTick));
+      if (!Number.isFinite(n) || n < 1 || n > BLAST_PER_TICK_MAX) {
+        return json({ error: `perTick debe ser 1..${BLAST_PER_TICK_MAX}` }, 400);
+      }
+      await kvSet(env.DB, KV_PER_TICK, String(n));
+      return json({ ok: true, perTick: n });
+    }
     if (path === "/admin/api/blast/runs" && method === "GET") return handleBlastRuns(env);
     const runM = /^\/admin\/api\/blast\/runs\/([a-z0-9_-]{3,40})\/(pause|resume|cancel|failures)$/.exec(path);
     if (runM) {

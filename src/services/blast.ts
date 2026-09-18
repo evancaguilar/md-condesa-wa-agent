@@ -32,7 +32,9 @@ import { cdmxParts } from "../cron/time.js";
  *  Sized for the free plan's 50-subrequest cap: each send costs ~5 (claim, Graph
  *  POST, wamid + message rows) and the tick already runs followups/metrics. */
 export const BLAST_PER_TICK = 6;
-export const BLAST_PER_TICK_MAX = 10;
+// 25 since 2026-09-17: the account moved to Workers Paid (1,000 subrequests per
+// invocation), so the free-plan ~8-send ceiling no longer applies.
+export const BLAST_PER_TICK_MAX = 25;
 /** Default per-CDMX-day cap — Meta's lowest business-initiated tier (250 unique
  *  users / 24h on a fresh WABA; grows to 1K/10K/100K with quality). */
 export const DEFAULT_DAILY_CAP = 250;

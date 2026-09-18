@@ -204,3 +204,82 @@ export function findTemplate(
 ): TemplateSummary | null {
   return templates.find((t) => t.name === name && t.language === language) ?? null;
 }
+
+/** Input for createTemplate — the shapes the sender supports (docs/templates.md → Blast templates). */
+export interface CreateTemplateInput {
+  name: string;
+  language: string;
+  category: "MARKETING" | "UTILITY";
+  body: string;
+  /** Sample values for {{1}}..{{n}} in the body (Meta requires one per variable). */
+  bodyExamples?: string[];
+  footer?: string;
+  buttons?: { type: "URL"; text: string; url: string }[] | { type: "QUICK_REPLY"; text: string }[];
+}
+
+export interface CreateTemplateResult {
+  ok: boolean;
+  id?: string;
+  status?: string;
+  category?: string;
+  error?: string;
+}
+
+/** Pure. Graph payload for POST /{WABA}/message_templates. */
+export function buildCreateTemplatePayload(input: CreateTemplateInput): Record<string, unknown> {
+  const components: Record<string, unknown>[] = [];
+  const bodyComp: Record<string, unknown> = { type: "BODY", text: input.body };
+  const n = countVars(input.body);
+  if (n > 0) {
+    const ex = (input.bodyExamples ?? []).slice(0, n);
+    while (ex.length < n) ex.push("Ana");
+    bodyComp.example = { body_text: [ex] };
+  }
+  components.push(bodyComp);
+  if (input.footer) components.push({ type: "FOOTER", text: input.footer });
+  if (input.buttons && input.buttons.length) {
+    components.push({
+      type: "BUTTONS",
+      buttons: input.buttons.map((b) =>
+        b.type === "URL" ? { type: "URL", text: b.text, url: b.url } : { type: "QUICK_REPLY", text: b.text },
+      ),
+    });
+  }
+  return { name: input.name, language: input.language, category: input.category, components };
+}
+
+const TEMPLATE_NAME_RE = /^[a-z0-9_]{1,512}$/;
+
+/** Submits a template to Meta for review on env.WA_WABA_ID. Owner-only route. */
+export async function createTemplate(
+  env: Env,
+  input: CreateTemplateInput,
+  doFetch: typeof fetch = fetch,
+): Promise<CreateTemplateResult> {
+  const wabaId = env.WA_WABA_ID?.trim() || null;
+  if (!wabaId) return { ok: false, error: "WA_WABA_ID no está configurado" };
+  if (!TEMPLATE_NAME_RE.test(input.name)) return { ok: false, error: "nombre inválido (a-z, 0-9, _)" };
+  if (!input.body?.trim()) return { ok: false, error: "body vacío" };
+  try {
+    const res = await doFetch(`https://graph.facebook.com/${GRAPH_VERSION}/${wabaId}/message_templates`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify(buildCreateTemplatePayload(input)),
+    });
+    const data = (await res.json()) as {
+      id?: string;
+      status?: string;
+      category?: string;
+      error?: { message?: string; code?: number; error_user_msg?: string };
+    };
+    if (!res.ok || data.error) {
+      return {
+        ok: false,
+        error: `Graph ${res.status}${data.error?.code ? ` [${data.error.code}]` : ""}: ${data.error?.error_user_msg ?? data.error?.message ?? "error"}`,
+      };
+    }
+    return { ok: true, id: data.id, status: data.status, category: data.category };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
