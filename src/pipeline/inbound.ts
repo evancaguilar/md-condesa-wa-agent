@@ -36,6 +36,7 @@ import {
   touchLastInbound,
   upsertContact,
 } from "../db/queries.js";
+import { withTemplateText } from "../services/template-text.js";
 import { flagOptOutInAirtable, syncLead } from "../services/lead-sync.js";
 import {
   appendCampaignAdId,
@@ -482,11 +483,10 @@ export async function processInbound(
   // 7. Brain → route.
   const fresh = await getContact(env.DB, msg.phone);
   if (!fresh) return;
-  const history = await recentMessages(
-    env.DB,
-    msg.phone,
-    HISTORY_LIMIT,
-    nowSec - HISTORY_WINDOW_SECONDS,
+  const history = await withTemplateText(
+    env,
+    await recentMessages(env.DB, msg.phone, HISTORY_LIMIT, nowSec - HISTORY_WINDOW_SECONDS),
+    fresh.name,
   );
   const windowOpen =
     (fresh.last_inbound_at ?? 0) > nowSec - WINDOW_SECONDS;

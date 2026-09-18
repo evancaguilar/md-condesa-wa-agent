@@ -2,6 +2,12 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-16**.
 
+### Brain sees template text (2026-09-17, night of the first promo blast)
+
+Leads answering the blast with "10 am" confused the bot: its own turn in the history was the placeholder `[template:promo_independencia_manana]`. **Fix:** src/services/template-text.ts resolves placeholders before the brain runs — real body rendered with the sent params (wa.ts now records `params` in the template meta; older rows fall back to the contact's first name), prefixed with the CDMX send time, plus footer/button. Template texts come from the Meta catalog and are cached in kv `tpl_body:<name>` (one Graph fetch per cold name); fail-soft to the placeholder. Wired in inbound.ts step 7 only (approval cards still show the placeholder). Tests 755 → **761**.
+
+Also tonight: template `promo_independencia_manana` created via the new `POST /admin/api/blast/templates/create`, per-tick cap 25 (`POST /admin/api/blast/settings`), first real blast = 300 sends in 3 runs (booked-no-show since Aug 1, booked-no-show before Aug 1 from Airtable, recent never-booked CRM leads), 0 send failures, 2 bookings + 2 bajas in the first hour.
+
 ### ⚠️ THIRD D1 rows-read incident — Chats inbox list query (2026-09-17, ~18:50 CDMX)
 
 Budget for the new UTC day (starts 18:00 CDMX) was gone in under an hour: dashboard Usage showed **7.46M / 5M rows read from 886 queries**. D1 query insights named the culprit: `listConversations` (Chats inbox, polled every 5 s) at **~600k rows read PER CALL** (5 calls = 3.07M). Its two correlated "latest message for this phone" subqueries run per contact and need `idx_messages_phone_ts` — which schema.sql has carried since the inbox shipped but as a *console-paste* migration that prod evidently never received. **Fix shipped:** the index is now in the worker-applied batch (src/db/indexes.ts, guard bumped to `migr_idx_2026_09_17`), so the first cron tick after reads unblock creates it; test pins every index the inbox plan depends on to INDEX_SQL. Tests 751 → **752**. Side effects while blocked: inbound leads fail after the 200 ack (`setContactNameIfEmpty` throws), all cron jobs fail, the D1 console itself is blocked (cannot even read sqlite_master). **Evan upgraded / was asked to upgrade to Workers Paid tonight (US$5/mo, 25B rows/day)** — that is the only way reads come back before 18:00 CDMX 2026-09-18.

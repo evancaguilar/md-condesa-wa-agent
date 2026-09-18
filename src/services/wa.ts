@@ -286,12 +286,26 @@ export async function sendTemplate(
     type: "template",
     template,
   });
+  // Body params are recorded so the brain can later see the exact text the
+  // lead received (services/template-text.ts resolves the placeholder).
+  const params = templateBodyParams(components);
   await recordOutbound(env, phone, wamid, `[template:${name}]`, {
     type: "template",
     name,
     lang,
+    ...(params.length ? { params } : {}),
   });
   return wamid;
+}
+
+/** Pure. Text params of the BODY component, in {{n}} order. */
+export function templateBodyParams(components: unknown[] | undefined): string[] {
+  if (!components) return [];
+  for (const c of components as { type?: string; parameters?: { type?: string; text?: string }[] }[]) {
+    if ((c?.type ?? "").toLowerCase() !== "body") continue;
+    return (c.parameters ?? []).map((p) => (p?.type === "text" ? String(p.text ?? "") : ""));
+  }
+  return [];
 }
 
 /** Best-effort read receipt; never throws. */
