@@ -99,7 +99,7 @@ checkbox; the code refuses to queue a template Meta has not approved.
 | `POST /admin/api/blast/test {phone, template, lang, params[], header?, name?}` | One real send. |
 | `POST /admin/api/blast/queue {confirm:true, name, template:{name,lang,params,header?}, audience, startAt?, dailyCap?}` | Queue a run. `skipCheck:true` bypasses the Meta catalog check. |
 
-`audience`: `{source:"crm", since, groups:["adults","kids","baby"], includeBooked, excludeBlastedDays, limit}`
+`audience`: `{source:"crm", since (epoch seconds), excludePhones:[…] (any format, e.g. Airtable Asistió), groups:["adults","kids","baby"], includeBooked, excludeBlastedDays, limit}`
 or `{source:"list", list:"<pasted text>", excludeStudents, excludeBlastedDays, limit}`.
 `mode:"freeform"` with a top-level `text` sends free text to the CRM leads whose
 24h window is OPEN instead (no template, no Meta charge) — API only.

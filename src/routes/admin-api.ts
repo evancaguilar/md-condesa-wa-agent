@@ -1827,6 +1827,8 @@ interface AudienceSpec {
   groups?: string[];
   /** crm: keep leads who already booked (default false). */
   includeBooked?: boolean;
+  /** crm: phones to drop (e.g. leads Airtable marks Asistió / Se inscribió). Any format; max 5000. */
+  excludePhones?: string[];
   /** crm: "freeform" targets the OPEN-window leads with free text instead. */
   mode?: "template" | "freeform";
   /** list: pasted "phone[,name]" lines. */
@@ -1882,6 +1884,14 @@ async function resolveAudience(
   }
 
   const since = typeof spec.since === "number" && spec.since > 0 ? spec.since : BLAST_DEFAULT_SINCE;
+  // Caller-supplied exclusions ride the same set as the no-repeat window (they
+  // are counted under `recentBlast` in the preview).
+  if (Array.isArray(spec.excludePhones)) {
+    for (const raw of spec.excludePhones.slice(0, 5000)) {
+      const p = normalizeMxPhone(String(raw ?? "").replace(/\D/g, ""));
+      if (p) recentlyBlasted.add(p);
+    }
+  }
   const audience = await loadBlastAudience(env, since, now, {
     includeBooked: spec.includeBooked === true,
     recentlyBlasted,
