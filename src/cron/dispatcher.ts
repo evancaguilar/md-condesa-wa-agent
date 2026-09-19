@@ -27,6 +27,7 @@ import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./a
 import { runLeadLinkSweep, runStudentLinkSweep, runTwinAttributionSweep } from "./metrics-link.js";
 import { runMetricsBrief } from "./metrics-brief.js";
 import { runBlastBatch } from "./blasts.js";
+import { runSalesAudio } from "./sales-audio.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -172,6 +173,12 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       );
     }
   }
+
+  // LAST on purpose: a sales-conversation recording can take minutes to
+  // transcribe (one record per tick; src/cron/sales-audio.ts).
+  await safe("salesAudio", () =>
+    runSalesAudio(env, { postNote: (t) => cronDeps.slack.postNote(t) }, nowEpoch),
+  );
 }
 
 async function safe(label: string, fn: () => Promise<unknown>): Promise<void> {

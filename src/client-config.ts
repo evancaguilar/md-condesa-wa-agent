@@ -107,6 +107,15 @@ export interface AirtableLeadsMap {
   optOutTag: string;
   /** Child-name column for kid/baby bookings, e.g. "Nombre Del Niñ@". */
   childName: string;
+  /** Sales-conversation recordings (src/cron/sales-audio.ts). Absent = feature off. */
+  salesAudio?: {
+    /** Attachment column staff upload the recording to. */
+    audio: string;
+    transcript: string;
+    summary: string;
+    /** Technical column: processed attachment ids, "procesando…", or the last error. */
+    processed: string;
+  };
 }
 
 /**

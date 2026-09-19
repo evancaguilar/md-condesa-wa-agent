@@ -76,6 +76,13 @@ export default {
     tags: "Tags",
     optOutTag: "Baja",
     childName: "Nombre Del Niñ@",
+    // Sales-conversation recordings → transcript + AI summary (2026-09-18).
+    salesAudio: {
+      audio: "Audio venta",
+      transcript: "Transcripción venta",
+      summary: "Resumen venta (IA)",
+      processed: "Audio venta procesado",
+    },
   },
   // Marketing-metrics contract (docs/marketing-metrics.md). Airtable does the
   // math; these are the table/column names the worker writes and reads.
