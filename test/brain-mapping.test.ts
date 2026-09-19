@@ -1088,3 +1088,10 @@ test("a draft already carrying a reason keeps it and appends the new one", () =>
   assert.match(String((r as { reason?: string }).reason), /motivo previo/);
   assert.match(String((r as { reason?: string }).reason), /NUNCA se imparte/);
 });
+
+test("guardUnbackedBookingClaim: asking for the name 'para dejarlo agendado' is NOT a booking claim (2026-09-18)", () => {
+  const msg = "¡Perfecto! Sábado a las 2 pm 🙌 ¿Me confirmas tu nombre y el nombre de tu bebé para dejarlo agendado?";
+  const r = guardUnbackedBookingClaim({ action: "send", message: msg, language: "es", confidence: "high", sureness: 80 } as never);
+  assert.equal(r.action, "send", "must pass through untouched so auto-send / best-bet can deliver it");
+  assert.equal((r as { sureness?: number }).sureness, 80);
+});

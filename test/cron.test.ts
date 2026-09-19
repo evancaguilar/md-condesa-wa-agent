@@ -102,7 +102,7 @@ test("clampToWindow: inside window unchanged", () => {
 
 // ---- sequence timing ----
 
-test("computeTrialSequence positions all four steps in-window", () => {
+test("computeTrialSequence positions the steps in-window (no Slack attendance step since 2026-09-18)", () => {
   const trial = cdmxToEpoch(2026, 7, 15, 19, 0, 0); // Wed 7pm CDMX
   const booked = cdmxToEpoch(2026, 7, 13, 14, 0, 0); // booked Mon 2pm CDMX
   const steps = computeTrialSequence(trial, { nowEpoch: booked });
@@ -116,9 +116,8 @@ test("computeTrialSequence positions all four steps in-window", () => {
   assert.equal(byKind["day_before"].dueAt, cdmxToEpoch(2026, 7, 14, 18, 0, 0));
   // same_day −4h == 15:00 CDMX, in-window
   assert.equal(byKind["same_day"].dueAt, cdmxToEpoch(2026, 7, 15, 15, 0, 0));
-  // attendance T+3h == 22:00 → clamped to 09:00 next day
-  assert.equal(byKind["attendance"].dueAt, cdmxToEpoch(2026, 7, 16, 9, 0, 0));
-  assert.equal(byKind["attendance"].kind, "attendance_check");
+  // attendance is Airtable-only now: no attendance_check step is scheduled
+  assert.ok(!steps.some((s) => s.kind === "attendance_check"));
 });
 
 test("computeTrialSequence clamps an out-of-window booking-time confirm", () => {
@@ -132,7 +131,7 @@ test("computeTrialSequence clamps an out-of-window booking-time confirm", () => 
 test("computeTrialSequence omits trial_confirm for chat bookings", () => {
   const trial = cdmxToEpoch(2026, 7, 15, 19, 0, 0);
   const steps = computeTrialSequence(trial, { includeConfirm: false });
-  assert.equal(steps.length, 3);
+  assert.equal(steps.length, 2);
   assert.ok(!steps.some((s) => s.kind === "trial_confirm"));
 });
 
@@ -253,7 +252,7 @@ test("runDueFollowups: no_show_1 with attendance=yes → cancelled (no template)
   assert.equal(marks.length, 1);
 });
 
-test("runDueFollowups: attendance_check custom → posts Slack card, marks sent", async () => {
+test("runDueFollowups: legacy attendance_check custom → posts NOTHING, row closed", async () => {
   stubFetchOk();
   let posted: { name: string; recordId: string } | null = null;
   let marked: unknown = null;
@@ -275,7 +274,7 @@ test("runDueFollowups: attendance_check custom → posts Slack card, marks sent"
     },
   };
   await runDueFollowups(envWith(db), { slack });
-  assert.deepEqual(posted, { name: "Ana", recordId: "recX" });
+  assert.equal(posted, null);
   assert.equal(marked, "sent");
 });
 

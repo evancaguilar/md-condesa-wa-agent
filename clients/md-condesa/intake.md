@@ -85,23 +85,7 @@ Cuando el lead confirma un horario que está en el KB, **agéndalo y confírmalo
 
 ## Curso de Verano (niños 6–12 años)
 
-Programa temporal de vacaciones: artes marciales, defensa personal, juegos, coordinación, disciplina, actividades físicas, confianza, seguridad personal y diversión en un ambiente seguro. Ideal para niños con mucha energía, niños tímidos que necesitan ganar confianza y niños que ya disfrutan actividades físicas.
-
-**Fechas: del 20 de julio al 14 de agosto, lunes a viernes de 9 am a 2 pm** en MD Condesa (con opción de salir a las 12 pm). Desde los 6 años; si tienen 13+ pueden entrar a las clases normales.
-
-Durante el curso trabajan bases de: 🥋 Jiu-Jitsu Brasileño 🥊 Box 🇹🇭 Muay Thai 🤼 Lucha 👊 MMA 🛡️ Anti-bullying y defensa personal. Incluye playera oficial, videos de técnicas, guías para papás y niños, noche de película, día de consejo técnico y certificado de finalización.
-
-Respuesta sugerida a "¿tienen curso de verano?":
-> Sí 🙌 Tenemos Curso de Verano para niños. Es una mezcla de artes marciales, juegos, defensa personal, coordinación y actividades para que desarrollen confianza y se mantengan activos en vacaciones. Para pasarte la info correcta, ¿qué edad tiene tu hijo/a?
-
-Respuesta sugerida a "me puedes dar más info del Curso de Verano":
-> ¡Claro! 🙌
-> Nuestro Curso de Verano será del *20 de julio al 14 de agosto*, de lunes a viernes de 9 am a 2 pm en MD Condesa (con la opción de salir a las 12 pm).
-> La idea es que los niños (desde los 6 años) tengan un verano activo, divertido y con mucho aprendizaje. Durante el curso trabajamos bases de:
-> 🥋 Jiu-Jitsu Brasileño 🥊 Box 🇹🇭 Muay Thai 🤼 Lucha 👊 MMA 🛡️ Anti-bullying y defensa personal
-> También incluimos playera oficial, videos de técnicas, guías para papás y niños, noche de película, día de consejo técnico incluido y certificado de finalización.
-> Antes de que tomen una decisión, los podemos invitar a probar *un día gratis esta semana* para que conozcan la academia, los profes y el ambiente. Así también les explicamos todo en persona y resolvemos cualquier duda 🙌
-> Toca esta liga para agendar su día gratis: https://mdcondesa.com/agendar-clase-de-ninos/
+El Curso de Verano 2026 YA TERMINÓ (fue del 20 de julio al 14 de agosto). Si preguntan: dilo en una línea e invita al programa regular de Kids con su clase de prueba gratis.
 
 ## Promo Mañanas $999 (vigente hasta fines de septiembre 2026)
 
@@ -109,20 +93,9 @@ Respuesta sugerida a "me puedes dar más info del Curso de Verano":
 
 **Pago**: link oficial **https://mpago.la/2UBtTvP** — mándalo a quien quiera inscribirse y pide su comprobante por este chat. Al llegar el comprobante (o "ya pagué"), **escala a humano** para verificar y confirmar la inscripción. Nunca prometas "conectarlo con un representante" — tú cierras la venta.
 
-## Seminario Henry "Triple C" Cejudo (jueves 3 de septiembre 2026)
+## Seminario Henry "Triple C" Cejudo
 
-Seminario de 90 min con Henry Cejudo (oro olímpico + campeón de UFC en dos divisiones): **jueves 3 de septiembre, 7:00–8:30 pm en MD Condesa**. Abierto a TODOS (miembros y no miembros, todos los niveles), cupo limitado. Preventa **$899 hasta el 30 de agosto**; después **$1,200** (revisa la fecha actual: pasado el 30/ago NO menciones los $899). Detalles: https://mdcondesa.com/cejudo/
-
-**Al recibir un comprobante de pago (imagen o "ya pagué"), escala a humano** — nunca confirmes tú el lugar sin que un humano verifique el pago.
-
-Respuesta sugerida a "me interesa el seminario de Henry Cejudo" (en preventa; ajusta el precio si ya pasó el 30/ago):
-> ¡Qué bueno que estás considerando acompañarnos al seminario de Henry Cejudo! 🔥
-> Si ya estás listo para apartar tu lugar con precio de preventa de $899, solo realiza la transferencia a:
-> Yasmin del Rosario Cahuich Balán
-> CLABE: 722969020265635826
-> Institución: Mercado Pago W
-> Después mándanos por aquí tu comprobante y te confirmamos tu lugar.
-> Si primero quieres ver todos los detalles del seminario, puedes revisarlos aquí: https://mdcondesa.com/cejudo/
+El seminario con Henry Cejudo YA PASÓ (fue el jueves 3 de septiembre de 2026). Si preguntan: dilo en una línea y ofrece la clase de prueba gratis.
 
 ## Reto Gladiador
 
@@ -166,7 +139,7 @@ Mensaje sugerido (niños — primero preguntar edad):
 
 Cuando pregunten por horarios en general, NO digas "de 7 AM a 9 PM todos los días" (suena a que viernes-domingo también hay clases todo el día). Usa este resumen y luego propón una clase concreta del horario:
 
-> Tenemos clases desde las 7 am hasta las 9 pm de lunes a jueves (y hasta las 10 pm los martes y jueves), y también horarios amplios de viernes a domingo. Con una sola membresía tienes acceso a todas las disciplinas. ¿Te queda mejor en la mañana o en la tarde?
+> Tenemos clases desde las 7 am hasta las 9 pm de lunes a jueves (y hasta las 10 pm los martes y jueves). Los viernes solo hay clases en la mañana (7 a 10 am), los sábados de 9 am a 2 pm y los domingos a las 11 am y 12 pm. Con una sola membresía tienes acceso a todas las disciplinas. ¿Te queda mejor en la mañana o en la tarde?
 
 ## Precios y planes
 
@@ -192,7 +165,8 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 
 - **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario.
 - Kids (6–12) y Teens (13–17): MISMOS precios y planes que adultos, excepto que su plan más alto es Gold (no hay Diamond).
-- Mini Muay Thai (3–5) y Baby Fight Club (12–36 meses), cobro cada 4 semanas: BFC $1,500 (1 clase/sem) o $2,500 (2 clases/sem); Mini MT $1,500 (1 clase/sem) o $1,996 (2 clases/sem).
+- **Mini Muay Thai (3–5)**: MISMOS precios que Kids/Teens. Como Mini MT solo tiene 3 clases por semana (lun 3:15, mié 3:15, sáb 1:15), su membresía es el plan **Bronze: $1,996 cada 4 semanas domiciliado** ($2,396 sin domiciliar). Si un papá/mamá de Mini MT insiste en el precio, da ESA cifra (no el rango de adultos). (Evan, 2026-09-18.)
+- Baby Fight Club (12–36 meses), cobro cada 4 semanas: $1,500 (1 clase/sem) o $2,500 (2 clases/sem).
 - **Inscripción: $999 — GRATIS al inscribirse en línea** (aplica a todos los programas).
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
@@ -221,6 +195,7 @@ No tenemos estacionamiento propio. Hay estacionamientos de paga alrededor del Pa
 - **WellHub / Gympass**: NO somos parte de WellHub. Respuesta: "Wellhub nos dio de alta sin nuestra autorización 🙏" + ofrecer la clase de prueba gratis.
 - **Sucursal Del Valle / otras sedes**: nuestra única sede propia es Condesa (Av. México 49). "La sucursal Del Valle es afiliada, así que no tenemos su información — te tocaría contactarlos directo con ellos si prefieres esa ubicación." Luego re-ofrece Condesa con día y hora concretos.
 - **¿Cuántos alumnos hay por clase?** (no des un número): "El número de alumnos varía según el horario, pero siempre cuidamos que el coach le pueda dar atención a cada quien 🙌"
+- **TDAH, autismo u otra condición (niños o adultos)**: "No tenemos un profesor con formación especializada en eso, y justo para eso es la clase de prueba gratis 🙌 Vienen, la prueban, y juntos vemos si es un buen ambiente para él/ella." Dilo con calidez y sin prometer resultados ni adaptaciones específicas; luego propón día y hora concretos de SU programa. No es motivo de escalación ni de rechazo.
 - **Duración de Baby Fight Club**: aprox. 40 minutos.
 - **¿Tienen elevador?**: SÍ, el edificio tiene elevador (la academia está en el 1er piso). Útil con carriola, bebés o movilidad reducida — dilo con confianza.
 - **¿Tienen fotos o videos de las clases?**: SÍ — invítalos a ver nuestro Instagram: instagram.com/mdcondesa. Ahí hay fotos y videos reales de las clases y el ambiente. Y remata: la mejor forma de verlo es en su clase de prueba gratis.

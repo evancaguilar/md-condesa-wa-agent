@@ -70,6 +70,9 @@ import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
 
 const ATTENDANCE_NOTE = "attendance_check";
+/** How long after the trial a late-marked Airtable result still sends its message. */
+export const RESULT_NO_SHOW_MAX_AGE = 2 * 86400;
+export const RESULT_ENROLLED_MAX_AGE = 14 * 86400;
 const MAX_SEND_ATTEMPTS = 3;
 
 // ---- scheduling ----
@@ -107,14 +110,11 @@ export function computeTrialSequence(
       dueAt: clampToWindow(opts.nowEpoch ?? nowSec()),
     });
   }
+  // No Slack "¿Llegó?" card since 2026-09-18 (Evan): attendance lives ONLY in
+  // Airtable (front desk sets Resultado Clase Prueba); the result watcher reacts.
   steps.push(
     { kind: "day_before", dueAt: clampToWindow(dayBefore) },
     { kind: "same_day", dueAt: clampToWindow(trialEpoch - 4 * 3600) },
-    {
-      kind: "attendance_check",
-      dueAt: clampToWindow(trialEpoch + 3 * 3600),
-      note: ATTENDANCE_NOTE,
-    },
   );
   return steps;
 }
@@ -228,8 +228,8 @@ async function processOne(
     }
 
     case "attendance_check":
-      await deps.slack.postAttendanceCheck({ phone: f.phone, name, recordId });
-      await markFollowup(env.DB, f.id, "sent");
+      // Retired 2026-09-18: rows scheduled before the change are closed quietly.
+      await markFollowup(env.DB, f.id, "cancelled");
       return;
 
     case "blast":
@@ -242,7 +242,7 @@ async function processOne(
       // generic custom follow-up (set_followup): warm text if in-window, else
       // skip quietly. Legacy rows may still carry the attendance note.
       if (f.note?.startsWith(ATTENDANCE_NOTE)) {
-        await deps.slack.postAttendanceCheck({ phone: f.phone, name, recordId });
+        // legacy attendance prompt — retired, nothing to post
       } else {
         await tryText(env, f.phone, customText(f.note, lang));
       }
@@ -743,9 +743,13 @@ async function processResult(
   const trialEpoch = trialDateTimeIso
     ? Math.floor(Date.parse(trialDateTimeIso) / 1000)
     : NaN;
-  const sendReaction =
-    Number.isFinite(trialEpoch) &&
-    cdmxDateStr(trialEpoch) === cdmxDateStr(nowSec());
+  // Reaction window (2026-09-18): the front desk often marks results late —
+  // "No asistió" the next morning, "Se inscribió" days later when they pay. A
+  // no-show reschedule is still relevant for 48h; an enrolment welcome for 14
+  // days. Older trials stay silent (ghost-welcome guard above).
+  const ageSec = Number.isFinite(trialEpoch) ? nowSec() - trialEpoch : NaN;
+  const maxAge = action === "no_show" ? RESULT_NO_SHOW_MAX_AGE : RESULT_ENROLLED_MAX_AGE;
+  const sendReaction = Number.isFinite(ageSec) && ageSec >= -DAY && ageSec <= maxAge;
 
   await upsertContact(env.DB, { phone, name });
   const contact = await getContact(env.DB, phone);

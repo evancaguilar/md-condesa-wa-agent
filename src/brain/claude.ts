@@ -28,7 +28,7 @@ import {
   weekdayIndex,
 } from "./tools.js";
 import {
-  CLAIMS_BOOKED,
+  claimsBooking,
   countDayTokens,
   parseAllDisciplines,
   parseAllTimes,
@@ -662,7 +662,11 @@ export function guardUnbackedBookingClaim(
   recordedBooking?: ConvoContext["recordedBooking"],
 ): BrainResult {
   if (res.action !== "send" && res.action !== "draft") return res;
-  if (!CLAIMS_BOOKED.test(res.message)) return res;
+  // claimsBooking (not the raw regex): a draft that ASKS for the booking data
+  // ("¿me confirmas tu nombre para dejarlo agendado?") contains "agendado" but
+  // proves the booking has NOT happened — guarding it stripped the sureness and
+  // parked the hottest leads on a human (2026-09-17: #1462 waited 348 min).
+  if (!claimsBooking(res.message)) return res;
   // A recent REAL Airtable booking for this phone (kv marker, <72h — read in
   // the pipeline) backs the claim: post-booking acks like "¡nos vemos mañana!"
   // are exactly what a lead expects to hear and must not queue as low drafts.
