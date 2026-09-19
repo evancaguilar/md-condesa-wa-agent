@@ -104,7 +104,7 @@ test("audit prompt: opus model, rubric, and the REAL slot grid ride along", () =
   assert.ok(sys[1]!.text.includes("KB_DE_PRUEBA"), "injected KB rides in block 2");
   // The grid is the generated one, not prose: spot-check a known slot.
   const grid = renderSlotsForAudit();
-  assert.ok(/mié 11:00 baby/.test(grid), grid.slice(0, 200));
+  assert.ok(/mié 13:00 baby/.test(grid), grid.slice(0, 200));
   const user = buildAuditUser("TRANSCRIPTS", "APPROVALS", "ventana X");
   assert.ok(user.includes("ventana X") && user.includes("TRANSCRIPTS") && user.includes("APPROVALS"));
 });

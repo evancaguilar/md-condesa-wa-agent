@@ -26,9 +26,10 @@ const AUDIENCES = ["adult", "kid"];
 // as 'kid' — both must validate (live incident 2026-08-18: every advertised
 // baby slot was rejected and leads were told "ya quedó agendado" anyway).
 
-test("SLOTS: baby trials bookable mié 11:00 + sáb 14:00, both audiences", () => {
+test("SLOTS: baby trials bookable mié 13:00 + sáb 14:00, both audiences", () => {
   for (const aud of AUDIENCES) {
-    assert.equal(validateSlot(WED, "11:00", aud, "baby", SLOTS).ok, true);
+    assert.equal(validateSlot(WED, "13:00", aud, "baby", SLOTS).ok, true);
+    assert.equal(validateSlot(WED, "11:00", aud, "baby", SLOTS).ok, false); // old hour (moved 2026-09-18)
     assert.equal(validateSlot(SAT, "14:00", aud, "baby", SLOTS).ok, true);
   }
 });

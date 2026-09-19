@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-09-19+8d3cf097e340
-     approx_tokens: 10912 (chars 38190 / 3.5)
+     version: 2026-09-19+601d941ffce2
+     approx_tokens: 10911 (chars 38187 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -165,11 +165,11 @@ Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases segu
 - **MMA (adultos)**: SOLO **martes 9 am, jueves 9 am, y lun–jue 8 pm**. No hay MMA a las 7, 8 o 10 am, ni viernes, sábado o domingo.
 - **Viernes (leer con cuidado — es el día que más se equivoca)**: NO hay absolutamente ninguna clase después de las 10 am. No existe Muay Thai ni Jiu-Jitsu por la tarde ni por la noche los viernes; si el lead pide viernes en la tarde, dilo en una línea y propón otro día con hora concreta. Por la mañana: **7 y 8 am son las ÚNICAS horas con las dos clases seguidas (Jiu-Jitsu No-Gi + Muay Thai)**; **9 y 10 am son SOLO Muay Thai** (una sola clase). Sí hay Jiu-Jitsu los viernes — nunca digas lo contrario.
 - **Sábado adultos**: llegar **9 am** (Jiu-Jitsu Fundamentos) y luego Muay Thai a las 10 am. También hay Muay Thai 11 am y Jiu-Jitsu 12 pm — el combo de 10 + 11 am (Muay Thai seguido) o el de 11 am + 12 pm (Muay Thai + Jiu-Jitsu) también funcionan para el día de prueba.
-- **Domingo**: SOLO adultos (13+ para Muay Thai). Llegar **11 am** ⇒ Muay Thai 11 am + Jiu-Jitsu 12 pm — ofrécelas SIEMPRE juntas, nunca solo la de 12 pm. **El domingo NO hay Kids, NI Teens, NI Mini Muay Thai, NI Baby Fight Club.** Si preguntan por un menor en domingo, la respuesta es la siguiente clase de SU programa entre semana (Kids/Teens: lunes 4 pm; Mini MT: lunes 3:15 pm; BFC: miércoles 11 am).
+- **Domingo**: SOLO adultos (13+ para Muay Thai). Llegar **11 am** ⇒ Muay Thai 11 am + Jiu-Jitsu 12 pm — ofrécelas SIEMPRE juntas, nunca solo la de 12 pm. **El domingo NO hay Kids, NI Teens, NI Mini Muay Thai, NI Baby Fight Club.** Si preguntan por un menor en domingo, la respuesta es la siguiente clase de SU programa entre semana (Kids/Teens: lunes 4 pm; Mini MT: lunes 3:15 pm; BFC: miércoles 1 pm).
 - **Kids 6–12**: L–J la hora de llegada para prueba es SIEMPRE **4:00 pm** ⇒ Muay Thai Kids 4 pm + Jiu-Jitsu Kids 5 pm. NUNCA ofrezcas las 5 pm como hora de llegada entre semana (perderían una de las dos clases gratis). Sábado llegar **11 am** ⇒ Jiu-Jitsu Niños 11 am + Muay Thai Niños 12 pm. **NO hay Kids el domingo.**
 - **Teens 13–17**: L–J la hora de llegada es SIEMPRE **4:00 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm — ese es su grupo típico. NO hay grupo Teens en sábado ni domingo: el fin de semana un teen puede entrar a las clases de ADULTOS si se siente cómodo, o a las de KIDS (sábado 11 am) si se siente más cómodo ahí — que elijan ellos. Para Muay Thai, desde los 13 años pueden entrar al grupo de adultos (p. ej. sábado 10 am).
 - **Mini Muay Thai (3–5)**: SOLO **lunes 3:15 pm, miércoles 3:15 pm y sábado 1:15 pm**. No hay martes, jueves, viernes ni domingo. Ojo con las horas: entre semana es 3:15 pm, el sábado es 1:15 pm — no las intercambies. Es UNA sola clase (no aplica el combo de 2 clases).
-- **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 11 am y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí. **Menores de 12 meses: aún no — invítalos a volver cuando el bebé cumpla el año.**
+- **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 1 pm y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí. **Menores de 12 meses: aún no — invítalos a volver cuando el bebé cumpla el año.**
 
 ## Después de agendar (obligatorio)
 
@@ -305,7 +305,7 @@ Respuesta sugerida cuando insisten en el precio (2ª vez, o no satisfechos con "
 > Para darte una idea: el rango más común de nuestros planes va de $1,996 a $2,996 cada 4 semanas. Ya en tu día de prueba platicamos cuál te conviene según tu objetivo. ¿Te agendamos?
 
 **Excepción Baby Fight Club — y SOLO Baby Fight Club**: si preguntan precio de BFC, dalo A LA PRIMERA (sin rodeos) y sigue agendando:
-> Para Baby Fight Club la inscripción es de $999 y la membresía de $1,500 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 11 am o el sábado 2 pm?
+> Para Baby Fight Club la inscripción es de $999 y la membresía de $1,500 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 1 pm o el sábado 2 pm?
 
 Mini Muay Thai (3–5), Kids, Teens y adultos NO son excepción: en la primera pregunta de precio se usa siempre la respuesta sugerida de arriba (planes/promos + día de prueba). Nunca des los números de Mini Muay Thai ($1,500 / $1,996) a la primera.
 

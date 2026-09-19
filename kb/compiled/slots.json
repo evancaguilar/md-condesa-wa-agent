@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-19+8d3cf097e340",
+  "version": "2026-09-19+601d941ffce2",
   "slots": [
     {
       "weekday": 0,
@@ -528,7 +528,7 @@
     },
     {
       "weekday": 2,
-      "time": "11:00",
+      "time": "13:00",
       "discipline": "baby",
       "audience": "adult",
       "pp": true
@@ -563,7 +563,7 @@
     },
     {
       "weekday": 2,
-      "time": "11:00",
+      "time": "13:00",
       "discipline": "baby",
       "audience": "kid",
       "pp": true

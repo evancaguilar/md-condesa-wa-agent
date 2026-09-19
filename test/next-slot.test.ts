@@ -95,10 +95,10 @@ test("nextTrialSlot: generic picks never propose a parent-participation slot", (
     assert.notEqual(slot?.time, "15:15", JSON.stringify(slot));
     assert.notEqual(slot?.time, "13:15", JSON.stringify(slot));
   }
-  // An EXPLICIT baby pick still lands on the baby grid (Wed 11:00).
+  // An EXPLICIT baby pick still lands on the baby grid (Wed 13:00).
   const baby = nextTrialSlot("baby", "kid", WED(8, 15));
   assert.equal(baby?.discipline, "baby");
-  assert.equal(baby?.time, "11:00");
+  assert.equal(baby?.time, "13:00");
 });
 
 test("nextTrialSlot: empty schedule → null (copy falls back to generic)", () => {

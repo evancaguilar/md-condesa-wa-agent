@@ -231,7 +231,7 @@ function buildSlots(schedule) {
 /**
  * Baby Fight Club: the site schedule only lists the MEMBER classes (mié 12:00,
  * sáb 15:00) and intake.md forbids booking trials there ("NUNCA agendes una
- * prueba ahí"). The bookable TRIAL slots — mié 11:00 y sáb 2 pm — don't appear
+ * prueba ahí"). The bookable TRIAL slots — mié 13:00 y sáb 2 pm — don't appear
  * on the site at all, so flattening the site schedule made validateSlot reject
  * every legitimate baby booking (seen live 2026-08-18: leads told "ya quedó
  * agendado" with no Airtable record). Swap member slots for trial slots here.
@@ -241,7 +241,7 @@ function buildSlots(schedule) {
  */
 function withBabyTrialSlots(slots) {
   const babyTrials = [
-    { weekday: 2, time: "11:00" }, // miércoles 11 am
+    { weekday: 2, time: "13:00" }, // miércoles 1 pm (cambió de 11 am el 2026-09-18)
     { weekday: 5, time: "14:00" }, // sábado 2 pm
   ];
   const out = slots.filter((s) => s.discipline !== "baby");

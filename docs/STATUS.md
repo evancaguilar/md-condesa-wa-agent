@@ -2,6 +2,10 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-16**.
 
+### Baby Fight Club Wednesday trial moved 11 am → 1 pm (2026-09-18)
+
+Evan's call. Changed in `withBabyTrialSlots` (kb-build.mjs → slots.gen: mié 13:00, both audiences; 11:00 now rejected by validateSlot), intake.md (3 mentions), and live D1 copy via the admin API: KB overlay section 3 and campaign «baby fight club» (first_reply + info). Saturday 2 pm unchanged; member classes (mié 12 pm / sáb 3 pm) untouched — Evan to confirm the Wednesday member class did not move too. The website does not list trial hours, so no site change.
+
 ### Brain sees template text (2026-09-17, night of the first promo blast)
 
 Leads answering the blast with "10 am" confused the bot: its own turn in the history was the placeholder `[template:promo_independencia_manana]`. **Fix:** src/services/template-text.ts resolves placeholders before the brain runs — real body rendered with the sent params (wa.ts now records `params` in the template meta; older rows fall back to the contact's first name), prefixed with the CDMX send time, plus footer/button. Template texts come from the Meta catalog and are cached in kv `tpl_body:<name>` (one Graph fetch per cold name); fail-soft to the placeholder. Wired in inbound.ts step 7 only (approval cards still show the placeholder). Tests 755 → **761**.
