@@ -135,6 +135,30 @@ export async function loadTemplateTexts(
 }
 
 /**
+ * Pure. Dashboard rendering of a template send: a short label line, the
+ * rendered body, then footer/buttons — what the lead saw, not the brain's
+ * annotated version.
+ */
+export function displayTemplateSend(
+  name: string,
+  text: TemplateText,
+  params: string[],
+  _ts?: number,
+): string {
+  const parts = [`📋 Plantilla · ${name}`, renderTemplateBody(text.body, params)];
+  if (text.footer) parts.push(text.footer);
+  if (text.buttons.length) parts.push(text.buttons.map((b) => `[ ${b} ]`).join(" "));
+  return parts.join("\n\n");
+}
+
+/** Pure. One-line inbox preview for a template send. */
+export function previewTemplateSend(text: TemplateText, params: string[]): string {
+  return `📋 ${renderTemplateBody(text.body, params).replace(/\s+/g, " ").trim()}`;
+}
+
+export type TemplateFormatter = (name: string, text: TemplateText, params: string[], ts: number) => string;
+
+/**
  * History with template placeholders replaced by their real text. Fail-soft:
  * any error (Graph down, kv error) returns the input untouched. No D1 reads
  * when the history holds no placeholder.
@@ -144,6 +168,7 @@ export async function withTemplateText(
   history: StoredMessage[],
   contactName: string | null,
   doFetch: typeof fetchTemplateCatalog = fetchTemplateCatalog,
+  format: TemplateFormatter = describeTemplateSend,
 ): Promise<StoredMessage[]> {
   const names = history.map((m) => templateNameOf(m.body)).filter((n): n is string => !!n);
   if (names.length === 0) return history;
@@ -154,7 +179,7 @@ export async function withTemplateText(
       const text = name ? texts.get(name) : undefined;
       if (!name || !text) return m;
       const params = paramsFor(parseMeta(m.meta), contactName);
-      return { ...m, body: describeTemplateSend(name, text, params, m.ts) };
+      return { ...m, body: format(name, text, params, m.ts) };
     });
   } catch (err) {
     console.error(`[template-text] resolve failed: ${String(err)}`);

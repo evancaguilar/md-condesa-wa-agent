@@ -127,3 +127,13 @@ test("withTemplateText: catalog failure is fail-soft", async () => {
   const out = await withTemplateText(env, history, null, boom);
   assert.equal(out[0]!.body, "[template:promo_x]");
 });
+
+test("display + preview formats show what the lead saw", async () => {
+  const { displayTemplateSend, previewTemplateSend } = await import("../src/services/template-text.js");
+  const text = { body: "¡Hola! 👋 Clase GRATIS.\n\nMañana sábado 11 am.", footer: "Responde BAJA", buttons: ["Ver promos"] };
+  assert.equal(
+    displayTemplateSend("prueba_kids_manana", text, []),
+    "📋 Plantilla · prueba_kids_manana\n\n¡Hola! 👋 Clase GRATIS.\n\nMañana sábado 11 am.\n\nResponde BAJA\n\n[ Ver promos ]",
+  );
+  assert.equal(previewTemplateSend(text, []), "📋 ¡Hola! 👋 Clase GRATIS. Mañana sábado 11 am.");
+});

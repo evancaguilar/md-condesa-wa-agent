@@ -107,6 +107,14 @@ import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
 import { migrationState, runMigrationStep, type MigrationInput } from "../services/wa-migrate.js";
 import {
+  displayTemplateSend,
+  loadTemplateTexts,
+  paramsFor,
+  previewTemplateSend,
+  templateNameOf,
+  withTemplateText,
+} from "../services/template-text.js";
+import {
   sendStaffMedia,
   sendStaffText,
   parseStaffLaterNote,
@@ -1154,11 +1162,25 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
   }
   const rows = await listConversations(env.DB, limit, offset, q);
   const now = nowSec();
+  // Template sends are stored as `[template:<name>]`; show what the lead saw
+  // (texts are kv-cached per template name; fail-soft to the placeholder).
+  let tplTexts = new Map<string, { body: string; footer: string | null; buttons: string[] }>();
+  try {
+    const names = rows.map((r) => templateNameOf(r.lastBody)).filter((n): n is string => !!n);
+    if (names.length) tplTexts = await loadTemplateTexts(env, names);
+  } catch {
+    /* keep placeholders */
+  }
+  const previewOf = (body: string | null, name: string | null): string | null => {
+    const tn = templateNameOf(body);
+    const text = tn ? tplTexts.get(tn) : undefined;
+    return text ? previewTemplateSend(text, paramsFor(null, name)) : body;
+  };
   const items = rows.map((r) => ({
     phone: r.phone,
     name: r.name,
     status: r.status,
-    lastBody: r.lastBody,
+    lastBody: previewOf(r.lastBody, r.name),
     lastTs: r.lastTs,
     lastDirection: r.lastDirection,
     paused: (r.humanOverrideUntil ?? 0) > now,
@@ -1193,10 +1215,11 @@ async function handleApprovalRewrite(
   const a = pending.find((x) => x.id === id);
   if (!a) return json({ error: "not_pending" }, 404);
 
-  const [contact, history] = await Promise.all([
+  const [contact, rawHistory] = await Promise.all([
     getContact(env.DB, a.phone),
     recentMessages(env.DB, a.phone, 15),
   ]);
+  const history = await withTemplateText(env, rawHistory, contact?.name ?? null);
   const overlay = await makeOverlayLoader(env.DB)();
   // Same emoji speaker prefixes the approval context uses — the model has seen
   // this transcript format in every draft it produced.
@@ -1255,6 +1278,7 @@ async function handleConversationDetail(
     listStaffLater(env.DB, phone, nowSec() - SCHEDULED_CANCELLED_TTL),
   ]);
   if (!contact) return json({ error: "not_found" }, 404);
+  const shown = await withTemplateText(env, messages, contact.name, undefined, displayTemplateSend);
   // Unparseable notes are skipped, not surfaced — the cron cancels those rows.
   const scheduled = laterRows.flatMap((r) => {
     const note = parseStaffLaterNote(r.note);
@@ -1271,7 +1295,7 @@ async function handleConversationDetail(
       campaignName = null;
     }
   }
-  return json({ contact, messages, pending, scheduled, campaignName, now: nowSec() });
+  return json({ contact, messages: shown, pending, scheduled, campaignName, now: nowSec() });
 }
 
 async function handlePause(req: Request, env: Env, phone: string): Promise<Response> {
