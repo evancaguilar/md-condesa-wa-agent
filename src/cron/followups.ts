@@ -293,6 +293,11 @@ async function processOne(
         sendText,
         isWindowClosed: (err) => err instanceof WindowClosedError,
         campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
+        onBuyIntent: async (_e, phone) => {
+          await deps.slack.postNote(
+            `<!here> 💳 ${phone} dijo que quiere pagar/inscribirse (o que ya pagó). Se canceló el seguimiento automático — atiéndelo un humano.`,
+          );
+        },
       });
       await markFollowup(env.DB, f.id, status);
       // Nudge 3 actually landed → arm the extended chain (d2–d5) off its real

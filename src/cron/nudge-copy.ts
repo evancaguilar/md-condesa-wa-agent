@@ -201,6 +201,9 @@ export function nudgeCopy(
   campaignName?: string | null,
   nowEpoch: number = Math.floor(Date.now() / 1000),
   schedule: readonly Slot[] = SLOTS,
+  /** noSlot: never propose a concrete class (the lead's stated age contradicts
+   *  the campaign program) — fall back to the booking link. */
+  opts: { noSlot?: boolean } = {},
 ): string {
   const q = parseQualification(contact);
   // campaignName matters: a lead who clicked the Baby Fight Club ad and never
@@ -214,7 +217,7 @@ export function nudgeCopy(
   const disc = prettyDiscipline(q.discipline ?? "");
   // utm on the link: the site prefills the booking form with the lead's ad.
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
-  const slot = nudgeSlot(contact, program, nowEpoch, schedule);
+  const slot = opts.noSlot ? null : nudgeSlot(contact, program, nowEpoch, schedule);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
 
   if (lang === "en") return dayOneEn(program, kind, sp, disc, cta);

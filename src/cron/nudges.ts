@@ -18,7 +18,9 @@ import {
   scheduleFollowup,
   kvGet,
   kvSet,
+  recentMessages,
 } from "../db/queries.js";
+import { ageConflictsWithProgram, hasBuyIntent, isDuplicateSend } from "./nudge-signals.js";
 import {
   cancelFollowupsByKinds,
   hasScheduledFollowupOfKind,
@@ -369,6 +371,8 @@ export async function processNudge(
     /** Optional so existing callers/tests keep working; without it a
      *  campaign-only lead falls back to the adults copy (the old behavior). */
     campaignName?: (env: Env, campaignId: number) => Promise<string | null>;
+    /** Called when the nudge is dropped because the lead wants to pay/enrol. */
+    onBuyIntent?: (env: Env, phone: string) => Promise<void>;
   },
 ): Promise<"sent" | "cancelled" | "skipped_optout"> {
   const contact = await getContact(env.DB, phone);
@@ -392,8 +396,23 @@ export async function processNudge(
       ? await deps.campaignName(env, contact.campaign_id)
       : null;
 
+  // Send-time signals from the lead's own words (src/cron/nudge-signals.ts).
+  const recent = await recentMessages(env.DB, phone, 30, now - 7 * DAY);
+  const inbound = recent.filter((m) => m.direction === "in").map((m) => m.body ?? "");
+  if (hasBuyIntent(inbound)) {
+    // Wants to pay / enrol: a class push is the wrong message. Hand to a human.
+    await deps.onBuyIntent?.(env, phone);
+    return "cancelled";
+  }
+  const program = classifyProgram(contact, campaignName);
+  const body = nudgeCopy(contact, kind, campaignName, now, undefined, {
+    noSlot: ageConflictsWithProgram(program, inbound),
+  });
+  const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
+  if (isDuplicateSend(body, outbound, now)) return "cancelled";
+
   try {
-    await deps.sendText(env, phone, nudgeCopy(contact, kind, campaignName, now));
+    await deps.sendText(env, phone, body);
   } catch (err) {
     if (deps.isWindowClosed(err)) return "cancelled";
     throw err;
@@ -449,6 +468,12 @@ export async function processExtendedNudge(
       : null;
   const program = classifyProgram(contact, campaignName);
   const body = extendedCopy(contact, kind, program, now, undefined, campaignName);
+  const recent = await recentMessages(env.DB, phone, 30, now - 7 * DAY);
+  if (hasBuyIntent(recent.filter((m) => m.direction === "in").map((m) => m.body ?? ""))) {
+    return { outcome: "cancelled" };
+  }
+  const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
+  if (isDuplicateSend(body, outbound, now)) return { outcome: "cancelled" };
 
   try {
     await deps.sendText(env, phone, body); // free-form (window open)
