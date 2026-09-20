@@ -162,6 +162,13 @@ test("planBlastAudience: splits by program and excludes booked / active / non-le
   // includeBooked keeps the booked lead.
   const b = planBlastAudience(contacts, new Set(["5215500000004"]), NOW, { includeBooked: true });
   assert.deepEqual(b.adults.map((c) => c.phone), ["5215500000001", "5215500000004", "5215500000008"]);
+  // …unless their trial is still ahead of them: never blast someone who is coming.
+  const c = planBlastAudience(contacts, new Set(["5215500000004"]), NOW, {
+    includeBooked: true,
+    upcomingTrial: new Set(["5215500000004"]),
+  });
+  assert.deepEqual(c.adults.map((x) => x.phone), ["5215500000001", "5215500000008"]);
+  assert.equal(c.excluded.booked, 1);
 });
 
 test("planBlastAudience: qualification audience=kid routes to kids without a campaign", () => {

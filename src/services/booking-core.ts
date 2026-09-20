@@ -23,7 +23,7 @@ import type { BookTrialInput, Env, SlackPort } from "../types.js";
 import { kvSet, setQualification } from "../db/queries.js";
 import { syncLead } from "./lead-sync.js";
 import { scheduleTrialSequence } from "../cron/followups.js";
-import { cdmxIso } from "../cron/time.js";
+import { cdmxDateStr, cdmxIso } from "../cron/time.js";
 import { normalizeDiscipline, validateSlot } from "../brain/tools.js";
 import { bookTrial } from "./airtable.js";
 import { sendBookingVideo } from "./send.js";
@@ -89,6 +89,22 @@ export function parseBookingRecordedMarker(
   }
   const ts = Number.parseInt(trimmed, 10);
   return Number.isFinite(ts) ? { ts } : null;
+}
+
+/** A marker younger than this backs a claim even without a recorded slot. */
+export const RECORDED_MARKER_TTL_SECONDS = 72 * 3600;
+
+/**
+ * Is this marker still the lead's CURRENT booking? Yes while it is younger than
+ * the TTL, and — when the slot was recorded — until the trial's CDMX day is
+ * over. A Tuesday booking for Saturday used to expire on Friday evening, so a
+ * lead answering a Friday blast met a brain with no idea she was already booked
+ * (history is a 48h window) and got re-qualified from scratch (2026-09-18).
+ */
+export function bookingMarkerLive(marker: BookingRecordedMarker | null, nowSec: number): boolean {
+  if (!marker) return false;
+  if (nowSec - marker.ts < RECORDED_MARKER_TTL_SECONDS) return true;
+  return !!marker.trialDate && marker.trialDate >= cdmxDateStr(nowSec);
 }
 
 export interface PlannedBookingSequence {

@@ -253,6 +253,11 @@ export interface PlanAudienceOpts {
   includeBooked?: boolean;
   /** Phones that got a blast recently → excluded (default empty). */
   recentlyBlasted?: Set<string>;
+  /** Phones with a trial still AHEAD of them → always excluded, even with
+   *  `includeBooked` (that flag means "booked once and never came", not "is
+   *  coming tomorrow" — a "your free class is still available" template to a
+   *  parent already booked for that class re-opens the whole booking). */
+  upcomingTrial?: Set<string>;
 }
 
 /**
@@ -281,7 +286,7 @@ export function planBlastAudience(
       out.excluded.notLead++;
       continue;
     }
-    if (!opts.includeBooked && bookedPhones.has(c.phone)) {
+    if (opts.upcomingTrial?.has(c.phone) || (!opts.includeBooked && bookedPhones.has(c.phone))) {
       out.excluded.booked++;
       continue;
     }
@@ -591,7 +596,17 @@ export async function loadBlastAudience(
     ...booked.map((r) => r.phone),
     ...markers.map((r) => r.key.slice("booking_recorded:".length)),
   ]);
-  return planBlastAudience(contacts, bookedSet, nowEpoch, opts);
+  // A pending reminder / attendance check = the trial has not happened yet.
+  const { results: upcoming } = await env.DB.prepare(
+    `SELECT DISTINCT phone FROM followups
+      WHERE kind IN (${kinds}) AND status = 'scheduled' AND due_at > ?1`,
+  )
+    .bind(nowEpoch)
+    .all<{ phone: string }>();
+  return planBlastAudience(contacts, bookedSet, nowEpoch, {
+    ...opts,
+    upcomingTrial: new Set(upcoming.map((r) => r.phone)),
+  });
 }
 
 /** Phones that received (or are queued for) a blast created since `sinceEpoch`. */

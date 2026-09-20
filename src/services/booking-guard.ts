@@ -41,6 +41,7 @@ import {
   type HumanSendSource,
 } from "./booking-claims.js";
 import {
+  bookingMarkerLive,
   bookingRecordedKey,
   parseBookingRecordedMarker,
   registerBooking,
@@ -60,8 +61,7 @@ import { CLIENT } from "../client.gen.js";
 
 export type { HumanSendSource } from "./booking-claims.js";
 
-/** A `booking_recorded:<phone>` marker younger than this backs a claim. */
-export const RECORDED_MARKER_TTL_SECONDS = 72 * 3600;
+export { RECORDED_MARKER_TTL_SECONDS } from "./booking-core.js";
 /** Sent text stored on the capture record (Slack block + kv row hygiene). */
 const SENT_TEXT_CAP = 500;
 /** Transcript depth handed to the fallback model call. */
@@ -245,8 +245,7 @@ async function isBookingBacked(
   hints: BookingHints,
 ): Promise<BackedCheck> {
   const marker = parseBookingRecordedMarker(await kvGet(env.DB, bookingRecordedKey(phone)));
-  const fresh =
-    marker !== null && now - marker.ts < RECORDED_MARKER_TTL_SECONDS ? marker : null;
+  const fresh = bookingMarkerLive(marker, now) ? marker : null;
 
   if (!hints.trialDate) {
     if (fresh) return { backed: true };

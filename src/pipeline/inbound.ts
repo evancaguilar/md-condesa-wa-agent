@@ -86,13 +86,13 @@ import {
 import { lookupAdMeta } from "../services/ad-meta.js";
 import { attributionFor, decorateBookingLinks } from "../services/booking-link.js";
 import {
+  bookingMarkerLive,
   bookingRecordedKey,
   finalizeBooking,
   parseBookingRecordedMarker,
   planBookingSequences,
   type FinalizeBookingInput,
 } from "../services/booking-core.js";
-import { RECORDED_MARKER_TTL_SECONDS } from "../services/booking-guard.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
@@ -532,7 +532,7 @@ export async function processInbound(
     const marker = parseBookingRecordedMarker(
       await kvGet(env.DB, bookingRecordedKey(msg.phone)),
     );
-    if (marker && nowSec - marker.ts < RECORDED_MARKER_TTL_SECONDS) {
+    if (marker && bookingMarkerLive(marker, nowSec)) {
       recordedBooking = marker;
     }
   } catch (err) {

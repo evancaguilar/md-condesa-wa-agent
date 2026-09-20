@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  bookingMarkerLive,
   bookingRecordedKey,
   finalizeBooking,
   parseBookingRecordedMarker,
@@ -420,4 +421,33 @@ test("registerBooking: a label discipline is normalized to the service key", asy
 
   assert.equal(r.ok, true);
   assert.equal(log.booked[0]!.discipline, "jiu");
+});
+
+// ---- bookingMarkerLive ------------------------------------------------------
+
+// 2026-09-18 20:09 CDMX (UTC-6) — the Friday-blast reply that exposed the bug.
+const FRI_EVENING = Date.UTC(2026, 8, 19, 2, 9) / 1000;
+
+test("bookingMarkerLive: a booking made >72h ago stays live until its trial day ends", () => {
+  const bookedTue = FRI_EVENING - 74 * 3600;
+  assert.equal(
+    bookingMarkerLive({ ts: bookedTue, trialDate: "2026-09-19", trialTime: "11:00" }, FRI_EVENING),
+    true,
+  );
+  // Trial day itself (CDMX) still counts…
+  assert.equal(
+    bookingMarkerLive({ ts: bookedTue, trialDate: "2026-09-18", trialTime: "11:00" }, FRI_EVENING),
+    true,
+  );
+  // …a past trial does not.
+  assert.equal(
+    bookingMarkerLive({ ts: bookedTue, trialDate: "2026-09-17", trialTime: "11:00" }, FRI_EVENING),
+    false,
+  );
+});
+
+test("bookingMarkerLive: TTL still rules for fresh and legacy (slot-less) markers", () => {
+  assert.equal(bookingMarkerLive({ ts: FRI_EVENING - 3600 }, FRI_EVENING), true);
+  assert.equal(bookingMarkerLive({ ts: FRI_EVENING - 80 * 3600 }, FRI_EVENING), false);
+  assert.equal(bookingMarkerLive(null, FRI_EVENING), false);
 });
