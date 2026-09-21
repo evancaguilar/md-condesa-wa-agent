@@ -2,7 +2,7 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-21**.
 
-> **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 865 green**.
+> **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 876 green**.
 
 ### ⚠️ The KB build was silently shipping a TRUNCATED KB (2026-09-21)
 
@@ -45,9 +45,21 @@ The funnel numbers that forced this: **163 people attended a free trial since Ju
 - Sending everywhere here is free-form first (these leads are usually inside the 24h window), template on `WindowClosedError`, and a missing/unapproved template ⇒ skip + ONE throttled Slack note per day. IG/FB keep the `noteMessengerWindowClosed` path.
 - **No D1 migration:** `followups.kind` has no CHECK constraint; the four new kinds (`post_trial_d0|d2|d5`, `no_show_d3`) are comment-only in schema.sql.
 - Dead code removed: the `no_show_1` / `reengage_7d` scheduling in `onAttendance` (src/routes/slack.ts) had no producer since the Slack attendance card was retired on 2026-09-18. The kv write stays so a tap on an old card still resolves legacy rows, and `runDueFollowups` still drains both legacy kinds harmlessly.
-- Copy lives in `clients/md-condesa/client.mjs` (`postTrialD0/D2/D5`, `noShowD3`, plus `{cta}` in the no-show copy). Tests 775 → **821**.
+- **NO offer in the copy (owner, 2026-09-21).** An earlier draft held the inscription discount open for 48h. The discount is **same-day-only at the academy**, so that was a promise the gym would not honor: every price, discount and deadline is out of all three messages, in both languages, and a test pins it (`/\$\s*[\d,]+/`, `\d+ horas|hours`, `descuento|sin costo|gratis|vence|plazo` must not appear). The messages open a conversation; the humans quote the numbers.
+- Copy lives in `clients/md-condesa/client.mjs` (`postTrialD0/D2/D5`, `noShowD3`, plus `{cta}` in the no-show copy). Tests 775 → **821** (876 on `roas-phase1`).
 
-**Pendiente Evan: aprobar textos + enviar plantillas post_trial_\*** (6 templates — `post_trial_d0_es/_en` Utility, `post_trial_d2_*` and `post_trial_d5_*` Marketing with the BAJA footer; bodies ready to paste in docs/template-submission.md §13–18). Until they are approved, out-of-window post-trial sends are skipped with one Slack note a day. Also worth a look: the d0/d2 copy names the KB's standing offer (inscripción $999, **gratis al inscribirse en línea**) held for 48h — if the real "sign up today" offer is a different number, change the three strings in client.mjs and re-run `npm run build`.
+### 🙋 "Yo le escribo" — the claim button on the attended card
+
+The bot cannot see the follow-up staff actually do: they write these leads from their OWN phones, so no inbound ever reaches D1, every send-time stop condition stays false, and the bot writes on top of a human. The button IS that missing signal.
+
+- The 🔥 attended-not-enrolled note is now a Block Kit card (`postPostTrialCard`, src/services/slack.ts) with one primary button, verb **`posttrial_claim|<phone>`** — the same action-id plumbing as `takeover_phone`, same signature verification, same ack-then-`waitUntil` pattern.
+- A click cancels **only the pending `post_trial_d0` row**; d2 and d5 keep running under their normal stop conditions, because the promise being made is about TODAY. The `UPDATE … WHERE status='scheduled'` is the atomic gate (`claimPendingFollowup`), so two simultaneous clicks can never both believe they stopped the send.
+- It records kv `post_trial_claim:<phone>` = `{user, ts}` and rewrites the card (kv `post_trial_card:<phone>` holds the Slack ts — there is no approval row to hang one on). Idempotent: a second click by anyone else only reports who got there first. If d0 had already gone out, the claim is still recorded and the card says at what time (from the row's `due_at`; the drain fires within one 5-minute tick and `followups` has no `sent_at`).
+- `CronSlackDeps.postPostTrialCard` is optional so the console stubs and the one-line fakes in test/ stay one-liners; without it the watcher falls back to the plain note.
+
+**Para el equipo (en corto).** Cuando alguien viene a su clase de prueba y no se inscribe, al canal llega una tarjeta 🔥 con su nombre. El bot le va a escribir tres veces: hoy mismo, a los 2 días y a los 5. **Si tú le vas a escribir por tu cuenta, dale al botón «🙋 Yo le escribo»** — así el bot NO manda el mensaje de hoy y no quedan dos mensajes encimados. Los de +2d y +5d siguen programados por si el lead no contesta y nadie marca resultado en Airtable; si se inscribe, responde por WhatsApp, o agenda otra clase, se cancelan solos. Si alguien ya le picó antes que tú, la tarjeta te dice quién y a qué hora.
+
+**Pendiente Evan: aprobar textos + enviar plantillas post_trial_\*** (6 templates — **las tres MARKETING con footer BAJA**; bodies ready to paste in docs/template-submission.md §13–18). Until they are approved, out-of-window post-trial sends are skipped with one Slack note a day.
 
 ### Soonest slot first — stop defaulting leads to Saturday (2026-09-21)
 

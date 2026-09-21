@@ -31,7 +31,7 @@ import {
   isBotEnabled,
 } from "../db/queries.js";
 import { sendTemplate, sendText, WindowClosedError } from "./send.js";
-import { channelOf } from "./channel.js";
+import { channelOf, displayContact } from "./channel.js";
 import {
   adAttributionLine,
   decideTimeout,
@@ -45,6 +45,11 @@ import {
   runPostSendEffects,
   surenessKey,
 } from "./approvals.js";
+import {
+  attendedCardText,
+  postTrialCardKey,
+  POST_TRIAL_CLAIM_VERB,
+} from "../cron/post-trial.js";
 import type { BookingCapture, HumanSendSource } from "./booking-claims.js";
 import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
 import { AUTO_SEND_DAILY_CAP, isAutoSendEnabled } from "./auto-send.js";
@@ -353,6 +358,47 @@ export async function postAutoSentFyi(env: Env, fyi: AutoSentFyi): Promise<void>
     },
   ];
   await postMessage(env, blocks, `Auto-enviado — ${fyi.phone}`);
+}
+
+/**
+ * "Asistió y no se inscribió" card, posted by the result watcher. The single
+ * button is the signal the bot otherwise cannot get: staff follow these leads up
+ * from their OWN phones, so no inbound ever reaches us and every send-time stop
+ * condition stays false. Clicking it kills only today's message (see
+ * cron/post-trial.ts decideClaim). Silent (no <!here>): the chain runs either way.
+ */
+export async function postPostTrialCard(
+  env: Env,
+  args: { name: string; phone: string },
+): Promise<string> {
+  const blocks: unknown[] = [
+    // The text shows the human-readable contact; the button carries the RAW id,
+    // which is what the kv keys and the followups rows are keyed by.
+    section(attendedCardText(args.name, displayContact(args.phone))),
+    {
+      type: "actions",
+      block_id: `posttrial_${args.phone}`,
+      elements: [
+        button("🙋 Yo le escribo", `${POST_TRIAL_CLAIM_VERB}|${args.phone}`, "primary"),
+      ],
+    },
+  ];
+  const ts = await postMessage(env, blocks, `Asistió sin inscribirse — ${args.phone}`);
+  // Remembered so the click can chat.update THIS message (there is no approval
+  // row to hang a slack_ts on). Best-effort: a failed write only costs the edit.
+  await kvSet(env.DB, postTrialCardKey(args.phone), ts).catch(() => {});
+  return ts;
+}
+
+/** Replace the post-trial card with its claimed state (button gone). */
+export async function updatePostTrialCard(
+  env: Env,
+  phone: string,
+  text: string,
+): Promise<void> {
+  const ts = await kvGet(env.DB, postTrialCardKey(phone));
+  if (!ts) return; // card unknown (old kv, or the post failed) — nothing to edit
+  await updateMessage(env, ts, [section(text)], text);
 }
 
 /** "¿Llegó {name}?" attendance card (posted by workstream D's cron). */

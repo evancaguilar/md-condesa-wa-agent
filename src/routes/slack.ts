@@ -6,7 +6,21 @@
 // 'pending' (attendance + control-panel actions are exempt).
 
 import type { Env } from "../types.js";
-import { getPendingApprovals, kvSet, setHumanOverride } from "../db/queries.js";
+import {
+  getContact,
+  getPendingApprovals,
+  kvGet,
+  kvSet,
+  setHumanOverride,
+} from "../db/queries.js";
+import { claimPendingFollowup } from "../db/queries-admin.js";
+import { displayContact } from "../services/channel.js";
+import {
+  decideClaim,
+  parsePostTrialClaim,
+  postTrialClaimKey,
+  POST_TRIAL_CLAIM_VERB,
+} from "../cron/post-trial.js";
 import {
   parseInteractionPayload,
   verifySlackSignature,
@@ -18,6 +32,7 @@ import {
   postNote,
   sendHumanFollowupTemplate,
   updateControlPanel,
+  updatePostTrialCard,
 } from "../services/slack.js";
 import {
   armAutoMode,
@@ -138,6 +153,8 @@ async function dispatchAction(
         return await onAutoSendToggle(env, true, by);
       case "autosend_off":
         return await onAutoSendToggle(env, false, by);
+      case POST_TRIAL_CLAIM_VERB:
+        return await onPostTrialClaim(env, action.arg, by);
       case "attended_yes":
         return await onAttendance(env, action.arg, true);
       case "attended_no":
@@ -377,6 +394,51 @@ async function onAutoSendToggle(
       : `🤖 *Auto-envío DESACTIVADO*${who} — todas las respuestas vuelven a pasar por aprobación.`,
   );
   await updateControlPanel(env);
+}
+
+/**
+ * "🙋 Yo le escribo" on the attended-not-enrolled card. Staff follow these
+ * leads up from their own phones, which the bot cannot see, so this click is
+ * the only signal that a human owns today's conversation.
+ *
+ * It cancels ONLY the pending `post_trial_d0` row — d2/d5 keep running under
+ * their normal stop conditions, because the promise being made here is about
+ * TODAY. The UPDATE is the atomic gate: whoever changes the row won, so two
+ * simultaneous clicks can never both claim to have stopped the send. If d0 had
+ * already gone out, the claim is still recorded and the card says so.
+ */
+async function onPostTrialClaim(
+  env: Env,
+  phone: string | null,
+  by: string | null,
+): Promise<void> {
+  if (!phone) return;
+  const existing = parsePostTrialClaim(await kvGet(env.DB, postTrialClaimKey(phone)));
+  const { cancelled, sentAt } = await claimPendingFollowup(
+    env.DB,
+    phone,
+    "post_trial_d0",
+  );
+  const contact = await getContact(env.DB, phone);
+  const decision = decideClaim({
+    name: contact?.name?.trim() || "el lead",
+    phone: displayContact(phone),
+    user: by ?? "",
+    existing,
+    d0: cancelled
+      ? { state: "pending" }
+      : sentAt !== null
+        ? { state: "sent", at: sentAt }
+        : { state: "gone" },
+  });
+  if (decision.record) {
+    await kvSet(
+      env.DB,
+      postTrialClaimKey(phone),
+      JSON.stringify({ user: by ?? "el equipo", ts: Math.floor(Date.now() / 1000) }),
+    );
+  }
+  await updatePostTrialCard(env, phone, decision.text);
 }
 
 /**

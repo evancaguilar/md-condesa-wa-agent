@@ -710,6 +710,41 @@ export async function cancelFollowupsByKinds(
 }
 
 /**
+ * Cancel the one pending row of `kind` for a phone and say whether this call is
+ * what cancelled it — the atomic half of the "🙋 Yo le escribo" claim, so two
+ * simultaneous clicks can never both believe they stopped the send.
+ *
+ * `sentAt` is the row's due_at when the row is NOT scheduled any more, i.e. the
+ * message already went out (the drain fires a row within one 5-minute tick of
+ * its due_at, and followups has no sent_at column). null when no row exists.
+ */
+export async function claimPendingFollowup(
+  db: D1Database,
+  phone: string,
+  kind: string,
+): Promise<{ cancelled: boolean; sentAt: number | null }> {
+  const res = await db
+    .prepare(
+      `UPDATE followups SET status = 'cancelled'
+       WHERE phone = ?1 AND kind = ?2 AND status = 'scheduled'`,
+    )
+    .bind(phone, kind)
+    .run();
+  if ((res.meta.changes ?? 0) > 0) return { cancelled: true, sentAt: null };
+  const row = await db
+    .prepare(
+      `SELECT status, due_at FROM followups
+       WHERE phone = ?1 AND kind = ?2 ORDER BY id DESC LIMIT 1`,
+    )
+    .bind(phone, kind)
+    .first<{ status: string; due_at: number }>();
+  return {
+    cancelled: false,
+    sentAt: row?.status === "sent" ? (row.due_at ?? null) : null,
+  };
+}
+
+/**
  * True if the phone has any scheduled followup whose kind is in `kinds` — used
  * to detect an active/future trial booking (trial_confirm|day_before|same_day)
  * so the nudge drip is suppressed for leads who already have a class booked.

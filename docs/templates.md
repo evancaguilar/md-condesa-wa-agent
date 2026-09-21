@@ -229,39 +229,46 @@ the send is SKIPPED and one Slack note goes out per day (kv `tmpl_missing_note`)
   `post_trial_d2` and `post_trial_d5` (6 templates).
 - Variables: **{{1}}** = contact first name (sender substitutes `👋` when the
   push name is junk/unknown — keep {{1}} where that still reads naturally).
-- **d0 is Utility** — a follow-up to a class the person attended. If Meta
-  recategorizes it to Marketing, accept it; the send code doesn't care.
-- **d2 and d5 are Marketing** and need the **BAJA opt-out footer** (FOOTER
+- **All three are Marketing**, with the **BAJA opt-out footer** (FOOTER
   component): _Responde BAJA para dejar de recibir mensajes._ (EN: _Reply BAJA to
-  stop receiving messages._)
-- The only price named is the KB's standing offer (inscripción $999, gratis al
-  inscribirse en línea). Never add another — source of truth is intake.md.
+  stop receiving messages._) d0 was briefly written as Utility, but with the
+  offer gone it is a plain re-engagement follow-up and would not survive review
+  as Utility — and Meta recategorizes on its own anyway. The send code does not
+  care which category comes back.
+- **NO price, NO discount, NO deadline in any of the three** (owner,
+  2026-09-21): the inscription discount is **same-day-only** at the academy, so
+  a follow-up that holds it open for 48h promises something the gym will not
+  honor. These messages open a conversation; the humans quote the numbers.
 
-## 7. post_trial_d0 — Utility
+## 7. post_trial_d0 — Marketing (BAJA opt-out footer required)
 
 Sent ~3h after the class starts (past 21:00 CDMX → 09:30 the next morning).
 
 **ES (`post_trial_d0_es`)**
-> ¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si quieres seguir, te guardamos la inscripción sin costo (normalmente $999) durante 48 horas. ¿Te apartamos tu lugar?
+> ¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si te quedó alguna duda de horarios o paquetes, aquí estamos. ¿Te apartamos tu lugar para tu siguiente clase?
+>
+> _Responde BAJA para dejar de recibir mensajes._
 
 **EN (`post_trial_d0_en`)**
-> Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you'd like to keep going, we'll hold the sign-up fee for you free (normally $999) for the next 48 hours. Want us to save your spot?
+> Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you have any questions about schedules or packages, we're right here. Want us to save you a spot for your next class?
+>
+> _Reply BAJA to stop receiving messages._
 
-Variables: {{1}} name.
+Variables: {{1}} name. Footer text must be the template FOOTER component.
 
 ---
 
 ## 8. post_trial_d2 — Marketing (BAJA opt-out footer required)
 
-11:00 CDMX two days after the trial — the day the 48h hold runs out.
+11:00 CDMX two days after the trial.
 
 **ES (`post_trial_d2_es`)**
-> ¡Hola {{1}}! Hoy vence el plazo para guardarte la inscripción sin costo 🥋 ¿Quieres que te apartemos tu lugar antes de que cierre el día?
+> ¡Hola {{1}}! ¿Cómo amaneció el cuerpo después de tu clase? 😄 Lo más difícil ya lo hiciste: venir la primera vez. ¿Qué te falta saber para decidirte? Te ayudamos a elegir horario y paquete.
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
 **EN (`post_trial_d2_en`)**
-> Hi {{1}}! Today is the last day we can hold the free sign-up for you 🥋 Want us to save your spot before the day ends?
+> Hi {{1}}! How's the body feeling after your class? 😄 The hardest part is already done: showing up the first time. What else do you need to know to decide? We'll help you pick a schedule and a plan.
 >
 > _Reply BAJA to stop receiving messages._
 

@@ -15,7 +15,19 @@ export interface CronSlackDeps {
     name: string;
     recordId: string;
   }): Promise<void>;
+  /**
+   * "Asistió y no se inscribió" card with the 🙋 Yo le escribo button
+   * (src/cron/post-trial.ts). A plain postNote carries the same words but no
+   * button, and the button is the whole point — so the real wiring (index.ts)
+   * always provides this. OPTIONAL on purpose: the console-logging stubs and
+   * the dozens of one-line fakes in test/ stay one-liners, and a caller without
+   * it degrades to a plain note instead of failing to compile.
+   */
+  postPostTrialCard?(args: { phone: string; name: string }): Promise<void>;
 }
+
+/** What the Airtable result watcher needs from Slack. */
+export type ResultSlackDeps = Pick<CronSlackDeps, "postNote" | "postPostTrialCard">;
 
 /** C's approval-timeout routine (holding line + expiry). */
 export type RunApprovalTimeouts = (

@@ -13,6 +13,7 @@ import {
   makeSlackPort,
   postNote,
   postAttendanceCheck,
+  postPostTrialCard,
   ensureControlPanel,
   runApprovalTimeouts,
 } from "./services/slack.js";
@@ -51,6 +52,7 @@ function makePorts(env: Env): Ports {
         postNote: (text) => postNote(env, text),
         postAttendanceCheck: (a) =>
           postAttendanceCheck(env, a.name, a.phone, a.recordId).then(() => {}),
+        postPostTrialCard: (a) => postPostTrialCard(env, a).then(() => {}),
       },
       // slack's runApprovalTimeouts re-fetches pending approvals itself, so we
       // ignore the list the dispatcher passes and just bind env.

@@ -45,7 +45,7 @@ import {
   WindowClosedError,
 } from "../services/send.js";
 import { channelOf, displayContact } from "../services/channel.js";
-import type { CronSlackDeps } from "./deps.js";
+import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
 import {
   clampToWindow,
   cdmxToEpoch,
@@ -79,6 +79,7 @@ import {
   type ExtendedKind,
 } from "./nudges.js";
 import {
+  attendedCardText,
   computeNoShowRebook,
   computePostTrialSequence,
   processPostTrial,
@@ -742,10 +743,13 @@ export async function syncBookings(
   airtable: {
     listRecentBookings: (env: Env, sinceIso: string) => Promise<BookingRecord[]>;
   } = { listRecentBookings },
-  deps: { slack: Pick<CronSlackDeps, "postNote"> } = {
+  deps: { slack: ResultSlackDeps } = {
     slack: {
       async postNote(text: string): Promise<void> {
         console.log(`[syncBookings] ${text}`);
+      },
+      async postPostTrialCard(a: { phone: string; name: string }): Promise<void> {
+        console.log(`[syncBookings] post-trial card ${a.name} ${a.phone}`);
       },
     },
   },
@@ -840,7 +844,7 @@ export async function syncBookings(
  */
 async function processResult(
   env: Env,
-  deps: { slack: Pick<CronSlackDeps, "postNote"> },
+  deps: { slack: ResultSlackDeps },
   recordId: string,
   phone: string,
   rawResult: string,
@@ -958,10 +962,17 @@ async function processResult(
     }
     if (sendReaction) {
       // The person who taught the class is the one who can close them, and only
-      // a human knows that. One note, no card, no buttons.
-      await deps.slack.postNote(
-        `🔥 ${displayName(name, contact?.name)} (${displayContact(phone)}) asistió y no se inscribió — seguimiento automático armado (hoy, +2d, +5d). Quien cerró: escríbele hoy.`,
-      );
+      // a human knows that — so the card carries ONE button ("🙋 Yo le escribo")
+      // that kills today's automated message. Staff follow up from their own
+      // phones, which the bot cannot see, so that click is the only signal we
+      // will ever get. Falls back to a plain note when no card dep is injected.
+      const who = displayName(name, contact?.name);
+      const shown = displayContact(phone);
+      if (deps.slack.postPostTrialCard) {
+        await deps.slack.postPostTrialCard({ phone, name: who });
+      } else {
+        await deps.slack.postNote(attendedCardText(who, shown));
+      }
     }
     await kvSet(env.DB, kvKey, marker);
     return;

@@ -40,6 +40,9 @@ let cronDeps: CronDeps = {
     async postAttendanceCheck(a): Promise<void> {
       console.log(`[cron/slack stub] attendance check ${a.name} (${a.phone})`);
     },
+    async postPostTrialCard(a): Promise<void> {
+      console.log(`[cron/slack stub] post-trial card ${a.name} (${a.phone})`);
+    },
   },
   async runApprovalTimeouts(): Promise<void> {
     /* C not wired yet */

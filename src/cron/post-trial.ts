@@ -208,6 +208,118 @@ export function postTrialTemplateName(kind: FollowUpKindHere): string {
   return kind === NO_SHOW_KIND ? "no_show_followup" : kind;
 }
 
+// ---- "🙋 Yo le escribo" claim (Slack card on the attended lead) ----
+//
+// Staff almost always follow up from their OWN phone, which the bot cannot see:
+// no inbound arrives, so every send-time stop condition stays false and the bot
+// writes on top of a human. The claim button IS that missing signal. It kills
+// only the d0 touch — d2/d5 keep running under their normal stop conditions,
+// because "I'll message them today" is a promise about today.
+
+/** Slack action verb on the card's button: `posttrial_claim|<phone>`. */
+export const POST_TRIAL_CLAIM_VERB = "posttrial_claim";
+
+/** kv: who claimed this lead (JSON PostTrialClaim). */
+export function postTrialClaimKey(phone: string): string {
+  return `post_trial_claim:${phone}`;
+}
+
+/** kv: the Slack ts of the card, so a click can update the right message. */
+export function postTrialCardKey(phone: string): string {
+  return `post_trial_card:${phone}`;
+}
+
+export interface PostTrialClaim {
+  /** Slack username/display name of whoever clicked. */
+  user: string;
+  /** Epoch seconds of the click. */
+  ts: number;
+}
+
+/** Pure. Read a claim back out of kv, tolerating junk. */
+export function parsePostTrialClaim(json: string | null): PostTrialClaim | null {
+  if (!json) return null;
+  try {
+    const p = JSON.parse(json) as Partial<PostTrialClaim>;
+    if (typeof p.user !== "string" || typeof p.ts !== "number") return null;
+    return { user: p.user, ts: p.ts };
+  } catch {
+    return null;
+  }
+}
+
+/** What the d0 row looked like when the click arrived. */
+export type D0State =
+  /** Still scheduled — this click cancels it. */
+  | { state: "pending" }
+  /** Already went out (epoch seconds, ±one 5-min tick). */
+  | { state: "sent"; at: number }
+  /** No row at all: cancelled earlier, or never armed. */
+  | { state: "gone" };
+
+export interface ClaimDecision {
+  /** false when someone already claimed this lead — the first claim stands. */
+  record: boolean;
+  /** The card's new text. */
+  text: string;
+}
+
+/** "18:05" in CDMX. */
+function hhmm(epoch: number): string {
+  const p = cdmxParts(epoch);
+  return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+}
+
+const TAIL = "+2d y +5d siguen si no responde ni se marca resultado.";
+
+/**
+ * Pure. What a click on "🙋 Yo le escribo" means, given who clicked, whether
+ * anyone already claimed this lead, and what the d0 row was doing.
+ *
+ * Idempotent by construction: a second click (by anyone) never re-records and
+ * never re-cancels — it just reports who got there first.
+ */
+export function decideClaim(input: {
+  name: string;
+  phone: string;
+  user: string;
+  existing: PostTrialClaim | null;
+  d0: D0State;
+}): ClaimDecision {
+  const who = input.user || "Alguien del equipo";
+  const lead = `${input.name} (${input.phone})`;
+  if (input.existing) {
+    return {
+      record: false,
+      text:
+        `🙋 ${input.existing.user} ya se lo había apartado (${hhmm(input.existing.ts)}) — ` +
+        `${lead}. El bot no manda el mensaje de hoy. ${TAIL}`,
+    };
+  }
+  if (input.d0.state === "sent") {
+    // Too late to stop it, but the claim still matters: it tells the next person
+    // who owns this lead, and it is recorded.
+    return {
+      record: true,
+      text:
+        `🙋 ${who} le escribe a ${lead}. El mensaje de hoy ya había salido a las ` +
+        `${hhmm(input.d0.at)}. ${TAIL}`,
+    };
+  }
+  return {
+    record: true,
+    text: `🙋 ${who} le escribe hoy a ${lead} — el bot NO manda el mensaje de hoy. ${TAIL}`,
+  };
+}
+
+/** The card text posted when a lead is marked attended-without-enrollment. */
+export function attendedCardText(name: string, phone: string): string {
+  return (
+    `🔥 ${name} (${phone}) asistió y no se inscribió — seguimiento automático ` +
+    `armado (hoy, +2d, +5d). Quien cerró: escríbele hoy.`
+  );
+}
+
 // ---- send-time processing ----
 
 export type PostTrialOutcome =

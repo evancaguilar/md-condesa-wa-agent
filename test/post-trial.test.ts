@@ -2,8 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  attendedCardText,
   computeNoShowRebook,
   computePostTrialSequence,
+  decideClaim,
+  parsePostTrialClaim,
+  POST_TRIAL_CLAIM_VERB,
   postTrialCopy,
   postTrialTemplateName,
   processPostTrial,
@@ -11,6 +15,8 @@ import {
 } from "../src/cron/post-trial.js";
 import { classifyResult, isLostResult } from "../src/services/airtable.js";
 import { capiEventsForResult } from "../src/services/meta-capi.js";
+import { parseInteractionPayload } from "../src/services/slack-timeouts.js";
+import { claimPendingFollowup } from "../src/db/queries-admin.js";
 import { runDueFollowups, syncBookings } from "../src/cron/followups.js";
 import { noShowCopy } from "../src/cron/nudges.js";
 import { cdmxToEpoch, cdmxParts, DAY } from "../src/cron/time.js";
@@ -264,18 +270,34 @@ test("computeNoShowRebook: nothing left to schedule when the moment has passed",
 
 // ---- copy -----------------------------------------------------------------
 
-test("post-trial copy: d0 asks how it felt, d2 closes the 48h hold, d5 links the schedule", () => {
+test("post-trial copy: d0 asks how it felt, d2 asks what's missing, d5 links the schedule", () => {
   const c = contact({ name: "Ana" });
   const d0 = postTrialCopy(c, "post_trial_d0");
   assert.ok(d0.startsWith("¡Hola Ana!"), d0);
-  assert.ok(/\?$/.test(d0.trim()), d0); // every touch ends on a question…
+  assert.ok(/¿Cómo te sentiste/.test(d0), d0);
+  assert.ok(/\?$/.test(d0.trim()), d0); // d0 closes on a question
   const d2 = postTrialCopy(c, "post_trial_d2");
-  assert.ok(/hoy/i.test(d2), d2);
+  assert.ok(/¿Qué te falta saber/.test(d2), d2);
   const d5 = postTrialCopy(c, "post_trial_d5");
-  assert.ok(/https?:\/\//.test(d5), d5); // …except the goodbye, which links out
-  // No invented pricing: the only number allowed is the KB's inscription fee.
-  for (const body of [d0, d2, d5]) {
-    for (const m of body.matchAll(/\$([\d,]+)/g)) assert.equal(m[1], "999");
+  assert.ok(/https?:\/\//.test(d5), d5); // the goodbye links to the schedule
+});
+
+test("post-trial copy names NO price, discount or deadline, in either language", () => {
+  // The inscription discount is SAME-DAY-ONLY at the academy (owner,
+  // 2026-09-21): a follow-up that holds it open for 48h is a promise the gym
+  // cannot keep. These messages open a conversation; humans quote the numbers.
+  const bodies = [
+    ...POST_TRIAL_KINDS.map((k) => postTrialCopy(contact({ name: "Ana" }), k)),
+    ...POST_TRIAL_KINDS.map((k) => postTrialCopy(contact({ lang: "en" }), k)),
+  ];
+  for (const body of bodies) {
+    assert.equal(/\$\s*[\d,]+/.test(body), false, `price in: ${body}`);
+    assert.equal(/\d+\s*(horas|hours|hrs)\b/i.test(body), false, `deadline in: ${body}`);
+    assert.equal(
+      /descuento|sin costo|gratis|free|discount|vence|plazo|deadline/i.test(body),
+      false,
+      `offer language in: ${body}`,
+    );
   }
 });
 
@@ -736,6 +758,123 @@ test("result watcher: 'No asistió' arms the +3d touch and proposes a real slot"
   );
   assert.ok(run.cancelledAll > 0); // every pending row dies first
   assert.equal(run.kv.get("resultado:recA"), "no_show");
+});
+
+// ---- "🙋 Yo le escribo" claim ---------------------------------------------
+
+const CLAIM_BASE = {
+  name: "Ana",
+  phone: "5215512345678",
+  user: "evan",
+  existing: null,
+};
+
+test("the claim button rides the normal action-id plumbing", () => {
+  const payload = {
+    type: "block_actions",
+    trigger_id: "trg9",
+    user: { username: "evan" },
+    actions: [{ action_id: `${POST_TRIAL_CLAIM_VERB}|5215512345678` }],
+  };
+  const parsed = parseInteractionPayload(
+    "payload=" + encodeURIComponent(JSON.stringify(payload)),
+  );
+  assert.equal(parsed.kind, "block_actions");
+  assert.equal(parsed.user, "evan");
+  assert.equal(parsed.actions[0]!.verb, POST_TRIAL_CLAIM_VERB);
+  assert.equal(parsed.actions[0]!.arg, "5215512345678");
+});
+
+test("decideClaim: a fresh claim records and stops today's message only", () => {
+  const d = decideClaim({ ...CLAIM_BASE, d0: { state: "pending" } });
+  assert.equal(d.record, true);
+  assert.ok(d.text.includes("evan le escribe hoy a Ana (5215512345678)"), d.text);
+  assert.ok(d.text.includes("el bot NO manda el mensaje de hoy"), d.text);
+  assert.ok(d.text.includes("+2d y +5d siguen"), d.text);
+});
+
+test("decideClaim: a second click reports who got there first, records nothing", () => {
+  const at = cdmxToEpoch(2026, 9, 21, 18, 5, 0);
+  const d = decideClaim({
+    ...CLAIM_BASE,
+    user: "karla",
+    existing: { user: "evan", ts: at },
+    d0: { state: "gone" },
+  });
+  assert.equal(d.record, false);
+  assert.ok(d.text.includes("evan ya se lo había apartado (18:05)"), d.text);
+  assert.ok(!d.text.includes("karla"), d.text);
+});
+
+test("decideClaim: d0 already sent → still recorded, card says when it went out", () => {
+  const d = decideClaim({
+    ...CLAIM_BASE,
+    d0: { state: "sent", at: cdmxToEpoch(2026, 9, 21, 9, 30, 0) },
+  });
+  assert.equal(d.record, true);
+  assert.ok(d.text.includes("ya había salido a las 09:30"), d.text);
+  assert.ok(!d.text.includes("NO manda"), d.text);
+});
+
+test("decideClaim: an anonymous click still reads as a person", () => {
+  const d = decideClaim({ ...CLAIM_BASE, user: "", d0: { state: "pending" } });
+  assert.ok(d.text.startsWith("🙋 Alguien del equipo le escribe hoy"), d.text);
+});
+
+test("parsePostTrialClaim survives junk", () => {
+  assert.deepEqual(parsePostTrialClaim('{"user":"evan","ts":7}'), { user: "evan", ts: 7 });
+  assert.equal(parsePostTrialClaim('{"user":"evan"}'), null);
+  assert.equal(parsePostTrialClaim("{oops"), null);
+  assert.equal(parsePostTrialClaim(null), null);
+});
+
+test("claimPendingFollowup cancels ONLY the d0 row and reports who won", async () => {
+  const writes: { sql: string; binds: unknown[] }[] = [];
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.startsWith("UPDATE followups SET status = 'cancelled'")) {
+      writes.push({ sql, binds });
+      return { changes: 1 };
+    }
+    return {};
+  });
+  const res = await claimPendingFollowup(db, "5215512345678", "post_trial_d0");
+  assert.deepEqual(res, { cancelled: true, sentAt: null });
+  assert.equal(writes.length, 1);
+  // Exactly one kind, exactly one phone — d2/d5 are not in the statement.
+  assert.deepEqual(writes[0]!.binds, ["5215512345678", "post_trial_d0"]);
+  assert.ok(writes[0]!.sql.includes("status = 'scheduled'"), writes[0]!.sql);
+});
+
+test("claimPendingFollowup: nothing to cancel → reports the sent time instead", async () => {
+  const { db } = fakeDb((sql) => {
+    if (sql.startsWith("UPDATE followups SET status = 'cancelled'")) return { changes: 0 };
+    if (sql.includes("SELECT status, due_at FROM followups"))
+      return { first: { status: "sent", due_at: 1_700_000_000 } };
+    return {};
+  });
+  assert.deepEqual(await claimPendingFollowup(db, "p", "post_trial_d0"), {
+    cancelled: false,
+    sentAt: 1_700_000_000,
+  });
+});
+
+test("claimPendingFollowup: a cancelled/absent row reports no send time", async () => {
+  const { db } = fakeDb((sql) => {
+    if (sql.startsWith("UPDATE followups SET status = 'cancelled'")) return { changes: 0 };
+    if (sql.includes("SELECT status, due_at FROM followups"))
+      return { first: { status: "cancelled", due_at: 1_700_000_000 } };
+    return {};
+  });
+  assert.deepEqual(await claimPendingFollowup(db, "p", "post_trial_d0"), {
+    cancelled: false,
+    sentAt: null,
+  });
+});
+
+test("attendedCardText is the 🔥 line the card leads with", () => {
+  const t = attendedCardText("Ana", "5215512345678");
+  assert.ok(t.startsWith("🔥 Ana (5215512345678) asistió y no se inscribió"), t);
+  assert.ok(t.includes("hoy, +2d, +5d"), t);
 });
 
 // ---- the two result readers stay independent but must not contradict -------

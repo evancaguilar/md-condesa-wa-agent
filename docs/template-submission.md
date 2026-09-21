@@ -33,8 +33,8 @@ business.facebook.com → **WhatsApp Manager** → account **"MD Self Defense Co
 | 10 | `reengage_lead_en` | English | Marketing | Footer |
 | 11 | `human_followup_es` | Spanish | Utility | — |
 | 12 | `human_followup_en` | English | Utility | — |
-| 13 | `post_trial_d0_es` | Spanish | Utility | — |
-| 14 | `post_trial_d0_en` | English | Utility | — |
+| 13 | `post_trial_d0_es` | Spanish | Marketing | Footer |
+| 14 | `post_trial_d0_en` | English | Marketing | Footer |
 | 15 | `post_trial_d2_es` | Spanish | Marketing | Footer |
 | 16 | `post_trial_d2_en` | English | Marketing | Footer |
 | 17 | `post_trial_d5_es` | Spanish | Marketing | Footer |
@@ -130,30 +130,31 @@ Hi {{1}}! We still have a spot for you at MD Condesa 🥋 Self-defense, jiu jits
 Hi {{1}}! Circling back on your message to MD Condesa. Still around? Happy to help. 🙌
 ```
 
-### 13–14 · post_trial_d0 (Utility)
+### 13–14 · post_trial_d0 (Marketing + Footer)
 
-Sent ~3h after a trial class the lead ATTENDED without signing up.
+Sent ~3h after a trial class the lead ATTENDED without signing up. NO price, no
+discount, no deadline: the inscription discount is same-day-only at the academy.
 
-**`post_trial_d0_es`**
+**`post_trial_d0_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
 ```
-¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si quieres seguir, te guardamos la inscripción sin costo (normalmente $999) durante 48 horas. ¿Te apartamos tu lugar?
+¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si te quedó alguna duda de horarios o paquetes, aquí estamos. ¿Te apartamos tu lugar para tu siguiente clase?
 ```
 
-**`post_trial_d0_en`**
+**`post_trial_d0_en`** — Footer: `Reply BAJA to stop receiving messages.`
 ```
-Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you'd like to keep going, we'll hold the sign-up fee for you free (normally $999) for the next 48 hours. Want us to save your spot?
+Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you have any questions about schedules or packages, we're right here. Want us to save you a spot for your next class?
 ```
 
 ### 15–16 · post_trial_d2 (Marketing + Footer)
 
 **`post_trial_d2_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
 ```
-¡Hola {{1}}! Hoy vence el plazo para guardarte la inscripción sin costo 🥋 ¿Quieres que te apartemos tu lugar antes de que cierre el día?
+¡Hola {{1}}! ¿Cómo amaneció el cuerpo después de tu clase? 😄 Lo más difícil ya lo hiciste: venir la primera vez. ¿Qué te falta saber para decidirte? Te ayudamos a elegir horario y paquete.
 ```
 
 **`post_trial_d2_en`** — Footer: `Reply BAJA to stop receiving messages.`
 ```
-Hi {{1}}! Today is the last day we can hold the free sign-up for you 🥋 Want us to save your spot before the day ends?
+Hi {{1}}! How's the body feeling after your class? 😄 The hardest part is already done: showing up the first time. What else do you need to know to decide? We'll help you pick a schedule and a plan.
 ```
 
 ### 17–18 · post_trial_d5 (Marketing + Footer)
