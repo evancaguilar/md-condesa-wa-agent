@@ -89,6 +89,10 @@ export interface ClientFeatures {
   /** Marketing-funnel metrics feeder (Meta spend import, lead/student link
    *  sweeps, daily Slack brief). Requires `airtableMetrics`. Optional: absent = off. */
   marketingMetrics?: boolean;
+  /** Conversions API for Business Messaging: downstream funnel events (booked /
+   *  attended / purchase) sent back to Meta for ctwa_clid leads
+   *  (docs/meta-capi.md). Also requires env.META_CAPI_DATASET_ID. Absent = off. */
+  metaCapi?: boolean;
 }
 
 /**
@@ -127,6 +131,10 @@ export interface AirtableLeadsMap {
   optOutTag: string;
   /** Child-name column for kid/baby bookings, e.g. "Nombre Del Niñ@". */
   childName: string;
+  /** Amount the lead paid when they enrolled, e.g. "Pago Inicial". Read-only:
+   *  the worker never writes it. Used as the Purchase value sent to Meta
+   *  (docs/meta-capi.md). Absent/blank column ⇒ Purchase without value. */
+  initialPayment?: string;
   /** Sales-conversation recordings (src/cron/sales-audio.ts). Absent = feature off. */
   salesAudio?: {
     /** Attachment column staff upload the recording to. */

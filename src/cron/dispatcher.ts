@@ -28,6 +28,7 @@ import { runLeadLinkSweep, runStudentLinkSweep, runTwinAttributionSweep } from "
 import { runMetricsBrief } from "./metrics-brief.js";
 import { runBlastBatch } from "./blasts.js";
 import { runSalesAudio } from "./sales-audio.js";
+import { runCapiDrain } from "./capi.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -117,6 +118,13 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       );
     }
   }
+
+  // Meta Conversions API drain (docs/meta-capi.md): ≤5 events = ≤5 subrequests,
+  // and zero D1 reads while the feature is off or the queue is empty. Runs
+  // every tick so a booking reaches Meta within minutes, as the docs ask.
+  await safe("capiDrain", () =>
+    runCapiDrain(env, nowEpoch, { postNote: (t) => cronDeps.slack.postNote(t) }),
+  );
 
   // Every ~15 min (minute % 15 < 5): booking sync + result watcher.
   // Feature-gated: clients without an Airtable pipeline skip the syncs entirely.

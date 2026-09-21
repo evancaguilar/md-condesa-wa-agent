@@ -196,6 +196,7 @@ function renderClientTs(cfg, persona, version) {
       airtableSync: !!cfg.features?.airtableSync,
       safety: !!cfg.features?.safety,
       marketingMetrics: !!cfg.features?.marketingMetrics,
+      metaCapi: !!cfg.features?.metaCapi,
     },
     ...(cfg.safety ? { safety: cfg.safety } : {}),
     ...(cfg.airtableLeads ? { airtableLeads: cfg.airtableLeads } : {}),

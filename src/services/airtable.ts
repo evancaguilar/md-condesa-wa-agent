@@ -24,6 +24,13 @@ export interface BookingRecord {
   trialDateTimeIso: string | null;
   /** Value of the trial-outcome field (env.AIRTABLE_RESULT_FIELD), if present. */
   result: string | null;
+  /**
+   * Enrolment amount from the `initialPayment` column (MXN), when the client
+   * maps one and the cell holds a number. Only consumer: the Purchase value
+   * sent to Meta's Conversions API (docs/meta-capi.md). null/absent = no value.
+   * Optional so existing fakes/consumers need not know about it.
+   */
+  initialPayment?: number | null;
 }
 
 /** Default name of the Airtable trial-outcome field (env-overridable). */
@@ -739,7 +746,21 @@ function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord 
     trialDateTimeIso: asString(f[m.trialDateTime] ?? f["Trial DateTime"]),
     // multipleSelects result columns come back as arrays — join for classify.
     result: asResultString(f[resultField]),
+    initialPayment: m.initialPayment ? asAmount(f[m.initialPayment]) : null,
   };
+}
+
+/**
+ * Coerce a currency cell to a positive number. Airtable returns currency/number
+ * fields as numbers, but a formula/lookup can hand back "1,500.00" or ["1500"].
+ * Anything unparseable (or ≤ 0) → null, i.e. "no amount" rather than a guess.
+ */
+export function asAmount(v: unknown): number | null {
+  const raw = Array.isArray(v) ? v[0] : v;
+  if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? raw : null;
+  if (typeof raw !== "string") return null;
+  const n = Number(raw.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** Coerce a result cell (string or multipleSelects array) to a match string. */

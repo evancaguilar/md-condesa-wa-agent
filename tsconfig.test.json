@@ -58,6 +58,8 @@
     "src/services/metrics-airtable.ts",
     "src/cron/ad-spend.ts",
     "src/cron/metrics-link.ts",
-    "src/cron/metrics-brief.ts"
+    "src/cron/metrics-brief.ts",
+    "src/services/meta-capi.ts",
+    "src/cron/capi.ts"
   ]
 }

@@ -56,7 +56,8 @@ export const CLIENT: ClientConfig = {
     "nudges": true,
     "airtableSync": true,
     "safety": false,
-    "marketingMetrics": true
+    "marketingMetrics": true,
+    "metaCapi": false
   },
   "airtableLeads": {
     "phone": "# de Teléfono",
@@ -89,6 +90,7 @@ export const CLIENT: ClientConfig = {
     "tags": "Tags",
     "optOutTag": "Baja",
     "childName": "Nombre Del Niñ@",
+    "initialPayment": "Pago Inicial",
     "salesAudio": {
       "audio": "Audio venta",
       "transcript": "Transcripción venta",
