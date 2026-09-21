@@ -64,6 +64,7 @@ import {
   type NudgeKind,
   type ExtendedKind,
 } from "./nudges.js";
+import { captureCapiEvent, captureResultCapiEvents } from "../services/meta-capi.js";
 import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../services/staff-send.js";
 import { auditHumanSend } from "../services/booking-guard.js";
 import { CLIENT } from "../client.gen.js";
@@ -693,6 +694,11 @@ export async function syncBookings(
           includeConfirm: !knownRecord && !recentlyConfirmedInline,
         });
         await cancelFollowupsByKinds(env.DB, phone, ALL_NUDGE_KINDS);
+        // ---- Meta CAPI hook (docs/meta-capi.md) — BEGIN ----
+        // "Booked" for web-form bookers (chat/human bookings fire inside
+        // finalizeBooking). Enqueue only; idempotent per phone.
+        await captureCapiEvent(env, { kind: "booked", phone, recordId: rec.id });
+        // ---- Meta CAPI hook — END ----
         scheduled++;
       }
     }
@@ -707,6 +713,7 @@ export async function syncBookings(
         rec.result,
         rec.name ?? null,
         rec.trialDateTimeIso,
+        rec.initialPayment ?? null,
       );
     }
   }
@@ -736,7 +743,27 @@ async function processResult(
   rawResult: string,
   name: string | null,
   trialDateTimeIso: string | null,
+  /** `Pago Inicial` from the Airtable row — only used as the CAPI Purchase value. */
+  initialPayment: number | null = null,
 ): Promise<void> {
+  // ---- Meta CAPI hook (docs/meta-capi.md) — BEGIN ----
+  // Attended / Purchase for Meta's ad optimization. Deliberately SELF-CONTAINED
+  // and above every branch below: it reads the raw Airtable value itself
+  // (capiEventsForResult), carries its own at-most-once claim, only enqueues (no
+  // network), and never throws — so it neither depends on nor disturbs the
+  // classifyResult buckets and their messaging. Do not fold it into a branch.
+  await captureResultCapiEvents(env, {
+    phone,
+    recordId,
+    rawResult,
+    trialDateTimeIso,
+    initialPayment,
+  }).catch((err) => {
+    console.warn(`[capi] result hook failed for ${recordId}: ${String(err)}`);
+    return [];
+  });
+  // ---- Meta CAPI hook — END ----
+
   const action = classifyResult(rawResult);
   if (!action) return;
 

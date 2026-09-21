@@ -40,6 +40,10 @@ export default {
     messenger: false,
     // Marketing-funnel metrics feeder (docs/marketing-metrics.md).
     marketingMetrics: true,
+    // Conversions API for Business Messaging (docs/meta-capi.md): send Booked /
+    // Attended / Purchase back to Meta for ctwa_clid leads. OFF until Evan
+    // creates the dataset and sets META_CAPI_DATASET_ID — flip only with his OK.
+    metaCapi: false,
   },
   // Real Leads-table columns (base appcX38TBVltyxHR6). The CRM predates the
   // bot and its automations depend on these Spanish names — never rename them.
@@ -76,6 +80,9 @@ export default {
     tags: "Tags",
     optOutTag: "Baja",
     childName: "Nombre Del Niñ@",
+    // Read-only: enrolment amount (MXN), used as the Purchase value sent to
+    // Meta's Conversions API (docs/meta-capi.md). The worker never writes it.
+    initialPayment: "Pago Inicial",
     // Sales-conversation recordings → transcript + AI summary (2026-09-18).
     salesAudio: {
       audio: "Audio venta",

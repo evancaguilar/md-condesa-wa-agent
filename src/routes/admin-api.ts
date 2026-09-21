@@ -39,6 +39,17 @@ import {
 } from "../cron/metrics-link.js";
 import { runMetricsBrief } from "../cron/metrics-brief.js";
 import {
+  CAPI_EVENT_NAMES,
+  buildMessagingEvent,
+  capiConfig,
+  capiEventId,
+  capiProbe,
+  ctwaClidFromAdRef,
+  lookupDataset,
+  sendMessagingEvents,
+  type CapiEventKind,
+} from "../services/meta-capi.js";
+import {
   authenticateLogin,
   buildSetCookie,
   decideLoginRateLimit,
@@ -421,6 +432,19 @@ export async function handleAdminApi(
       return handleMetricsRelink(req, env);
     }
     if (path === "/admin/api/metrics/brief" && method === "POST") return handleMetricsBrief(env, ports);
+    return json({ error: "not_found" }, 404);
+  }
+
+  // ---- Meta Conversions API (owner-only; docs/meta-capi.md) ----
+  if (path.startsWith("/admin/api/capi/")) {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    if (path === "/admin/api/capi/probe" && method === "GET") {
+      return json(await capiProbe(env, cdmxDateStr(nowSec())));
+    }
+    if (path === "/admin/api/capi/dataset" && method === "GET") {
+      return json(await lookupDataset(env));
+    }
+    if (path === "/admin/api/capi/test" && method === "POST") return handleCapiTest(req, env);
     return json({ error: "not_found" }, 404);
   }
 
@@ -2437,6 +2461,71 @@ async function handleMetricsRelink(req: Request, env: Env): Promise<Response> {
   } catch (err) {
     return metricsErrorResponse(err);
   }
+}
+
+// ---- Meta Conversions API (owner-only; docs/meta-capi.md) ----
+
+/**
+ * Build (and optionally SEND) one conversion event for a real contact, so Evan
+ * can watch it land in Events Manager → Test events before the feature is armed.
+ * Body: {phone, kind?: booked|attended|purchase, send?: boolean,
+ *        testEventCode?: string, value?: number}.
+ *
+ * Without `send` nothing leaves the worker — it just returns the exact payload.
+ */
+async function handleCapiTest(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{
+    phone?: string;
+    kind?: string;
+    send?: boolean;
+    testEventCode?: string;
+    value?: number;
+  }>(req);
+  const phone = normalizeMxPhone(String(body.phone ?? "").trim());
+  if (!phone) return json({ error: "phone required" }, 400);
+  const kind: CapiEventKind =
+    body.kind === "attended" || body.kind === "purchase" ? body.kind : "booked";
+
+  const cfg = capiConfig(env);
+  const contact = await getContact(env.DB, phone);
+  if (!contact) return json({ error: "contact not found", phone }, 404);
+  const ctwaClid = ctwaClidFromAdRef(contact.ad_ref);
+  if (!ctwaClid) {
+    return json(
+      { error: "contact has no ctwa_clid (not a click-to-WhatsApp lead)", phone },
+      422,
+    );
+  }
+  if (!cfg.wabaId) return json({ error: "WA_WABA_ID unset" }, 400);
+
+  const now = nowSec();
+  const event = buildMessagingEvent({
+    eventName: CAPI_EVENT_NAMES[kind],
+    eventTimeSec: now,
+    ctwaClid,
+    wabaId: cfg.wabaId,
+    eventId: capiEventId(kind, phone, `test:${now}`),
+    value: kind === "purchase" ? (body.value ?? null) : null,
+  });
+
+  if (body.send !== true) {
+    return json({
+      ok: true,
+      sent: false,
+      enabled: cfg.enabled,
+      reason: cfg.reason,
+      datasetIdSet: !!cfg.datasetId,
+      tokenSource: cfg.tokenSource,
+      payload: { data: [event] },
+    });
+  }
+  const res = await sendMessagingEvents(env, [event], undefined, {
+    testEventCode: body.testEventCode ?? null,
+  });
+  return json(
+    { ok: res.ok, sent: res.ok, result: res, payload: { data: [event] } },
+    res.ok ? 200 : 502,
+  );
 }
 
 /** Post the daily brief now (also returns the text). */

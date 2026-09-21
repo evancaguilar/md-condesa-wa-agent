@@ -27,6 +27,7 @@ import { cdmxDateStr, cdmxIso } from "../cron/time.js";
 import { normalizeDiscipline, validateSlot } from "../brain/tools.js";
 import { bookTrial } from "./airtable.js";
 import { sendBookingVideo } from "./send.js";
+import { captureCapiEvent } from "./meta-capi.js";
 
 /** A booking that already has its Airtable record id. */
 export interface FinalizeBookingInput extends BookTrialInput {
@@ -280,6 +281,20 @@ export async function finalizeBooking(
       console.error("[finalizeBooking] sequence failed", err);
     }
   }
+
+  // ---- Meta CAPI hook (docs/meta-capi.md) — BEGIN ----
+  // "Booked" for the chat/human path. Enqueue only (a D1 write, no network), so
+  // a Meta outage can never slow a confirmation down; the cron drains it. A
+  // no-op unless the feature flag + dataset id are set, and silent for any lead
+  // without a ctwa_clid. Runs before the skipLeadSync return so the 2nd person
+  // of a group booking still can't produce a second event (the claim row is
+  // per phone + kind).
+  try {
+    await captureCapiEvent(env, { kind: "booked", phone: b.phone, recordId: b.recordId });
+  } catch (err) {
+    console.warn("[finalizeBooking] capi hook failed", err);
+  }
+  // ---- Meta CAPI hook — END ----
 
   if (opts?.skipLeadSync) return;
   // Persist qualification (gives classifyProgram real data) then sync the

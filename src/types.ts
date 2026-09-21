@@ -30,6 +30,10 @@ export interface Env {
   /** Optional Meta token with ads_read on the ad account — enables the ad-name
    *  attribution tier (lookupAdMeta). Falls back to WA_ACCESS_TOKEN when unset. */
   ADS_ACCESS_TOKEN?: string;
+  /** Optional token for the Conversions API for Business Messaging (docs/meta-capi.md).
+   *  Needs `business_management` on the dataset's business; set it only when the
+   *  ads token lacks that scope — otherwise ADS_ACCESS_TOKEN is used. */
+  META_CAPI_TOKEN?: string;
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
   AIRTABLE_PAT: string;
@@ -54,6 +58,9 @@ export interface Env {
   /** WhatsApp Business Account that holds the sales number — lets the blast
    *  tab list/validate message templates (docs/blasts.md). Unset = manual names. */
   WA_WABA_ID?: string;
+  /** Meta dataset (pixel-like id) the business-messaging conversion events are
+   *  posted to (docs/meta-capi.md). UNSET = the whole CAPI path is a no-op. */
+  META_CAPI_DATASET_ID?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;

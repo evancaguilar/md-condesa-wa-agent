@@ -11,6 +11,7 @@ import {
   normalizeMxPhone,
   phoneMatchFormula,
   classifyResult,
+  asAmount,
   sourceValueFor,
   DEFAULT_LEADS_MAP,
   type BaseSchema,
@@ -328,4 +329,23 @@ test("essentialLeadFields is exactly {phone, trial datetime}", () => {
     [...essentialLeadFields()].sort(),
     [m.phone, m.trialDateTime].sort(),
   );
+});
+
+// ---- asAmount (Pago Inicial → the Meta CAPI Purchase value) -------------
+
+test("asAmount: numbers, formatted strings, arrays; junk and non-positives → null", () => {
+  assert.equal(asAmount(1500), 1500);
+  assert.equal(asAmount("1500"), 1500);
+  assert.equal(asAmount("$1,500.00"), 1500);
+  assert.equal(asAmount([2400]), 2400); // lookup/rollup cells come back as arrays
+  assert.equal(asAmount(0), null); // never report a 0-peso sale
+  assert.equal(asAmount(-100), null);
+  assert.equal(asAmount("pendiente"), null);
+  assert.equal(asAmount(null), null);
+  assert.equal(asAmount(undefined), null);
+  assert.equal(asAmount({}), null);
+});
+
+test("the client maps Pago Inicial, so a booking row can carry a purchase value", () => {
+  assert.equal(leadsMap().initialPayment, "Pago Inicial");
 });

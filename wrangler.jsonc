@@ -32,6 +32,11 @@
     "META_AD_ACCOUNT_ID": "act_1334257084455191",
     "WA_WABA_ID": "1717538906028335",
     "METRICS_SINCE": "2026-07-01"
+    // Conversions API for Business Messaging (docs/meta-capi.md). Uncomment and
+    // paste the dataset id linked to WA_WABA_ID once it exists in Events Manager
+    // (GET /admin/api/capi/dataset reads it). Non-secret, so a var is fine. The
+    // whole feature stays inert until this AND features.metaCapi are set.
+    // ,"META_CAPI_DATASET_ID": "<dataset id>"
   },
   // Text modules: the compiled KB (*.md, see src/kb.ts) and the admin SPA
   // (src/ui/admin.html, imported by routes/admin-ui.ts) are inlined as strings.

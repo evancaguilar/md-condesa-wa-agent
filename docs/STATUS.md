@@ -1,6 +1,18 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-16**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-21**.
+
+### Meta Conversions API for Business Messaging — shipped INERT (2026-09-21)
+
+Owner guide: **docs/meta-capi.md**. Campaigns optimize for "conversations started", so Meta buys the cheapest chat (one ad: $13.9k MXN → 1 sale of $500). The fix is to send the downstream funnel back to Meta for ad leads: **Booked → `LeadSubmitted`, Attended → `QualifiedLead`, Enrolled → `Purchase`** (value = `Pago Inicial`, MXN), keyed on the `ctwa_clid` the inbound pipeline already stores in `contacts.ad_ref`. Event names come from Meta's closed business-messaging list (Schedule/Contact are NOT on it; custom names are undocumented → not used).
+
+- `src/services/meta-capi.ts`: pure payload builders + `capiEventsForResult` + a sender that never throws and scrubs the token from every error (Bearer header, never a URL). `src/cron/capi.ts`: drains ≤5 events per tick, **one POST per event** (Meta rejects a whole request if any event in it is invalid), retries 3× then drops, `capi_last_ok` / `capi_last_error`, one Slack note per CDMX day. Idle ticks read ONE kv row (`capi_pending` gate) — no `LIKE` scan of kv per tick.
+- Hooks only ENQUEUE (a D1 write, no network): `finalizeBooking` (chat/staff bookings), `syncBookings` (web-form bookings), and one self-contained clearly-marked block at the top of `processResult` that reads the raw Airtable result itself — it does not touch `classifyResult` or the existing branches. At most one event per contact per step (kv claim), since Meta does NOT deduplicate business-messaging events.
+- Leads without a `ctwa_clid` are skipped silently; events older than Meta's 7-day `event_time` window are dropped; a late-marked result reports the trial datetime, not the marking day; no amount ⇒ Purchase without value.
+- Config: `features.metaCapi` (client.mjs, **false**) AND var `META_CAPI_DATASET_ID` (commented placeholder in wrangler.jsonc) AND a token — any one missing ⇒ complete no-op. Token order `META_CAPI_TOKEN` → `ADS_ACCESS_TOKEN` → `WA_ACCESS_TOKEN` (the API needs `whatsapp_business_management` + `whatsapp_business_manage_events`, not the ads scopes). New Leads column read (never written): `Pago Inicial` via `airtableLeads.initialPayment`.
+- Owner routes: `GET /admin/api/capi/probe` (state, never the token), `GET /admin/api/capi/dataset` (reads the dataset linked to the WABA — Evan cannot curl it himself, the token is a Cloudflare secret), `POST /admin/api/capi/test {phone, kind?, send?, testEventCode?}`. No D1 migration, no dashboard UI change. Tests 775 → **802**.
+
+**Pendiente Evan:** (1) create/find the dataset on WABA 1717538906028335 (`GET /admin/api/capi/dataset`, else `POST /<WABA_ID>/dataset` or Events Manager → Business messaging); (2) set `META_CAPI_TOKEN` as a Cloudflare secret if the ads token lacks `whatsapp_business_manage_events` (advanced access); (3) paste the id into `META_CAPI_DATASET_ID` in wrangler.jsonc; (4) dry-run `POST /admin/api/capi/test` and watch Events Manager → Test events; (5) only then flip `features.metaCapi` to true + `npm run build` + push; (6) the step that actually changes spend: a NEW campaign with objective Sales / conversion location WhatsApp / performance goal "maximize conversions" on the dataset's `Purchase` (or `QualifiedLead` while volume is low), run alongside the current one for 2–3 weeks and compared on cost per enrolment.
 
 ### Baby Fight Club Wednesday trial moved 11 am → 1 pm (2026-09-18)
 
