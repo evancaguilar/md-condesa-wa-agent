@@ -28,7 +28,11 @@ import {
   bookingRecordedKey,
   parseBookingRecordedMarker,
 } from "../services/booking-core.js";
-import { cancelFollowupsByKinds, getCampaign } from "../db/queries-admin.js";
+import {
+  cancelFollowupsByKinds,
+  getCampaign,
+  hasScheduledFollowupOfKind,
+} from "../db/queries-admin.js";
 import {
   attributionFor,
   withAttribution,
@@ -57,6 +61,7 @@ import {
   listStudents,
   normalizeMxPhone,
   classifyResult,
+  isLostResult,
   type BookingRecord,
 } from "../services/airtable.js";
 import {
@@ -810,8 +815,16 @@ export async function syncBookings(
  *    warm welcome (free-form if window open, else human_followup template
  *    fallback; failure → Slack).
  *
- * The marker is per record+VALUE, so the ordinary "Asistió" → later "Se
- * inscribió" progression runs both branches, in that order.
+ * Two options of the multi-select are orthogonal to the outcome and gate all of
+ * the above:
+ *  - "Perdido" (staff gave up) → cancel every marketing chain, send nothing,
+ *    leave class reminders alone. Enrolment outranks it.
+ *  - "Reprogramó" / a record moved to a new date → a live anti-no-show sequence
+ *    exists, so the no-show branch stays quiet and neither branch cancels it.
+ *
+ * The marker is per record+VALUE (including the "+lost" suffix), so the ordinary
+ * "Asistió" → later "Se inscribió" progression runs both branches, in that
+ * order, and "Asistió" → "Asistió, Perdido" retires the chain it just armed.
  *
  * Reactions are age-gated. Old records get their modified-time bumped whenever
  * the contact writes in again (lead-sync touches the row), which re-surfaces
@@ -828,11 +841,16 @@ async function processResult(
   trialDateTimeIso: string | null,
 ): Promise<void> {
   const action = classifyResult(rawResult);
-  if (!action) return;
+  // "Perdido" rides alongside the outcome in the multi-select, so it is read
+  // separately — and it MUST be part of the kv marker. The marker is per
+  // record+value; without the suffix, "Asistió" → "Asistió, Perdido" would look
+  // like the same value and the cancellation below would never run.
+  const lost = isLostResult(rawResult);
+  if (!action && !lost) return;
 
   const kvKey = `resultado:${recordId}`;
   const already = await kvGet(env.DB, kvKey);
-  const marker = `${action}`;
+  const marker = `${action ?? "none"}${lost ? "+lost" : ""}`;
   if (already === marker) return; // acted on this record+value already
 
   const trialEpoch = trialDateTimeIso
@@ -860,14 +878,44 @@ async function processResult(
   // enrolled branch does NOT overwrite status — opted_out wins.
   const optedOut = contact?.status === "opted_out";
 
+  // Staff gave up on this lead ("Perdido"). Every automated chase stops, in
+  // silence — including a post-trial chain armed minutes earlier by a plain
+  // "Asistió". Class reminders (BOOKING_KINDS) are deliberately left alone: a
+  // "Perdido" next to a live booking must not cancel the reminders for a class
+  // the lead may still walk into. Enrolment outranks it — they paid.
+  if (lost && action !== "enrolled") {
+    await cancelFollowupsByKinds(env.DB, phone, [
+      ...ALL_NUDGE_KINDS,
+      ...POST_TRIAL_ALL_KINDS,
+    ]);
+    await kvSet(env.DB, kvKey, marker);
+    return;
+  }
+  // Unreachable (a null action is either returned above or carries `lost`), but
+  // it is what narrows `action` for the branches below.
+  if (!action) return;
+
+  // "Reprogramó" next to "No asistió", or a record simply moved to a new date:
+  // a live anti-no-show sequence means they ALREADY rebooked. syncBookings arms
+  // that sequence earlier in this very loop, so chasing them about the class
+  // they missed — and worse, cancelling the rows for the one they did book —
+  // would be exactly backwards.
+  const rebooked = await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS);
+
   if (action === "attended") {
     // They CAME and did not sign up — the single biggest unworked segment.
     // Clear what the booking armed (reminders for a class that already happened,
     // plus any lead drip), then arm the post-trial chain. Status stays `lead`:
     // they are still a prospect, and marking them a student would silence
     // everything else the system does for them.
-    await cancelFollowupsByKinds(env.DB, phone, [...BOOKING_KINDS, ...ALL_NUDGE_KINDS]);
-    if (optedOut) {
+    await cancelFollowupsByKinds(
+      env.DB,
+      phone,
+      rebooked ? ALL_NUDGE_KINDS : [...BOOKING_KINDS, ...ALL_NUDGE_KINDS],
+    );
+    if (optedOut || rebooked) {
+      // Rebooked: the new anti-no-show sequence owns them, and the post-trial
+      // chain would only cancel itself at send time anyway.
       await kvSet(env.DB, kvKey, marker);
       return;
     }
@@ -893,6 +941,12 @@ async function processResult(
   }
 
   if (action === "no_show") {
+    if (rebooked) {
+      // They missed one class and already have the next one on the calendar.
+      // Leave that sequence standing and say nothing about the one they missed.
+      await kvSet(env.DB, kvKey, marker);
+      return;
+    }
     await cancelFollowups(env.DB, phone); // all kinds
     if (optedOut || !sendReaction) {
       await kvSet(env.DB, kvKey, marker);

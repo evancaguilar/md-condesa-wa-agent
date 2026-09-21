@@ -115,11 +115,23 @@ function hasBareAsistio(normalized: string): boolean {
 /**
  * Classify a normalized result value into an action bucket.
  *
- * Precedence, for the multi-select joins the front desk actually produces:
- * enrollment always wins (a no-show who later signed up is a student), then
- * attendance, then the no-show. "Asistió, No asistió" therefore reads as
- * attended — someone ticked both, and the touch that assumes they came is the
- * safe one (the post-trial sequence opens with "¿cómo te sentiste?").
+ * The live options of the `Resultado Clase Prueba` multi-select (verified
+ * 2026-09-21): "No asistió", "Reprogramó", "Asistió", "Dijo que se va a
+ * inscribir", "Perdido", "Se inscribió". Staff tick several at once.
+ *
+ * Precedence for the joins they actually produce: enrollment always wins (a
+ * no-show who later signed up is a student), then attendance, then the
+ * no-show. "Asistió, No asistió" therefore reads as attended — someone ticked
+ * both, and the touch that assumes they came is the safe one (the post-trial
+ * sequence opens with "¿cómo te sentiste?").
+ *
+ * Note the two lookalikes that must NOT collide: "Se inscribió" (done) vs
+ * "Dijo que se va a inscribir" (an intention — the hottest lead there is, and
+ * still `attended` when it rides next to "Asistió"). They differ by exactly one
+ * letter after normalization, "inscribio" vs "inscribir".
+ *
+ * "Reprogramó" and "Perdido" are orthogonal to the outcome and are read
+ * elsewhere — see isLostResult and the rebooking guard in cron/followups.ts.
  */
 export function classifyResult(
   raw: string | null | undefined,
@@ -130,6 +142,16 @@ export function classifyResult(
   if (hasBareAsistio(n)) return "attended";
   if (n.includes("no asistio")) return "no_show";
   return null;
+}
+
+/**
+ * True when staff marked the lead "Perdido" — they gave up on them. It rides
+ * ALONGSIDE the outcome in the multi-select ("Asistió, Perdido"), so it is a
+ * separate signal rather than a member of TrialResult: the bot stops every
+ * automated chase, silently, whatever the outcome says.
+ */
+export function isLostResult(raw: string | null | undefined): boolean {
+  return normalizeResult(raw).includes("perdido");
 }
 
 export interface StudentRecord {

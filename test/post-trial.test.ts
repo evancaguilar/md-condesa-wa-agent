@@ -9,7 +9,7 @@ import {
   processPostTrial,
   POST_TRIAL_KINDS,
 } from "../src/cron/post-trial.js";
-import { classifyResult } from "../src/services/airtable.js";
+import { classifyResult, isLostResult } from "../src/services/airtable.js";
 import { runDueFollowups, syncBookings } from "../src/cron/followups.js";
 import { noShowCopy } from "../src/cron/nudges.js";
 import { cdmxToEpoch, cdmxParts, DAY } from "../src/cron/time.js";
@@ -126,9 +126,33 @@ test("classifyResult: a multi-select join with a BARE asistio reads attended", (
 test("classifyResult: unrelated values and empties stay null", () => {
   assert.equal(classifyResult("Reprogramó"), null);
   assert.equal(classifyResult("Pendiente"), null);
+  assert.equal(classifyResult("Perdido"), null);
   assert.equal(classifyResult(""), null);
   assert.equal(classifyResult(null), null);
   assert.equal(classifyResult(undefined), null);
+});
+
+test("classifyResult: 'Dijo que se va a inscribir' is an INTENTION, never enrolled", () => {
+  // One letter apart after normalization: "se inscribio" vs "…a inscribir".
+  assert.equal(classifyResult("Dijo que se va a inscribir"), null);
+  assert.equal(classifyResult("dijo que se va a inscribir"), null);
+  // Next to "Asistió" it is the hottest lead there is — and still `attended`.
+  assert.equal(classifyResult("Asistió, Dijo que se va a inscribir"), "attended");
+  assert.equal(classifyResult("Dijo que se va a inscribir, Asistió"), "attended");
+});
+
+test("isLostResult reads 'Perdido' out of any join, and nothing else", () => {
+  assert.equal(isLostResult("Perdido"), true);
+  assert.equal(isLostResult("Asistió, Perdido"), true);
+  assert.equal(isLostResult("No asistió, Perdido"), true);
+  assert.equal(isLostResult("perdido"), true);
+  assert.equal(isLostResult("Asistió"), false);
+  assert.equal(isLostResult("Reprogramó"), false);
+  assert.equal(isLostResult(null), false);
+  // "Perdido" never changes what the outcome itself says.
+  assert.equal(classifyResult("Asistió, Perdido"), "attended");
+  assert.equal(classifyResult("No asistió, Perdido"), "no_show");
+  assert.equal(classifyResult("Se inscribió, Perdido"), "enrolled");
 });
 
 // ---- post-trial timing (pure) --------------------------------------------
@@ -504,7 +528,12 @@ interface WatcherRun {
 async function runWatcher(
   result: string,
   trialEpoch: number,
-  over: { contact?: Contact | null; kv?: Map<string, string> } = {},
+  over: {
+    contact?: Contact | null;
+    kv?: Map<string, string>;
+    /** true ⇒ a live anti-no-show sequence exists (the lead rebooked). */
+    rebooked?: boolean;
+  } = {},
 ): Promise<WatcherRun> {
   stubFetchOk();
   const run: WatcherRun = {
@@ -527,6 +556,8 @@ async function runWatcher(
       return {};
     }
     if (sql.includes("SELECT * FROM contacts")) return { first: c };
+    if (sql.includes("SELECT 1 AS n FROM followups"))
+      return { first: over.rebooked ? { n: 1 } : null };
     if (sql.includes("INSERT OR IGNORE INTO followups")) {
       run.scheduled.push({
         kind: String(binds[1]),
@@ -631,6 +662,69 @@ test("result watcher: an attendance marked 6 days late arms nothing and stays qu
   assert.deepEqual(run.scheduled, []);
   assert.deepEqual(run.notes, []);
   assert.equal(run.kv.get("resultado:recA"), "attended");
+});
+
+test("result watcher: 'Asistió' → 'Asistió, Perdido' is a NEW value and retires the chain", async () => {
+  const trial = recentTrial();
+  const kv = new Map<string, string>();
+  const armed = await runWatcher("Asistió", trial, { kv });
+  assert.equal(armed.scheduled.length, 3);
+  assert.equal(kv.get("resultado:recA"), "attended");
+
+  const lost = await runWatcher("Asistió, Perdido", trial, { kv });
+  // Without the "+lost" suffix on the marker this run would have been skipped
+  // as "already acted on this value" and the three rows would have survived.
+  assert.equal(kv.get("resultado:recA"), "attended+lost");
+  assert.deepEqual(lost.scheduled, []);
+  assert.deepEqual(lost.notes, []);
+  const cancelled = lost.cancelledKinds.flat();
+  for (const kind of ["post_trial_d0", "post_trial_d2", "post_trial_d5", "no_show_d3"]) {
+    assert.ok(cancelled.includes(kind), `${kind} not cancelled: ${cancelled.join()}`);
+  }
+  // Class reminders are NOT touched — a "Perdido" must not cancel a live booking.
+  for (const kind of ["trial_confirm", "day_before", "same_day"]) {
+    assert.ok(!cancelled.includes(kind), `${kind} should have survived`);
+  }
+  assert.equal(lost.cancelledAll, 0);
+});
+
+test("result watcher: a bare 'Perdido' stops the drip silently", async () => {
+  const run = await runWatcher("Perdido", recentTrial());
+  assert.deepEqual(run.scheduled, []);
+  assert.deepEqual(run.notes, []);
+  assert.equal(run.cancelledAll, 0);
+  assert.ok(run.cancelledKinds.flat().includes("nudge_d2"));
+  assert.equal(run.kv.get("resultado:recA"), "none+lost");
+});
+
+test("result watcher: 'No asistió, Perdido' sends nothing and arms no second touch", async () => {
+  const run = await runWatcher("No asistió, Perdido", recentTrial());
+  assert.deepEqual(run.scheduled, []);
+  assert.equal(run.kv.get("resultado:recA"), "no_show+lost");
+});
+
+test("result watcher: 'Se inscribió, Perdido' still enrolls them — they paid", async () => {
+  const run = await runWatcher("Se inscribió, Perdido", recentTrial());
+  assert.deepEqual(run.statusWrites, ["student"]);
+  assert.equal(run.kv.get("resultado:recA"), "enrolled+lost");
+});
+
+test("result watcher: 'No asistió, Reprogramó' with a live booking says nothing", async () => {
+  const run = await runWatcher("No asistió, Reprogramó", recentTrial(), { rebooked: true });
+  assert.deepEqual(run.scheduled, []); // no no_show_d3
+  assert.equal(run.cancelledAll, 0); // the NEW sequence must survive
+  assert.deepEqual(run.cancelledKinds, []);
+  assert.equal(run.kv.get("resultado:recA"), "no_show");
+});
+
+test("result watcher: an attendee who already rebooked keeps that sequence", async () => {
+  const run = await runWatcher("Asistió", recentTrial(), { rebooked: true });
+  assert.deepEqual(run.scheduled, []); // the chain would self-cancel anyway
+  assert.deepEqual(run.notes, []);
+  // Only the lead drip is cleared; the booking reminders stay.
+  const cancelled = run.cancelledKinds.flat();
+  assert.ok(cancelled.includes("nudge_d2"));
+  assert.ok(!cancelled.includes("day_before"));
 });
 
 test("result watcher: 'No asistió' arms the +3d touch and proposes a real slot", async () => {
