@@ -19,6 +19,7 @@
 
 import type { Contact, Language, Qualification } from "../types.js";
 import { CLIENT } from "../client.gen.js";
+import { renderCopy } from "../client-config.js";
 import { greetingName } from "./display-name.js";
 import { attributionFor, withAttribution } from "../services/booking-link.js";
 import type { Slot } from "../brain/slots.gen.js";
@@ -153,9 +154,10 @@ export function nudgeSlot(
 /**
  * The closing call-to-action: a concrete slot first ("Te puedo apartar lugar en
  * Muay Thai mañana viernes 7:00 am — ¿te late?"), the booking link second. With
- * no slot available it degrades to the pre-B link-only CTA.
+ * no slot available it degrades to the pre-B link-only CTA. Exported so the
+ * no-show rebook copy closes exactly like a nudge does.
  */
-function slotCta(
+export function slotCta(
   program: Program,
   lang: Language,
   slot: NextSlot | null,
@@ -183,6 +185,39 @@ function slotCta(
   return plural
     ? `Les puedo apartar lugar en ${what} ${when} — ¿les late? Si prefieren otro horario: ${link}`
     : `Te puedo apartar lugar en ${what} ${when} — ¿te late? Si prefieres otro horario: ${link}`;
+}
+
+// ---- no-show rebook copy ----
+
+/**
+ * Rebook copy for a lead who booked and never came: the client's reschedule
+ * line plus ONE concrete slot from the real grid ({cta}) — the same close every
+ * nudge uses, because "¿te apartamos el sábado 9:00 am?" outperforms a bare
+ * link. `step` picks the first touch (sent the moment Airtable is marked) or
+ * the second one 3 days later, so the lead never reads the same text twice.
+ * Pure over (contact, program, now, schedule).
+ */
+export function noShowCopy(
+  contact: Contact | null,
+  program: Program,
+  step: "first" | "d3",
+  who: string,
+  link: string,
+  nowEpoch: number = Math.floor(Date.now() / 1000),
+  schedule: readonly Slot[] = SLOTS,
+): string {
+  const lang: Language = contact?.lang === "en" ? "en" : "es";
+  const cta = slotCta(program, lang, nudgeSlot(contact, program, nowEpoch, schedule), link, nowEpoch);
+  const c = CLIENT.copy;
+  const template =
+    step === "d3"
+      ? lang === "en"
+        ? c.noShowD3En
+        : c.noShowD3Es
+      : lang === "en"
+        ? c.noShowEn
+        : c.noShowEs;
+  return renderCopy(template, { who, link, cta });
 }
 
 // ---- day-1 copy (nudge_1h / nudge_6h / nudge_8h) ----

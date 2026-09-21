@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS pending_approvals(
 
 CREATE TABLE IF NOT EXISTS followups(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  phone TEXT, kind TEXT,             -- trial_confirm|day_before|same_day|attendance_check|no_show_1|reengage_7d|nudge_1h|nudge_6h|nudge_8h|nudge_d2|nudge_d3|nudge_d4|nudge_d5|custom
+  phone TEXT, kind TEXT,             -- trial_confirm|day_before|same_day|attendance_check|no_show_1|no_show_d3|reengage_7d|post_trial_d0|post_trial_d2|post_trial_d5|nudge_1h|nudge_6h|nudge_8h|nudge_d2|nudge_d3|nudge_d4|nudge_d5|custom
+                                     -- NOTE: `kind` has no CHECK constraint, so new kinds (2026-09-21: no_show_d3, post_trial_*) need NO migration.
   due_at INTEGER, status TEXT DEFAULT 'scheduled', -- scheduled|sent|cancelled|skipped_optout | blast rows also: paused|failed (docs/blasts.md)
   airtable_record_id TEXT, note TEXT, created_at INTEGER,
   UNIQUE(phone, kind, airtable_record_id)

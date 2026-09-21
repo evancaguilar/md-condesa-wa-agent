@@ -15,9 +15,9 @@ business.facebook.com → **WhatsApp Manager** → account **"MD Self Defense Co
 5. `trial_reminder_same_day_*` has two **Quick Reply** buttons — add them as Buttons → Quick reply, exact text below.
 6. Categories: as listed per template (Utility / Marketing). If Meta auto-recategorizes a Utility one to Marketing, accept it — the send code doesn't care.
 
-## Checklist — 24 templates
+## Checklist — 30 templates
 
-### Base templates (ES + EN = 12)
+### Base templates (ES + EN = 18)
 
 | # | Name | Lang | Category | Extras |
 |---|------|------|----------|--------|
@@ -33,17 +33,26 @@ business.facebook.com → **WhatsApp Manager** → account **"MD Self Defense Co
 | 10 | `reengage_lead_en` | English | Marketing | Footer |
 | 11 | `human_followup_es` | Spanish | Utility | — |
 | 12 | `human_followup_en` | English | Utility | — |
+| 13 | `post_trial_d0_es` | Spanish | Utility | — |
+| 14 | `post_trial_d0_en` | English | Utility | — |
+| 15 | `post_trial_d2_es` | Spanish | Marketing | Footer |
+| 16 | `post_trial_d2_en` | English | Marketing | Footer |
+| 17 | `post_trial_d5_es` | Spanish | Marketing | Footer |
+| 18 | `post_trial_d5_en` | English | Marketing | Footer |
+
+`no_show_d3` (the second no-show touch, 2026-09-21) reuses `no_show_followup_*`
+above — nothing extra to submit for it.
 
 ### Extended drip (ES only = 12, all Marketing, all with Footer)
 
 | # | Name | # | Name |
 |---|------|---|------|
-| 13 | `nudge_d2_adults_es` | 19 | `nudge_d2_kids_es` |
-| 14 | `nudge_d3_adults_es` | 20 | `nudge_d3_kids_es` |
-| 15 | `nudge_d4_adults_es` | 21 | `nudge_d4_kids_es` |
-| 16 | `nudge_d5_adults_es` | 22 | `nudge_d5_kids_es` |
-| 17 | `nudge_d2_baby_es` | 23 | `nudge_d3_baby_es` |
-| 18 | `nudge_d4_baby_es` | 24 | `nudge_d5_baby_es` |
+| 19 | `nudge_d2_adults_es` | 25 | `nudge_d2_kids_es` |
+| 20 | `nudge_d3_adults_es` | 26 | `nudge_d3_kids_es` |
+| 21 | `nudge_d4_adults_es` | 27 | `nudge_d4_kids_es` |
+| 22 | `nudge_d5_adults_es` | 28 | `nudge_d5_kids_es` |
+| 23 | `nudge_d2_baby_es` | 29 | `nudge_d3_baby_es` |
+| 24 | `nudge_d4_baby_es` | 30 | `nudge_d5_baby_es` |
 
 Footer for all 12 nudges (identical, plain text): `Responde BAJA para dejar de recibir mensajes.`
 
@@ -85,7 +94,7 @@ Hi {{1}}! A reminder about your trial class tomorrow at MD Condesa (Av. México 
 Today's your trial class, {{1}}! 🥋 We'll be waiting at Av. México 49, 1st floor, Condesa. Let us know:
 ```
 
-### 7–8 · no_show_followup (Utility)
+### 7–8 · no_show_followup (Utility — used by BOTH no-show touches)
 
 **`no_show_followup_es`**
 ```
@@ -121,7 +130,45 @@ Hi {{1}}! We still have a spot for you at MD Condesa 🥋 Self-defense, jiu jits
 Hi {{1}}! Circling back on your message to MD Condesa. Still around? Happy to help. 🙌
 ```
 
-### 13–16 · nudge adults (Marketing + Footer, Spanish)
+### 13–14 · post_trial_d0 (Utility)
+
+Sent ~3h after a trial class the lead ATTENDED without signing up.
+
+**`post_trial_d0_es`**
+```
+¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si quieres seguir, te guardamos la inscripción sin costo (normalmente $999) durante 48 horas. ¿Te apartamos tu lugar?
+```
+
+**`post_trial_d0_en`**
+```
+Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you'd like to keep going, we'll hold the sign-up fee for you free (normally $999) for the next 48 hours. Want us to save your spot?
+```
+
+### 15–16 · post_trial_d2 (Marketing + Footer)
+
+**`post_trial_d2_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
+```
+¡Hola {{1}}! Hoy vence el plazo para guardarte la inscripción sin costo 🥋 ¿Quieres que te apartemos tu lugar antes de que cierre el día?
+```
+
+**`post_trial_d2_en`** — Footer: `Reply BAJA to stop receiving messages.`
+```
+Hi {{1}}! Today is the last day we can hold the free sign-up for you 🥋 Want us to save your spot before the day ends?
+```
+
+### 17–18 · post_trial_d5 (Marketing + Footer)
+
+**`post_trial_d5_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
+```
+¡Hola {{1}}! No queremos insistir más 🙂 Este es nuestro último mensaje. Nos dio mucho gusto tenerte en clase y aquí seguimos cuando quieras volver — estos son los horarios: https://mdcondesa.com/#horarios
+```
+
+**`post_trial_d5_en`** — Footer: `Reply BAJA to stop receiving messages.`
+```
+Hi {{1}}! We won't keep writing 🙂 This is our last message. We loved having you in class and we're here whenever you want to come back — here's the schedule: https://mdcondesa.com/#horarios
+```
+
+### 19–22 · nudge adults (Marketing + Footer, Spanish)
 
 **`nudge_d2_adults_es`**
 ```
@@ -143,7 +190,7 @@ Hi {{1}}! Circling back on your message to MD Condesa. Still around? Happy to he
 ¡Hola {{1}}! Parece que por ahora quizá no es el momento, y está bien 🙂 Este será nuestro último mensaje de seguimiento por ahora. Si algo cambia y te gustaría ponerte en forma, aprender a defenderte y ganar confianza, aquí puedes agendar tu día gratuito cuando quieras: https://mdcondesa.com/clase-prueba-adultos/
 ```
 
-### 19–22 · nudge kids (Marketing + Footer, Spanish)
+### 25–28 · nudge kids (Marketing + Footer, Spanish)
 
 **`nudge_d2_kids_es`**
 ```
@@ -165,7 +212,7 @@ Hi {{1}}! Circling back on your message to MD Condesa. Still around? Happy to he
 ¡Hola {{1}}! Parece que quizá no es el momento, y está perfecto 🙂 Este será nuestro último mensaje por ahora. Si más adelante te gustaría que tu peque pruebe una clase, con gusto le apartamos su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
 ```
 
-### 17–18, 23–24 · nudge baby (Marketing + Footer, Spanish)
+### 23–24, 29–30 · nudge baby (Marketing + Footer, Spanish)
 
 **`nudge_d2_baby_es`**
 ```

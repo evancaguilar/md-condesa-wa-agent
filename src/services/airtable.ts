@@ -93,14 +93,41 @@ export function normalizeResult(raw: string | null | undefined): string {
     .trim();
 }
 
-/** Classify a normalized result value into an action bucket. */
+/** What the front desk's `Resultado Clase Prueba` value means for the bot. */
+export type TrialResult = "no_show" | "attended" | "enrolled";
+
+/**
+ * A BARE "asistio" — one that is NOT the tail of "no asistio". The normalized
+ * string contains "asistio" in both cases, so a plain includes() would read
+ * every no-show as an attendance. Matches each occurrence with its optional
+ * "no " prefix and asks whether any occurrence came without one; the leading
+ * `(?:^|[^a-z])` keeps "inasistio"-style words out.
+ */
+const ASISTIO_OCCURRENCE = /(?:^|[^a-z])(no\s+)?asistio/g;
+
+function hasBareAsistio(normalized: string): boolean {
+  for (const m of normalized.matchAll(ASISTIO_OCCURRENCE)) {
+    if (!m[1]) return true;
+  }
+  return false;
+}
+
+/**
+ * Classify a normalized result value into an action bucket.
+ *
+ * Precedence, for the multi-select joins the front desk actually produces:
+ * enrollment always wins (a no-show who later signed up is a student), then
+ * attendance, then the no-show. "Asistió, No asistió" therefore reads as
+ * attended — someone ticked both, and the touch that assumes they came is the
+ * safe one (the post-trial sequence opens with "¿cómo te sentiste?").
+ */
 export function classifyResult(
   raw: string | null | undefined,
-): "no_show" | "enrolled" | null {
+): TrialResult | null {
   const n = normalizeResult(raw);
   if (!n) return null;
-  // Enrollment wins when a multi-select holds both (no-show → later enrolled).
   if (n.includes("se inscribio")) return "enrolled";
+  if (hasBareAsistio(n)) return "attended";
   if (n.includes("no asistio")) return "no_show";
   return null;
 }

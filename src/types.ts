@@ -236,6 +236,15 @@ export type FollowupKind =
   | "attendance_check"
   | "no_show_1"
   | "reengage_7d"
+  /** Second no-show touch, ~3 days after the missed trial (src/cron/post-trial.ts).
+   *  The first one goes out the moment Airtable is marked "No asistió". */
+  | "no_show_d3"
+  /** Post-trial sequence for a lead who CAME and did not sign up: same evening,
+   *  +2 days, +5 days (src/cron/post-trial.ts). Armed by the result watcher when
+   *  `Resultado Clase Prueba` says "Asistió". */
+  | "post_trial_d0"
+  | "post_trial_d2"
+  | "post_trial_d5"
   | "nudge_1h"
   | "nudge_6h"
   | "nudge_8h"

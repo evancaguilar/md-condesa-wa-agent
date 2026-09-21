@@ -37,6 +37,9 @@ import {
   classifyProgram,
   extendedCopy,
   extendedTemplateName,
+  noShowCopy,
+  programLink,
+  slotCta,
   type NudgeKind,
   type ExtendedKind,
   type Program,
@@ -52,6 +55,9 @@ export {
   classifyProgram,
   extendedCopy,
   extendedTemplateName,
+  noShowCopy,
+  programLink,
+  slotCta,
 };
 export type { NudgeKind, ExtendedKind, Program };
 
