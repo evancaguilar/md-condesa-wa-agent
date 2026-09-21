@@ -1,6 +1,20 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-16**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-21**.
+
+### Soonest slot first — stop defaulting leads to Saturday (2026-09-21)
+
+**The data (Jul 1 – Sep 21, 645 trial classes that came due).** Trials booked for the SAME DAY — under 24h after the lead first wrote — show up **54% of the time (115/214)**. Trials booked one or more days out show **~29% (126/431)**. Only a third of all trials are booked inside that 24h window. And **Saturday holds 37% of every booked trial but shows at just 33%**, while Mon/Tue/Wed show 44–51%. The bot was not refusing anything — it was simply *offering* the weekend first, and the weekend is the worst-converting day we have.
+
+Goal of this change: the FIRST option the lead ever sees is the soonest valid class for their program, while the day a lead asks for is still honored without argument.
+
+- **persona.md → "Flujo de agendado"** gained three lines: (1) the first option is always the soonest valid class — today when it is ≥4h away, otherwise tomorrow — then at most two alternatives inside the next 3 days, with Sat/Sun first ONLY when the lead asked for the weekend or it genuinely is the soonest; (2) if the lead names a day, honor it, and only when that day is 3+ days out add ONE gentle "si quieres venir antes…" line; (3) the *why* (the show-rate numbers above), so the model applies judgement instead of pattern-matching. KB body is unchanged at **10 340 / 11 000 tokens** (the persona compiles into `client.gen.ts`, not `kb.md`).
+- **`nextTrialSlot` (src/cron/next-slot.ts)** was audited and was already soonest-first — day offsets ascending, slots sorted by clock time inside each day, no weekend or "popular slot" bias. A brute-force unit test (expand the whole grid, take the min by epoch) now pins that for every audience at 7 days × 7 hours, so it can't regress.
+- **Preferred blocks (new, config-driven, EMPTY by default).** `booking.preferredBlocks` in clients/md-condesa/client.mjs: `{dow, from, to}` (dow 0=Mon…6=Sun, from/to inclusive class START times). When two candidates fall inside the same 24h, the one in a block wins; past 24h, sooner always wins; a block never conjures a slot the grid lacks. With the empty default the behavior is *exactly* pure soonest-first. **Evan: fill this in with the hours you're on the floor closing.** (compile-kb whitelist + `BookingConfig` in client-config.ts updated — malformed blocks are dropped at compile time.)
+- **Brain per-turn context** now carries `próximos horarios válidos para <grupo>: …` — the 3 nearest valid hours for that lead's program, soonest first, generated from the same SLOTS + closed-dates logic using the persona's own 4h buffer, plus a line telling the model to offer the first one and still verify the KB row. It lives in `buildContextBlock` only; a test pins it OUT of both cached system blocks (cache stability is contractual) and pins that an unparseable clock degrades to the previous context shape.
+- **Nudge copy checked, no change needed:** `src/cron/nudge-copy.ts` already closes every step with `slotCta`, i.e. whatever `nextTrialSlot` returns — no hard-coded "este sábado" anywhere in the drip.
+
+Tests 775 → **790**.
 
 ### Baby Fight Club Wednesday trial moved 11 am → 1 pm (2026-09-18)
 

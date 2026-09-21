@@ -29,6 +29,18 @@ export default {
   closedDates: [
     { date: "2026-09-16", reason: "Día de la Independencia" },
   ],
+  // Trial offers are SOONEST-FIRST (same-day trials show 54% vs ~29% for ones
+  // a day or more out — Jul 1–Sep 21 2026, 645 trials). preferredBlocks is the
+  // ONLY thing that may outrank a sooner class, and only when both fall inside
+  // the same 24h: fill it with the hours Evan is on the floor closing.
+  //   dow: 0=Mon … 6=Sun (the SLOTS convention, NOT JS getDay()).
+  //   from/to: inclusive class START times, "HH:mm" 24h CDMX.
+  //   e.g. { dow: 5, from: "09:00", to: "13:00" } = sábado por la mañana.
+  // EMPTY (the default) = pure soonest-first. Never a restriction — a block
+  // never hides a class, it only wins a tie.
+  booking: {
+    preferredBlocks: [],
+  },
   features: {
     booking: true,
     nudges: true,

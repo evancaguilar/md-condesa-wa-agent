@@ -16,6 +16,9 @@
 import type { ConvoContext } from "../types.js";
 import { CLIENT } from "../client.gen.js";
 import type { ClosedDate } from "../client-config.js";
+import { classifyProgram, programAudience } from "../cron/nudge-copy.js";
+import { TODAY_BUFFER_SECONDS, upcomingTrialSlots } from "../cron/next-slot.js";
+import { cdmxToEpoch } from "../cron/time.js";
 
 /**
  * Persona + hard policies. Stable across all turns (the KB is appended).
@@ -123,6 +126,59 @@ export function closureLines(
   return out;
 }
 
+/** How many upcoming hours the context hands the model (persona caps offers at 3). */
+const CONTEXT_SLOT_COUNT = 3;
+
+/**
+ * Soonest-first hours for THIS lead's program, pre-computed so the model never
+ * has to do calendar math to obey the "first option = soonest valid class" rule
+ * (persona.md, "Flujo de agendado"). Uses the persona's own 4h buffer, so an
+ * hour listed here is always one it is allowed to offer.
+ *
+ * VOLATILE — belongs in the per-turn block, never in a cached system block.
+ * Returns [] when the clock can't be parsed or the grid yields nothing, so the
+ * context degrades to exactly its previous shape.
+ */
+export function upcomingSlotLines(ctx: ConvoContext): string[] {
+  const now = cdmxIsoToEpoch(ctx.nowCdmx);
+  if (now === null) return [];
+  const program = classifyProgram(ctx.contact, ctx.campaign?.name ?? null);
+  const q = parseQualification(ctx.contact.qualification);
+  const discipline = program === "baby" ? "baby" : (q.discipline ?? null);
+  const slots = upcomingTrialSlots(
+    discipline,
+    programAudience(program),
+    now,
+    CONTEXT_SLOT_COUNT,
+    undefined,
+    undefined,
+    TODAY_BUFFER_SECONDS,
+  );
+  if (slots.length === 0) return [];
+  const group =
+    program === "adults" ? "adultos" : program === "kids" ? "niños" : "Baby Fight Club";
+  return [
+    `próximos horarios válidos para ${group} (más próximo primero, ya con el buffer de 4h): ${slots
+      .map((s) => s.label)
+      .join(" · ")}`,
+    "Ofrece el PRIMERO de esa lista antes que cualquier otro, salvo que el lead haya pedido otro día. Antes de nombrar una hora confirma en el horario del KB que esa fila existe para su disciplina y su grupo de edad.",
+  ];
+}
+
+/** "2026-09-21T14:30" (CDMX, no offset) → epoch seconds. null if unparseable. */
+function cdmxIsoToEpoch(iso: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
+  if (!m) return null;
+  return cdmxToEpoch(
+    Number(m[1]),
+    Number(m[2]),
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    0,
+  );
+}
+
 /**
  * The per-turn <context> block. Volatile — must NOT go in the system prompt.
  * Rendered into the latest user message so the model can resolve relative dates
@@ -160,6 +216,7 @@ export function buildContextBlock(ctx: ConvoContext): string {
     ...(channelLine ? [channelLine] : []),
     windowLine,
     ...closureLines(ctx.nowCdmx),
+    ...upcomingSlotLines(ctx),
     "Resolve any relative date ('hoy', 'mañana', 'el sábado') against `now`/`weekday` above.",
     "The timestamp is 24h ISO. Any class time LATER today than `now` is still bookable for TODAY (e.g. at 01:49 it is 1:49 AM — today's 7:00 AM class has NOT passed).",
     ...(ctx.recordedBooking

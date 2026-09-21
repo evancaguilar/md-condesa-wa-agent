@@ -146,6 +146,28 @@ function renderSlotsTs(slots, version) {
   );
 }
 
+/**
+ * Preferred trial blocks (soonest-first tie-breaker). Malformed rows are
+ * DROPPED rather than emitted: a bad block would silently skew every offer.
+ * dow 0=Mon … 6=Sun; from/to inclusive "HH:mm" starts.
+ */
+function preferredBlocks(rows) {
+  if (!Array.isArray(rows)) return [];
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  return rows
+    .filter(
+      (b) =>
+        b &&
+        Number.isInteger(b.dow) &&
+        b.dow >= 0 &&
+        b.dow <= 6 &&
+        hhmm.test(String(b.from)) &&
+        hhmm.test(String(b.to)) &&
+        String(b.from) <= String(b.to),
+    )
+    .map((b) => ({ dow: Number(b.dow), from: String(b.from), to: String(b.to) }));
+}
+
 function renderClientTs(cfg, persona, version) {
   // Persona rides in from persona.md; everything else from client.mjs. The
   // object is emitted as literal TS so the worker bundles it with zero I/O.
@@ -166,6 +188,7 @@ function renderClientTs(cfg, persona, version) {
           .filter((c) => c && /^\d{4}-\d{2}-\d{2}$/.test(String(c.date)))
           .map((c) => ({ date: String(c.date), ...(c.reason ? { reason: String(c.reason) } : {}) }))
       : [],
+    booking: { preferredBlocks: preferredBlocks(cfg.booking?.preferredBlocks) },
     persona,
     features: {
       booking: !!cfg.features?.booking,

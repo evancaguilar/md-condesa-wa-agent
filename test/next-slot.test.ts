@@ -7,14 +7,21 @@ import assert from "node:assert/strict";
 
 import {
   nextTrialSlot,
+  upcomingTrialSlots,
+  inPreferredBlock,
   formatSlotLabel,
   disciplineLabel,
   time12h,
+  SLOT_LEAD_SECONDS,
+  TODAY_BUFFER_SECONDS,
 } from "../src/cron/next-slot.js";
-import { cdmxToEpoch } from "../src/cron/time.js";
+import { cdmxParts, cdmxToEpoch } from "../src/cron/time.js";
+import { SLOTS } from "../src/brain/slots.gen.js";
+import { weekdayIndex } from "../src/brain/tools.js";
 
 const MON = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 24, h, m, 0);
 const THU = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 27, h, m, 0);
+const FRI = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 28, h, m, 0);
 const SUN = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 30, h, m, 0);
 
 test("nextTrialSlot: Monday morning, kid Muay Thai → today's 16:00 Kids", () => {
@@ -112,6 +119,160 @@ test("nextTrialSlot: a trial:false-only grid yields nothing", () => {
     { weekday: 0, time: "18:00", discipline: "muay", audience: "adult" as const, trial: false },
   ];
   assert.equal(nextTrialSlot("muay", "adult", MON(10), closedOnly), null);
+});
+
+// ---- soonest-first (2026-09-21) ----
+//
+// Same-day trials show 54% (115/214) vs ~29% (126/431) for trials booked a day
+// or more out, and Saturday — 37% of all bookings — shows worst of the busy
+// days at 33%. The proposal must therefore always be the chronologically
+// nearest valid class, never whatever row sits first in SLOTS.
+
+/**
+ * Independent brute force: expand the WHOLE grid over the next two weeks, then
+ * take the minimum by epoch. Deliberately structured differently from the
+ * production walk so an ordering bug there can't hide here.
+ */
+function bruteSoonest(
+  audience: "adult" | "kid",
+  now: number,
+): { date: string; time: string } | undefined {
+  const p = cdmxParts(now);
+  const all: { date: string; time: string; at: number }[] = [];
+  for (let off = 0; off < 14; off++) {
+    const dp = cdmxParts(cdmxToEpoch(p.year, p.month, p.day + off, 0, 0, 0));
+    const pad = (n: number): string => (n < 10 ? `0${n}` : String(n));
+    const date = `${dp.year}-${pad(dp.month)}-${pad(dp.day)}`;
+    const wd = weekdayIndex(date);
+    for (const s of SLOTS) {
+      // pp slots are never proposed to a generic (no-discipline) lead.
+      if (s.weekday !== wd || s.audience !== audience || s.trial === false || s.pp) continue;
+      const hh = Number(s.time.slice(0, 2));
+      const mm = Number(s.time.slice(3, 5));
+      const at = cdmxToEpoch(dp.year, dp.month, dp.day, hh, mm, 0);
+      if (at >= now + SLOT_LEAD_SECONDS) all.push({ date, time: s.time, at });
+    }
+  }
+  all.sort((a, b) => a.at - b.at);
+  return all[0];
+}
+
+test("nextTrialSlot: always the chronologically soonest slot, every hour of the week", () => {
+  for (let day = 24; day <= 30; day++) {
+    for (const h of [0, 6, 10, 14, 17, 20, 23]) {
+      const now = cdmxToEpoch(2026, 8, day, h, 0, 0);
+      for (const audience of ["adult", "kid"] as const) {
+        const got = nextTrialSlot(null, audience, now, undefined, []);
+        const want = bruteSoonest(audience, now);
+        assert.ok(got && want, `no slot for ${audience} at 2026-08-${day} ${h}:00`);
+        assert.equal(`${got!.date} ${got!.time}`, `${want!.date} ${want!.time}`);
+      }
+    }
+  }
+});
+
+test("nextTrialSlot: no Saturday default — a weekday lead gets the weekday class", () => {
+  // Thursday 06:00: the 08:00 class is the answer, not the busy Saturday grid.
+  const slot = nextTrialSlot(null, "adult", THU(6), undefined, []);
+  assert.equal(slot?.date, "2026-08-27");
+  assert.equal(slot?.time, "08:00");
+  assert.equal(slot?.label, "hoy a las 8:00 am");
+});
+
+// ---- preferred blocks (config-driven tie-breaker, EMPTY by default) ----
+
+const SAT_EARLY = [{ dow: 5, from: "09:00", to: "13:00" }] as const;
+
+test("inPreferredBlock: from/to are inclusive class start times, dow is 0=Mon", () => {
+  const at = (weekday: number, time: string) => ({ weekday, time });
+  assert.equal(inPreferredBlock(at(5, "09:00"), SAT_EARLY), true); // lower edge
+  assert.equal(inPreferredBlock(at(5, "13:00"), SAT_EARLY), true); // upper edge
+  assert.equal(inPreferredBlock(at(5, "08:59"), SAT_EARLY), false);
+  assert.equal(inPreferredBlock(at(5, "14:00"), SAT_EARLY), false);
+  assert.equal(inPreferredBlock(at(4, "10:00"), SAT_EARLY), false); // Friday
+  assert.equal(inPreferredBlock(at(5, "10:00"), []), false); // no blocks ⇒ never
+});
+
+test("nextTrialSlot: the EMPTY default leaves behavior at pure soonest-first", () => {
+  // Friday 07:00 → today's 09:00, which is also what the live CLIENT config gives.
+  const plain = nextTrialSlot(null, "adult", FRI(7), undefined, [], []);
+  assert.equal(plain?.date, "2026-08-28");
+  assert.equal(plain?.time, "09:00");
+  assert.deepEqual(nextTrialSlot(null, "adult", FRI(7), undefined, []), plain);
+});
+
+test("nextTrialSlot: a preferred block wins INSIDE the 24h horizon", () => {
+  // Soonest is Fri 09:00; Sat 09:00 is exactly 24h later and sits in the block.
+  const slot = nextTrialSlot(null, "adult", FRI(7), undefined, [], SAT_EARLY);
+  assert.equal(slot?.date, "2026-08-29");
+  assert.equal(slot?.time, "09:00");
+  assert.equal(slot?.label, "mañana sábado 9:00 am");
+});
+
+test("nextTrialSlot: a preferred block NEVER wins beyond the 24h horizon", () => {
+  // Same Friday, but the block now starts at 10:00 — Sat 10:00 is 25h out, so
+  // sooner wins and the lead keeps today's class.
+  const blocks = [{ dow: 5, from: "10:00", to: "13:00" }];
+  const slot = nextTrialSlot(null, "adult", FRI(7), undefined, [], blocks);
+  assert.equal(slot?.date, "2026-08-28");
+  assert.equal(slot?.time, "09:00");
+});
+
+test("nextTrialSlot: a preferred block never conjures a slot the grid lacks", () => {
+  // Sunday has no kid classes at all; a Sunday block changes nothing.
+  const blocks = [{ dow: 6, from: "09:00", to: "13:00" }];
+  const slot = nextTrialSlot(null, "kid", SUN(6), undefined, [], blocks);
+  assert.notEqual(slot?.weekday, 6);
+  assert.deepEqual(slot, nextTrialSlot(null, "kid", SUN(6), undefined, [], []));
+});
+
+// ---- upcomingTrialSlots (the brain's per-turn list) ----
+
+test("upcomingTrialSlots: N soonest hours, deduped per (date,time)", () => {
+  const slots = upcomingTrialSlots(null, "adult", MON(10), 3, undefined, []);
+  assert.equal(slots.length, 3);
+  // Monday 18:00/19:00 each hold TWO adult classes (jiu + muay) — one entry each.
+  assert.deepEqual(
+    slots.map((s) => `${s.date} ${s.time}`),
+    ["2026-08-24 18:00", "2026-08-24 19:00", "2026-08-24 20:00"],
+  );
+  assert.equal(slots[0]?.label, "hoy a las 6:00 pm");
+});
+
+test("upcomingTrialSlots: the 4h buffer drops hours the persona may not offer", () => {
+  // 15:00 + 2h default would surface the 18:00 class; the persona's 4h rule
+  // (TODAY_BUFFER_SECONDS) starts the list at 19:00 instead.
+  const two = upcomingTrialSlots(null, "adult", MON(15), 1, undefined, []);
+  assert.equal(two[0]?.time, "18:00");
+  const four = upcomingTrialSlots(
+    null,
+    "adult",
+    MON(15),
+    1,
+    undefined,
+    [],
+    TODAY_BUFFER_SECONDS,
+  );
+  assert.equal(four[0]?.time, "19:00");
+});
+
+test("upcomingTrialSlots: soonest first, strictly ascending, never a past hour", () => {
+  const slots = upcomingTrialSlots(null, "adult", FRI(20), 3, undefined, []);
+  assert.equal(slots.length, 3);
+  for (let i = 1; i < slots.length; i++) {
+    const prev = `${slots[i - 1]!.date} ${slots[i - 1]!.time}`;
+    assert.ok(`${slots[i]!.date} ${slots[i]!.time}` > prev, `${prev} → not ascending`);
+  }
+  // Friday night has nothing left: the list opens on Saturday, not next week.
+  assert.equal(slots[0]?.date, "2026-08-29");
+});
+
+test("upcomingTrialSlots: honors closed dates and an empty grid", () => {
+  const closed = [{ date: "2026-08-24" }, { date: "2026-08-25" }];
+  const slots = upcomingTrialSlots(null, "adult", MON(6), 2, undefined, closed);
+  assert.ok(slots.every((s) => !["2026-08-24", "2026-08-25"].includes(s.date)));
+  assert.equal(slots[0]?.date, "2026-08-26");
+  assert.deepEqual(upcomingTrialSlots(null, "adult", MON(6), 3, []), []);
 });
 
 test("formatSlotLabel: hoy / mañana / el <día>, es + en", () => {
