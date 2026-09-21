@@ -1,20 +1,23 @@
 # WhatsApp message templates (submit verbatim to Meta)
 
-Six templates, ES + EN each (one template per language — the code appends `_es` /
+Nine templates, ES + EN each (one template per language — the code appends `_es` /
 `_en` to the base name). All bodies use `{{1}}` = contact first name; the sender
 passes `""` when the name is unknown, so keep the greeting readable without it.
 
 Category per the spec. Same-day reminder uses quick-reply buttons; reengage_lead
-carries the BAJA opt-out footer.
+and the two Marketing post-trial ones carry the BAJA opt-out footer.
 
 Template name mapping (base → sent name):
 - `trial_confirm` → `trial_confirm_es` / `trial_confirm_en`
 - `trial_reminder_day_before` → `trial_reminder_day_before_es` / `_en`
 - `trial_reminder_same_day` → `trial_reminder_same_day_es` / `_en`
-- `no_show_followup` → `no_show_followup_es` / `_en`
+- `no_show_followup` → `no_show_followup_es` / `_en`  (BOTH no-show touches:
+  the immediate one and `no_show_d3` three days later)
 - `reengage_lead` → `reengage_lead_es` / `_en`
 - `human_followup` → `human_followup_es` / `_en`  (owned/sent by C's late-approval
   path; copy included here for convenience)
+- `post_trial_d0` / `post_trial_d2` / `post_trial_d5` → `…_es` / `…_en`
+  (2026-09-21, attended-and-didn't-sign-up chain — see the section below)
 
 Address string used across templates: **Av. México 49, 1º piso, Condesa**.
 
@@ -210,6 +213,81 @@ kids & baby → https://mdcondesa.com/clase-prueba-ninos/
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
+
+---
+
+# Post-trial templates (post_trial_d0 … d5)
+
+Shipped 2026-09-21 for the lead who CAME to the free class and did not sign up
+(163 of them since July, previously untouched by the bot). Same shape as the
+extended drip: the engine sends free-form first — most of these leads are still
+inside the 24h window, having just been in the gym — and only falls back to a
+template when the window is closed. Until these are approved the fallback fails,
+the send is SKIPPED and one Slack note goes out per day (kv `tmpl_missing_note`).
+
+- Base names → sent name: `post_trial_d0` → `post_trial_d0_es` / `_en`, same for
+  `post_trial_d2` and `post_trial_d5` (6 templates).
+- Variables: **{{1}}** = contact first name (sender substitutes `👋` when the
+  push name is junk/unknown — keep {{1}} where that still reads naturally).
+- **d0 is Utility** — a follow-up to a class the person attended. If Meta
+  recategorizes it to Marketing, accept it; the send code doesn't care.
+- **d2 and d5 are Marketing** and need the **BAJA opt-out footer** (FOOTER
+  component): _Responde BAJA para dejar de recibir mensajes._ (EN: _Reply BAJA to
+  stop receiving messages._)
+- The only price named is the KB's standing offer (inscripción $999, gratis al
+  inscribirse en línea). Never add another — source of truth is intake.md.
+
+## 7. post_trial_d0 — Utility
+
+Sent ~3h after the class starts (past 21:00 CDMX → 09:30 the next morning).
+
+**ES (`post_trial_d0_es`)**
+> ¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si quieres seguir, te guardamos la inscripción sin costo (normalmente $999) durante 48 horas. ¿Te apartamos tu lugar?
+
+**EN (`post_trial_d0_en`)**
+> Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you'd like to keep going, we'll hold the sign-up fee for you free (normally $999) for the next 48 hours. Want us to save your spot?
+
+Variables: {{1}} name.
+
+---
+
+## 8. post_trial_d2 — Marketing (BAJA opt-out footer required)
+
+11:00 CDMX two days after the trial — the day the 48h hold runs out.
+
+**ES (`post_trial_d2_es`)**
+> ¡Hola {{1}}! Hoy vence el plazo para guardarte la inscripción sin costo 🥋 ¿Quieres que te apartemos tu lugar antes de que cierre el día?
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**EN (`post_trial_d2_en`)**
+> Hi {{1}}! Today is the last day we can hold the free sign-up for you 🥋 Want us to save your spot before the day ends?
+>
+> _Reply BAJA to stop receiving messages._
+
+Variables: {{1}} name. Footer text must be the template FOOTER component.
+
+---
+
+## 9. post_trial_d5 — Marketing (BAJA opt-out footer required)
+
+The goodbye, 11:00 CDMX five days after the trial.
+
+**ES (`post_trial_d5_es`)**
+> ¡Hola {{1}}! No queremos insistir más 🙂 Este es nuestro último mensaje. Nos dio mucho gusto tenerte en clase y aquí seguimos cuando quieras volver — estos son los horarios: https://mdcondesa.com/#horarios
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**EN (`post_trial_d5_en`)**
+> Hi {{1}}! We won't keep writing 🙂 This is our last message. We loved having you in class and we're here whenever you want to come back — here's the schedule: https://mdcondesa.com/#horarios
+>
+> _Reply BAJA to stop receiving messages._
+
+Variables: {{1}} name. Footer text must be the template FOOTER component.
+
+**The second no-show touch needs NO new template.** `no_show_d3` (11:00 CDMX
+three days after a missed class) reuses `no_show_followup_es` / `_en` from §4 —
+only the free-form body differs between the two touches.
 
 ---
 

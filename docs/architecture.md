@@ -91,7 +91,7 @@ CREATE TABLE pending_approvals(
 );
 CREATE TABLE followups(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  phone TEXT, kind TEXT,             -- trial_confirm|day_before|same_day|no_show_1|reengage_7d|custom
+  phone TEXT, kind TEXT,             -- trial_confirm|day_before|same_day|no_show_1|no_show_d3|reengage_7d|post_trial_d0|post_trial_d2|post_trial_d5|nudge_*|blast|staff_later|custom
   due_at INTEGER, status TEXT DEFAULT 'scheduled', -- scheduled|sent|cancelled|skipped_optout
   airtable_record_id TEXT, note TEXT, created_at INTEGER,
   UNIQUE(phone, kind, airtable_record_id)

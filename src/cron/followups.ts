@@ -4,6 +4,10 @@
 // FollowupKind lacks a dedicated "attendance_check" member, so the T+3h Slack
 // attendance prompt rides on kind='custom' with note='attendance_check'. See
 // docs/notes-d.md — E may promote it to a first-class kind later.
+//
+// What happens AFTER the class lives in ./post-trial.ts (the attended-and-
+// didn't-sign-up chain and the second no-show touch); processResult below is
+// what arms both.
 
 import type { Env, Followup } from "../types.js";
 import {
@@ -24,7 +28,11 @@ import {
   bookingRecordedKey,
   parseBookingRecordedMarker,
 } from "../services/booking-core.js";
-import { cancelFollowupsByKinds, getCampaign } from "../db/queries-admin.js";
+import {
+  cancelFollowupsByKinds,
+  getCampaign,
+  hasScheduledFollowupOfKind,
+} from "../db/queries-admin.js";
 import {
   attributionFor,
   withAttribution,
@@ -53,6 +61,7 @@ import {
   listStudents,
   normalizeMxPhone,
   classifyResult,
+  isLostResult,
   type BookingRecord,
 } from "../services/airtable.js";
 import {
@@ -61,9 +70,22 @@ import {
   maybeArmExtended,
   gateOnOpenQuestion,
   ALL_NUDGE_KINDS,
+  BOOKING_KINDS,
+  classifyProgram,
+  noShowCopy,
+  programLink,
+  slotCta,
   type NudgeKind,
   type ExtendedKind,
 } from "./nudges.js";
+import {
+  computeNoShowRebook,
+  computePostTrialSequence,
+  processPostTrial,
+  POST_TRIAL_ALL_KINDS,
+  POST_TRIAL_MAX_AGE,
+  type FollowUpKindHere,
+} from "./post-trial.js";
 import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../services/staff-send.js";
 import { auditHumanSend } from "../services/booking-guard.js";
 import { CLIENT } from "../client.gen.js";
@@ -341,6 +363,48 @@ async function processOne(
       return;
     }
 
+    case "post_trial_d0":
+    case "post_trial_d2":
+    case "post_trial_d5":
+    case "no_show_d3": {
+      // Same quiet-hour re-check the nudges do: cron drift must never turn a
+      // 09:30 row into a 23:00 message.
+      if (isQuietHour(nowSec())) {
+        await rescheduleRow(env, f, next8am(nowSec()));
+        return;
+      }
+      const res = await processPostTrial(
+        env,
+        { phone: f.phone, kind: f.kind as FollowUpKindHere, created_at: f.created_at },
+        {
+          sendText,
+          sendTemplate,
+          templateName: tpl,
+          isWindowClosed: (err) => err instanceof WindowClosedError,
+          campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
+        },
+        nowSec(),
+      );
+      if (res.outcome === "template_missing") {
+        // On IG/FB the template path can't exist at all — that outcome really
+        // means Meta's 7-day window closed (same reading as the extended drip).
+        if (channelOf(f.phone) !== "wa") {
+          await noteMessengerWindowClosed(env, deps, f.phone, f.kind);
+        } else {
+          await noteTemplateMissing(env, deps, f.phone, res.template);
+        }
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
+      await markFollowup(env.DB, f.id, res.outcome);
+      if (res.outcome === "cancelled" && res.stopChain) {
+        // They enrolled / wrote in / booked again: drop the rest of the chain
+        // rather than letting each remaining row re-discover it.
+        await cancelFollowupsByKinds(env.DB, f.phone, POST_TRIAL_ALL_KINDS);
+      }
+      return;
+    }
+
     case "staff_later": {
       // Staff-composed reply queued from the dashboard composer. Opt-out was
       // already handled by the early return at the top of processOne.
@@ -498,6 +562,18 @@ async function linkAttribution(
   env: Env,
   contact: { ad_ref: string | null; campaign_id: number | null } | null,
 ): Promise<LinkAttribution> {
+  return (await linkContext(env, contact)).attr;
+}
+
+/**
+ * linkAttribution plus the campaign name it looked up — the result watcher needs
+ * BOTH (the name also classifies the lead's program, so a kids lead is never
+ * offered an adult slot when we propose a rebook).
+ */
+async function linkContext(
+  env: Env,
+  contact: { ad_ref: string | null; campaign_id: number | null } | null,
+): Promise<{ attr: LinkAttribution; campaignName: string | null }> {
   let campaignName: string | null = null;
   if (contact?.campaign_id != null) {
     try {
@@ -506,7 +582,7 @@ async function linkAttribution(
       campaignName = null;
     }
   }
-  return attributionFor(contact, campaignName);
+  return { attr: attributionFor(contact, campaignName), campaignName };
 }
 
 /**
@@ -521,9 +597,18 @@ export function messengerReminderText(
 ): string {
   const who = name ? ` ${name.split(/\s+/)[0] ?? ""}` : "";
   if (kind === "no_show") {
+    const link = withAttribution(CLIENT.links.booking, attr);
     return renderCopy(
       lang === "en" ? CLIENT.copy.noShowEn : CLIENT.copy.noShowEs,
-      { who, link: withAttribution(CLIENT.links.booking, attr) },
+      {
+        who,
+        link,
+        // Legacy path (kind no_show_1 on IG/FB): no contact in scope, so there
+        // is no program-correct slot to propose — the CTA degrades to the plain
+        // booking link, exactly what slotCta emits with no slot. The live
+        // no-show message (processResult) does propose a real slot.
+        cta: slotCta("adults", lang === "en" ? "en" : "es", null, link, 0),
+      },
     );
   }
   const gym = CLIENT.shortName;
@@ -566,12 +651,13 @@ async function noteMessengerWindowClosed(
 }
 
 /**
- * Post at most ONE Slack note per CDMX day about a missing/unapproved extended-
- * drip template (kv `tmpl_missing_note:<YYYY-MM-DD>`). The send was skipped.
+ * Post at most ONE Slack note per CDMX day about a missing/unapproved follow-up
+ * template — the extended drip (d2–d5) or the post-trial chain share the mark
+ * (kv `tmpl_missing_note:<YYYY-MM-DD>`). The send was skipped.
  */
 async function noteTemplateMissing(
   env: Env,
-  deps: { slack: CronSlackDeps },
+  deps: { slack: Pick<CronSlackDeps, "postNote"> },
   phone: string,
   template: string,
 ): Promise<void> {
@@ -579,7 +665,7 @@ async function noteTemplateMissing(
   if (await kvGet(env.DB, dayKey)) return;
   await kvSet(env.DB, dayKey, "1");
   await deps.slack.postNote(
-    `Plantilla de seguimiento extendido no disponible (${template}); se omitió un envío a ${phone}. Falta enviar las plantillas d2–d5 a Meta (ver docs/templates.md).`,
+    `Plantilla de seguimiento no disponible (${template}); se omitió un envío a ${phone}. Falta enviarla a Meta (ver docs/templates.md).`,
   );
 }
 
@@ -717,16 +803,33 @@ export async function syncBookings(
 /**
  * F4 result watcher for one record. Acts ONCE per record+normalized-value via
  * kv `resultado:<recordId>`:
- *  - "no asistio"  → cancel ALL pending followups, send a warm reschedule
- *    (free-form if window open, else no_show_followup template; failure → Slack).
- *  - "se inscribio" → set status=student, cancel ALL pending followups, send a
+ *  - "no asistio"  → cancel ALL pending followups, send a warm reschedule that
+ *    proposes ONE real upcoming slot (free-form if window open, else the
+ *    no_show_followup template; failure → Slack), and arm the second touch
+ *    (no_show_d3, +3 days).
+ *  - "asistio" (and not enrolled) → cancel the pre-trial + nudge rows, arm the
+ *    post-trial chain (d0 / d2 / d5), leave the contact a LEAD, and tell the
+ *    channel who to call today. Nothing is sent from here.
+ *  - "se inscribio" → set status=student, cancel ALL pending followups (which is
+ *    what retires a post-trial chain armed earlier for the same record), send a
  *    warm welcome (free-form if window open, else human_followup template
  *    fallback; failure → Slack).
  *
- * Messages only go out when the trial date is TODAY (CDMX). Old records get
- * their modified-time bumped whenever the contact writes in again (lead-sync
- * touches the row), which re-surfaces months-old results here — those still get
- * status/cancel/marker treatment, silently, so no ghost welcomes.
+ * Two options of the multi-select are orthogonal to the outcome and gate all of
+ * the above:
+ *  - "Perdido" (staff gave up) → cancel every marketing chain, send nothing,
+ *    leave class reminders alone. Enrolment outranks it.
+ *  - "Reprogramó" / a record moved to a new date → a live anti-no-show sequence
+ *    exists, so the no-show branch stays quiet and neither branch cancels it.
+ *
+ * The marker is per record+VALUE (including the "+lost" suffix), so the ordinary
+ * "Asistió" → later "Se inscribió" progression runs both branches, in that
+ * order, and "Asistió" → "Asistió, Perdido" retires the chain it just armed.
+ *
+ * Reactions are age-gated. Old records get their modified-time bumped whenever
+ * the contact writes in again (lead-sync touches the row), which re-surfaces
+ * months-old results here — those still get status/cancel/marker treatment,
+ * silently, so no ghost welcomes.
  */
 async function processResult(
   env: Env,
@@ -738,11 +841,16 @@ async function processResult(
   trialDateTimeIso: string | null,
 ): Promise<void> {
   const action = classifyResult(rawResult);
-  if (!action) return;
+  // "Perdido" rides alongside the outcome in the multi-select, so it is read
+  // separately — and it MUST be part of the kv marker. The marker is per
+  // record+value; without the suffix, "Asistió" → "Asistió, Perdido" would look
+  // like the same value and the cancellation below would never run.
+  const lost = isLostResult(rawResult);
+  if (!action && !lost) return;
 
   const kvKey = `resultado:${recordId}`;
   const already = await kvGet(env.DB, kvKey);
-  const marker = `${action}`;
+  const marker = `${action ?? "none"}${lost ? "+lost" : ""}`;
   if (already === marker) return; // acted on this record+value already
 
   const trialEpoch = trialDateTimeIso
@@ -753,7 +861,12 @@ async function processResult(
   // no-show reschedule is still relevant for 48h; an enrolment welcome for 14
   // days. Older trials stay silent (ghost-welcome guard above).
   const ageSec = Number.isFinite(trialEpoch) ? nowSec() - trialEpoch : NaN;
-  const maxAge = action === "no_show" ? RESULT_NO_SHOW_MAX_AGE : RESULT_ENROLLED_MAX_AGE;
+  const maxAge =
+    action === "no_show"
+      ? RESULT_NO_SHOW_MAX_AGE
+      : action === "attended"
+        ? POST_TRIAL_MAX_AGE
+        : RESULT_ENROLLED_MAX_AGE;
   const sendReaction = Number.isFinite(ageSec) && ageSec >= -DAY && ageSec <= maxAge;
 
   await upsertContact(env.DB, { phone, name });
@@ -765,17 +878,97 @@ async function processResult(
   // enrolled branch does NOT overwrite status — opted_out wins.
   const optedOut = contact?.status === "opted_out";
 
+  // Staff gave up on this lead ("Perdido"). Every automated chase stops, in
+  // silence — including a post-trial chain armed minutes earlier by a plain
+  // "Asistió". Class reminders (BOOKING_KINDS) are deliberately left alone: a
+  // "Perdido" next to a live booking must not cancel the reminders for a class
+  // the lead may still walk into. Enrolment outranks it — they paid.
+  if (lost && action !== "enrolled") {
+    await cancelFollowupsByKinds(env.DB, phone, [
+      ...ALL_NUDGE_KINDS,
+      ...POST_TRIAL_ALL_KINDS,
+    ]);
+    await kvSet(env.DB, kvKey, marker);
+    return;
+  }
+  // Unreachable (a null action is either returned above or carries `lost`), but
+  // it is what narrows `action` for the branches below.
+  if (!action) return;
+
+  // "Reprogramó" next to "No asistió", or a record simply moved to a new date:
+  // a live anti-no-show sequence means they ALREADY rebooked. syncBookings arms
+  // that sequence earlier in this very loop, so chasing them about the class
+  // they missed — and worse, cancelling the rows for the one they did book —
+  // would be exactly backwards.
+  const rebooked = await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS);
+
+  if (action === "attended") {
+    // They CAME and did not sign up — the single biggest unworked segment.
+    // Clear what the booking armed (reminders for a class that already happened,
+    // plus any lead drip), then arm the post-trial chain. Status stays `lead`:
+    // they are still a prospect, and marking them a student would silence
+    // everything else the system does for them.
+    await cancelFollowupsByKinds(
+      env.DB,
+      phone,
+      rebooked ? ALL_NUDGE_KINDS : [...BOOKING_KINDS, ...ALL_NUDGE_KINDS],
+    );
+    if (optedOut || rebooked) {
+      // Rebooked: the new anti-no-show sequence owns them, and the post-trial
+      // chain would only cancel itself at send time anyway.
+      await kvSet(env.DB, kvKey, marker);
+      return;
+    }
+    const steps = computePostTrialSequence(trialEpoch, nowSec());
+    for (const step of steps) {
+      await scheduleFollowup(env.DB, {
+        phone,
+        kind: step.kind,
+        dueAt: step.dueAt,
+        airtableRecordId: recordId, // UNIQUE(phone,kind,record) ⇒ idempotent
+        note: null,
+      });
+    }
+    if (sendReaction) {
+      // The person who taught the class is the one who can close them, and only
+      // a human knows that. One note, no card, no buttons.
+      await deps.slack.postNote(
+        `🔥 ${displayName(name, contact?.name)} (${displayContact(phone)}) asistió y no se inscribió — seguimiento automático armado (hoy, +2d, +5d). Quien cerró: escríbele hoy.`,
+      );
+    }
+    await kvSet(env.DB, kvKey, marker);
+    return;
+  }
+
   if (action === "no_show") {
+    if (rebooked) {
+      // They missed one class and already have the next one on the calendar.
+      // Leave that sequence standing and say nothing about the one they missed.
+      await kvSet(env.DB, kvKey, marker);
+      return;
+    }
     await cancelFollowups(env.DB, phone); // all kinds
     if (optedOut || !sendReaction) {
       await kvSet(env.DB, kvKey, marker);
       return;
     }
-    const link = withAttribution(CLIENT.links.booking, await linkAttribution(env, contact));
-    const body = renderCopy(
-      lang === "en" ? CLIENT.copy.noShowEn : CLIENT.copy.noShowEs,
-      { who, link },
-    );
+    // Second touch, +3 days at 11:00 CDMX. Armed BEFORE the first message so a
+    // send failure (which throws out of here) can't lose it.
+    const rebook = computeNoShowRebook(trialEpoch, nowSec());
+    if (rebook) {
+      await scheduleFollowup(env.DB, {
+        phone,
+        kind: rebook.kind,
+        dueAt: rebook.dueAt,
+        airtableRecordId: recordId,
+        note: null,
+      });
+    }
+    const { attr, campaignName } = await linkContext(env, contact);
+    const program = classifyProgram(contact, campaignName);
+    const link = withAttribution(programLink(program), attr);
+    // One concrete slot beats a bare link — the same close the nudges use.
+    const body = noShowCopy(contact, program, "first", who, link, nowSec());
     try {
       await sendText(env, phone, body);
     } catch (err) {
@@ -899,6 +1092,15 @@ function customText(note: string | null, lang: string): string {
   const n = (note ?? "").trim();
   if (n) return n;
   return lang === "en" ? CLIENT.copy.checkinEn : CLIENT.copy.checkinEs;
+}
+
+/**
+ * Who to name in a Slack note: the Airtable record's name, the contact's stored
+ * name, else a neutral stand-in. NOT greetingName — a human reading the channel
+ * is better served by a junk push name than by no name at all.
+ */
+function displayName(airtableName: string | null, contactName?: string | null): string {
+  return (airtableName ?? "").trim() || (contactName ?? "").trim() || "El lead";
 }
 
 /** Slack attribution for a staff_later row whose note predates the `by` field. */

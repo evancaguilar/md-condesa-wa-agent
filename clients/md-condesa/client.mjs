@@ -196,13 +196,36 @@ export default {
       "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes and a water bottle — no gear needed, we lend it. See you soon!",
     checkinEs: "¡Hola! Te escribimos de MD Condesa 🥋",
     checkinEn: "Hi! Just checking in from MD Condesa 🥋",
+    // {cta} = the engine's closing line: ONE real upcoming slot from the
+    // schedule ("Te puedo apartar lugar en Muay Thai mañana viernes 7:00 am —
+    // ¿te late? Si prefieres otro horario: <link>"), or a plain link line when
+    // the grid has nothing to offer.
     noShowEs:
-      "¡Hola{who}! Te esperábamos en tu clase de prueba 🥋 No pasa nada, ¿la reagendamos? Elige otro horario aquí: {link}",
+      "¡Hola{who}! Te esperábamos en tu clase de prueba 🥋 No pasa nada, ¿la reagendamos? {cta}",
     noShowEn:
-      "Hi{who}! We missed you at your trial class 🥋 No worries — want to reschedule? You can pick a new time here: {link}",
+      "Hi{who}! We missed you at your trial class 🥋 No worries — want to reschedule? {cta}",
+    noShowD3Es:
+      "¡Hola{who}! Seguimos con tu lugar apartado para tu clase de prueba gratis en MD Condesa 🥋 {cta}",
+    noShowD3En:
+      "Hi{who}! We're still holding a spot for your free trial class at MD Condesa 🥋 {cta}",
     welcomeEs:
       "¡Bienvenid@ a la familia{who}! 🥋🎉 Nos da mucho gusto tenerte. Lo que sigue: revisa los horarios ({link}) y recuerda que hay 10% de descuento si te inscribes en equipo. ¡Nos vemos en el tatami!",
     welcomeEn:
       "Welcome to the family{who}! 🥋🎉 So glad you joined. Next: check the schedule ({link}) and remember there's a 10% discount when you sign up as a team. See you on the mats!",
+    // Post-trial chain (attended, did not sign up). The ONLY offer named here is
+    // the standing one from the KB — inscripción $999, gratis al inscribirse en
+    // línea. Never add a price, plan or promise that isn't in intake.md.
+    postTrialD0Es:
+      "¡Hola{who}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si quieres seguir, te guardamos la inscripción sin costo (normalmente $999) durante 48 horas. ¿Te apartamos tu lugar?",
+    postTrialD0En:
+      "Hi{who}! So good to have you on the mats today 🥋 How did the class feel? If you'd like to keep going, we'll hold the sign-up fee for you free (normally $999) for the next 48 hours. Want us to save your spot?",
+    postTrialD2Es:
+      "¡Hola{who}! Hoy vence el plazo para guardarte la inscripción sin costo 🥋 ¿Quieres que te apartemos tu lugar antes de que cierre el día?",
+    postTrialD2En:
+      "Hi{who}! Today is the last day we can hold the free sign-up for you 🥋 Want us to save your spot before the day ends?",
+    postTrialD5Es:
+      "¡Hola{who}! No queremos insistir más 🙂 Este es nuestro último mensaje. Nos dio mucho gusto tenerte en clase y aquí seguimos cuando quieras volver — estos son los horarios: {link}",
+    postTrialD5En:
+      "Hi{who}! We won't keep writing 🙂 This is our last message. We loved having you in class and we're here whenever you want to come back — here's the schedule: {link}",
   },
 };

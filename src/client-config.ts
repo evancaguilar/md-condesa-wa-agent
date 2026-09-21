@@ -37,7 +37,13 @@ export interface SafetyConfig {
   pauseHours: number;
 }
 
-/** Follow-up / nudge copy. Placeholders: {who} → " Nombre" or "", {address}, {link}. */
+/**
+ * Follow-up / nudge copy. Placeholders: {who} → " Nombre" or "", {address},
+ * {link}, and {cta} → the closing call-to-action the engine builds from the
+ * real schedule ("Te puedo apartar lugar en Muay Thai mañana viernes 7:00 am —
+ * ¿te late? Si prefieres otro horario: <link>"), which degrades to a plain link
+ * line when the grid has no slot to offer.
+ */
 export interface ClientCopy {
   /** Booking confirmation (kind: trial_confirm). Uses {who} and {address}. */
   confirmEs: string;
@@ -45,12 +51,26 @@ export interface ClientCopy {
   /** Generic check-in when a custom followup has no note. */
   checkinEs: string;
   checkinEn: string;
-  /** Result-watcher: no-show reschedule. Uses {who} and {link}. */
+  /** Result-watcher: no-show reschedule, sent on marking. Uses {who} and {cta}. */
   noShowEs: string;
   noShowEn: string;
+  /** Second no-show touch (kind: no_show_d3), ~3 days later. Uses {who} and {cta}. */
+  noShowD3Es: string;
+  noShowD3En: string;
   /** Result-watcher: enrolled welcome. Uses {who} and {link}. */
   welcomeEs: string;
   welcomeEn: string;
+  /**
+   * Post-trial sequence for a lead who attended and did not sign up
+   * (kinds: post_trial_d0 / d2 / d5). d0+d2 use {who}; d5 also uses {link}
+   * (the public schedule).
+   */
+  postTrialD0Es: string;
+  postTrialD0En: string;
+  postTrialD2Es: string;
+  postTrialD2En: string;
+  postTrialD5Es: string;
+  postTrialD5En: string;
 }
 
 export interface ClientFeatures {
@@ -290,13 +310,14 @@ export interface ClientConfig {
   copy: ClientCopy;
 }
 
-/** Interpolate {who}/{address}/{link} placeholders in copy strings. */
+/** Interpolate {who}/{address}/{link}/{cta} placeholders in copy strings. */
 export function renderCopy(
   template: string,
-  vars: { who?: string; address?: string; link?: string },
+  vars: { who?: string; address?: string; link?: string; cta?: string },
 ): string {
   return template
     .replaceAll("{who}", vars.who ?? "")
     .replaceAll("{address}", vars.address ?? "")
-    .replaceAll("{link}", vars.link ?? "");
+    .replaceAll("{link}", vars.link ?? "")
+    .replaceAll("{cta}", vars.cta ?? "");
 }
