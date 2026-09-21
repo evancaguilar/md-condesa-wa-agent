@@ -225,6 +225,26 @@ export interface AirtableMetricsMap {
   };
 }
 
+/**
+ * An hour range the business PREFERS to receive trials in — typically when the
+ * owner is on the floor to close. Never a restriction: it only breaks ties
+ * between two classes that fall inside the same 24h (see next-slot.ts).
+ */
+export interface PreferredBlock {
+  /** 0=Mon … 6=Sun — the SLOTS convention, not JS getDay(). */
+  dow: number;
+  /** Inclusive earliest class START time, "HH:mm" 24h CDMX. */
+  from: string;
+  /** Inclusive latest class START time, "HH:mm" 24h CDMX. */
+  to: string;
+}
+
+/** Trial-offer tuning. Absent / empty ⇒ pure soonest-first (the default). */
+export interface BookingConfig {
+  /** Tie-breaker blocks; EMPTY by default. Order is irrelevant. */
+  preferredBlocks: PreferredBlock[];
+}
+
 export interface ClosedDate {
   /** CDMX calendar date, "YYYY-MM-DD". */
   date: string;
@@ -256,6 +276,8 @@ export interface ClientConfig {
   /** Days the business is closed (CDMX "YYYY-MM-DD"): no slots proposed, no
    *  bookings accepted, and the brain is told in the per-turn context. */
   closedDates?: ClosedDate[];
+  /** Trial-offer tuning (preferred blocks). Absent ⇒ pure soonest-first. */
+  booking?: BookingConfig;
   /** Full persona + hard-policies system-prompt text (from persona.md). */
   persona: string;
   features: ClientFeatures;

@@ -6,11 +6,19 @@
 // trial, so they are skipped. (Nothing in the generated grid carries the flag
 // since the Muay Thai sparring hours reopened to trials — owner, 2026-08-25.)
 //
+// Ordering is SOONEST-FIRST, always (2026-09-21): trials booked for the same
+// day show up 54% of the time vs ~29% for trials a day or more out, so the
+// nearest valid class is the one worth proposing. The only thing that may
+// outrank it is a configured "preferred block" (CLIENT.booking.preferredBlocks
+// — the hours the owner is on the floor closing) and only inside the same 24h.
+// With the default EMPTY block list the behavior is pure soonest-first.
+//
 // Everything is pure over (discipline, audience, nowEpoch, schedule) so the
 // nudge copy can be unit-tested with a fake clock.
 
 import { SLOTS, type Slot } from "../brain/slots.gen.js";
 import { CLIENT } from "../client.gen.js";
+import type { PreferredBlock } from "../client-config.js";
 import { isKnownDiscipline, normalizeDiscipline, weekdayIndex } from "../brain/tools.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "./time.js";
 
@@ -30,8 +38,24 @@ export interface NextSlot {
 /** A slot must be at least this far away to be proposed (no "in 20 minutes"). */
 export const SLOT_LEAD_SECONDS = 2 * 3600;
 
+/**
+ * The buffer the PERSONA uses before it may say "hoy" (persona.md, "Flujo de
+ * agendado"). The brain's per-turn slot list uses it so the hours the model is
+ * handed are exactly the ones its own rule allows it to offer.
+ */
+export const TODAY_BUFFER_SECONDS = 4 * 3600;
+
 /** How far ahead we look before giving up (a full grid is one week). */
 const SEARCH_DAYS = 14;
+
+/**
+ * A preferred block may only outrank a sooner class inside this horizon — past
+ * it, sooner always wins (a lead who waits three extra days mostly forgets).
+ */
+export const PREFERRED_HORIZON_SECONDS = 24 * 3600;
+
+/** Candidates the preference tie-breaker scans (one day holds ~10 classes). */
+const PREFERENCE_SCAN = 40;
 
 const WEEKDAY_ES = [
   "lunes",
@@ -71,11 +95,97 @@ export function nextTrialSlot(
   nowEpoch: number,
   schedule: readonly Slot[] = SLOTS,
   closedDates: readonly { date: string }[] = CLIENT.closedDates ?? [],
+  preferredBlocks: readonly PreferredBlock[] = CLIENT.booking?.preferredBlocks ?? [],
 ): NextSlot | null {
+  // No blocks configured ⇒ the first hit IS the answer; don't scan 40 of them.
+  const limit = preferredBlocks.length > 0 ? PREFERENCE_SCAN : 1;
+  const found = collectSlots(discipline, audience, nowEpoch, {
+    schedule,
+    closedDates,
+    limit,
+  });
+  return pickPreferred(found, preferredBlocks)?.slot ?? null;
+}
+
+/**
+ * The next `limit` bookable trial slots, SOONEST FIRST, deduped to one entry per
+ * (date, time) — the brain only needs the hours, and the same hour repeated once
+ * per discipline is noise. `leadSeconds` overrides the 2h minimum (the per-turn
+ * brain list passes TODAY_BUFFER_SECONDS so it never hands the model an hour its
+ * own persona rule forbids). Pure.
+ */
+export function upcomingTrialSlots(
+  discipline: string | null,
+  audience: "adult" | "kid",
+  nowEpoch: number,
+  limit: number,
+  schedule: readonly Slot[] = SLOTS,
+  closedDates: readonly { date: string }[] = CLIENT.closedDates ?? [],
+  leadSeconds: number = SLOT_LEAD_SECONDS,
+): NextSlot[] {
+  const seen = new Set<string>();
+  const out: NextSlot[] = [];
+  for (const c of collectSlots(discipline, audience, nowEpoch, {
+    schedule,
+    closedDates,
+    leadSeconds,
+    // Dedupe drops entries, so scan wider than the caller asked for.
+    limit: Math.max(limit, 1) * 6,
+  })) {
+    const key = `${c.slot.date} ${c.slot.time}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c.slot);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * True when a slot starts inside one of the configured preferred blocks.
+ * `from`/`to` are INCLUSIVE class start times, so 09:00–13:00 covers the 13:00
+ * class. Pure — exported for the unit tests.
+ */
+export function inPreferredBlock(
+  slot: { weekday: number; time: string },
+  blocks: readonly PreferredBlock[],
+): boolean {
+  // "HH:mm" is zero-padded, so lexical comparison is chronological.
+  return blocks.some(
+    (b) => b.dow === slot.weekday && slot.time >= b.from && slot.time <= b.to,
+  );
+}
+
+// ---- internals ----
+
+/** A candidate slot plus the epoch it starts at (needed for the 24h horizon). */
+interface DatedSlot {
+  slot: NextSlot;
+  at: number;
+}
+
+/**
+ * Soonest-first walk over the grid: day offsets ascending, and inside each day
+ * the slots sorted by clock time — so the list is chronological by construction,
+ * never by the order rows happen to sit in SLOTS.
+ */
+function collectSlots(
+  discipline: string | null,
+  audience: "adult" | "kid",
+  nowEpoch: number,
+  opts: {
+    schedule?: readonly Slot[];
+    closedDates?: readonly { date: string }[];
+    leadSeconds?: number;
+    limit: number;
+  },
+): DatedSlot[] {
+  const schedule = opts.schedule ?? SLOTS;
+  const closed = new Set((opts.closedDates ?? CLIENT.closedDates ?? []).map((c) => c.date));
   const wantKey = resolveDiscipline(discipline);
-  const closed = new Set(closedDates.map((c) => c.date));
-  const earliest = nowEpoch + SLOT_LEAD_SECONDS;
+  const earliest = nowEpoch + (opts.leadSeconds ?? SLOT_LEAD_SECONDS);
   const p = cdmxParts(nowEpoch);
+  const out: DatedSlot[] = [];
 
   for (let offset = 0; offset < SEARCH_DAYS; offset++) {
     // Date.UTC normalizes day overflow, so `p.day + offset` rolls months/years.
@@ -107,10 +217,27 @@ export function nextTrialSlot(
       const at = slotEpoch(dp.year, dp.month, dp.day, s.time);
       if (at === null || at < earliest) continue;
       const base = { weekday: wd, date, time: s.time, discipline: s.discipline };
-      return { ...base, label: formatSlotLabel(base, nowEpoch, "es") };
+      out.push({ slot: { ...base, label: formatSlotLabel(base, nowEpoch, "es") }, at });
+      if (out.length >= opts.limit) return out;
     }
   }
-  return null;
+  return out;
+}
+
+/**
+ * Soonest-first with ONE exception: when a later candidate still starts inside
+ * PREFERRED_HORIZON_SECONDS of the soonest one AND falls in a preferred block,
+ * it wins (same-ish day either way, but the owner is on the floor to close).
+ * With no blocks configured this is the identity on `found[0]`.
+ */
+function pickPreferred(
+  found: readonly DatedSlot[],
+  blocks: readonly PreferredBlock[],
+): DatedSlot | undefined {
+  const first = found[0];
+  if (!first || blocks.length === 0) return first;
+  const cutoff = first.at + PREFERRED_HORIZON_SECONDS;
+  return found.find((c) => c.at <= cutoff && inPreferredBlock(c.slot, blocks)) ?? first;
 }
 
 /**
@@ -166,8 +293,6 @@ export function time12h(time: string): string {
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}:${min} ${suffix}`;
 }
-
-// ---- internals ----
 
 /** Lead discipline → service key, or null for "any class of this audience". */
 function resolveDiscipline(discipline: string | null): string | null {

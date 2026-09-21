@@ -251,3 +251,45 @@ test("closureLines: today's closure is loud, near closures listed, far/past ones
   assert.deepEqual(closureLines("2026-10-01T10:00", closed), []);
   assert.deepEqual(closureLines("garbage", closed), []);
 });
+
+// ---- soonest-first slot hints (2026-09-21) ----
+//
+// The model was resolving every date itself, which is where the "el sábado"
+// default came from. The per-turn context now hands it the three nearest valid
+// hours, soonest first — and ONLY the per-turn block, never the cached system
+// prefix (cache stability is contractual).
+
+test("context block lists the next valid hours, soonest first, with the 4h buffer", () => {
+  // Monday 2026-07-06 18:30 + 4h ⇒ nothing left today, so the list opens
+  // tomorrow morning and runs in ascending order.
+  const block = buildContextBlock(ctx());
+  assert.match(block, /próximos horarios válidos para adultos/);
+  assert.ok(block.includes("mañana martes 7:00 am"), block);
+  const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
+  assert.equal(line.split(" · ").length, 3, line);
+  assert.ok(!line.includes("hoy a las"), "18:30 + 4h leaves nothing today");
+  // The hint must not license an unverified offer.
+  assert.match(block, /confirma en el horario del KB que esa fila existe/);
+});
+
+test("slot hints follow the lead's program — a kids campaign never sees adult hours", () => {
+  const block = buildContextBlock(
+    ctx({ campaign: { name: "Kids septiembre", info: "clases para niños" } }),
+  );
+  assert.match(block, /próximos horarios válidos para niños/);
+  assert.ok(block.includes("mañana martes 4:00 pm"), block); // Kids Muay Thai
+  assert.ok(!block.includes("7:00 am"), "7 am is an adults-only hour");
+});
+
+test("slot hints stay OUT of the cached system blocks", () => {
+  assert.ok(!systemText(KB_A).includes("próximos horarios válidos"));
+  assert.ok(
+    !buildSystem(KB_A, "overlay").some((b) => b.text.includes("próximos horarios")),
+  );
+});
+
+test("slot hints degrade to nothing when the clock can't be parsed", () => {
+  const block = buildContextBlock(ctx({ nowCdmx: "garbage" }));
+  assert.ok(!block.includes("próximos horarios válidos"));
+  assert.ok(block.startsWith("<context>"));
+});
