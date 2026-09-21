@@ -48,8 +48,44 @@ export type PostTrialKind = (typeof POST_TRIAL_KINDS)[number];
 /** Second (and last) no-show touch. */
 export const NO_SHOW_KIND = "no_show_d3";
 
+/** The delayed Slack card ("asistió y no se inscribió" + 🙋 button). */
+export const POST_TRIAL_CARD_KIND = "post_trial_card";
+
 /** Every kind this module owns — the cancellation surface. */
-export const POST_TRIAL_ALL_KINDS = [...POST_TRIAL_KINDS, NO_SHOW_KIND] as const;
+export const POST_TRIAL_ALL_KINDS = [...POST_TRIAL_KINDS, NO_SHOW_KIND, POST_TRIAL_CARD_KIND] as const;
+
+/** Assumed class length: adult/kids classes run ~1 h (Baby is 40 min — the card
+ *  is a few minutes later there, which is harmless). */
+export const CLASS_LENGTH = 60 * 60;
+/** The card waits this long AFTER the class ends — the front desk closes in
+ *  person first; a card saying "escríbele hoy" while the lead is still on the
+ *  mat was the complaint (Evan, 2026-09-21). */
+export const CARD_DELAY_AFTER_END = 30 * 60;
+
+/**
+ * When the attended card should post: class start + CLASS_LENGTH +
+ * CARD_DELAY_AFTER_END. Null when that moment already passed (the result was
+ * marked late) — post it right away. Pure.
+ */
+export function computePostTrialCardAt(trialEpoch: number, now: number): number | null {
+  if (!Number.isFinite(trialEpoch)) return null;
+  const dueAt = trialEpoch + CLASS_LENGTH + CARD_DELAY_AFTER_END;
+  return dueAt > now ? dueAt : null;
+}
+
+/** note column of a post_trial_card row: the display name resolved at marking time. */
+export function encodeCardNote(name: string): string {
+  return JSON.stringify({ name });
+}
+export function decodeCardNote(note: string | null): string | null {
+  if (!note) return null;
+  try {
+    const v = JSON.parse(note) as { name?: unknown };
+    return typeof v.name === "string" && v.name ? v.name : null;
+  } catch {
+    return null;
+  }
+}
 
 export type FollowUpKindHere = PostTrialKind | typeof NO_SHOW_KIND;
 

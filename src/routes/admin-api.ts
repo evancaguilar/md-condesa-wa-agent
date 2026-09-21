@@ -171,6 +171,8 @@ import {
   fetchTemplateCatalog,
   findTemplate,
   type CreateTemplateInput,
+  updateTemplate,
+  type UpdateTemplateInput,
 } from "../services/blast-templates.js";
 import { monthCost, runCost } from "../services/blast-cost.js";
 import { KV_PER_TICK, sentTodayCount } from "../cron/blasts.js";
@@ -392,6 +394,14 @@ export async function handleAdminApi(
       if (!body || typeof body !== "object") return json({ error: "body inválido" }, 400);
       const r = await createTemplate(env, body);
       if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) enviada a Meta por ${by} → ${r.status ?? "?"}`).catch(() => {}));
+      return json(r, r.ok ? 200 : 400);
+    }
+    // Edit an existing template's body/footer in place (2026-09-21).
+    if (path === "/admin/api/blast/templates/update" && method === "POST") {
+      const body = (await req.json().catch(() => null)) as UpdateTemplateInput | null;
+      if (!body || typeof body !== "object") return json({ error: "body inválido" }, 400);
+      const r = await updateTemplate(env, body);
+      if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) editada por ${by} → ${r.status ?? "?"}`).catch(() => {}));
       return json(r, r.ok ? 200 : 400);
     }
     // Sends per cron tick (kv `blast_per_tick`, clamped 1..BLAST_PER_TICK_MAX).

@@ -283,3 +283,58 @@ export async function createTemplate(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+export interface UpdateTemplateInput {
+  name: string;
+  language: string;
+  body: string;
+  footer?: string;
+  bodyExamples?: string[];
+}
+
+/** Pure. Graph payload for POST /{template_id} (edit in place — allowed while
+ *  PENDING or APPROVED; an edited APPROVED template goes back to review). */
+export function buildUpdateTemplatePayload(input: UpdateTemplateInput): Record<string, unknown> {
+  const payload = buildCreateTemplatePayload({
+    name: input.name,
+    language: input.language,
+    category: "MARKETING",
+    body: input.body,
+    footer: input.footer,
+    bodyExamples: input.bodyExamples,
+  });
+  return { components: payload.components };
+}
+
+/** Rewrites the body/footer of a template Meta already has. Owner-only. */
+export async function updateTemplate(
+  env: Env,
+  input: UpdateTemplateInput,
+  doFetch: typeof fetch = fetch,
+): Promise<CreateTemplateResult> {
+  if (!input.body?.trim()) return { ok: false, error: "body vacío" };
+  const catalog = await fetchTemplateCatalog(env, doFetch);
+  if (!catalog.ok) return { ok: false, error: catalog.error ?? "catálogo no disponible" };
+  const t = findTemplate(catalog.templates, input.name, input.language);
+  if (!t?.id) return { ok: false, error: `plantilla ${input.name}/${input.language} no existe en la WABA` };
+  try {
+    const res = await doFetch(`https://graph.facebook.com/${GRAPH_VERSION}/${t.id}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify(buildUpdateTemplatePayload(input)),
+    });
+    const data = (await res.json()) as {
+      success?: boolean;
+      error?: { message?: string; code?: number; error_user_msg?: string };
+    };
+    if (!res.ok || data.error) {
+      return {
+        ok: false,
+        error: `Graph ${res.status}${data.error?.code ? ` [${data.error.code}]` : ""}: ${data.error?.error_user_msg ?? data.error?.message ?? "error"}`,
+      };
+    }
+    return { ok: true, id: t.id, status: t.status };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

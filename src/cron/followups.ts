@@ -81,7 +81,11 @@ import {
 import {
   attendedCardText,
   computeNoShowRebook,
+  computePostTrialCardAt,
   computePostTrialSequence,
+  decodeCardNote,
+  encodeCardNote,
+  POST_TRIAL_CARD_KIND,
   processPostTrial,
   POST_TRIAL_ALL_KINDS,
   POST_TRIAL_MAX_AGE,
@@ -497,8 +501,37 @@ async function processOne(
       }
       return;
 
+    case "post_trial_card": {
+      // A student by now (paid before the card fired) needs no closing card;
+      // the chain itself retires at send time, this just keeps Slack quiet.
+      if (contact?.status === "student") {
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
+      await postAttendedCard(
+        deps,
+        f.phone,
+        decodeCardNote(f.note) ?? greetingName(contact?.name),
+      );
+      await markFollowup(env.DB, f.id, "sent");
+      return;
+    }
+
     default:
       await markFollowup(env.DB, f.id, "cancelled");
+  }
+}
+
+/** The "asistió y no se inscribió" card, with the 🙋 button when the dep is wired. */
+async function postAttendedCard(
+  deps: { slack: ResultSlackDeps },
+  phone: string,
+  who: string,
+): Promise<void> {
+  if (deps.slack.postPostTrialCard) {
+    await deps.slack.postPostTrialCard({ phone, name: who });
+  } else {
+    await deps.slack.postNote(attendedCardText(who, displayContact(phone)));
   }
 }
 
@@ -978,12 +1011,21 @@ async function processResult(
       // that kills today's automated message. Staff follow up from their own
       // phones, which the bot cannot see, so that click is the only signal we
       // will ever get. Falls back to a plain note when no card dep is injected.
+      // Held until ~30 min after the class ENDS (Evan, 2026-09-21): the desk
+      // closes in person first, then the card asks who follows up. A result
+      // marked after that moment posts right away.
       const who = displayName(name, contact?.name);
-      const shown = displayContact(phone);
-      if (deps.slack.postPostTrialCard) {
-        await deps.slack.postPostTrialCard({ phone, name: who });
+      const cardAt = computePostTrialCardAt(trialEpoch, nowSec());
+      if (cardAt !== null) {
+        await scheduleFollowup(env.DB, {
+          phone,
+          kind: POST_TRIAL_CARD_KIND,
+          dueAt: cardAt,
+          airtableRecordId: recordId,
+          note: encodeCardNote(who),
+        });
       } else {
-        await deps.slack.postNote(attendedCardText(who, shown));
+        await postAttendedCard(deps, phone, who);
       }
     }
     await kvSet(env.DB, kvKey, marker);

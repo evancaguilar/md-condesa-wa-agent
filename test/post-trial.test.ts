@@ -589,6 +589,7 @@ test("runDueFollowups: a stopChain outcome cancels the rest of the chain by kind
       "post_trial_d2",
       "post_trial_d5",
       "no_show_d3",
+      "post_trial_card",
     ]);
   });
 });
@@ -974,4 +975,30 @@ test("classifyResult and capiEventsForResult agree across the live option list",
 test("an enrolment reports QualifiedLead AND Purchase, in that order", () => {
   assert.deepEqual(capiEventsForResult("Se inscribió"), ["attended", "purchase"]);
   assert.deepEqual(capiEventsForResult("Se inscribió, Perdido"), ["attended", "purchase"]);
+});
+
+// ---- delayed attended card (2026-09-21) ----
+
+import {
+  CARD_DELAY_AFTER_END,
+  CLASS_LENGTH,
+  computePostTrialCardAt,
+  decodeCardNote,
+  encodeCardNote,
+  POST_TRIAL_ALL_KINDS,
+  POST_TRIAL_CARD_KIND,
+} from "../src/cron/post-trial.js";
+
+test("computePostTrialCardAt: class start + 1h + 30min; null once that moment passed", () => {
+  const start = cdmxToEpoch(2026, 9, 21, 18, 0, 0);
+  assert.equal(computePostTrialCardAt(start, start + 300), start + CLASS_LENGTH + CARD_DELAY_AFTER_END);
+  assert.equal(computePostTrialCardAt(start, start + 2 * 3600), null, "marked late → post now");
+  assert.equal(computePostTrialCardAt(NaN, start), null);
+});
+
+test("post_trial_card is part of the cancellation surface and its note round-trips", () => {
+  assert.ok((POST_TRIAL_ALL_KINDS as readonly string[]).includes(POST_TRIAL_CARD_KIND));
+  assert.equal(decodeCardNote(encodeCardNote("Mara")), "Mara");
+  assert.equal(decodeCardNote(null), null);
+  assert.equal(decodeCardNote("garbage"), null);
 });

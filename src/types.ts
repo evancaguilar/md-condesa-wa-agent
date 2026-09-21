@@ -252,6 +252,9 @@ export type FollowupKind =
   | "post_trial_d0"
   | "post_trial_d2"
   | "post_trial_d5"
+  /** The Slack "asistió y no se inscribió" card, held until ~30 min after the
+   *  class ends so the front desk can close in person first (src/cron/post-trial.ts). */
+  | "post_trial_card"
   | "nudge_1h"
   | "nudge_6h"
   | "nudge_8h"

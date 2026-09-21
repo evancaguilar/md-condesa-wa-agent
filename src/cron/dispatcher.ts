@@ -29,6 +29,7 @@ import { runMetricsBrief } from "./metrics-brief.js";
 import { runBlastBatch } from "./blasts.js";
 import { runSalesAudio } from "./sales-audio.js";
 import { runCapiDrain } from "./capi.js";
+import { syncPostTrialD0Templates } from "./template-sync.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -78,6 +79,10 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // Additive indexes (src/db/indexes.ts): kv-guarded + per-isolate memo, so
   // after the first successful tick this is one kv read per warm isolate.
   await safe("ensureIndexes", () => ensureIndexes(env.DB));
+  // One-shot template copy sync (src/cron/template-sync.ts, kv-guarded).
+  await safe("syncPostTrialD0Templates", () =>
+    syncPostTrialD0Templates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+  );
 
   // Every tick: due followups + approval timeouts. Isolate failures so one
   // subsystem can't starve the others.
