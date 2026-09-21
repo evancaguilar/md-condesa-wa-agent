@@ -63,12 +63,24 @@ async function main() {
   } else {
     built = genericKb(intake, cfg);
   }
-  const { body, slots = [], sources = "intake.md" } = built;
+  const { body, slots = [], sources = "intake.md", degraded = false } = built;
+
+  const compiledDir = join(REPO, "kb", "compiled");
+  const kbPath = join(compiledDir, "kb.md");
+
+  // A builder that could not read all of its sources (clients/*/kb-build.mjs
+  // sets `degraded`) must never REPLACE a bigger KB that is already committed.
+  // This is the safety net for CI: Workers Builds re-runs `npm run build` and
+  // has no checkout of the site repo, so without this the deploy would quietly
+  // ship a KB a fifth shorter than the one in git.
+  const kept = degraded ? previousKbIfLarger(kbPath, body) : null;
 
   const hash = createHash("sha256").update(body).digest("hex").slice(0, 12);
   const date = new Date().toISOString().slice(0, 10);
-  const version = `${date}+${hash}`;
-  const approxTokens = Math.ceil(body.length / 3.5);
+  // Keeping the previous kb.md means keeping its version too — the version
+  // identifies the KB CONTENT, and the other generated files must agree with it.
+  const version = kept ? kept.version : `${date}+${hash}`;
+  const approxTokens = Math.ceil((kept ? kept.chars : body.length) / 3.5);
 
   const header =
     `<!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.\n` +
@@ -77,9 +89,16 @@ async function main() {
     `     fuentes: ${sources} -->\n\n`;
 
   // Emit outputs.
-  const compiledDir = join(REPO, "kb", "compiled");
   mkdirSync(compiledDir, { recursive: true });
-  writeFileSync(join(compiledDir, "kb.md"), header + body);
+  if (kept) {
+    console.warn(
+      `WARN: build degradado (~${Math.ceil(body.length / 3.5)} tok) — se CONSERVA ` +
+        `el kb.md ya commiteado (~${approxTokens} tok, ${version}). ` +
+        `Compila con el repo del sitio disponible (MD_SITE_DIR) para actualizarlo.`,
+    );
+  } else {
+    writeFileSync(kbPath, header + body);
+  }
   writeFileSync(
     join(compiledDir, "slots.json"),
     JSON.stringify({ version, slots }, null, 2) + "\n",
@@ -166,6 +185,21 @@ function preferredBlocks(rows) {
         String(b.from) <= String(b.to),
     )
     .map((b) => ({ dow: Number(b.dow), from: String(b.from), to: String(b.to) }));
+}
+
+/**
+ * The already-committed kb.md, when it is MATERIALLY bigger than what this
+ * (degraded) build produced — i.e. the build lost sources rather than the
+ * content genuinely shrinking. 5% of slack keeps an ordinary intake.md trim
+ * from tripping it. Returns { version, chars } of the file to keep, else null.
+ */
+function previousKbIfLarger(kbPath, body) {
+  if (!existsSync(kbPath)) return null;
+  const prev = readFileSync(kbPath, "utf8");
+  const version = /version:\s*(\S+)/.exec(prev)?.[1] ?? null;
+  const chars = Number(/chars\s+(\d+)/.exec(prev)?.[1] ?? 0);
+  if (!version || !chars) return null; // unreadable header → let the build win
+  return chars > body.length * 1.05 ? { version, chars } : null;
 }
 
 function renderClientTs(cfg, persona, version) {

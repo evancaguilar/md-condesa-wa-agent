@@ -17,14 +17,79 @@
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, "..", "..");
-const SITE_LOCAL = join(REPO, "..", "md-condesa-site");
 const SITE_ORIGIN = "https://mdcondesa.com";
 
-// ---- source loaders (local sibling first, else fetch) --------------------
+// ---- where the site checkout lives --------------------------------------
+//
+// THE TRAP (2026-09-21): only `js/schedule-data.js` and `content/site.js` are
+// served in raw form by the live site. `content/pages/*`, `en-hub.js` and
+// `founder.js` are compiled into HTML, so they can ONLY come from a local
+// checkout — and loadContent() below simply returned nothing when it was
+// missing. The build printed no error and produced a KB roughly 2 300 tokens
+// short (~8 000 instead of ~10 340): no disciplines, no FAQs, no founder.
+//
+// The default path is the sibling checkout, which does not exist inside a git
+// WORKTREE (`<repo>/.claude/worktrees/<id>/../md-condesa-site`), so every
+// worktree build silently shipped the truncated KB. Hence MD_SITE_DIR and the
+// hard failure in buildKb.
+
+/** Absolute path of the md-condesa-site checkout this build should read. */
+function resolveSiteDir() {
+  const override = (process.env.MD_SITE_DIR || "").trim();
+  if (override) return isAbsolute(override) ? override : join(REPO, override);
+  return join(REPO, "..", "md-condesa-site");
+}
+
+const SITE_LOCAL = resolveSiteDir();
+
+/** The checkout is usable only if the LOCAL-ONLY content actually sits there. */
+function siteCheckoutPresent() {
+  return existsSync(join(SITE_LOCAL, "content", "pages"));
+}
+
+/**
+ * Whether a KB built without the checkout may still be produced. Only two
+ * things grant it: an explicit opt-in, or CI — Cloudflare Workers Builds runs
+ * `npm run build` (docs/phase0-checklist.md §5) and does NOT check out the
+ * site repo, so failing there would break push-to-deploy. CI is kept working
+ * and the degraded output is caught downstream instead: compile-kb.mjs refuses
+ * to let a degraded build overwrite a larger, already-committed kb.md.
+ */
+function remoteAllowed() {
+  if (process.env.KB_ALLOW_REMOTE === "1") return true;
+  return Boolean(
+    process.env.WORKERS_CI ||
+      process.env.CI ||
+      process.env.CF_PAGES ||
+      process.env.GITHUB_ACTIONS,
+  );
+}
+
+/** The error a local build gets instead of a silently truncated KB. */
+function missingSiteError() {
+  return new Error(
+    [
+      `No encuentro el repo del sitio en:`,
+      `  ${SITE_LOCAL}`,
+      ``,
+      `Sin él, content/pages/*, en-hub.js y founder.js NO se pueden leer (el`,
+      `sitio no sirve esos .js en crudo) y el KB saldría TRUNCADO —`,
+      `~8 000 tokens en lugar de ~10 340, sin disciplinas, FAQs ni fundador.`,
+      `Antes esto no fallaba: por eso ahora sí.`,
+      ``,
+      `Elige una:`,
+      `  MD_SITE_DIR=/ruta/a/md-condesa-site npm run build`,
+      `  ln -s ~/md-condesa-site <carpeta-padre-de-este-repo>/md-condesa-site`,
+      `  KB_ALLOW_REMOTE=1 npm run build      (acepta el KB truncado a propósito)`,
+    ].join("\n"),
+  );
+}
+
+// ---- source loaders (local checkout first, else fetch) -------------------
 
 /** Fetch text from the live site (build-time only; Node v24 has global fetch). */
 async function fetchText(pathname) {
@@ -444,6 +509,16 @@ function assembleMarkdown({ cfg, site, schedEs, schedEn, curated, founderTxt, in
 
 /** Entry point called by tools/compile-kb.mjs. */
 export async function buildKb({ intake, cfg }) {
+  // Fail LOUDLY rather than quietly shipping a KB missing a fifth of itself.
+  const haveSite = siteCheckoutPresent();
+  if (!haveSite && !remoteAllowed()) throw missingSiteError();
+  if (!haveSite) {
+    console.warn(
+      `WARN: sin checkout del sitio en ${SITE_LOCAL} — el KB se compila SIN ` +
+        `content/pages/*, en-hub.js ni founder.js (disciplinas, FAQs, fundador).`,
+    );
+  }
+
   const scheduleCode = await loadSource("js/schedule-data.js", "/js/schedule-data.js");
   const { schedule, i18n } = evalSchedule(scheduleCode);
 
@@ -474,6 +549,10 @@ export async function buildKb({ intake, cfg }) {
   return {
     body,
     slots,
-    sources: "schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md",
+    sources: haveSite
+      ? "schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md"
+      : "schedule-data.js, site.js, intake.md (SIN checkout del sitio)",
+    /** compile-kb.mjs refuses to overwrite a larger committed KB with this. */
+    degraded: !haveSite,
   };
 }

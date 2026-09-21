@@ -10,6 +10,7 @@ import {
   POST_TRIAL_KINDS,
 } from "../src/cron/post-trial.js";
 import { classifyResult, isLostResult } from "../src/services/airtable.js";
+import { capiEventsForResult } from "../src/services/meta-capi.js";
 import { runDueFollowups, syncBookings } from "../src/cron/followups.js";
 import { noShowCopy } from "../src/cron/nudges.js";
 import { cdmxToEpoch, cdmxParts, DAY } from "../src/cron/time.js";
@@ -735,4 +736,42 @@ test("result watcher: 'No asistió' arms the +3d touch and proposes a real slot"
   );
   assert.ok(run.cancelledAll > 0); // every pending row dies first
   assert.equal(run.kv.get("resultado:recA"), "no_show");
+});
+
+// ---- the two result readers stay independent but must not contradict -------
+
+test("classifyResult and capiEventsForResult agree across the live option list", () => {
+  // The CAPI hook reads the raw Airtable value itself, by design: it runs above
+  // every messaging branch, claims under its own kv namespace (`capi:…`, never
+  // `resultado:…`), and must keep firing for values the messaging side ignores.
+  // Independent code paths are fine; disagreeing about what a value MEANS is
+  // not, so pin the two together over the real multi-select options.
+  const cases: [string, ReturnType<typeof classifyResult>, string[]][] = [
+    ["No asistió", "no_show", []],
+    ["Reprogramó", null, []],
+    ["Asistió", "attended", ["attended"]],
+    ["Dijo que se va a inscribir", null, []],
+    ["Perdido", null, []],
+    ["Se inscribió", "enrolled", ["attended", "purchase"]],
+    // The joins staff actually produce.
+    ["Asistió, Dijo que se va a inscribir", "attended", ["attended"]],
+    ["Asistió, Se inscribió", "enrolled", ["attended", "purchase"]],
+    ["No asistió, Reprogramó", "no_show", []],
+    // A lead staff gave up on still ATTENDED — that signal is a fact about the
+    // visit and keeps reaching Meta; only the messaging stops.
+    ["Asistió, Perdido", "attended", ["attended"]],
+    ["No asistió, Perdido", "no_show", []],
+  ];
+  for (const [raw, expected, capi] of cases) {
+    assert.equal(classifyResult(raw), expected, raw);
+    assert.deepEqual(capiEventsForResult(raw), capi, raw);
+    // Whenever messaging says they came, Meta hears QualifiedLead, and vice versa.
+    const came = expected === "attended" || expected === "enrolled";
+    assert.equal(capi.includes("attended"), came, raw);
+  }
+});
+
+test("an enrolment reports QualifiedLead AND Purchase, in that order", () => {
+  assert.deepEqual(capiEventsForResult("Se inscribió"), ["attended", "purchase"]);
+  assert.deepEqual(capiEventsForResult("Se inscribió, Perdido"), ["attended", "purchase"]);
 });

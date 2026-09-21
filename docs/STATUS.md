@@ -2,6 +2,22 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-21**.
 
+> **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 865 green**.
+
+### ⚠️ The KB build was silently shipping a TRUNCATED KB (2026-09-21)
+
+**What happens.** `clients/md-condesa/kb-build.mjs` reads the site sources from the sibling checkout `<repo>/../md-condesa-site`. Only two of them — `js/schedule-data.js` and `content/site.js` — are also served in raw form by the live site, so `loadSource` can fetch those. **`content/pages/*`, `en-hub.js` and `founder.js` are compiled into HTML and can ONLY come from a local checkout**, and `loadContent()` simply returned nothing when it was missing. No error, no warning: the build just produced a KB **~8 038 tokens instead of ~10 340** — no disciplines, no FAQs, no founder — and exited 0.
+
+**Who this bit.** (1) Every **git worktree** build: the sibling path resolves to `<repo>/.claude/worktrees/<id>/../md-condesa-site`, which does not exist (a symlink there is what makes it work today). (2) **Very likely production.** Workers Builds runs `npm run build` on every push (docs/phase0-checklist.md §5) and does **not** check out the site repo, so CI has been recompiling the committed 10 340-token `kb.md` down to the 8 038-token version at deploy time. That is consistent with the long-standing "served `kbVersion` never matches the local one" gotcha. **UNVERIFIED** — confirm by comparing the `kbVersion` at `/health` with `kb/compiled/kb.md`'s header, or by asking the bot something only the disciplines/FAQ sections answer.
+
+**Fixed:**
+- **`MD_SITE_DIR`** env override (absolute, or relative to the repo) picks the checkout explicitly.
+- A local build with no checkout now **fails loudly, exit 1**, with a message naming the three ways out. It no longer degrades in silence.
+- **CI keeps working**: the remote path stays allowed when `KB_ALLOW_REMOTE=1` or a CI env var (`WORKERS_CI` / `CI` / `CF_PAGES` / `GITHUB_ACTIONS`) is set, so push-to-deploy is not broken by this change.
+- **The real safety net:** `buildKb` returns `degraded: true` when it ran without the checkout, and `tools/compile-kb.mjs` then **refuses to overwrite an already-committed `kb.md` that is materially (>5%) larger**, keeping that file *and its version* so the other generated files stay consistent. A degraded CI build therefore deploys the full KB from git instead of a truncated rebuild.
+
+**Pendiente Evan:** confirm which KB prod is actually serving (above), and decide the permanent CI shape — either check out `md-condesa-site` in the Workers Builds step and set `MD_SITE_DIR`, or drop the CI build command to `npx wrangler deploy` since every compiled artifact is committed anyway. The guard makes either safe, but it is a guard, not the design.
+
 ### Meta Conversions API for Business Messaging — shipped INERT (2026-09-21)
 
 Owner guide: **docs/meta-capi.md**. Campaigns optimize for "conversations started", so Meta buys the cheapest chat (one ad: $13.9k MXN → 1 sale of $500). The fix is to send the downstream funnel back to Meta for ad leads: **Booked → `LeadSubmitted`, Attended → `QualifiedLead`, Enrolled → `Purchase`** (value = `Pago Inicial`, MXN), keyed on the `ctwa_clid` the inbound pipeline already stores in `contacts.ad_ref`. Event names come from Meta's closed business-messaging list (Schedule/Contact are NOT on it; custom names are undocumented → not used).
