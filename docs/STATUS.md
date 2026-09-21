@@ -4,6 +4,16 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### ROAS program — what went LIVE on 2026-09-21 (pushed `a525f78`, deploy verified)
+
+Goal and plan: 3–5x ROAS on the owner's definition (new sign-ups from ad leads, all payments inside the month) at ~$45k MXN/mo, then scale. Baseline funnel (paid leads): $34 CPL → 18 % book → 38 % show → 32 % close → ~$2.9k ticket ≈ 1.9x mature. Same-day bookings show 54 % vs ~29 % when booked a day or more out.
+
+- **Deploy verified by behavior:** `/health` now serves `kbVersion 2026-09-21+05cd40ae3aaa` = the committed kb.md hash (it served the truncated `ce07bcf11c23` before) and `rev 402d2fe7c131` = local.
+- **Templates: 24 submitted to Meta (PENDING)** through `/admin/api/blast/templates/create`: 6 base (`trial_confirm_es`, `trial_reminder_day_before_es`, `trial_reminder_same_day_es`, `no_show_followup_es`, `human_followup_es`, `reengage_lead_es`), 12 `nudge_d{2-5}_{adults,kids,baby}_es`, 6 `post_trial_d{0,2,5}_{es,en}`. Before today the live catalog held ONLY 10 blast templates — no trial reminder had ever been delivered on this WABA. **Next check: all 24 APPROVED; then watch for the first `day_before` / `same_day` sends.**
+- **Meta ads (Graph API, total unchanged at $1,500/day).** Budgets live on the ad SET (adults: campaign budget), not the ad. Paused: mujeres debiles, hombres debiles, 5000 premio bjj gi, mananas-999 bjj grupos chicos, bfc movie poster girl, bfc video 3, pic of kids class, mt bjj kids carousel, pequeños heroes 2 - no cta. Budgets: Adults Evergreen 750→650, babies ad set 375→290, kids ad set 375→560. KPI to judge ads: **cost per SHOW**, not CPL. Open: give mañanas its own ad set (new ad ids must be appended in /admin → Campañas).
+- **Airtable:** Leads gained `Cerrado por` (Evan/Fer/Karime/Carlos/Vale/Otro) and `Paquete vendido` — fill both when marking "Se inscribió".
+- **Meta CAPI is deployed but OFF.** `GET /admin/api/capi/dataset` answers `(#200) permission` — the worker's tokens lack the WhatsApp events scope. **Pendiente Evan:** system-user token with `whatsapp_business_management` + `whatsapp_business_manage_events` → Cloudflare secret `META_CAPI_TOKEN`; then dataset id → `META_CAPI_DATASET_ID`, test event, flip `features.metaCapi` (docs/meta-capi.md).
+
 ### ⚠️ The KB build was silently shipping a TRUNCATED KB (2026-09-21)
 
 **What happens.** `clients/md-condesa/kb-build.mjs` reads the site sources from the sibling checkout `<repo>/../md-condesa-site`. Only two of them — `js/schedule-data.js` and `content/site.js` — are also served in raw form by the live site, so `loadSource` can fetch those. **`content/pages/*`, `en-hub.js` and `founder.js` are compiled into HTML and can ONLY come from a local checkout**, and `loadContent()` simply returned nothing when it was missing. No error, no warning: the build just produced a KB **~8 038 tokens instead of ~10 340** — no disciplines, no FAQs, no founder — and exited 0.
