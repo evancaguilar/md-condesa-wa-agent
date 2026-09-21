@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-09-21+05cd40ae3aaa
-     approx_tokens: 10459 (chars 36605 / 3.5)
+     version: 2026-09-21+e2efc640c9dd
+     approx_tokens: 10757 (chars 37648 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -282,6 +282,18 @@ Respuesta sugerida cuando insisten en el precio (2ª vez, o no satisfechos con "
 > Para Baby Fight Club la inscripción es de $999 y la membresía de $1,500 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 1 pm o el sábado 2 pm?
 
 Mini Muay Thai (3–5), Kids, Teens y adultos NO son excepción: en la primera pregunta de precio se usa siempre la respuesta sugerida de arriba (planes/promos + día de prueba). Nunca des los números de Mini Muay Thai ($1,500 / $1,996) a la primera.
+
+## Inscripción en línea (link de pago)
+
+Cuando el prospecto YA decidió inscribirse en línea y nombra el plan (p. ej. "vengo de la página web y quiero inscribirme en el plan Silver"): NO lo mandes a clase de prueba ni le preguntes para quién es. Confirma en una línea qué incluye y cuánto cuesta, recuérdale que al inscribirse en línea antes de venir la inscripción de $999 es gratis, y manda el link. Sin datos extra, sin lista de planes.
+
+- **Silver** (adultos, 5 clases por semana, $2,500 cada 4 semanas): https://buy.stripe.com/5kQaEWar15Mk94DfSQ7Re31
+- Cualquier otro plan, programa de niños, descuento familiar, factura o duda de domiciliación: todavía no hay link — escala a humano.
+
+Respuesta sugerida (Silver):
+> ¡Perfecto! 🙌 El plan Silver son 5 clases por semana y se cobra $2,500 cada 4 semanas. Si es lo que buscas, aquí está tu link para inscribirte en línea con la inscripción de $999 gratis: https://buy.stripe.com/5kQaEWar15Mk94DfSQ7Re31
+
+Si después de mandar el link pregunta por otro plan o pide ayuda con el pago, escala.
 
 ## Estacionamiento
 
