@@ -4,6 +4,14 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### Buy-intent first message, Silver online sign-up link, post-trial d0 copy (2026-09-21) — ⚠️ NEEDS `npm run build` ON A MACHINE WITH THE SITE REPO
+
+- **Bug (Daniel, 2026-09-21 15:07):** a "Sitio web" lead wrote "quiero inscribirme en línea en el plan Silver…" and got the canned trial welcome ("¿la clase es para ti o para un peque?"). `firstReplyDecision` now returns `none` when the first message matches `hasBuyIntent` (src/cron/nudge-signals.ts), so the brain answers instead. Test added.
+- **KB:** new intake section «Inscripción en línea (link de pago)» — Silver (5 clases/sem, $2,500 c/4 sem) → Stripe link; every other plan still escalates (no links yet — **Evan: send the Gold/Bronze/Diamond/kids links to add them**). Persona: the "escala DE INMEDIATO, no mandes links" rule is replaced by "if the KB has a link for that plan, confirm and send it"; sureness checklist items 3 and 6 adjusted to match.
+- **Post-trial d0 copy** (client.mjs + docs/template-submission.md §13–14): "¿Te apartamos tu lugar…?" read like offering another trial (Evan). New: "¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo." In-window sends pick this up on deploy; **the `post_trial_d0_es/en` templates pending at Meta still carry the OLD body — edit them in WhatsApp Manager (pending templates can be edited in place) or resubmit via `/admin/api/blast/templates/create` with the new text.**
+- Not changed (Evan to decide): the 🔥 attended card posts the moment "Asistió" is marked; proposal is card at class end + 30 min, d0 send unchanged at 3 h after class start.
+- Tests 821 → **906** on this branch (includes main's). Build NOT run here (sandbox cannot reach mdcondesa.com and has no site checkout): `src/client.gen.ts` / `kb/compiled/kb.md` are stale until `npm run build` runs locally and the result is committed.
+
 ### What the blasts cost, in the dashboard (2026-09-21, branch `blast-cost`, NOT pushed)
 
 Evan asked "can we add the cost of the blasts to Inicio or Envíos?" — "Costo del mes" on Inicio is the Anthropic/brain bill; Meta's per-message charge for bulk sends was invisible.

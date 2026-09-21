@@ -60,6 +60,7 @@ import {
   normalizeText,
 } from "./campaigns.js";
 import { isOptOut } from "./opt-out.js";
+import { hasBuyIntent } from "../cron/nudge-signals.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
 import { channelOf } from "../services/channel.js";
@@ -431,6 +432,7 @@ export async function processInbound(
         hasPriorOutbound,
         hasReferral: Boolean(msg.referral),
         hasActiveBooking,
+        buyIntent: hasBuyIntent([body]),
       });
       const key = firstReplyKey(msg.phone);
       const claimed =

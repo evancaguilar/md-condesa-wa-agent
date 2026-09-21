@@ -220,7 +220,12 @@ export function firstReplyDecision(opts: {
   hasPriorOutbound: boolean;
   hasReferral: boolean;
   hasActiveBooking: boolean;
+  /** The message itself says "quiero inscribirme / pagar": the canned trial
+   *  welcome would answer the wrong question (2026-09-21, lead from the site
+   *  asking for plan Silver got "¿la clase es para ti o para un peque?"). */
+  buyIntent?: boolean;
 }): "first" | "resend" | "none" {
+  if (opts.buyIntent) return "none";
   if (!opts.hasPriorOutbound) return "first";
   if (opts.hasReferral && !opts.hasActiveBooking) return "resend";
   return "none";

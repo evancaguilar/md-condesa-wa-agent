@@ -137,12 +137,12 @@ discount, no deadline: the inscription discount is same-day-only at the academy.
 
 **`post_trial_d0_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
 ```
-¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si te quedó alguna duda de horarios o paquetes, aquí estamos. ¿Te apartamos tu lugar para tu siguiente clase?
+¡Hola {{1}}! Qué gusto verte hoy en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.
 ```
 
 **`post_trial_d0_en`** — Footer: `Reply BAJA to stop receiving messages.`
 ```
-Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you have any questions about schedules or packages, we're right here. Want us to save you a spot for your next class?
+Hi {{1}}! So good to have you at the academy today 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.
 ```
 
 ### 15–16 · post_trial_d2 (Marketing + Footer)

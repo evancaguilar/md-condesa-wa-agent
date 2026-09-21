@@ -159,6 +159,17 @@ test("firstReplyDecision: new lead → first, regardless of referral", () => {
   );
 });
 
+test("firstReplyDecision: buy intent in the first message → none (brain answers, no trial welcome)", () => {
+  assert.equal(
+    firstReplyDecision({ hasPriorOutbound: false, hasReferral: false, hasActiveBooking: false, buyIntent: true }),
+    "none",
+  );
+  assert.equal(
+    firstReplyDecision({ hasPriorOutbound: true, hasReferral: true, hasActiveBooking: false, buyIntent: true }),
+    "none",
+  );
+});
+
 test("firstReplyDecision: returning ad click (referral) → resend, unless booked", () => {
   assert.equal(
     firstReplyDecision({ hasPriorOutbound: true, hasReferral: true, hasActiveBooking: false }),

@@ -240,9 +240,9 @@ export default {
     // open for 48h in a follow-up would be a promise we cannot keep. These
     // messages open a conversation; the humans quote the numbers.
     postTrialD0Es:
-      "¡Hola{who}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si te quedó alguna duda de horarios o paquetes, aquí estamos. ¿Te apartamos tu lugar para tu siguiente clase?",
+      "¡Hola{who}! Qué gusto verte hoy en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.",
     postTrialD0En:
-      "Hi{who}! So good to have you on the mats today 🥋 How did the class feel? If you have any questions about schedules or packages, we're right here. Want us to save you a spot for your next class?",
+      "Hi{who}! So good to have you at the academy today 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.",
     postTrialD2Es:
       "¡Hola{who}! ¿Cómo amaneció el cuerpo después de tu clase? 😄 Lo más difícil ya lo hiciste: venir la primera vez. ¿Qué te falta saber para decidirte? Te ayudamos a elegir horario y paquete.",
     postTrialD2En:
