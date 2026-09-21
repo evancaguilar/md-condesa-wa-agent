@@ -472,6 +472,9 @@ async function loadInicio(silent){
       +'<label class="switch"><input id="twToggle" type="checkbox" '+(tw?"checked":"")+'><span class="slider"></span></label></div>';
   html+='<div class="grid stats" style="margin-top:4px">'
       +stat(money(mo.costUsd),"Costo del mes")
+      // Owner-only: what Meta has charged for bulk sends this month (estimate).
+      // The API omits blastMonth for staff, so the tile simply does not appear.
+      +(o.blastMonth?stat(money(o.blastMonth.estCostUsd),"Envíos del mes ≈"):"")
       +stat(o.convosToday!=null?o.convosToday:"–","Conversaciones hoy")
       +stat(o.convosWeek!=null?o.convosWeek:"–","Esta semana")
       +'<div class="stat tap" id="pendStat"><div class="n">'+(o.pendingCount||0)+'</div><div class="l">Pendientes →</div></div>'
@@ -1988,6 +1991,25 @@ async function setCampStatus(id,status){
 
 // ---------- ENVÍOS (blasts) ----------
 var blastCat=null; // {ok, templates:[...]}
+// Meta's per-message rate card for this client (clients/<id>/client.mjs →
+// whatsappPricing). Arrives with /blast/runs and /blast/templates; null = the
+// client has no rate card configured, so we show counts and no money.
+var blastPricing=null;
+function blastRateFor(cat){
+  if(!blastPricing) return null;
+  var c=String(cat||"").toUpperCase();
+  if(c==="UTILITY") return {rate:blastPricing.utility,known:true};
+  return {rate:blastPricing.marketing,known:c==="MARKETING"}; // unknown ⇒ marketing (worst case)
+}
+/** "≈ $1.23 USD" for n messages of a template category, "" without a rate card. */
+function blastCostStr(n,cat){
+  var x=blastRateFor(cat); if(!x) return "";
+  return "≈ $"+(Number(n||0)*x.rate).toFixed(2)+" USD"+(x.known?"":" (categoría desconocida)");
+}
+function blastRateNote(){
+  if(!blastPricing) return "";
+  return " (tarifa Meta MX marketing $"+blastPricing.marketing+", utility $"+blastPricing.utility+" · estimado)";
+}
 VIEWS.envios=function(){
   if(!state.me || state.me.role!=="owner"){ location.hash="#inicio"; return; }
   var m=el("main");
@@ -2011,9 +2033,12 @@ async function loadBlastRuns(){
   try{ d=await api("/blast/runs"); }
   catch(e){ body.innerHTML='<div class="card muted">No se pudieron cargar los envíos.</div>'; return; }
   if(!el("blastRuns")) return;
+  if(d.pricing) blastPricing=d.pricing;
   var items=d.items||[];
+  var mtd=d.monthToDate;
   var head='<div class="muted sm" style="margin-bottom:8px">Hoy: '+d.sentToday+' enviados · '+(d.windowOpen?'ventana abierta':'fuera de horario ('+esc(d.hours)+')')+' · '+d.perTick+' por tanda'
-    +(d.catalog?'':' · <span class="chip amber" title="WA_WABA_ID no configurado">catálogo de plantillas no disponible</span>')+'</div>';
+    +(d.catalog?'':' · <span class="chip amber" title="WA_WABA_ID no configurado">catálogo de plantillas no disponible</span>')+'</div>'
+    +(mtd?'<div class="muted sm" style="margin-bottom:8px">Este mes: '+mtd.sent+' mensajes · ≈ $'+Number(mtd.estCostUsd||0).toFixed(2)+' USD'+esc(blastRateNote())+'</div>':'');
   if(!items.length){ body.innerHTML=head+'<div class="card muted">Sin envíos todavía.</div>'; return; }
   body.innerHTML=head+items.map(blastRunCard).join("");
   items.forEach(wireBlastRun);
@@ -2032,7 +2057,7 @@ function blastRunCard(r){
     +'<div class="between"><b>'+esc(r.name)+'</b>'+blastStatusChip(r.status)+'</div>'
     +'<div class="muted sm" style="margin-top:4px">'+what+' · '+r.total+' destinatarios · por '+esc(r.by||"?")+' · '+esc(fmtDate(r.createdAt))+when+'</div>'
     +'<div style="height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;margin-top:10px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--gold)"></div></div>'
-    +'<div class="muted sm" style="margin-top:6px">✅ '+c.sent+' enviados · ⏳ '+r.remaining+' pendientes · ❌ '+c.failed+' fallidos · 🚫 '+c.skipped+' baja · ⛔ '+c.cancelled+' cancelados</div>'
+    +'<div class="muted sm" style="margin-top:6px">✅ '+c.sent+' enviados'+(r.cost&&r.cost.rate>0?' · '+esc(blastCostStr(c.sent,r.category)):'')+' · ⏳ '+r.remaining+' pendientes · ❌ '+c.failed+' fallidos · 🚫 '+c.skipped+' baja · ⛔ '+c.cancelled+' cancelados</div>'
     +reason
     +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div><div class="bfail hidden muted sm" style="margin-top:8px"></div></div>';
 }
@@ -2058,6 +2083,7 @@ function wireBlastRun(r){
 async function loadBlastCatalog(force){
   if(blastCat && !force) return blastCat;
   try{ blastCat=await api("/blast/templates"); }catch(e){ blastCat={ok:false,templates:[],error:"error"}; }
+  if(blastCat && blastCat.pricing) blastPricing=blastCat.pricing;
   return blastCat;
 }
 function blastTplLabel(t){
@@ -2171,7 +2197,10 @@ function wireBlastForm(cat){
     try{
       var d=await api("/blast/preview",{method:"POST",body:{audience:blastAudienceSpec()}});
       lastPreview=d.total; el("bConfirmN").textContent=d.total; el("bQueue").disabled=!(d.total>0);
-      el("bPrevOut").textContent=d.total+" destinatarios";
+      // What this will cost BEFORE queueing — the moment the number matters.
+      var selTpl=blastSelectedTpl(cat);
+      var cost=blastCostStr(d.total,selTpl&&selTpl.category);
+      el("bPrevOut").textContent=d.total+" destinatarios"+(cost?" · "+cost+" por "+d.total+" mensajes":"");
       var ex=Object.keys(d.excluded||{}).filter(function(k){return d.excluded[k]>0;}).map(function(k){return k+": "+d.excluded[k];}).join(" · ");
       var gr=Object.keys(d.groups||{}).map(function(k){return k+": "+d.groups[k];}).join(" · ");
       var li=d.list?(' · lista: '+d.list.parsedRows+' filas, '+d.list.invalid+' inválidas, '+d.list.duplicates+' duplicadas'):"";
@@ -2193,7 +2222,8 @@ function wireBlastForm(cat){
     if(!spec){ toast("Elige una plantilla","err"); return; }
     if(!el("bConfirm").checked){ toast("Marca la confirmación","err"); return; }
     if(!lastPreview){ toast("Haz la vista previa primero","err"); return; }
-    if(!confirm("¿Poner en cola "+lastPreview+" envíos de "+spec.name+"? Esto manda mensajes reales.")) return;
+    var qTpl=blastSelectedTpl(cat), qCost=blastCostStr(lastPreview,qTpl&&qTpl.category);
+    if(!confirm("¿Poner en cola "+lastPreview+" envíos de "+spec.name+"? Esto manda mensajes reales"+(qCost?" y cuesta "+qCost:"")+".")) return;
     var body={confirm:true,name:el("bName").value.trim(),template:spec,audience:blastAudienceSpec()};
     var st=el("bStart").value; if(st){ body.startAt=Math.floor(new Date(st).getTime()/1000); }
     var cap=Number(el("bCap").value); if(cap>0) body.dailyCap=cap;

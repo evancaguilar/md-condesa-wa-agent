@@ -4,6 +4,16 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### What the blasts cost, in the dashboard (2026-09-21, branch `blast-cost`, NOT pushed)
+
+Evan asked "can we add the cost of the blasts to Inicio or Envíos?" — "Costo del mes" on Inicio is the Anthropic/brain bill; Meta's per-message charge for bulk sends was invisible.
+
+- **Rates are config, verified, never invented.** `clients/md-condesa/client.mjs` → `whatsappPricing` = MX **marketing $0.0305 / utility $0.0085 USD**, `asOf 2026-07`, copied from the row `Mexico,USD,0.0305,0.0085,0.0085,n/a,n/a` of Meta's own "USD rates" CSV (rate card effective 2026-07-01) linked from <https://developers.facebook.com/docs/whatsapp/pricing/>. Whitelisted through `tools/compile-kb.mjs` + typed in `src/client-config.ts` (the compile-kb whitelist gotcha). **Meta has already announced a Mexico marketing increase effective 2026-10-01 — update the block then.**
+- **`src/services/blast-cost.ts`** (pure, 12 unit tests + 2 drain tests): run cost = rows actually **sent** × the rate of the run's template category. The category is captured from the Meta catalog at queue time and stored on `blast_run:<id>.category`; an unknown category (freeform/`skipCheck`/pre-today runs) is priced as **marketing** and flagged, so the estimate never runs low.
+- **Month to date without touching `followups`:** the drain now also writes `blast_cost:<YYYY-MM-DD>` = `{marketing, utility, unknown}` next to the existing `blast_sent:<day>`. The dashboard reads one CDMX month of both as an index **range** scan over `kv`'s PRIMARY KEY (`key >= 'blast_cost:2026-09-' AND key < 'blast_cost:2026-09.'`), ≤62 rows — no new index, no scan (D1 rows-read rule). Days that predate the breakdown count as `unknown`.
+- **UI (owner-only):** Envíos shows per run "✅ N enviados · ≈ $X.XX USD" and a header "Este mes: N mensajes · ≈ $X USD (tarifa Meta MX marketing $…, utility $… · estimado)"; the **preview and the confirm dialog** show "≈ $X USD por N mensajes" *before* anything is queued; Inicio gains a tile "Envíos del mes ≈" beside "Costo del mes" (the API omits `blastMonth` for staff, so the tile simply does not render for them).
+- Always labelled **estimado**: we count what Graph accepted, Meta bills what was delivered, and volume tiers can lower the real rate. Reconciliation recipe (WhatsApp Manager → Insights, or `GET /{WABA_ID}/pricing_analytics`) is in docs/blasts.md §6. Tests 903 → **905**.
+
 ### ROAS program — what went LIVE on 2026-09-21 (pushed `a525f78`, deploy verified)
 
 Goal and plan: 3–5x ROAS on the owner's definition (new sign-ups from ad leads, all payments inside the month) at ~$45k MXN/mo, then scale. Baseline funnel (paid leads): $34 CPL → 18 % book → 38 % show → 32 % close → ~$2.9k ticket ≈ 1.9x mature. Same-day bookings show 54 % vs ~29 % when booked a day or more out.

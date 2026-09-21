@@ -41,6 +41,21 @@ export default {
   booking: {
     preferredBlocks: [],
   },
+  // What Meta charges per delivered template message to a MEXICO number, taken
+  // VERBATIM from Meta's own USD rate card (the "USD rates" CSV linked from
+  // https://developers.facebook.com/docs/whatsapp/pricing/, row
+  // "Mexico,USD,0.0305,0.0085,0.0085,n/a,n/a" = marketing, utility,
+  // authentication). Only used to ESTIMATE the cost of bulk sends in /admin —
+  // never to decide whether to send. Meta updates rates quarterly (a Mexico
+  // marketing INCREASE is already announced for 2026-10-01): when it changes,
+  // edit the numbers + asOf here and run `npm run build`. Never guess them.
+  whatsappPricing: {
+    currency: "USD",
+    marketing: 0.0305,
+    utility: 0.0085,
+    asOf: "2026-07",
+    source: "https://developers.facebook.com/docs/whatsapp/pricing/",
+  },
   features: {
     booking: true,
     nudges: true,

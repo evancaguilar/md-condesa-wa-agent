@@ -235,6 +235,7 @@ function renderClientTs(cfg, persona, version) {
     ...(cfg.safety ? { safety: cfg.safety } : {}),
     ...(cfg.airtableLeads ? { airtableLeads: cfg.airtableLeads } : {}),
     ...(cfg.airtableMetrics ? { airtableMetrics: cfg.airtableMetrics } : {}),
+    ...(cfg.whatsappPricing ? { whatsappPricing: cfg.whatsappPricing } : {}),
     copy: cfg.copy,
   };
   return (

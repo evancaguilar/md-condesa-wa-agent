@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runBlastBatch, KV_SENT_DAY_PREFIX } from "../src/cron/blasts.js";
 import { encodeBlastNote, encodeRunMeta, type BlastRunMeta } from "../src/services/blast.js";
+import { KV_COST_DAY_PREFIX, parseDayCost } from "../src/services/blast-cost.js";
 import { cdmxToEpoch, cdmxDateStr } from "../src/cron/time.js";
 import type { Env } from "../src/types.js";
 
@@ -114,6 +115,7 @@ function meta(over: Partial<BlastRunMeta> = {}): BlastRunMeta {
     params: ["{nombre}"],
     header: null,
     text: null,
+    category: "MARKETING",
     total: 3,
     status: "active",
     createdAt: NOON - 100,
@@ -178,6 +180,28 @@ test("drain: sends the batch, claims rows before sending, records the day count,
   assert.equal(w.kv.get("blast_active"), "0"); // idle flag cleared → next ticks read one kv row
   assert.match(w.notes[0] ?? "", /terminado: 3 enviados/);
   assert.match(w.kv.get("blast_run:r1") ?? "", /"status":"done"/);
+});
+
+test("drain: records the day's cost breakdown by template category", async () => {
+  const w = world(3, { category: "UTILITY" });
+  // A previous tick of the same day already wrote a breakdown: it accumulates.
+  w.kv.set(KV_COST_DAY_PREFIX + cdmxDateStr(NOON), '{"marketing":2,"utility":0,"unknown":0}');
+  await runBlastBatch(fakeEnv(w), deps(w), NOON);
+  assert.deepEqual(parseDayCost(w.kv.get(KV_COST_DAY_PREFIX + cdmxDateStr(NOON)) ?? null), {
+    marketing: 2,
+    utility: 3,
+    unknown: 0,
+  });
+});
+
+test("drain: a run with no Meta category counts as unknown (priced as marketing)", async () => {
+  const w = world(2, { category: "" });
+  await runBlastBatch(fakeEnv(w), deps(w), NOON);
+  assert.deepEqual(parseDayCost(w.kv.get(KV_COST_DAY_PREFIX + cdmxDateStr(NOON)) ?? null), {
+    marketing: 0,
+    utility: 0,
+    unknown: 2,
+  });
 });
 
 test("drain: outside 09:00–21:00 nothing happens", async () => {

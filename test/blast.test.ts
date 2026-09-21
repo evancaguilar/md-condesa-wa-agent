@@ -240,6 +240,7 @@ function meta(over: Partial<BlastRunMeta> = {}): BlastRunMeta {
     params: ["{nombre}"],
     header: null,
     text: null,
+    category: "MARKETING",
     total: 3,
     status: "active",
     createdAt: NOW,

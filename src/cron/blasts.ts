@@ -30,12 +30,21 @@ import {
   type BlastPayload,
   type BlastRunMeta,
 } from "../services/blast.js";
+import {
+  addDayCost,
+  emptyDayCost,
+  encodeDayCost,
+  parseDayCost,
+  KV_COST_DAY_PREFIX,
+  KV_SENT_DAY_PREFIX,
+  type DayCost,
+} from "../services/blast-cost.js";
 import { cdmxDateStr } from "./time.js";
 
 /** Transient (rate-limit / 5xx) retries before a row is given up as failed. */
 export const MAX_RETRY_ATTEMPTS = 3;
 export const KV_PER_TICK = "blast_per_tick";
-export const KV_SENT_DAY_PREFIX = "blast_sent:";
+export { KV_SENT_DAY_PREFIX };
 
 interface DueBlastRow {
   id: number;
@@ -116,6 +125,10 @@ export async function runBlastBatch(
   const dayKey = KV_SENT_DAY_PREFIX + cdmxDateStr(nowEpoch);
   let sentToday = Number((await kvGet(env.DB, dayKey)) ?? "0") || 0;
   const startCount = sentToday;
+  // What this tick sent, split by the run's template category — folded into the
+  // day's kv counter at the end so the dashboard can price the month without
+  // ever touching `followups` (src/services/blast-cost.ts).
+  let tickCost: DayCost = emptyDayCost();
   const metas = new Map<string, BlastRunMeta | null>();
   const touched = new Set<string>();
   const doSendTemplate = deps.sendTemplate ?? sendTemplate;
@@ -185,6 +198,9 @@ export async function runBlastBatch(
       }
       result.sent++;
       sentToday++;
+      // Freeform text costs nothing (it rides an open 24h window); only paid
+      // template sends are counted.
+      if (!payload.txt) tickCost = addDayCost(tickCost, meta?.category ?? null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const { cls } = classifySendError(msg);
@@ -231,6 +247,19 @@ export async function runBlastBatch(
   }
 
   if (sentToday !== startCount) await kvSet(env.DB, dayKey, String(sentToday));
+  if (tickCost.marketing + tickCost.utility + tickCost.unknown > 0) {
+    const costKey = KV_COST_DAY_PREFIX + cdmxDateStr(nowEpoch);
+    const prev = parseDayCost(await kvGet(env.DB, costKey));
+    await kvSet(
+      env.DB,
+      costKey,
+      encodeDayCost({
+        marketing: prev.marketing + tickCost.marketing,
+        utility: prev.utility + tickCost.utility,
+        unknown: prev.unknown + tickCost.unknown,
+      }),
+    );
+  }
 
   // A run whose last sendable row just went out is done — say so once.
   if (result.sent > 0 || result.failed > 0 || result.skipped > 0) {

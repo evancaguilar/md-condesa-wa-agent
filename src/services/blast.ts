@@ -25,6 +25,14 @@ import { greetingName } from "../cron/display-name.js";
 import { kvGet, kvSet, kvSetIfAbsent, scheduleFollowup } from "../db/queries.js";
 import { normalizeMxPhone } from "./airtable.js";
 import { cdmxParts } from "../cron/time.js";
+import {
+  cdmxMonthPrefix,
+  foldMonthCounters,
+  prefixRange,
+  KV_COST_DAY_PREFIX,
+  KV_SENT_DAY_PREFIX,
+  type DayCost,
+} from "./blast-cost.js";
 
 // ---- constants ----------------------------------------------------------------
 
@@ -416,6 +424,11 @@ export interface BlastRunMeta {
   params: string[];
   header: BlastHeader | null;
   text: string | null;
+  /** Meta template category ("MARKETING" / "UTILITY"), captured from the
+   *  catalog at queue time — it is what the message COSTS (blast-cost.ts).
+   *  "" on freeform runs, on skipCheck runs and on runs queued before
+   *  2026-09-21, which are then priced as marketing and flagged. */
+  category: string;
   total: number;
   status: BlastRunStatus;
   createdAt: number;
@@ -451,6 +464,7 @@ export function parseRunMeta(id: string, value: string | null): BlastRunMeta | n
       params: [],
       header: null,
       text: null,
+      category: "",
       total: 0,
       status: "active",
       createdAt: start,
@@ -475,6 +489,7 @@ export function parseRunMeta(id: string, value: string | null): BlastRunMeta | n
       params: Array.isArray(p.params) ? p.params.filter((x): x is string => typeof x === "string") : [],
       header: p.header && isHeaderType(p.header.type) && typeof p.header.link === "string" ? p.header : null,
       text: typeof p.text === "string" ? p.text : null,
+      category: typeof p.category === "string" ? p.category.toUpperCase() : "",
       total: p.total,
       status,
       createdAt: typeof p.createdAt === "number" ? p.createdAt : 0,
@@ -717,6 +732,27 @@ export async function loadRunCounts(env: Env): Promise<Map<string, RunCounts>> {
        FROM followups WHERE kind = 'blast' GROUP BY airtable_record_id, status`,
   ).all<{ rid: string | null; status: string; n: number }>();
   return foldRunCounts(results);
+}
+
+/**
+ * Month-to-date (CDMX) message counts for the cost tiles, from the kv day
+ * counters the drain writes — never from `followups`.
+ *
+ * D1 rows-read rule: both prefixes are read as `>= from AND < to` ranges over
+ * kv's PRIMARY KEY, so this is two index range scans of at most 31 rows each,
+ * not the `LIKE 'prefix%'` table scan the older kv helpers do.
+ */
+export async function loadMonthCostCounters(env: Env, nowEpoch: number): Promise<DayCost> {
+  const prefix = cdmxMonthPrefix(nowEpoch);
+  const cost = prefixRange(KV_COST_DAY_PREFIX + prefix);
+  const sent = prefixRange(KV_SENT_DAY_PREFIX + prefix);
+  const { results } = await env.DB.prepare(
+    `SELECT key, value FROM kv
+      WHERE (key >= ?1 AND key < ?2) OR (key >= ?3 AND key < ?4)`,
+  )
+    .bind(cost.from, cost.to, sent.from, sent.to)
+    .all<{ key: string; value: string | null }>();
+  return foldMonthCounters(results, prefix);
 }
 
 /** Flip every still-sendable row of a run to `to` (pause/resume/cancel). */

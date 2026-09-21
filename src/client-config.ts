@@ -273,6 +273,29 @@ export interface BookingConfig {
   preferredBlocks: PreferredBlock[];
 }
 
+/**
+ * What Meta charges the client per delivered template message (per-message
+ * pricing since 2025-07-01), for the ONE market the client sends to. Used only
+ * to estimate the cost of bulk sends in the dashboard (src/services/blast-cost.ts)
+ * — never to decide whether to send. Copy the numbers from Meta's published
+ * rate card for the WABA's currency; never invent them.
+ */
+export interface WhatsAppPricing {
+  /** ISO currency of the rates below, e.g. "USD". */
+  currency: string;
+  /** Marketing template rate per message. */
+  marketing: number;
+  /** Utility template rate per message. */
+  utility: number;
+  /** Rate card the numbers came from, "YYYY-MM" (Meta updates quarterly). */
+  asOf: string;
+  /** URL of that rate card, so the next person can re-check it. */
+  source: string;
+  /** True when the numbers could NOT be verified against Meta's own rate card
+   *  (the UI then says "estimado" louder). Absent = verified. */
+  unverified?: boolean;
+}
+
 export interface ClosedDate {
   /** CDMX calendar date, "YYYY-MM-DD". */
   date: string;
@@ -315,6 +338,9 @@ export interface ClientConfig {
   airtableLeads?: Partial<AirtableLeadsMap>;
   /** Marketing-metrics table/column names (required when features.marketingMetrics). */
   airtableMetrics?: AirtableMetricsMap;
+  /** Meta's per-message rate card for this client's market (blast cost estimates).
+   *  Absent ⇒ the dashboard shows message counts but no money. */
+  whatsappPricing?: WhatsAppPricing;
   copy: ClientCopy;
 }
 

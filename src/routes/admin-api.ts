@@ -150,6 +150,7 @@ import {
   listRunFailures,
   listRunMetas,
   loadBlastAudience,
+  loadMonthCostCounters,
   loadRunCounts,
   parseContactList,
   queueBlast,
@@ -171,6 +172,7 @@ import {
   findTemplate,
   type CreateTemplateInput,
 } from "../services/blast-templates.js";
+import { monthCost, runCost } from "../services/blast-cost.js";
 import { KV_PER_TICK, sentTodayCount } from "../cron/blasts.js";
 import { normalizeMxPhone } from "../services/airtable.js";
 import { cdmxParts } from "../cron/time.js";
@@ -481,7 +483,7 @@ export async function handleAdminApi(
 
   // ---- overview ----
   if (path === "/admin/api/overview" && method === "GET") {
-    return handleOverview(env);
+    return handleOverview(env, session);
   }
 
   // ---- toggles ----
@@ -1116,12 +1118,16 @@ async function handleAssign(req: Request, env: Env, phone: string): Promise<Resp
 
 // ---- overview ----
 
-async function handleOverview(env: Env): Promise<Response> {
-  const [stats, botEnabled, trainingWheels, tokens] = await Promise.all([
+async function handleOverview(env: Env, session: Session): Promise<Response> {
+  const owner = session.role === "owner";
+  const [stats, botEnabled, trainingWheels, tokens, blastCounters] = await Promise.all([
     statsOverview(env.DB),
     isBotEnabled(env.DB),
     getTrainingWheels(env),
     overlayTokens(env),
+    // Bulk sends are owner-only, and so is what they cost (two kv index range
+    // scans, ≤62 rows — see loadMonthCostCounters).
+    owner ? loadMonthCostCounters(env, nowSec()) : Promise.resolve(null),
   ]);
   return json({
     botEnabled,
@@ -1131,6 +1137,7 @@ async function handleOverview(env: Env): Promise<Response> {
     convosWeek: stats.convosWeek,
     month: stats.month,
     overlayTokens: tokens,
+    ...(blastCounters ? { blastMonth: monthCost(blastCounters, blastPricing()) } : {}),
   });
 }
 
@@ -1974,21 +1981,36 @@ function sample(list: BlastCandidate[]): { phone: string; name: string | null; p
   return list.slice(0, 10).map((c) => ({ phone: c.phone, name: c.name, program: c.program }));
 }
 
+/** The client's Meta rate card, as the dashboard consumes it (null = none). */
+function blastPricing(): (typeof CLIENT)["whatsappPricing"] | null {
+  return CLIENT.whatsappPricing ?? null;
+}
+
 async function handleBlastTemplates(env: Env): Promise<Response> {
   const cat = await fetchTemplateCatalog(env);
-  return json(cat, cat.ok || cat.wabaId ? 200 : 200);
+  // The form prices the preview from the selected template's category.
+  return json({ ...cat, pricing: blastPricing() }, cat.ok || cat.wabaId ? 200 : 200);
 }
 
 async function handleBlastRuns(env: Env): Promise<Response> {
   const now = nowSec();
-  const [metas, counts, sentToday, perTickRaw] = await Promise.all([
+  const pricing = blastPricing();
+  const [metas, counts, sentToday, perTickRaw, monthCounters] = await Promise.all([
     listRunMetas(env),
     loadRunCounts(env),
     sentTodayCount(env, now),
     kvGet(env.DB, KV_PER_TICK),
+    loadMonthCostCounters(env, now),
   ]);
   return json({
-    items: summarizeRuns(metas, counts),
+    // Each run carries what it has cost so far: SENT rows × the rate of its
+    // template category (docs/blasts.md §7 — an estimate, not Meta's bill).
+    items: summarizeRuns(metas, counts).map((r) => ({
+      ...r,
+      cost: runCost(r.counts.sent, r.category, pricing),
+    })),
+    pricing,
+    monthToDate: monthCost(monthCounters, pricing),
     sentToday,
     perTick: Math.min(BLAST_PER_TICK_MAX, Math.max(1, Number(perTickRaw) || BLAST_PER_TICK)),
     windowOpen: blastWindowOpen(now),
@@ -2155,6 +2177,7 @@ async function handleBlastQueue(
   let lang = "";
   let params: string[] = [];
   let header: BlastHeader | null = null;
+  let category = "";
   if (mode === "freeform") {
     const text = (body.text ?? "").trim();
     if (text.length < 10) return { response: json({ error: "text obligatorio (≥10 caracteres) en modo libre" }, 400) };
@@ -2169,8 +2192,12 @@ async function handleBlastQueue(
     if (body.skipCheck !== true) {
       const cat = await fetchTemplateCatalog(env);
       if (cat.ok) {
-        const check = checkTemplateForRun(findTemplate(cat.templates, templateName, lang), params, header);
+        const tpl = findTemplate(cat.templates, templateName, lang);
+        const check = checkTemplateForRun(tpl, params, header);
         if (!check.ok) return { response: json({ error: check.reason, templateCheck: true }, 422) };
+        // What each message will cost is decided by the template's Meta
+        // category; store it now, the catalog may not be reachable later.
+        category = tpl?.category ?? "";
       } else if (env.WA_WABA_ID) {
         return {
           response: json(
@@ -2200,6 +2227,7 @@ async function handleBlastQueue(
       params,
       header,
       text: mode === "freeform" ? payload.txt ?? null : null,
+      category,
       createdAt: now,
       startAt,
       dailyCap,

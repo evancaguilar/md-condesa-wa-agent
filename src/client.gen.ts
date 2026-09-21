@@ -197,6 +197,13 @@ export const CLIENT: ClientConfig = {
       "provisional": "Provisional"
     }
   },
+  "whatsappPricing": {
+    "currency": "USD",
+    "marketing": 0.0305,
+    "utility": 0.0085,
+    "asOf": "2026-07",
+    "source": "https://developers.facebook.com/docs/whatsapp/pricing/"
+  },
   "copy": {
     "confirmEs": "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda y una botella de agua — no necesitas equipo, nosotros te lo prestamos. ¡Nos vemos!",
     "confirmEn": "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes and a water bottle — no gear needed, we lend it. See you soon!",
