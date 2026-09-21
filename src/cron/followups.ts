@@ -92,6 +92,10 @@ import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../servic
 import { auditHumanSend } from "../services/booking-guard.js";
 import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
+import {
+  nameParam,
+  tpl,
+} from "../services/template-params.js";
 
 const ATTENDANCE_NOTE = "attendance_check";
 /** How long after the trial a late-marked Airtable result still sends its message. */
@@ -233,7 +237,7 @@ async function processOne(
       const outcome = await sendReminder(env, deps, f.phone, {
         template: "trial_reminder_day_before",
         lang,
-        params: [name],
+        name,
         freeform: messengerReminderText("day_before", name, lang),
       });
       await markFollowup(env.DB, f.id, outcome);
@@ -244,7 +248,7 @@ async function processOne(
       const outcome = await sendReminder(env, deps, f.phone, {
         template: "trial_reminder_same_day",
         lang,
-        params: [name],
+        name,
         freeform: messengerReminderText("same_day", name, lang),
       });
       await markFollowup(env.DB, f.id, outcome);
@@ -283,7 +287,7 @@ async function processOne(
         const outcome = await sendReminder(env, deps, f.phone, {
           template: "no_show_followup",
           lang,
-          params: [name],
+          name,
           freeform: messengerReminderText("no_show", name, lang, await linkAttribution(env, contact)),
         });
         await markFollowup(env.DB, f.id, outcome);
@@ -356,7 +360,7 @@ async function processOne(
         if (channelOf(f.phone) !== "wa") {
           await noteMessengerWindowClosed(env, deps, f.phone, f.kind);
         } else {
-          await noteTemplateMissing(env, deps, f.phone, res.template);
+          await noteTemplateFailure(env, deps, f.phone, res);
         }
         await markFollowup(env.DB, f.id, "cancelled");
       } else {
@@ -393,7 +397,7 @@ async function processOne(
         if (channelOf(f.phone) !== "wa") {
           await noteMessengerWindowClosed(env, deps, f.phone, f.kind);
         } else {
-          await noteTemplateMissing(env, deps, f.phone, res.template);
+          await noteTemplateFailure(env, deps, f.phone, res);
         }
         await markFollowup(env.DB, f.id, "cancelled");
         return;
@@ -486,7 +490,7 @@ async function processOne(
         const outcome = await sendReminder(env, deps, f.phone, {
           template: "reengage_lead",
           lang,
-          params: [name],
+          name,
           freeform: messengerReminderText("reengage", name, lang),
         });
         await markFollowup(env.DB, f.id, outcome);
@@ -514,7 +518,7 @@ async function sendTrialConfirm(
       // IG/FB: no template escape — the 7d window is closed, nothing to send.
       if (channelOf(phone) !== "wa") throw err;
       await sendTemplate(env, phone, tpl("trial_confirm", lang), lang, [
-        bodyParams([name]),
+        nameParam(name, lang),
       ]);
       await sendBookingVideo(env, phone); // after the template confirmation
       return;
@@ -535,11 +539,11 @@ async function sendReminder(
   env: Env,
   deps: { slack: Pick<CronSlackDeps, "postNote"> },
   phone: string,
-  opts: { template: string; lang: string; params: string[]; freeform: string },
+  opts: { template: string; lang: string; name: string; freeform: string },
 ): Promise<"sent" | "cancelled"> {
   if (channelOf(phone) === "wa") {
     await sendTemplate(env, phone, tpl(opts.template, opts.lang), opts.lang, [
-      bodyParams(opts.params),
+      nameParam(opts.name, opts.lang),
     ]);
     return "sent";
   }
@@ -653,21 +657,29 @@ async function noteMessengerWindowClosed(
 }
 
 /**
- * Post at most ONE Slack note per CDMX day about a missing/unapproved follow-up
- * template — the extended drip (d2–d5) or the post-trial chain share the mark
+ * Post at most ONE Slack note per CDMX day about a follow-up template send that
+ * failed — the extended drip (d2–d5) and the post-trial chain share the mark
  * (kv `tmpl_missing_note:<YYYY-MM-DD>`). The send was skipped.
+ *
+ * Two very different messages, because they need two different people.
+ * `missing` (Graph 132001) means the template is not approved yet, which is
+ * Evan's to fix in WhatsApp Manager. Anything else is OUR bug — a wrong
+ * parameter count, a bad name — and Graph's own words go in verbatim, so nobody
+ * spends an afternoon hunting for a template that was approved all along.
  */
-async function noteTemplateMissing(
+async function noteTemplateFailure(
   env: Env,
   deps: { slack: Pick<CronSlackDeps, "postNote"> },
   phone: string,
-  template: string,
+  res: { template: string; missing: boolean; error: string },
 ): Promise<void> {
   const dayKey = `tmpl_missing_note:${cdmxDateStr(nowSec())}`;
   if (await kvGet(env.DB, dayKey)) return;
   await kvSet(env.DB, dayKey, "1");
   await deps.slack.postNote(
-    `Plantilla de seguimiento no disponible (${template}); se omitió un envío a ${phone}. Falta enviarla a Meta (ver docs/templates.md).`,
+    res.missing
+      ? `Plantilla de seguimiento no disponible (${res.template}); se omitió un envío a ${displayContact(phone)}. Falta enviarla/aprobarla en Meta (ver docs/templates.md).`
+      : `⚠️ Falló el envío de la plantilla ${res.template} a ${displayContact(phone)} — NO es que falte aprobarla. Error de Meta: ${res.error}`,
   );
 }
 
@@ -1016,7 +1028,7 @@ async function processResult(
         } else {
           try {
             await sendTemplate(env, phone, tpl("no_show_followup", lang), lang, [
-              bodyParams([name ?? ""]),
+              nameParam(name, lang),
             ]);
           } catch (tErr) {
             await deps.slack.postNote(
@@ -1049,7 +1061,7 @@ async function processResult(
         } else {
           try {
             await sendTemplate(env, phone, tpl("human_followup", lang), lang, [
-              bodyParams([name ?? ""]),
+              nameParam(name, lang),
             ]);
           } catch (tErr) {
             await deps.slack.postNote(
@@ -1091,32 +1103,6 @@ export async function syncStudents(
 }
 
 // ---- template + copy helpers ----
-
-// Template names carry the language suffix Meta requires (one template per lang).
-function tpl(base: string, lang: string): string {
-  return lang === "en" ? `${base}_en` : `${base}_es`;
-}
-
-/**
- * Neutral filler for a template variable we have no value for. Meta REJECTS an
- * empty body parameter, and our reminder copy puts {{1}} in a bare vocative slot
- * ("¡Hola {{1}}!"), so a blank would also read broken. A waving hand degrades
- * gracefully in every template that takes a name.
- */
-const EMPTY_PARAM_FALLBACK = "👋";
-
-function bodyParams(values: string[]): {
-  type: "body";
-  parameters: { type: "text"; text: string }[];
-} {
-  return {
-    type: "body",
-    parameters: values.map((text) => ({
-      type: "text" as const,
-      text: text.trim() || EMPTY_PARAM_FALLBACK,
-    })),
-  };
-}
 
 function confirmText(name: string, lang: string): string {
   const who = name ? ` ${name}` : "";

@@ -26,6 +26,11 @@ import {
   hasScheduledFollowupOfKind,
 } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
+import { greetingName } from "./display-name.js";
+import {
+  isTemplateMissingError,
+  templateFirstName,
+} from "../services/template-params.js";
 import { DAY } from "./time.js";
 import { shiftOutOfQuiet, placeNudge3 } from "./quiet.js";
 import {
@@ -38,6 +43,7 @@ import {
   extendedCopy,
   extendedTemplateName,
   noShowCopy,
+  parseQualification,
   programLink,
   slotCta,
   type NudgeKind,
@@ -445,6 +451,7 @@ export async function processExtendedNudge(
       phone: string,
       name: string,
       lang: string,
+      components?: unknown[],
     ) => Promise<string>;
     templateName: (base: string, lang: string) => string;
     isWindowClosed: (err: unknown) => boolean;
@@ -454,7 +461,10 @@ export async function processExtendedNudge(
   | { outcome: "sent" }
   | { outcome: "cancelled" }
   | { outcome: "skipped_optout" }
-  | { outcome: "template_missing"; template: string }
+  /** The template send failed. `missing` ⇒ it is not approved yet (132001),
+   *  which is Evan's to fix; anything else is OURS, so `error` carries the
+   *  Graph text verbatim into the Slack note instead of being laundered. */
+  | { outcome: "template_missing"; template: string; missing: boolean; error: string }
 > {
   const contact = await getContact(env.DB, phone);
   if (!contact) return { outcome: "cancelled" };
@@ -492,11 +502,27 @@ export async function processExtendedNudge(
   const lang = contact.lang === "en" ? "en" : "es";
   const base = extendedTemplateName(kind, program);
   const template = deps.templateName(base, lang);
+  // Every one of the 12 nudge_d* templates declares {{1}} = first name. Sending
+  // ZERO parameters (the bug until 2026-09-21) fails at Graph with 132000, and
+  // the bare `catch` then reported it as "not approved yet" — which would have
+  // sent Evan hunting in WhatsApp Manager for a template sitting there approved.
+  const firstName = templateFirstName(
+    greetingName(parseQualification(contact).name) || greetingName(contact.name),
+    lang,
+  );
   try {
-    await deps.sendTemplate(env, phone, template, lang);
+    await deps.sendTemplate(env, phone, template, lang, [
+      { type: "body", parameters: [{ type: "text", text: firstName }] },
+    ]);
     return { outcome: "sent" };
-  } catch {
-    return { outcome: "template_missing", template };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return {
+      outcome: "template_missing",
+      template,
+      missing: isTemplateMissingError(error),
+      error,
+    };
   }
 }
 

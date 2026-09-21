@@ -22,6 +22,7 @@ import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
 import { attributionFor, withAttribution } from "../services/booking-link.js";
 import { greetingName } from "./display-name.js";
+import { isTemplateMissingError, nameParam } from "../services/template-params.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "./time.js";
 import { BOOKING_KINDS } from "./nudges.js";
 import {
@@ -327,7 +328,9 @@ export type PostTrialOutcome =
   /** `stopChain` ⇒ the remaining rows of this chain are pointless now. */
   | { outcome: "cancelled"; stopChain?: boolean }
   | { outcome: "skipped_optout" }
-  | { outcome: "template_missing"; template: string };
+  /** `missing` ⇒ Meta says the template does not exist (132001), i.e. it is not
+   *  approved yet; anything else is our bug and `error` carries Graph's words. */
+  | { outcome: "template_missing"; template: string; missing: boolean; error: string };
 
 export interface PostTrialDeps {
   sendText: (env: Env, phone: string, body: string) => Promise<string>;
@@ -403,21 +406,16 @@ export async function processPostTrial(
   const template = deps.templateName(postTrialTemplateName(row.kind), lang);
   try {
     await deps.sendTemplate(env, row.phone, template, lang, [
-      bodyParam(postTrialName(contact)),
+      nameParam(postTrialName(contact), lang),
     ]);
     return { outcome: "sent" };
-  } catch {
-    return { outcome: "template_missing", template };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return {
+      outcome: "template_missing",
+      template,
+      missing: isTemplateMissingError(error),
+      error,
+    };
   }
-}
-
-/** Meta rejects an empty body parameter; 👋 degrades gracefully (see followups.ts). */
-function bodyParam(name: string): {
-  type: "body";
-  parameters: { type: "text"; text: string }[];
-} {
-  return {
-    type: "body",
-    parameters: [{ type: "text" as const, text: name.trim() || "👋" }],
-  };
 }

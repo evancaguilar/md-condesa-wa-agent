@@ -2,7 +2,7 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-09-21**.
 
-> **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 876 green**.
+> **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
 ### ⚠️ The KB build was silently shipping a TRUNCATED KB (2026-09-21)
 
@@ -47,6 +47,22 @@ The funnel numbers that forced this: **163 people attended a free trial since Ju
 - Dead code removed: the `no_show_1` / `reengage_7d` scheduling in `onAttendance` (src/routes/slack.ts) had no producer since the Slack attendance card was retired on 2026-09-18. The kv write stays so a tap on an old card still resolves legacy rows, and `runDueFollowups` still drains both legacy kinds harmlessly.
 - **NO offer in the copy (owner, 2026-09-21).** An earlier draft held the inscription discount open for 48h. The discount is **same-day-only at the academy**, so that was a promise the gym would not honor: every price, discount and deadline is out of all three messages, in both languages, and a test pins it (`/\$\s*[\d,]+/`, `\d+ horas|hours`, `descuento|sin costo|gratis|vence|plazo` must not appear). The messages open a conversation; the humans quote the numbers.
 - Copy lives in `clients/md-condesa/client.mjs` (`postTrialD0/D2/D5`, `noShowD3`, plus `{cta}` in the no-show copy). Tests 775 → **821** (876 on `roas-phase1`).
+
+### Inscripción: the real rule, not half of it (2026-09-21)
+
+The KB said **"Inscripción: $999 — GRATIS al inscribirse en línea"**, which is true and incomplete — it let the bot offer free inscription to someone who had already visited. Owner's exact rule, now in intake.md: **$999** for every program; **free only when they sign up online BEFORE visiting** (never having come to a trial); once they have visited it is paid, with **$500 off if they sign up the SAME DAY of the visit / trial class**; after that day, full price. Never offer the free inscription or the same-day discount to someone who already came and did not sign up that day. persona.md's price-audit checkbox now lists the inscription among the approved figures so a correct `$500` mention does not fail the check. The Baby Fight Club line (§ precios) only states `$999`, which stays true, so it is untouched. KB **10,340 → 10,459 tokens** (limit 11,000).
+
+### ⚠️ Template parameter audit — three ways the pack would have failed at Graph (2026-09-21)
+
+Audited the day the operational pack was submitted to Meta. **Every template in docs/template-submission.md declares exactly ONE body variable, `{{1}}` = first name.** The code disagreed in three places, each of which fails at Graph rather than at compile time:
+
+1. **`processExtendedNudge` sent ZERO parameters.** All 12 `nudge_d{2..5}_{adults|kids|baby}_es` bodies carry `{{1}}`, so every out-of-window d2–d5 would have come back **132000** (parameter count mismatch) — and the bare `catch` reported it as `template_missing`, i.e. "not approved yet". That is the worst possible misdiagnosis: it sends Evan hunting in WhatsApp Manager for a template sitting there approved. Now the body component goes out, and the outcome carries `missing` (true only for **132001**, template does not exist) plus Graph's verbatim `error`. The throttled Slack note has two shapes — "falta aprobarla" vs "⚠️ NO es que falte aprobarla · Error de Meta: …".
+2. **`sendHumanFollowupTemplate` sent the base name with no params**: literal `human_followup` instead of `human_followup_es`, and no `{{1}}`. Wrong on both counts, so **every** click of "📨 Enviar plantilla" on an expired card failed silently.
+3. **Empty name parameters.** Several call sites passed `bodyParams([name ?? ""])`; Meta rejects an empty parameter with **131008**, and a large share of contacts have no usable push name (greetingName correctly rejects emails, handles, fancy fonts). The old filler was `👋`, which Meta accepts inconsistently as a whole-parameter value.
+
+New pure module **`src/services/template-params.ts`** (`tpl`, `templateFirstName`, `nameParam`, `bodyParams`, `sanitizeParam`, `graphErrorCode`, `isTemplateMissingError`) is now the single source for all of it: first token only, newlines/tabs/multi-space stripped, and a filler that reads as a greeting on its own — ES `"qué tal"` → "¡Hola qué tal!", EN `"there"` → "Hi there!". Applied at every name-filling `sendTemplate` call site: trial_confirm, day_before, same_day, no_show_followup (both touches), reengage_lead, human_followup (cron + Slack card), post_trial_d0/d2/d5, no_show_d3, and the 12 extended nudges.
+
+**Not changed, on purpose:** the blast sender (`src/services/blast.ts`) keeps `NAME_FALLBACK = "👋"`. Its parameters are owner-authored and their count is already validated against the live Meta catalog at queue time (`blast-templates.ts` `checkTemplate`), and two large real runs went out with it at 0 failures. Making it consistent means threading `lang` through `renderParams` and five call sites — worth doing, but not inside this fix.
 
 ### 🙋 "Yo le escribo" — the claim button on the attended card
 

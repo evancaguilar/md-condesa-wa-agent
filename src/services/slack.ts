@@ -50,6 +50,8 @@ import {
   postTrialCardKey,
   POST_TRIAL_CLAIM_VERB,
 } from "../cron/post-trial.js";
+import { greetingName } from "../cron/display-name.js";
+import { nameParam, tpl } from "./template-params.js";
 import type { BookingCapture, HumanSendSource } from "./booking-claims.js";
 import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
 import { AUTO_SEND_DAILY_CAP, isAutoSendEnabled } from "./auto-send.js";
@@ -764,14 +766,23 @@ export function markWindowClosedCard(env: Env, a: PendingApproval): Promise<void
 
 // ---- helpers used by the route handler (Env-bound, exported) ----
 
-/** Sends the human_followup template (reopens the 24h window). */
+/**
+ * Sends the human_followup template (reopens the 24h window).
+ *
+ * The approved templates are `human_followup_es` / `_en`, each declaring
+ * {{1}} = first name. Until 2026-09-21 this sent the BARE base name with no
+ * parameters, so every click of "📨 Enviar plantilla" on an expired card failed
+ * at Graph twice over — wrong name AND wrong param count.
+ */
 export async function sendHumanFollowupTemplate(
   env: Env,
   phone: string,
 ): Promise<void> {
   const contact = await getContact(env.DB, phone);
   const lang = contact?.lang ?? "es";
-  await sendTemplate(env, phone, HUMAN_FOLLOWUP_TEMPLATE, lang);
+  await sendTemplate(env, phone, tpl(HUMAN_FOLLOWUP_TEMPLATE, lang), lang, [
+    nameParam(greetingName(contact?.name), lang),
+  ]);
 }
 
 // ---- holding-timeout helper (called by workstream D's cron) ----

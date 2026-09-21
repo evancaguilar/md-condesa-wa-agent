@@ -11,6 +11,7 @@ import {
   computeDayOnePlan,
   computeExtendedChain,
   maybeArmExtended,
+  processExtendedNudge,
   classifyProgram,
   extendedCopy,
   EXTENDED_NUDGE_KINDS,
@@ -272,4 +273,102 @@ test("maybeArmExtended: within 30d → no re-schedule", async () => {
   });
   await maybeArmExtended(envWith(db), "5215512345678", D15(10));
   assert.equal(inserted.length, 0);
+});
+
+// ---- extended-drip template fallback (the 2026-09-21 param audit) ---------
+
+/**
+ * A fake D1 for processExtendedNudge: an eligible lead, no booking, no recent
+ * messages. `name` is the contact's push name.
+ */
+function extendedDb(name: string | null) {
+  return fakeDb((sql) => {
+    if (sql.includes("SELECT * FROM contacts"))
+      return { first: contact({ name, status: "lead" }) };
+    if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
+    if (sql.includes("FROM messages")) return { all: [] };
+    return {};
+  });
+}
+
+function extendedDeps(
+  calls: unknown[][],
+  opts: { templateError?: string } = {},
+) {
+  class Closed extends Error {}
+  return {
+    async sendText(): Promise<string> {
+      throw new Closed(); // window closed ⇒ take the template path
+    },
+    async sendTemplate(
+      _e: Env,
+      _p: string,
+      name: string,
+      lang: string,
+      components?: unknown[],
+    ): Promise<string> {
+      calls.push([name, lang, components]);
+      if (opts.templateError) throw new Error(opts.templateError);
+      return "wamid.1";
+    },
+    templateName: (base: string, lang: string) =>
+      lang === "en" ? `${base}_en` : `${base}_es`,
+    isWindowClosed: (err: unknown) => err instanceof Closed,
+    campaignName: async () => null,
+  };
+}
+
+test("processExtendedNudge: the template fallback sends {{1}} = first name", async () => {
+  // All 12 nudge_d*_es bodies declare {{1}}. Sending zero parameters (the bug
+  // until 2026-09-21) fails at Graph with 132000 — every out-of-window d2–d5.
+  const calls: unknown[][] = [];
+  const { db } = extendedDb("Ana Pérez");
+  const res = await processExtendedNudge(
+    envWith(db),
+    "5215512345678",
+    "nudge_d2",
+    extendedDeps(calls),
+  );
+  assert.deepEqual(res, { outcome: "sent" });
+  assert.deepEqual(calls[0], [
+    "nudge_d2_adults_es",
+    "es",
+    [{ type: "body", parameters: [{ type: "text", text: "Ana" }] }],
+  ]);
+});
+
+test("processExtendedNudge: a nameless lead gets the readable filler, never ''", async () => {
+  const calls: unknown[][] = [];
+  const { db } = extendedDb("info@gimnasio.com"); // greetingName rejects it
+  await processExtendedNudge(
+    envWith(db),
+    "5215512345678",
+    "nudge_d5",
+    extendedDeps(calls),
+  );
+  assert.deepEqual(calls[0]![2], [
+    { type: "body", parameters: [{ type: "text", text: "qué tal" }] },
+  ]);
+});
+
+test("processExtendedNudge: 132001 is 'not approved'; 132000 is our bug", async () => {
+  const { db } = extendedDb("Ana");
+  const missing = await processExtendedNudge(
+    envWith(db),
+    "5215512345678",
+    "nudge_d2",
+    extendedDeps([], { templateError: "WA send failed (400) [132001]: nope" }),
+  );
+  assert.equal(missing.outcome, "template_missing");
+  assert.equal(missing.outcome === "template_missing" && missing.missing, true);
+
+  const { db: db2 } = extendedDb("Ana");
+  const ourBug = await processExtendedNudge(
+    envWith(db2),
+    "5215512345678",
+    "nudge_d2",
+    extendedDeps([], { templateError: "WA send failed (400) [132000]: params" }),
+  );
+  assert.equal(ourBug.outcome === "template_missing" && ourBug.missing, false);
+  assert.ok(ourBug.outcome === "template_missing" && /132000/.test(ourBug.error));
 });

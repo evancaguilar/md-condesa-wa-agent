@@ -332,7 +332,10 @@ test("postTrialTemplateName: post-trial kinds are their own base, no_show_d3 reu
 
 // ---- send-time stop conditions -------------------------------------------
 
-function sendDeps(sent: string[], opts: { windowClosed?: boolean; templateOk?: boolean } = {}) {
+function sendDeps(
+  sent: string[],
+  opts: { windowClosed?: boolean; templateError?: string } = {},
+) {
   class Closed extends Error {}
   return {
     sent,
@@ -343,7 +346,7 @@ function sendDeps(sent: string[], opts: { windowClosed?: boolean; templateOk?: b
         return "wamid.1";
       },
       async sendTemplate(_e: Env, _p: string, name: string) {
-        if (opts.templateOk === false) throw new Error("template not found");
+        if (opts.templateError) throw new Error(opts.templateError);
         sent.push(`[template:${name}]`);
         return "wamid.2";
       },
@@ -442,12 +445,70 @@ test("processPostTrial: no_show_d3 falls back to the existing no_show_followup t
   assert.deepEqual(sent, ["[template:no_show_followup_es]"]);
 });
 
-test("processPostTrial: an unapproved template reports template_missing, never retries blindly", async () => {
-  const { sent, deps } = sendDeps([], { windowClosed: true, templateOk: false });
+test("processPostTrial: an unapproved template is reported as approval-pending", async () => {
+  const { sent, deps } = sendDeps([], {
+    windowClosed: true,
+    templateError: "WA send failed (400) [132001]: template name does not exist",
+  });
   const { db } = contactDb(contact({}));
   const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
-  assert.deepEqual(res, { outcome: "template_missing", template: "post_trial_d0_es" });
+  assert.equal(res.outcome, "template_missing");
+  assert.equal(res.outcome === "template_missing" && res.template, "post_trial_d0_es");
+  assert.equal(res.outcome === "template_missing" && res.missing, true);
   assert.equal(sent.length, 0);
+});
+
+test("processPostTrial: a param-count failure is NOT filed as 'not approved yet'", async () => {
+  // 132000 is our bug, not Evan's. Reporting it as a missing template is how a
+  // whole afternoon gets spent staring at an approved template in WA Manager.
+  const { deps } = sendDeps([], {
+    windowClosed: true,
+    templateError: "WA send failed (400) [132000]: number of parameters does not match",
+  });
+  const { db } = contactDb(contact({}));
+  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  assert.equal(res.outcome === "template_missing" && res.missing, false);
+  assert.ok(
+    res.outcome === "template_missing" && /132000/.test(res.error),
+    "the Graph error text must survive into the Slack note",
+  );
+});
+
+test("processPostTrial: the template carries exactly ONE body param — the first name", async () => {
+  const calls: unknown[][] = [];
+  const { deps } = sendDeps([], { windowClosed: true });
+  const spied = {
+    ...deps,
+    async sendTemplate(_e: Env, _p: string, name: string, lang: string, comps?: unknown[]) {
+      calls.push([name, lang, comps]);
+      return "wamid.x";
+    },
+  };
+  const { db } = contactDb(contact({ name: "Ana Pérez" }));
+  await processPostTrial(envWith(db), ROW, spied, WED_TRIAL);
+  assert.deepEqual(calls[0], [
+    "post_trial_d0_es",
+    "es",
+    [{ type: "body", parameters: [{ type: "text", text: "Ana" }] }],
+  ]);
+});
+
+test("processPostTrial: a nameless lead still gets a legal, readable param", async () => {
+  const calls: unknown[][] = [];
+  const { deps } = sendDeps([], { windowClosed: true });
+  const spied = {
+    ...deps,
+    async sendTemplate(_e: Env, _p: string, _n: string, _l: string, comps?: unknown[]) {
+      calls.push([comps]);
+      return "wamid.x";
+    },
+  };
+  // A push name greetingName() rejects ⇒ no name at all. Meta rejects "" (131008).
+  const { db } = contactDb(contact({ name: "ana@gmail.com" }));
+  await processPostTrial(envWith(db), ROW, spied, WED_TRIAL);
+  assert.deepEqual(calls[0], [
+    [{ type: "body", parameters: [{ type: "text", text: "qué tal" }] }],
+  ]);
 });
 
 // ---- the cron wiring (through runDueFollowups) ---------------------------
