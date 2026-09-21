@@ -129,23 +129,22 @@ Appointment-history table (Slots links cover bookings partially; KPIs count uniq
 
 ### September 2026, snapshot taken 2026-09-21 (data through Sep 20)
 
-Two ROAS readings, both from Airtable. **Cash ROAS** = eligible income collected in the window from students whose lead has `Origen = Pagado`, divided by Meta spend in the window (how the owner thinks about "what did ads sell this week"). **Cohort ROAS** = the dashboard number: only revenue from leads created inside the window (§2). Cash ROAS is not an Airtable field yet; it was computed by joining Movimientos → Alumnos → Leads.
+**Owner's definition of ROAS (use this one):** Meta spend in the period versus sales to NEW sign-ups in that period whose lead came from an ad, including leads created in earlier months. Renewals of students who were already paying do not count. Computed by joining Movimientos → Alumnos → Leads and dropping any student with an eligible payment before the period. It is not an Airtable field yet.
 
-| Window | Spend | Cash from ad leads | Cash ROAS | Cohort ROAS |
+| Window | Spend | New sign-up sales from ad leads | **ROAS (new sign-ups)** | For reference: all cash from ad leads, renewals included |
 |---|---|---|---|---|
-| Last 7 days (Sep 14–20) | $11,040 | $37,310 | **3.38** | 1.81 |
-| Last 10 days (Sep 11–20) | $14,854 | $38,810 | **2.61** | 1.38 |
-| Last 14 days (Sep 7–20) | $21,198 | $54,737 | **2.58** | 1.48 |
-| Month to date (Sep 1–20) | $29,940 | $62,360 | **2.08** | 1.35 |
+| Last 7 days (Sep 14–20) | $11,040 | $31,687 | **2.87** | $37,310 (3.38) |
+| Last 14 days (Sep 7–20) | $21,198 | $35,583 | **1.68** | $54,737 (2.58) |
+| Month to date (Sep 1–20) | $29,940 | $41,200 | **1.38** | $62,360 (2.08) |
+
+Correction of an earlier reading the same day: $22,060 of September's cash from ad leads came from leads created before September. Checked payment by payment, $21,160 of it is renewals (13 students with payments going back to April–August, e.g. Victor Aparicio, Dante Monroy, Edwin Chi's weekly $499) and only $900 is first-time sign-ups (Ana Rene $500, Alexander Christiansen $400). The 2.08 / 2.58 / 3.38 figures therefore overstate ROAS under the owner's definition.
 
 Funnel, month to date (paid leads only): 876 leads at $34 CPL → 160 booked (18 %) → 41 marked as attended → 14 closed (1.6 % of leads). Cost per close ≈ $2,139; first-payment revenue per close ≈ $2,879. Attendance is understated: past trials nobody marked still count as pending.
 
 How to read it:
-- **One day carries the week.** Sep 19 collected $27,694 from ad leads (four multi-month prepayments of $3,740–$6,986 during the Independencia trimester promo). Without that day the 7-day cash ROAS is about 0.9. Judge ads on 14-day and monthly windows.
-- **Of the $62,360, $40,300 came from leads created in September** and $22,060 from renewals of earlier ad leads. Cash ROAS rises on its own as the attributed student base grows; cohort ROAS does not.
-- **Both numbers are a floor.** September also collected $32,729 from leads with unknown origin and $11,688 marked Orgánico only because of their channel, never asked about ads. The waiver questions and `WA Pregunta Origen` exist to close that.
-- **Non-ad sources are real money.** Eight new students with no lead were traced by hand on Sep 21: Google Maps (Ezquerro $14,985, Reynaud $1,500, Segura $2,016), Google (Ghedia $7,499), Referido (Paullada $1,996), Reactivación (Barrera King $2,031), one unknown (Gutierrez Mendoza $499, student record says Instagram), and one Baby Fight Club ad (Enzo Fascio, linked to lead "Jacqueline Montiel", set to Pagado by owner decision: almost all BFC sign-ups come from ads).
-- **Outlook (owner asked whether 3x / 5x is sustainable with no optimization yet):** 3x on a cash or 90-day basis is plausible with the current funnel because memberships recur (a $1,996/month student who stays three months is worth about $6,000 against a $2,139 cost per close). It is not yet demonstrated as a steady state: month-to-date is 2.08 and the 3.38 week rests on one promo day. 5x needs funnel work, not maintenance. The biggest leaks are lead → booking (18 %) and booking → attendance; close rate once someone attends is already about one in three.
+- **One day carries the week.** Sep 19 collected $27,195 in new sign-ups from ad leads (four multi-month prepayments of $3,740–$6,986 during the Independencia trimester promo). Without that day the 7-day figure is about 0.4. Judge ads on 14-day and monthly windows.
+- **The number is a floor.** About $18,600 of September's new sign-up sales sit on leads with no origin recorded or marked Orgánico by channel only (Fred Rosa $5,499, Auzerais Bellamy $2,773, Alvaro Alarcon, Valentina, Jared Vargas, Emmanuel Romero, Stephen Baiardi, Giacome Peyron, Tomas Navarrete). If every one were an ad lead the month would read about 2.0. The waiver questions and `WA Pregunta Origen` exist to settle that.
+- **Non-ad sources are real money.** Eight new students with no lead were traced by hand on Sep 21: Google Maps (Ezquerro $14,985, Reynaud $1,500, Segura $2,016), Google (Ghedia $7,499), Referido (Paullada $1,996), Reactivación (Barrera King $2,031), one unknown (Gutierrez Mendoza $499, student record says Instagram), and one Baby Fight Club ad (Enzo Fascio, linked to lead "Jacqueline Montiel", set to Pagado by owner decision: almost all BFC sign-ups come from ads; he has paid since July, so his September payment is a renewal).
+- **Outlook (owner's goal: invest $100k, get $300–500k in new sign-up sales).** At today's funnel $100k buys roughly $140k of new sign-up sales, up to about $200k if the unknown-origin sign-ups are ads. 3x needs about twice the closes per lead or a higher first ticket; 5x needs both. The strong part is the close rate once someone attends (about one in three). The leaks are lead → booking (18 %) and booking → attendance. Multi-month prepayment promos move the number fast: Sep 19 alone shows it.
 
 Data fixes made the same day: lead "Arturo D" (+52 55 2855 2298, ad 120249703090510518, closed by the WhatsApp agent) renamed to Arturo Tadeo Delgado Contreras, marked Se inscribió with Pago Inicial $999; the automation created the student and the Movimiento, which was then corrected to Sep 15, Transferencia (Mercado Pago), receipt 179171186008. Known gap: the "Se inscribió" automation skips the payment when staff mark the result before typing Pago Inicial (seen Sep 17 with Jose Ramos and Cesia Beltran); staff should fill Pago Inicial first.
-
