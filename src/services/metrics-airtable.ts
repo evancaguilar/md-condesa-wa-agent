@@ -463,6 +463,26 @@ function textField(fields: Record<string, unknown>, name: string): string {
   return "";
 }
 
+/** Shortest `Ad ID` the sweeps link (Meta ad ids are 15+ digits; the formula's floor is 10). */
+export const AD_ID_MIN_LEN = 10;
+
+/**
+ * Day-linked leads whose `Ad ID` arrived AFTER the day sweep ran (the twin sweep
+ * copies `Ad` onto form/manual rows later): they left `unlinkedLeadsFormula`
+ * when `Día` was set, so nothing ever wrote `Anuncio`. The LEN floor keeps rows
+ * the patch would refuse out of the filter (no cursor = they would starve it).
+ */
+export function adUnlinkedLeadsFormula(sinceIso: string, m: AirtableMetricsMap = metricsMap()): string {
+  const l = m.leads;
+  return `AND({${l.adLink}} = '', {${l.dayLink}} != '', LEN({${l.adId}} & '') >= ${AD_ID_MIN_LEN}, IS_AFTER(CREATED_TIME(), '${fq(sinceIso)}'))`;
+}
+
+/** The lead's `Ad ID` formula cell when it is a linkable ad id, else "". */
+function linkableAdId(fields: Record<string, unknown>, m: AirtableMetricsMap): string {
+  const adId = textField(fields, m.leads.adId);
+  return new RegExp(`^\\d{${AD_ID_MIN_LEN},}$`).test(adId) ? adId : "";
+}
+
 /** Pure. Link patch for one lead from its formula cells; null when Día Lead is blank. */
 export function leadLinkPatch(
   fields: Record<string, unknown>,
@@ -472,10 +492,26 @@ export function leadLinkPatch(
   const day = textField(fields, l.dayText);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
   const month = textField(fields, l.monthText) || monthOf(day);
-  const adId = textField(fields, l.adId);
+  const adId = linkableAdId(fields, m);
   const patch: Record<string, unknown> = { [l.dayLink]: [day], [l.monthLink]: [month] };
-  if (/^\d{10,}$/.test(adId)) patch[l.adLink] = [adId];
+  if (adId) patch[l.adLink] = [adId];
   return patch;
+}
+
+/**
+ * Pure. `Anuncio`-only patch for a lead that already has its day link; null when
+ * the ad id is not linkable or an `Anuncio` is already there (never overwrite a
+ * hand-set link). Día/Mes are deliberately left alone.
+ */
+export function leadAdLinkPatch(
+  fields: Record<string, unknown>,
+  m: AirtableMetricsMap = metricsMap(),
+): Record<string, unknown> | null {
+  const l = m.leads;
+  const existing = fields[l.adLink];
+  if (Array.isArray(existing) ? existing.length > 0 : Boolean(existing)) return null;
+  const adId = linkableAdId(fields, m);
+  return adId ? { [l.adLink]: [adId] } : null;
 }
 
 export interface SweepStats {
@@ -484,12 +520,23 @@ export interface SweepStats {
   errors: string[];
 }
 
-/** Link up to `limit` unlinked leads to their Día/Mes/Anuncio rows. */
+export interface LeadSweepStats extends SweepStats {
+  /** Of `linked`: day-linked leads that only needed their late `Anuncio`. */
+  adLinked: number;
+}
+
+/**
+ * Link up to `limit` leads: first the ones missing Día/Mes(/Anuncio), then —
+ * with whatever is left of `limit` — day-linked leads whose ad arrived late.
+ * Cost: 1 list + (when the first page is short) 1 list + 1 PATCH per 10 rows,
+ * so `limit` still bounds the subrequests. The second pass runs last and its
+ * failure never undoes the first.
+ */
 export async function linkLeadsSweep(
   env: Env,
-  o: { limit: number; sinceIso: string },
+  o: { limit: number; sinceIso: string; paceMs?: number },
   m: AirtableMetricsMap = metricsMap(),
-): Promise<SweepStats> {
+): Promise<LeadSweepStats> {
   const l = m.leads;
   const rows = await listRecords(env, env.AIRTABLE_TRIALS_TABLE, {
     filterByFormula: unlinkedLeadsFormula(o.sinceIso, m),
@@ -501,10 +548,40 @@ export async function linkLeadsSweep(
     const p = leadLinkPatch(r.fields, m);
     if (p) patches.push({ id: r.id, fields: p });
   }
+  const pace = { paceMs: o.paceMs };
   const st = patches.length
-    ? await batchPatch(env, env.AIRTABLE_TRIALS_TABLE, patches)
+    ? await batchPatch(env, env.AIRTABLE_TRIALS_TABLE, patches, pace)
     : { created: 0, updated: 0, errors: [] };
-  return { scanned: rows.length, linked: st.updated, errors: st.errors };
+
+  const room = o.limit - rows.length;
+  if (room <= 0) return { scanned: rows.length, linked: st.updated, adLinked: 0, errors: st.errors };
+  if (patches.length) await sleep(o.paceMs ?? PACE_MS);
+  let late: MetricsRecord[] = [];
+  let ad: UpsertStats = { created: 0, updated: 0, errors: [] };
+  try {
+    late = await listRecords(env, env.AIRTABLE_TRIALS_TABLE, {
+      filterByFormula: adUnlinkedLeadsFormula(o.sinceIso, m),
+      fields: [l.adId, l.adLink],
+      maxRecords: room,
+    });
+    const adPatches: { id: string; fields: Record<string, unknown> }[] = [];
+    for (const r of late) {
+      const p = leadAdLinkPatch(r.fields, m);
+      if (p) adPatches.push({ id: r.id, fields: p });
+    }
+    if (adPatches.length) ad = await batchPatch(env, env.AIRTABLE_TRIALS_TABLE, adPatches, pace);
+  } catch (err) {
+    // Base drift still stops the sweep (kv + one Slack note); anything else is
+    // this tick's problem only — the day links above are already written.
+    if (err instanceof MetricsSchemaError) throw err;
+    ad.errors.push(`ad links: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return {
+    scanned: rows.length + late.length,
+    linked: st.updated + ad.updated,
+    adLinked: ad.updated,
+    errors: [...st.errors, ...ad.errors],
+  };
 }
 
 // ---- student ↔ lead links ----

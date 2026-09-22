@@ -12,13 +12,14 @@ import {
   attributeTwinLeadsSweep,
   linkLeadsSweep,
   linkStudentsSweep,
+  type LeadSweepStats,
   type StudentSweepStats,
-  type SweepStats,
   type TwinSweepStats,
 } from "../services/metrics-airtable.js";
 
 // Cloudflare caps SUBREQUESTS per invocation (50 on the free plan) and every
-// Airtable/Graph call is one. A lead sweep costs 1 list + 1 PATCH per 10 leads;
+// Airtable/Graph call is one. A lead sweep costs ≤2 lists (unlinked leads, then
+// day-linked leads whose ad arrived late) + 1 PATCH per 10 leads, both under one cap;
 // a student sweep costs 1 list + 1 lookup per student + 1 PATCH per 10. These
 // caps keep both under ~12 requests so they coexist with the rest of the tick.
 export const LEAD_SWEEP_PER_TICK = 40;
@@ -66,9 +67,9 @@ export async function runLeadLinkSweep(
   env: Env,
   deps: NoteDeps = {},
   o: { limit?: number } = {},
-): Promise<SweepStats> {
+): Promise<LeadSweepStats> {
   const sinceIso = metricsSinceIso(env);
-  if (!sinceIso) return { scanned: 0, linked: 0, errors: ["METRICS_SINCE unset"] };
+  if (!sinceIso) return { scanned: 0, linked: 0, adLinked: 0, errors: ["METRICS_SINCE unset"] };
   try {
     const r = await linkLeadsSweep(env, { limit: o.limit ?? LEAD_SWEEP_PER_TICK, sinceIso });
     if (r.linked > 0) await kvSet(env.DB, KV_LINK_LAST_OK, new Date().toISOString());

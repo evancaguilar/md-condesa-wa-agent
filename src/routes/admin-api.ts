@@ -2456,7 +2456,8 @@ async function handleMetricsPull(req: Request, env: Env): Promise<Response> {
 
 /**
  * Run ONE link sweep now (backfill). `target`: "leads" (default, ≤100 per call =
- * 1 list + 10 PATCH) or "students" (≤10 per call = 1 list + 10 lookups + 1 PATCH).
+ * ≤2 lists + 10 PATCH; also back-fills `Anuncio` on day-linked leads whose ad
+ * arrived late) or "students" (≤10 per call = 1 list + 10 lookups + 1 PATCH).
  * Caps keep each call inside Cloudflare's per-invocation subrequest limit; loop
  * the call until `linked` is 0.
  */
