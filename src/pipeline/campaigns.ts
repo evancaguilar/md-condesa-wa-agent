@@ -250,8 +250,12 @@ export function hasRealQuestion(
   text: string,
   triggerPhrase: string | null | undefined,
 ): boolean {
-  if (/[?¿]/.test(text)) return true;
   const body = normalizeText(text);
   const trigger = normalizeText(triggerPhrase ?? "");
-  return body.length > trigger.length + REAL_QUESTION_SLACK;
+  if (body.length > trigger.length + REAL_QUESTION_SLACK) return true;
+  // Boilerplate-length message: a "?" only counts when it is the LEAD's, not
+  // the ad's. 2026-09-22: the Reto prefill is itself "¿Cómo funciona el Reto
+  // Gladiador?", so every Reto lead got the canned welcome AND a brain reply.
+  const qMarks = (s: string): number => (s.match(/[?¿]/g) ?? []).length;
+  return qMarks(text) > qMarks(triggerPhrase ?? "");
 }

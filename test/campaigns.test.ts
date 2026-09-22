@@ -422,6 +422,13 @@ test("hasRealQuestion: any '?' counts", () => {
   assert.equal(hasRealQuestion("Es apto para niños?", TRIGGER), true);
 });
 
+test("hasRealQuestion: the ad's own question mark is not the lead's question", () => {
+  const q = "¿Cómo funciona el Reto Gladiador?";
+  assert.equal(hasRealQuestion(q, q), false);
+  assert.equal(hasRealQuestion("Hola! ¿Cómo funciona el Reto Gladiador?", q), false);
+  assert.equal(hasRealQuestion(`${q} ¿Cuánto cuesta?`, q), true);
+});
+
 test("hasRealQuestion: a bare '¿' counts too", () => {
   assert.equal(hasRealQuestion("¿costo", TRIGGER), true);
 });
