@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-09-21+232630530dd1
-     approx_tokens: 10910 (chars 38183 / 3.5)
+     version: 2026-09-22+e24ababc7137
+     approx_tokens: 10942 (chars 38295 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -167,7 +167,9 @@ Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases segu
 - **Sábado adultos**: llegar **9 am** (Jiu-Jitsu Fundamentos) y luego Muay Thai a las 10 am. También hay Muay Thai 11 am y Jiu-Jitsu 12 pm — el combo de 10 + 11 am (Muay Thai seguido) o el de 11 am + 12 pm (Muay Thai + Jiu-Jitsu) también funcionan para el día de prueba.
 - **Domingo**: SOLO adultos (13+ para Muay Thai). Llegar **11 am** ⇒ Muay Thai 11 am + Jiu-Jitsu 12 pm — ofrécelas SIEMPRE juntas, nunca solo la de 12 pm. **El domingo NO hay Kids, NI Teens, NI Mini Muay Thai, NI Baby Fight Club.** Si preguntan por un menor en domingo, la respuesta es la siguiente clase de SU programa entre semana (Kids/Teens: lunes 4 pm; Mini MT: lunes 3:15 pm; BFC: miércoles 1 pm).
 - **Kids 6–12**: L–J la hora de llegada para prueba es SIEMPRE **4:00 pm** ⇒ Muay Thai Kids 4 pm + Jiu-Jitsu Kids 5 pm. NUNCA ofrezcas las 5 pm como hora de llegada entre semana (perderían una de las dos clases gratis). Sábado llegar **11 am** ⇒ Jiu-Jitsu Niños 11 am + Muay Thai Niños 12 pm. **NO hay Kids el domingo.**
-- **Teens 13–17**: L–J la hora de llegada es SIEMPRE **4:00 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm — ese es su grupo típico. NO hay grupo Teens en sábado ni domingo: el fin de semana un teen puede entrar a las clases de ADULTOS si se siente cómodo, o a las de KIDS (sábado 11 am) si se siente más cómodo ahí — que elijan ellos. Para Muay Thai, desde los 13 años pueden entrar al grupo de adultos (p. ej. sábado 10 am).
+- **Teens 13–17**: L–J llegada SIEMPRE **4:00 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm. **NO existe NINGUNA clase Teens en sábado ni domingo — a ninguna hora; nunca la inventes.** En sábado, desde los 13 entran a CUALQUIER clase de adultos (9 am Jiu-Jitsu, 10 am Jiu-Jitsu/Muay Thai, 11 am Muay Thai, 12 pm Jiu-Jitsu, 2 pm Box); solo con 13–14 años pueden optar por la clase Kids (6–12) del sábado 11 am.
+- **Teen que acompaña otra reserva** (p. ej. la familia ya viene el sábado a Baby Fight Club y preguntan si el hermano de 13 puede probar): SÍ. Respuesta sugerida:
+> ¡Claro que sí! 🙌 El sábado no hay grupo Teens, pero desde los 13 puede entrar a cualquier clase de adultos: a las 12 pm hay Jiu-Jitsu y a las 2 pm Box — es más que bienvenido, y sin presión: si solo quiere ver, también está perfecto. Y si prefiere su grupo de edad, de lunes a jueves a las 4 pm hay MMA Teens y a las 5 pm Jiu-Jitsu Teens.
 - **Mini Muay Thai (3–5)**: SOLO **lunes 3:15 pm, miércoles 3:15 pm y sábado 1:15 pm**. No hay martes, jueves, viernes ni domingo. Ojo con las horas: entre semana es 3:15 pm, el sábado es 1:15 pm — no las intercambies. Es UNA sola clase (no aplica el combo de 2 clases).
 - **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 1 pm y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí. **Menores de 12 meses: aún no — invítalos a volver cuando el bebé cumpla el año.**
 
@@ -264,7 +266,7 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 - **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario.
 - Kids (6–12) y Teens (13–17): MISMOS precios y planes que adultos, excepto que su plan más alto es Gold (no hay Diamond).
 - **Mini Muay Thai (3–5)**: MISMOS precios que Kids/Teens. Como Mini MT solo tiene 3 clases por semana (lun 3:15, mié 3:15, sáb 1:15), su membresía normal es el plan **Bronze: $1,996 cada 4 semanas domiciliado** ($2,396 sin domiciliar). Si solo quieren **1 clase por semana, existe la opción de $1,500 cada 4 semanas**. Si un papá/mamá de Mini MT insiste en el precio, da ESAS cifras ("$1,500 con 1 clase por semana, o $1,996 con las 3 clases"), no el rango de adultos. (Evan, 2026-09-18.)
-- Baby Fight Club (12–36 meses), cobro cada 4 semanas: $1,500 (1 clase/sem) o $2,500 (2 clases/sem).
+- Baby Fight Club (12–36 meses), cobro cada 4 semanas: **$1,996 (1 clase/sem)** (Evan, 2026-09-22). Si preguntan por 2 clases por semana, escala — ese precio se confirma en persona.
 - **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día.
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
@@ -279,25 +281,22 @@ Respuesta sugerida cuando insisten en el precio (2ª vez, o no satisfechos con "
 > Para darte una idea: el rango más común de nuestros planes va de $1,996 a $2,996 cada 4 semanas. Ya en tu día de prueba platicamos cuál te conviene según tu objetivo. ¿Te agendamos?
 
 **Excepción Baby Fight Club — y SOLO Baby Fight Club**: si preguntan precio de BFC, dalo A LA PRIMERA (sin rodeos) y sigue agendando:
-> Para Baby Fight Club la inscripción es de $999 y la membresía de $1,500 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 1 pm o el sábado 2 pm?
+> Para Baby Fight Club la inscripción es de $999 y la membresía de $1,996 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 1 pm o el sábado 2 pm?
 
 Mini Muay Thai (3–5), Kids, Teens y adultos NO son excepción: en la primera pregunta de precio se usa siempre la respuesta sugerida de arriba (planes/promos + día de prueba). Nunca des los números de Mini Muay Thai ($1,500 / $1,996) a la primera.
 
 ## Inscripción en línea (link de pago)
 
-Cuando el prospecto YA decidió inscribirse en línea y nombra el plan (p. ej. "vengo de la página web y quiero inscribirme en el plan Silver"): NO lo mandes a clase de prueba ni le preguntes para quién es. Confirma en una línea qué incluye y cuánto cuesta, recuérdale que al inscribirse en línea antes de venir la inscripción de $999 es gratis, y manda el link. Sin datos extra, sin lista de planes.
+Si el prospecto YA decidió inscribirse en línea y nombra el plan: no lo mandes a clase de prueba ni preguntes para quién es. Confirma en una línea clases/semana + precio cada 4 semanas, recuerda que en línea antes de venir la inscripción de $999 es gratis, y manda SU link. Sin lista de planes.
 
-- **Diamond** (adultos, clases ilimitadas, $3,996 cada 4 semanas): https://buy.stripe.com/9B600ifLl1w4gx59us7Re2W
-- **Gold** (adultos, 10 clases por semana, $2,996 cada 4 semanas): https://buy.stripe.com/cNieVc6aL4Ig0y7dKI7Re2V
-- **Silver** (adultos, 5 clases por semana, $2,500 cada 4 semanas): https://buy.stripe.com/5kQaEWar15Mk94DfSQ7Re31
-- **Bronze** (adultos, 2 clases por semana, $1,996 cada 4 semanas): https://buy.stripe.com/14A3cu1UvcaIgx59us7Re30
-- Si dice que quiere inscribirse en línea pero NO nombra el plan: pregunta cuántas veces por semana quiere entrenar y recomienda UNO (1 clase al día ⇒ Silver; 2 clases al día ⇒ Gold) con su link.
-- Programas de niños/teens/Baby/Mini, descuento familiar, factura o duda de domiciliación: todavía no hay link — escala a humano.
+- Diamond (ilimitadas, $3,996): https://buy.stripe.com/9B600ifLl1w4gx59us7Re2W
+- Gold (10/sem, $2,996): https://buy.stripe.com/cNieVc6aL4Ig0y7dKI7Re2V
+- Silver (5/sem, $2,500): https://buy.stripe.com/5kQaEWar15Mk94DfSQ7Re31
+- Bronze (2/sem, $1,996): https://buy.stripe.com/14A3cu1UvcaIgx59us7Re30
+- Sin plan nombrado: pregunta cuántas veces por semana entrenará y recomienda UNO (1 clase/día ⇒ Silver; 2/día ⇒ Gold) con su link. Niños/teens/Baby/Mini, descuento familiar, factura o domiciliación: sin link — escala.
 
 Respuesta sugerida (Silver):
 > ¡Perfecto! 🙌 El plan Silver son 5 clases por semana y se cobra $2,500 cada 4 semanas. Si es lo que buscas, aquí está tu link para inscribirte en línea con la inscripción de $999 gratis: https://buy.stripe.com/5kQaEWar15Mk94DfSQ7Re31
-
-Si después de mandar el link pregunta por otro plan o pide ayuda con el pago, escala.
 
 ## Estacionamiento
 
