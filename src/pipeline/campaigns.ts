@@ -257,5 +257,24 @@ export function hasRealQuestion(
   // the ad's. 2026-09-22: the Reto prefill is itself "¿Cómo funciona el Reto
   // Gladiador?", so every Reto lead got the canned welcome AND a brain reply.
   const qMarks = (s: string): number => (s.match(/[?¿]/g) ?? []).length;
-  return qMarks(text) > qMarks(triggerPhrase ?? "");
+  if (qMarks(text) <= qMarks(triggerPhrase ?? "")) return false;
+  // Still boilerplate: a generic "how does it work / what is it / info?"
+  // about the campaign itself is exactly what the welcome answers. Meta
+  // rewrites prefills over time, so the stored trigger may lack the "?" the
+  // current ad carries (2026-09-22: "Como funciona el reto gladiador?" matched
+  // by ad id against an older trigger and got two replies). Real question =
+  // at least one word that is neither in the trigger nor generic filler.
+  const triggerWords = new Set(trigger.split(" ").filter(Boolean));
+  return body
+    .split(" ")
+    .some((w) => w && !triggerWords.has(w) && !GENERIC_ASK_WORDS.has(w));
 }
+
+/** Words that never make a first message a question of the lead's own. */
+const GENERIC_ASK_WORDS = new Set([
+  "hola", "buenas", "buenos", "buen", "dia", "dias", "tardes", "noches",
+  "como", "funciona", "que", "es", "incluye", "trata", "info", "informacion",
+  "me", "interesa", "quiero", "quisiera", "mas", "pueden", "puedes", "dar", "das",
+  "pasan", "necesito", "saber", "de", "del", "sobre", "el", "la", "los", "las",
+  "este", "esta", "esto", "su", "tu", "un", "una", "y", "o", "por", "favor", "gracias",
+]);

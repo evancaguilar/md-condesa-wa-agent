@@ -429,6 +429,16 @@ test("hasRealQuestion: the ad's own question mark is not the lead's question", (
   assert.equal(hasRealQuestion(`${q} ¿Cuánto cuesta?`, q), true);
 });
 
+test("hasRealQuestion: a generic 'how does it work?' about the campaign is boilerplate even when the trigger has no '?'", () => {
+  const oldTrigger = "Hola, quiero información del Reto Gladiador";
+  assert.equal(hasRealQuestion("Como funciona el reto gladiador?", oldTrigger), false);
+  assert.equal(hasRealQuestion("Hola! ¿Qué es el Reto Gladiador?", oldTrigger), false);
+  assert.equal(hasRealQuestion("¿Me pueden dar más información del reto?", oldTrigger), false);
+  // A real question on top of the generic ask still counts.
+  assert.equal(hasRealQuestion("Como funciona el reto y cuanto cuesta la inscripcion?", oldTrigger), true);
+  assert.equal(hasRealQuestion("¿Es apto para niños?", oldTrigger), true);
+});
+
 test("hasRealQuestion: a bare '¿' counts too", () => {
   assert.equal(hasRealQuestion("¿costo", TRIGGER), true);
 });
