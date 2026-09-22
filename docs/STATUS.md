@@ -4,6 +4,13 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### Brain outage is no longer silent (2026-09-22)
+
+Every draft came out as the holding line "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí." — that is `safeApology`, the brain's `api_error` fallback (Anthropic call failed twice), NOT a WhatsApp/billing problem (sends were landing). Same failure mode as 2026-08-03 (balance ran out); auto-reload was still unticked. Shipped: the Slack card's reason now carries the Anthropic error text (`api_error: anthropic HTTP 400: …credit balance…`), the worker logs it, and the pipeline posts one `<!here> 🧠⚠️` note per 30 min (kv `brain_outage_alert`). Tests 912 (two post-trial copy assertions updated to the 09-21 wording).
+
+- [ ] **Evan: console.anthropic.com → Billing → top up + turn ON auto-reload** (open since August).
+- [ ] The affected leads (Mel/Melissa — Saturday 2 pm Baby booking never registered; PatRa; the others with the holding-line card) need a human reply: Descartar the apology draft, answer from the Chats composer, and book Mel in Airtable by hand.
+
 ### Buy-intent first message, Silver online sign-up link, post-trial d0 copy (2026-09-21) — ⚠️ NEEDS `npm run build` ON A MACHINE WITH THE SITE REPO
 
 - **Bug (Daniel, 2026-09-21 15:07):** a "Sitio web" lead wrote "quiero inscribirme en línea en el plan Silver…" and got the canned trial welcome ("¿la clase es para ti o para un peque?"). `firstReplyDecision` now returns `none` when the first message matches `hasBuyIntent` (src/cron/nudge-signals.ts), so the brain answers instead. Test added.

@@ -274,8 +274,8 @@ test("post-trial copy: d0 asks how it felt, d2 asks what's missing, d5 links the
   const c = contact({ name: "Ana" });
   const d0 = postTrialCopy(c, "post_trial_d0");
   assert.ok(d0.startsWith("¡Hola Ana!"), d0);
-  assert.ok(/¿Cómo te sentiste/.test(d0), d0);
-  assert.ok(/\?$/.test(d0.trim()), d0); // d0 closes on a question
+  assert.ok(/¿Qué te pareció la experiencia\?/.test(d0), d0);
+  assert.ok(/inscripción/.test(d0), d0); // d0 closes on enrollment, not another trial
   const d2 = postTrialCopy(c, "post_trial_d2");
   assert.ok(/¿Qué te falta saber/.test(d2), d2);
   const d5 = postTrialCopy(c, "post_trial_d5");
@@ -374,7 +374,7 @@ test("processPostTrial: happy path sends the free-form body", async () => {
   const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
   assert.deepEqual(res, { outcome: "sent" });
   assert.equal(sent.length, 1);
-  assert.ok(sent[0]!.includes("¿Cómo te sentiste"), sent[0]);
+  assert.ok(sent[0]!.includes("¿Qué te pareció la experiencia?"), sent[0]);
 });
 
 test("processPostTrial: an opted-out lead gets silence", async () => {

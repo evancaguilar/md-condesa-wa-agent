@@ -749,7 +749,7 @@ test("API error → draft apology with reason api_error", async () => {
   const r = await brain.respond(ctx("hola"));
   assert.equal(r.action, "draft");
   if (r.action === "draft") {
-    assert.equal(r.reason, "api_error");
+    assert.match(String(r.reason), /^api_error: /);
     assert.ok(r.message.length > 0);
   }
 });

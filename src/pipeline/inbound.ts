@@ -782,6 +782,23 @@ async function routeResult(
   // would-have-auto-sent replies the audit view reviews before loosening
   // training wheels.
   const reason = result.action === "draft" ? result.reason : undefined;
+  // Brain outage alarm: the holding-line draft is what staff see, but the
+  // cause (balance, key, Anthropic 5xx) only they can fix. One <!here> per
+  // 30 min, atomic kv claim so parallel turns don't all shout.
+  if (reason?.startsWith("api_error")) {
+    const claimed = await kvClaimIfAbsentOrOlder(env.DB, "brain_outage_alert", Math.floor(Date.now() / 1000), 30 * 60).catch(() => false);
+    if (claimed) {
+      // Awaited (no ExecutionContext here) — one Slack call every 30 min at most.
+      await (
+        ports.slack
+          .postNote(
+            `<!here> 🧠⚠️ El cerebro (Anthropic) está fallando — cada respuesta sale como línea de espera. Causa: ${reason.slice(0, 200)}\n` +
+              `Revisa saldo/auto-reload en console.anthropic.com o la API key en Cloudflare. Los leads afectados esperan respuesta humana.`,
+          )
+          .catch(() => {})
+      );
+    }
+  }
   await queueApproval(
     env,
     ports,

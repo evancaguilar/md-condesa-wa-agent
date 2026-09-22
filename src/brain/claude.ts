@@ -287,14 +287,19 @@ export function createBrain(deps: BrainDeps): BrainPort {
         reason: "max_iterations",
       };
     } catch (err) {
-      // callAnthropic already retried once. Return a safe apology draft.
+      // callAnthropic already retried once. Return a safe apology draft. The
+      // cause rides in `reason` (shown on the Slack card) and in the logs —
+      // 2026-09-22: every reply was the holding line for hours and nobody
+      // could tell WHY from the dashboard (it was the Anthropic balance).
       await flushUsage(deps.accrueUsage, usageAcc).catch(() => {});
+      const detail = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, " ").slice(0, 160);
+      console.error(`[brain] api_error for ${ctx.phone}: ${detail}`);
       return {
         action: "draft",
         message: safeApology(ctx.contact.lang),
         language: ctx.contact.lang,
         confidence: "low",
-        reason: "api_error",
+        reason: `api_error: ${detail}`,
       };
     }
   }
