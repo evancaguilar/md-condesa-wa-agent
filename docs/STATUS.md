@@ -2,6 +2,16 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-03** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Lead → `Anuncio` link gap: ad rollups undercounted bookings ~26 % (2026-09-21, branch `claude/xenodochial-kowalevski-319740`, NOT pushed)
+
+Found during the Meta ads deep dive: since 2026-07-01, 2,162 leads have an `Ad ID` but only 2,091 have the `Anuncio` link, and the 71 missing ones carry **70 bookings** — so `Anuncios Meta` rollups were low by ~26 % bookings, ~29 % past trials, ~25 % shows, ~16 % closes, ~15 % revenue ("5000 premio woman boxing" 56 real bookings vs 36 in the rollup).
+
+- **Root cause (order of two sweeps, not the `Ad` text shape):** `leadLinkSweep` selects leads by `{Día} = ''` and writes Día + Mes + Anuncio in ONE patch, so a lead leaves the filter the moment it gets its day link (≤15 min after creation). The **twin sweep** then copies the bot's `Ad` onto the same-phone form/manual row — *after* that row was day-linked — and nothing ever looked at it again. Those twin rows are exactly the ones where staff record bookings, shows and enrollments, which is why 71 rows held 70 bookings. The 2026-09-10 log already shows it: "all leads since July linked", then "twin sweep — 61 repaired".
+- **Fix (`src/services/metrics-airtable.ts`):** `linkLeadsSweep` gained a second pass — `adUnlinkedLeadsFormula` (`Anuncio` empty, `Día` set, `Ad ID` ≥ 10 chars, since `METRICS_SINCE`) + pure `leadAdLinkPatch`, which writes **only** `Anuncio`, never touches Día/Mes and never overwrites a hand-set link. The original day-link query is byte-identical. Both passes share the one `limit` (40/tick, 100 on the admin endpoint), and the second list is skipped when the first page is full, so the subrequest budget is unchanged except for **+1 list** per tick. Late-ad pass fails soft on transient errors (recorded in `errors`, day links already written); base drift still raises `MetricsSchemaError` → kv + one Slack note. Stats gain `adLinked`.
+- **Tests:** 5 new (pure patch, formula, shared budget, no second list when full, soft/loud failure) — suite **910 green**; typecheck, build and `wrangler deploy --dry-run` clean.
+- **NOT verified against live Airtable from this session** (no Airtable connector was available): the sample of the 71 rows (Creado Por / `Ad` shape / Día present) was not pulled. The diagnosis rests on the code + the 09-10 log; the fix is cause-agnostic (any lead whose ad arrives after its day link).
+- **After deploy (Evan):** the backlog drains by itself in 2 ticks (~30 min), or run `POST /admin/api/metrics/sweep {"target":"leads"}` once and read `adLinked` (expect ≈71, then 0). Then re-check `Anuncios Meta` → "5000 premio woman boxing" `Agendaron` = 56. If `adLinked` stays 0 while the Airtable view still shows unlinked rows, the `Ad ID` cells on those rows are not ≥10 plain digits — send one over.
+
 ### Security review fixes (2026-10-27) — on branch `fix/security-review-mediums`, NOT pushed
 
 Six medium findings from the first `/security-review` of this repo (no critical/high: webhook HMAC, Slack signing, SQL params, admin XSS escaping and secrets all came back clean). Tests 1401 → **1413** (`test/security-review.test.ts` + v3 cookie tests).

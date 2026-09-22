@@ -5,11 +5,14 @@ import {
   DEFAULT_METRICS_MAP,
   MetricsSchemaError,
   adRecords,
+  adUnlinkedLeadsFormula,
   batchUpsert,
   campaignRecords,
   chunk,
   duplicateStudentCandidates,
+  leadAdLinkPatch,
   leadLinkPatch,
+  linkLeadsSweep,
   listRecords,
   monthOf,
   numOrNull,
@@ -94,6 +97,27 @@ test("sweep formulas name the link, the text formula and the since bound", () =>
   assert.equal(f, "AND({Día} = '', {Día Lead} != '', IS_AFTER(CREATED_TIME(), '2026-07-01T06:00:00.000Z'))");
   const s = unlinkedStudentsFormula("2026-07-01T06:00:00.000Z", M);
   assert.ok(s.includes("{Lead Original} = ''") && s.includes("{Teléfono} != ''"));
+});
+
+test("leadAdLinkPatch: Anuncio only, for a late ad id; never overwrites; junk ids → null", () => {
+  assert.deepEqual(leadAdLinkPatch({ "Ad ID": "120249684011860518" }, M), { Anuncio: ["120249684011860518"] });
+  // Airtable returns numeric formula cells as numbers.
+  assert.deepEqual(leadAdLinkPatch({ "Ad ID": 120249684011 }, M), { Anuncio: ["120249684011"] });
+  assert.deepEqual(leadAdLinkPatch({ "Ad ID": "120249684011860518", Anuncio: [] }, M), {
+    Anuncio: ["120249684011860518"],
+  });
+  assert.equal(leadAdLinkPatch({ "Ad ID": "120249684011860518", Anuncio: ["recHAND"] }, M), null);
+  assert.equal(leadAdLinkPatch({ "Ad ID": "123" }, M), null);
+  assert.equal(leadAdLinkPatch({ "Ad ID": "utm (120249684011860518)" }, M), null);
+  assert.equal(leadAdLinkPatch({ "Ad ID": { error: "#ERROR!" } }, M), null);
+  assert.equal(leadAdLinkPatch({}, M), null);
+});
+
+test("adUnlinkedLeadsFormula: day-linked, ad-less link, linkable ad id, since bound", () => {
+  assert.equal(
+    adUnlinkedLeadsFormula("2026-07-01T06:00:00.000Z", M),
+    "AND({Anuncio} = '', {Día} != '', LEN({Ad ID} & '') >= 10, IS_AFTER(CREATED_TIME(), '2026-07-01T06:00:00.000Z'))",
+  );
 });
 
 test("studentLinkDecision: exactly-one rule and lead-predates-student rule", () => {
@@ -249,4 +273,81 @@ test("twinAttribution copies the EARLIEST same-phone lead that carries an ad lab
   assert.equal(twinAttribution([twins[2]!], "bot", lm), null); // never itself
   assert.equal(unattributedLeadsFormula("2026-07-01T06:00:00.000Z", { phone: "# de Teléfono", ad: "Ad" }),
     "AND({Ad} = '', {# de Teléfono} != '', IS_AFTER(CREATED_TIME(), '2026-07-01T06:00:00.000Z'))");
+});
+
+// ---- lead link sweep: the late-ad pass (twin sweep fills `Ad` after the day link) ----
+
+const SINCE = "2026-07-01T06:00:00.000Z";
+const formulaOf = (c: Call) => new URL(c.url).searchParams.get("filterByFormula") ?? "";
+const okPatch = (c: Call) => ({
+  status: 200,
+  body: { records: (c.body.records as unknown[]).map((_, k) => ({ id: `rec${k}` })) },
+});
+
+test("linkLeadsSweep: second pass writes ONLY Anuncio on day-linked leads with a late ad", async () => {
+  const calls = stubFetch((c) => {
+    if (c.method === "PATCH") return okPatch(c);
+    if (formulaOf(c) === unlinkedLeadsFormula(SINCE, M)) {
+      return {
+        status: 200,
+        body: { records: [{ id: "recNEW", fields: { "Día Lead": "2026-09-20", "Mes Lead": "2026-09", "Ad ID": "" } }] },
+      };
+    }
+    return {
+      status: 200,
+      body: {
+        records: [
+          { id: "recTWIN", fields: { "Ad ID": "120249684011860518" } },
+          { id: "recJUNK", fields: { "Ad ID": "not-an-ad-id" } },
+        ],
+      },
+    };
+  });
+  const st = await linkLeadsSweep(ENV, { limit: 40, sinceIso: SINCE, paceMs: 0 }, M);
+  assert.deepEqual(st, { scanned: 3, linked: 2, adLinked: 1, errors: [] });
+  assert.deepEqual(calls.map((c) => c.method), ["GET", "PATCH", "GET", "PATCH"]);
+  assert.equal(formulaOf(calls[2]!), adUnlinkedLeadsFormula(SINCE, M));
+  // The remaining budget, not a fresh one: both passes share `limit`.
+  assert.equal(new URL(calls[2]!.url).searchParams.get("maxRecords"), "39");
+  assert.deepEqual(calls[3]!.body.records, [{ id: "recTWIN", fields: { Anuncio: ["120249684011860518"] } }]);
+});
+
+test("linkLeadsSweep: a full first page leaves no room — no second list (subrequest cap)", async () => {
+  const calls = stubFetch((c) => {
+    if (c.method === "PATCH") return okPatch(c);
+    return {
+      status: 200,
+      body: { records: Array.from({ length: 10 }, (_, i) => ({ id: `rec${i}`, fields: { "Día Lead": "2026-09-20" } })) },
+    };
+  });
+  const st = await linkLeadsSweep(ENV, { limit: 10, sinceIso: SINCE, paceMs: 0 }, M);
+  assert.deepEqual(calls.map((c) => c.method), ["GET", "PATCH"]);
+  assert.deepEqual(st, { scanned: 10, linked: 10, adLinked: 0, errors: [] });
+});
+
+test("linkLeadsSweep: late-ad pass fails soft on a transient error, loud on base drift", async () => {
+  const dayRows = { records: [{ id: "recNEW", fields: { "Día Lead": "2026-09-20" } }] };
+  stubFetch((c, i) => {
+    if (c.method === "PATCH") return okPatch(c);
+    return i === 0 ? { status: 200, body: dayRows } : { status: 503, body: { error: { message: "busy" } } };
+  });
+  const soft = await linkLeadsSweep(ENV, { limit: 40, sinceIso: SINCE, paceMs: 0 }, M);
+  assert.equal(soft.linked, 1);
+  assert.equal(soft.adLinked, 0);
+  assert.equal(soft.errors.length, 1);
+  assert.match(soft.errors[0]!, /ad links: .*503/);
+
+  stubFetch((c, i) => {
+    if (c.method === "PATCH") return okPatch(c);
+    return i === 0
+      ? { status: 200, body: dayRows }
+      : { status: 422, body: { error: { type: "UNKNOWN_FIELD_NAME", message: 'Unknown field name: "Anuncio"' } } };
+  });
+  let caught: unknown = null;
+  try {
+    await linkLeadsSweep(ENV, { limit: 40, sinceIso: SINCE, paceMs: 0 }, M);
+  } catch (err) {
+    caught = err;
+  }
+  assert.ok(caught instanceof MetricsSchemaError, String(caught));
 });
