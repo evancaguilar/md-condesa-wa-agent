@@ -166,7 +166,7 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 - **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario.
 - Kids (6–12) y Teens (13–17): MISMOS precios y planes que adultos, excepto que su plan más alto es Gold (no hay Diamond).
 - **Mini Muay Thai (3–5)**: MISMOS precios que Kids/Teens. Como Mini MT solo tiene 3 clases por semana (lun 3:15, mié 3:15, sáb 1:15), su membresía normal es el plan **Bronze: $1,996 cada 4 semanas domiciliado** ($2,396 sin domiciliar). Si solo quieren **1 clase por semana, existe la opción de $1,500 cada 4 semanas**. Si un papá/mamá de Mini MT insiste en el precio, da ESAS cifras ("$1,500 con 1 clase por semana, o $1,996 con las 3 clases"), no el rango de adultos. (Evan, 2026-09-18.)
-- Baby Fight Club (12–36 meses), cobro cada 4 semanas: $1,500 (1 clase/sem) o $2,500 (2 clases/sem).
+- Baby Fight Club (12–36 meses), cobro cada 4 semanas: **$1,996 (1 clase/sem)** (Evan, 2026-09-22). Si preguntan por 2 clases por semana, escala — ese precio se confirma en persona.
 - **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día.
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
@@ -181,7 +181,7 @@ Respuesta sugerida cuando insisten en el precio (2ª vez, o no satisfechos con "
 > Para darte una idea: el rango más común de nuestros planes va de $1,996 a $2,996 cada 4 semanas. Ya en tu día de prueba platicamos cuál te conviene según tu objetivo. ¿Te agendamos?
 
 **Excepción Baby Fight Club — y SOLO Baby Fight Club**: si preguntan precio de BFC, dalo A LA PRIMERA (sin rodeos) y sigue agendando:
-> Para Baby Fight Club la inscripción es de $999 y la membresía de $1,500 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 1 pm o el sábado 2 pm?
+> Para Baby Fight Club la inscripción es de $999 y la membresía de $1,996 cada 4 semanas (1 clase por semana). La clase de prueba es totalmente gratis 🙌 ¿Les queda bien el miércoles 1 pm o el sábado 2 pm?
 
 Mini Muay Thai (3–5), Kids, Teens y adultos NO son excepción: en la primera pregunta de precio se usa siempre la respuesta sugerida de arriba (planes/promos + día de prueba). Nunca des los números de Mini Muay Thai ($1,500 / $1,996) a la primera.
 

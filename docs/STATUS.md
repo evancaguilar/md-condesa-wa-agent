@@ -4,6 +4,12 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### BFC price $1,996 + same-day buffer 4h → 1h (2026-09-22) — ⚠️ needs local `npm run build`
+
+- **Baby Fight Club membership is now $1,996 cada 4 semanas (1 clase/sem)** (Evan): intake.md price table + suggested reply, persona exception + sureness checklist. The old "2 clases/sem $2,500" line is gone — the KB now escalates that question (Evan never gave a new number for it).
+- **"Hoy" buffer is 1 hour, not 4** (Evan: a 2:46 pm Kids lead must be offered today's 4 pm and 5 pm). Changed in persona.md (Flujo de agendado, 4 mentions), `TODAY_BUFFER_SECONDS` in src/cron/next-slot.ts (feeds the per-turn "próximos horarios" list in prompt.ts), and the two tests that pinned 4h. `SLOT_LEAD_SECONDS` (2h, cron nudges) untouched.
+- Why the Kids draft offered "mañana 4 pm o sábado 11 am": with the 4h rule, 2:46 pm excluded today's 4/5 pm; Thursday was dropped by the three-option cap in favour of Saturday (the persona already says never to prefer Saturday when a weekday is nearer — a model slip, not a rule). Tests 912 green.
+
 ### Brain outage is no longer silent (2026-09-22)
 
 Every draft came out as the holding line "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí." — that is `safeApology`, the brain's `api_error` fallback (Anthropic call failed twice), NOT a WhatsApp/billing problem (sends were landing). Same failure mode as 2026-08-03 (balance ran out); auto-reload was still unticked. Shipped: the Slack card's reason now carries the Anthropic error text (`api_error: anthropic HTTP 400: …credit balance…`), the worker logs it, and the pipeline posts one `<!here> 🧠⚠️` note per 30 min (kv `brain_outage_alert`). Tests 912 (two post-trial copy assertions updated to the 09-21 wording).

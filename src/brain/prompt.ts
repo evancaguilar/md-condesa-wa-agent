@@ -132,7 +132,7 @@ const CONTEXT_SLOT_COUNT = 3;
 /**
  * Soonest-first hours for THIS lead's program, pre-computed so the model never
  * has to do calendar math to obey the "first option = soonest valid class" rule
- * (persona.md, "Flujo de agendado"). Uses the persona's own 4h buffer, so an
+ * (persona.md, "Flujo de agendado"). Uses the persona's own 1h buffer, so an
  * hour listed here is always one it is allowed to offer.
  *
  * VOLATILE — belongs in the per-turn block, never in a cached system block.
@@ -158,7 +158,7 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
   const group =
     program === "adults" ? "adultos" : program === "kids" ? "niños" : "Baby Fight Club";
   return [
-    `próximos horarios válidos para ${group} (más próximo primero, ya con el buffer de 4h): ${slots
+    `próximos horarios válidos para ${group} (más próximo primero, ya con el buffer de 1h): ${slots
       .map((s) => s.label)
       .join(" · ")}`,
     "Ofrece el PRIMERO de esa lista antes que cualquier otro, salvo que el lead haya pedido otro día. Antes de nombrar una hora confirma en el horario del KB que esa fila existe para su disciplina y su grupo de edad.",

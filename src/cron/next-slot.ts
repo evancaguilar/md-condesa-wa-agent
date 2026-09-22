@@ -43,7 +43,7 @@ export const SLOT_LEAD_SECONDS = 2 * 3600;
  * agendado"). The brain's per-turn slot list uses it so the hours the model is
  * handed are exactly the ones its own rule allows it to offer.
  */
-export const TODAY_BUFFER_SECONDS = 4 * 3600;
+export const TODAY_BUFFER_SECONDS = 1 * 3600; // was 4h — Evan 2026-09-22: a 2:46 pm lead must still be offered the 4 pm Kids class
 
 /** How far ahead we look before giving up (a full grid is one week). */
 const SEARCH_DAYS = 14;

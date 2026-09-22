@@ -259,15 +259,16 @@ test("closureLines: today's closure is loud, near closures listed, far/past ones
 // hours, soonest first — and ONLY the per-turn block, never the cached system
 // prefix (cache stability is contractual).
 
-test("context block lists the next valid hours, soonest first, with the 4h buffer", () => {
-  // Monday 2026-07-06 18:30 + 4h ⇒ nothing left today, so the list opens
-  // tomorrow morning and runs in ascending order.
+test("context block lists the next valid hours, soonest first, with the 1h buffer", () => {
+  // Monday 2026-07-06 18:30 + 1h ⇒ the 20:00 class is still offerable today,
+  // so the list opens with "hoy" and runs in ascending order.
   const block = buildContextBlock(ctx());
   assert.match(block, /próximos horarios válidos para adultos/);
-  assert.ok(block.includes("mañana martes 7:00 am"), block);
   const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
   assert.equal(line.split(" · ").length, 3, line);
-  assert.ok(!line.includes("hoy a las"), "18:30 + 4h leaves nothing today");
+  assert.ok(line.includes("hoy a las 8:00 pm"), "18:30 + 1h keeps the 8 pm class today: " + line);
+  assert.ok(line.includes("mañana martes 7:00 am"), line);
+  assert.ok(line.indexOf("hoy a las") < line.indexOf("mañana"), "soonest first");
   // The hint must not license an unverified offer.
   assert.match(block, /confirma en el horario del KB que esa fila existe/);
 });

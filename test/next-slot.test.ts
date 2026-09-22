@@ -239,21 +239,22 @@ test("upcomingTrialSlots: N soonest hours, deduped per (date,time)", () => {
   assert.equal(slots[0]?.label, "hoy a las 6:00 pm");
 });
 
-test("upcomingTrialSlots: the 4h buffer drops hours the persona may not offer", () => {
-  // 15:00 + 2h default would surface the 18:00 class; the persona's 4h rule
-  // (TODAY_BUFFER_SECONDS) starts the list at 19:00 instead.
-  const two = upcomingTrialSlots(null, "adult", MON(15), 1, undefined, []);
-  assert.equal(two[0]?.time, "18:00");
-  const four = upcomingTrialSlots(
+test("upcomingTrialSlots: the persona's 1h buffer (shorter than the 2h default) admits the nearer hour", () => {
+  // 17:00 + 2h default skips the 18:00 class; the persona's 1h rule
+  // (TODAY_BUFFER_SECONDS) lets the model offer it.
+  const two = upcomingTrialSlots(null, "adult", MON(17), 1, undefined, []);
+  assert.equal(two[0]?.time, "19:00");
+  const one = upcomingTrialSlots(
     null,
     "adult",
-    MON(15),
+    MON(17),
     1,
     undefined,
     [],
     TODAY_BUFFER_SECONDS,
   );
-  assert.equal(four[0]?.time, "19:00");
+  assert.equal(one[0]?.time, "18:00");
+  assert.equal(TODAY_BUFFER_SECONDS, 3600);
 });
 
 test("upcomingTrialSlots: soonest first, strictly ascending, never a past hour", () => {
