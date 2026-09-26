@@ -42,7 +42,9 @@ import {
 export const BLAST_PER_TICK = 6;
 // 25 since 2026-09-17: the account moved to Workers Paid (1,000 subrequests per
 // invocation), so the free-plan ~8-send ceiling no longer applies.
-export const BLAST_PER_TICK_MAX = 25;
+// 75 since 2026-09-25: ~5 subrequests per send → ≤375 per tick, still well under
+// the 1,000 budget with the other cron jobs; lets an evening queue drain ~900/h.
+export const BLAST_PER_TICK_MAX = 75;
 /** Default per-CDMX-day cap — Meta's lowest business-initiated tier (250 unique
  *  users / 24h on a fresh WABA; grows to 1K/10K/100K with quality). */
 export const DEFAULT_DAILY_CAP = 250;

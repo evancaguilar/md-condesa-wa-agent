@@ -33,5 +33,5 @@ test("buildCreateTemplatePayload: no vars → no example block", () => {
 });
 
 test("per-tick cap raised for Workers Paid", () => {
-  assert.equal(BLAST_PER_TICK_MAX, 25);
+  assert.equal(BLAST_PER_TICK_MAX, 75);
 });
