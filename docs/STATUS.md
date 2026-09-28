@@ -40,6 +40,16 @@ Evan asked "can we add the cost of the blasts to Inicio or Envíos?" — "Costo 
 - **UI (owner-only):** Envíos shows per run "✅ N enviados · ≈ $X.XX USD" and a header "Este mes: N mensajes · ≈ $X USD (tarifa Meta MX marketing $…, utility $… · estimado)"; the **preview and the confirm dialog** show "≈ $X USD por N mensajes" *before* anything is queued; Inicio gains a tile "Envíos del mes ≈" beside "Costo del mes" (the API omits `blastMonth` for staff, so the tile simply does not render for them).
 - Always labelled **estimado**: we count what Graph accepted, Meta bills what was delivered, and volume tiers can lower the real rate. Reconciliation recipe (WhatsApp Manager → Insights, or `GET /{WABA_ID}/pricing_analytics`) is in docs/blasts.md §6. Tests 903 → **905**.
 
+### Google Ads attribution — SHIPPED on the site + bot (2026-09-24/25, verified live 2026-09-28)
+
+Anything saying "the Google-lead attribution script hasn't shipped" is stale. Live on mdcondesa.com (`js/attribution.js?v=6`, site commits `e3158aa`, `51f0884`, `f0792ad`, `ef6984d`):
+- **Forms:** a Google click (`gclid`/`gbraid`/`wbraid` or `utm_source=google`) prefills the Airtable booking forms with `Ad = google | kw: … | ag: … | camp: … | gclid: …` + `Adquisición = Pagado`. Meta format unchanged (`utm (<13-digit id>)`). Separate slots, most recent click wins, 90-day expiry (Meta too).
+- **WhatsApp buttons:** after a Google click they open with `Hola, vi su anuncio en Google (kw: …)`; the human line 55 3426 0813 and the homepage plan buttons are left alone.
+- **Bot:** campaign id 9 "Google Search (anuncios Google)", trigger `Hola, vi su anuncio en Google`, no canned first reply.
+- **Google Ads conversion:** the WhatsApp-click conversion now waits for the beacon before navigating (it recorded 0 before).
+- **Evidence:** Leads tagged Campaña "Google Search": 5 on 09-27/28; untagged "Sitio web" leads since 09-25: 0.
+- **Still open:** Google Ads final-URL suffix (needed for `kw:`), Business Profile/Maps WhatsApp link → bot number with the same phrase, Google spend import + rollups (no Google ROAS yet), real-phone end-to-end check.
+
 ### ROAS program — what went LIVE on 2026-09-21 (pushed `a525f78`, deploy verified)
 
 Goal and plan: 3–5x ROAS on the owner's definition (new sign-ups from ad leads, all payments inside the month) at ~$45k MXN/mo, then scale. Baseline funnel (paid leads): $34 CPL → 18 % book → 38 % show → 32 % close → ~$2.9k ticket ≈ 1.9x mature. Same-day bookings show 54 % vs ~29 % when booked a day or more out.
