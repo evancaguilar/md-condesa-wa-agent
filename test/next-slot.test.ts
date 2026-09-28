@@ -328,3 +328,16 @@ test("nextTrialSlot: a closed date is skipped for every audience; validateSlot r
   assert.equal(closedDateInfo("2026-09-16", closed)?.reason, "Día de la Independencia");
   assert.equal(closedDateInfo("2026-09-17", closed), null);
 });
+
+test("upcomingTrialSlots ppOnly: only the Mini Muay Thai (pp) kid rows, soonest first", () => {
+  // Monday 10:00 → today's 3:15 pm Mini class is > 1h away and comes first.
+  const slots = upcomingTrialSlots(null, "kid", MON(10), 3, undefined, [], 3600, true);
+  assert.deepEqual(
+    slots.map((s) => `${s.weekday} ${s.time}`),
+    ["0 15:15", "2 15:15", "5 13:15"],
+  );
+  assert.ok(slots[0]!.label.startsWith("hoy a las 3:15 pm"), slots[0]!.label);
+  // and the default mode still never proposes a pp row to a generic kid lead
+  const generic = upcomingTrialSlots(null, "kid", MON(10), 3, undefined, [], 3600);
+  assert.ok(generic.every((s) => s.time !== "15:15" && s.time !== "13:15"));
+});

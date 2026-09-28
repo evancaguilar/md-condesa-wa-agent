@@ -122,6 +122,15 @@ export function upcomingTrialSlots(
   schedule: readonly Slot[] = SLOTS,
   closedDates: readonly { date: string }[] = CLIENT.closedDates ?? [],
   leadSeconds: number = SLOT_LEAD_SECONDS,
+  /**
+   * true ⇒ ONLY the parent-participation rows of that audience (kid ⇒ Mini Muay
+   * Thai). The brain's kids context lists them on their own line so a 3–5-year-
+   * old gets "hoy 3:15 pm" computed for them (2026-09-28: a Kids lead with a
+   * 3-year-old was sent to Wednesday while today's Mini class was 4h away —
+   * the list only carried the 4 pm Kids row, so the model did the calendar
+   * math itself, badly).
+   */
+  ppOnly = false,
 ): NextSlot[] {
   const seen = new Set<string>();
   const out: NextSlot[] = [];
@@ -129,6 +138,7 @@ export function upcomingTrialSlots(
     schedule,
     closedDates,
     leadSeconds,
+    ppOnly,
     // Dedupe drops entries, so scan wider than the caller asked for.
     limit: Math.max(limit, 1) * 6,
   })) {
@@ -177,6 +187,8 @@ function collectSlots(
     schedule?: readonly Slot[];
     closedDates?: readonly { date: string }[];
     leadSeconds?: number;
+    /** Only parent-participation rows (see upcomingTrialSlots). */
+    ppOnly?: boolean;
     limit: number;
   },
 ): DatedSlot[] {
@@ -207,8 +219,10 @@ function collectSlots(
           // wrong for BOTH audiences (an adult gets a toddler class; an
           // unknown-age kid probably belongs in Kids, not Mini). Only an
           // explicit baby pick may land on them.
-          (s.pp !== true || wantKey === "baby") &&
-          (wantKey === null || s.discipline === wantKey),
+          (opts.ppOnly
+            ? s.pp === true && s.discipline !== "baby" // Mini MT, not the BFC mirror
+            : (s.pp !== true || wantKey === "baby") &&
+              (wantKey === null || s.discipline === wantKey)),
       )
       .slice()
       .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));

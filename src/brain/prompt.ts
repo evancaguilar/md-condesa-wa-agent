@@ -157,12 +157,37 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
   if (slots.length === 0) return [];
   const group =
     program === "adults" ? "adultos" : program === "kids" ? "niños" : "Baby Fight Club";
-  return [
+  const lines = [
     `próximos horarios válidos para ${group} (más próximo primero, ya con el buffer de 1h): ${slots
       .map((s) => s.label)
       .join(" · ")}`,
-    "Ofrece el PRIMERO de esa lista antes que cualquier otro, salvo que el lead haya pedido otro día. Antes de nombrar una hora confirma en el horario del KB que esa fila existe para su disciplina y su grupo de edad.",
   ];
+  // A kids lead may be a 3–5-year-old (Mini Muay Thai, parent-participation
+  // rows the list above deliberately excludes). Hand the model those hours
+  // too, soonest first, so "hoy" is computed for them and never guessed.
+  if (program === "kids") {
+    const mini = upcomingTrialSlots(
+      null,
+      "kid",
+      now,
+      CONTEXT_SLOT_COUNT,
+      undefined,
+      undefined,
+      TODAY_BUFFER_SECONDS,
+      true,
+    );
+    if (mini.length > 0) {
+      lines.push(
+        `si el peque tiene 3–5 años su clase es Mini Muay Thai (no Kids); sus próximos horarios (más próximo primero, con el buffer de 1h): ${mini
+          .map((s) => s.label)
+          .join(" · ")}`,
+      );
+    }
+  }
+  lines.push(
+    "Ofrece el PRIMERO de la lista que corresponda a su edad antes que cualquier otro, salvo que el lead haya pedido otro día. Antes de nombrar una hora confirma en el horario del KB que esa fila existe para su disciplina y su grupo de edad.",
+  );
+  return lines;
 }
 
 /** "2026-09-21T14:30" (CDMX, no offset) → epoch seconds. null if unparseable. */

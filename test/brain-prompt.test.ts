@@ -282,6 +282,26 @@ test("slot hints follow the lead's program — a kids campaign never sees adult 
   assert.ok(!block.includes("7:00 am"), "7 am is an adults-only hour");
 });
 
+test("kids slot hints add the Mini Muay Thai (3–5) hours with 'hoy' computed (2026-09-28)", () => {
+  // Monday 2026-07-06 10:51 (the Raquel case): today's 3:15 pm Mini class is
+  // 4h away, so the Mini line must open with "hoy", not Wednesday.
+  const block = buildContextBlock(
+    ctx({
+      nowCdmx: "2026-07-06T10:51",
+      campaign: { name: "Kids septiembre", info: "clases para niños" },
+    }),
+  );
+  const mini = block.split("\n").find((l) => l.startsWith("si el peque tiene 3–5 años"))!;
+  assert.ok(mini, block);
+  assert.ok(mini.includes("hoy a las 3:15 pm"), mini);
+  assert.ok(mini.indexOf("hoy a las 3:15 pm") < mini.indexOf("miércoles"), "soonest first: " + mini);
+  // The Kids line itself still has no Mini row.
+  const kids = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
+  assert.ok(!kids.includes("3:15 pm"), kids);
+  // Adults never get the Mini line.
+  assert.ok(!buildContextBlock(ctx()).includes("Mini Muay Thai (no Kids)"));
+});
+
 test("slot hints stay OUT of the cached system blocks", () => {
   assert.ok(!systemText(KB_A).includes("próximos horarios válidos"));
   assert.ok(
