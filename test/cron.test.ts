@@ -10,7 +10,7 @@ import {
   cdmxMonthStr,
   CDMX_OFFSET_SECONDS,
 } from "../src/cron/time.js";
-import { computeTrialSequence, syncBookings, runDueFollowups } from "../src/cron/followups.js";
+import { computeTrialSequence, scheduleTrialSequence, syncBookings, runDueFollowups } from "../src/cron/followups.js";
 import { normalizeMxPhone } from "../src/services/airtable.js";
 import { runBudgetReport } from "../src/cron/budget.js";
 import type { Env, Followup } from "../src/types.js";
@@ -130,9 +130,97 @@ test("computeTrialSequence clamps an out-of-window booking-time confirm", () => 
 
 test("computeTrialSequence omits trial_confirm for chat bookings", () => {
   const trial = cdmxToEpoch(2026, 7, 15, 19, 0, 0);
-  const steps = computeTrialSequence(trial, { includeConfirm: false });
+  const booked = cdmxToEpoch(2026, 7, 13, 14, 0, 0);
+  const steps = computeTrialSequence(trial, { includeConfirm: false, nowEpoch: booked });
   assert.equal(steps.length, 2);
   assert.ok(!steps.some((s) => s.kind === "trial_confirm"));
+});
+
+// The 2026-09-28 incident: a Google-ads lead booked at 13:06 for 18:00 the
+// same day and got "te recordamos tu clase MAÑANA" at 13:10, because the
+// day-before slot (18:00 yesterday) was already past and the cron fires
+// anything past-due on its next tick.
+test("computeTrialSequence: same-day booking gets NO day_before reminder", () => {
+  const trial = cdmxToEpoch(2026, 9, 28, 18, 0, 0); // today 6 pm
+  const booked = cdmxToEpoch(2026, 9, 28, 13, 6, 0); // booked 1:06 pm
+  const steps = computeTrialSequence(trial, { includeConfirm: false, nowEpoch: booked });
+  assert.deepEqual(
+    steps.map((s) => s.kind),
+    ["same_day"],
+  );
+  // same_day still fires at class − 4h (14:00), which is ahead of the booking
+  assert.equal(steps[0]!.dueAt, cdmxToEpoch(2026, 9, 28, 14, 0, 0));
+});
+
+test("computeTrialSequence: booked inside 4h of the class → no reminders at all", () => {
+  const trial = cdmxToEpoch(2026, 9, 28, 18, 0, 0);
+  const booked = cdmxToEpoch(2026, 9, 28, 15, 30, 0);
+  const steps = computeTrialSequence(trial, { includeConfirm: false, nowEpoch: booked });
+  assert.deepEqual(steps, []);
+});
+
+test("computeTrialSequence: booked after 18:00 for tomorrow → same_day only", () => {
+  const trial = cdmxToEpoch(2026, 9, 29, 18, 0, 0);
+  const booked = cdmxToEpoch(2026, 9, 28, 20, 0, 0);
+  const steps = computeTrialSequence(trial, { includeConfirm: false, nowEpoch: booked });
+  assert.deepEqual(
+    steps.map((s) => s.kind),
+    ["same_day"],
+  );
+});
+
+test("computeTrialSequence: nothing is scheduled at or after class start", () => {
+  // 09:00 class booked the night before: same_day (05:00) clamps to 09:00 =
+  // class start → dropped; day_before (18:00 yesterday) is behind → dropped;
+  // the web-form confirm (clamped to 09:00) is dropped too.
+  const trial = cdmxToEpoch(2026, 9, 29, 9, 0, 0);
+  const booked = cdmxToEpoch(2026, 9, 28, 23, 0, 0);
+  const steps = computeTrialSequence(trial, { nowEpoch: booked });
+  assert.deepEqual(steps, []);
+});
+
+test("computeTrialSequence: a web-form booking days ahead keeps all three steps", () => {
+  const trial = cdmxToEpoch(2026, 10, 2, 18, 0, 0);
+  const booked = cdmxToEpoch(2026, 9, 28, 13, 0, 0);
+  const steps = computeTrialSequence(trial, { nowEpoch: booked });
+  assert.deepEqual(
+    steps.map((s) => s.kind),
+    ["trial_confirm", "day_before", "same_day"],
+  );
+});
+
+test("scheduleTrialSequence: a rebook re-arms the reminders at the new slot and retires the dropped step", async () => {
+  const upserts: { kind: string; dueAt: number; recordId: unknown }[] = [];
+  const cancelled: string[] = [];
+  const cancelledOthers: unknown[][] = [];
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.includes("ON CONFLICT(phone, kind, airtable_record_id)")) {
+      upserts.push({ kind: String(binds[1]), dueAt: Number(binds[2]), recordId: binds[3] });
+      return {};
+    }
+    if (sql.includes("airtable_record_id NOT LIKE")) {
+      cancelledOthers.push(binds);
+      return {};
+    }
+    if (sql.includes("WHERE phone = ?1 AND kind = ?2 AND airtable_record_id = ?3")) {
+      cancelled.push(String(binds[1]));
+      return {};
+    }
+    return {};
+  });
+  // Moved to today 6 pm at 1 pm: same_day re-armed (upsert), day_before retired.
+  const iso = "2026-09-28T18:00:00-06:00";
+  await scheduleTrialSequence(envWith(db), "5215512345678", "recX", iso, {
+    includeConfirm: false,
+    nowEpoch: cdmxToEpoch(2026, 9, 28, 13, 0, 0),
+  });
+  assert.deepEqual(upserts, [
+    { kind: "same_day", dueAt: cdmxToEpoch(2026, 9, 28, 14, 0, 0), recordId: "recX" },
+  ]);
+  assert.deepEqual(cancelled, ["day_before"]);
+  // reminders of any OTHER booking record for this phone are cancelled
+  assert.equal(cancelledOthers.length, 1);
+  assert.deepEqual(cancelledOthers[0]!.slice(0, 3), ["5215512345678", "recX", "recX#%"]);
 });
 
 // ---- phone normalization ----

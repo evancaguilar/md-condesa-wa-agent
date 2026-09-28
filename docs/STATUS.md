@@ -1,8 +1,18 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-21**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-28**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### Same-day booking got "tu clase MAÑANA" + escalations now land in Aprobar (2026-09-28) — SHIPPED
+
+- **Bug (Google-ads lead +52 55 4918 0788, 13:06):** booked for 18:00 the same day, and at 13:10 got `trial_reminder_day_before_es` ("te recordamos tu clase mañana"). `computeTrialSequence` always scheduled day_before at 18:00 *the day before* — for a same-day booking that slot was already in the past, `clampToWindow` only moves times forward inside a day, and `dueFollowups` fires anything past-due on the next cron tick. Same latent bug for any booking made after 18:00 for the next day (an immediate "mañana" reminder minutes after the confirmation).
+- **Fix (src/cron/followups.ts):** a reminder whose due time is already behind the booking moment is not scheduled — the confirmation that just went out covers it; `same_day` still fires when class − 4h is ahead. Nothing is ever scheduled at or after class start. Rules: same-day booking at 13:00 for 18:00 ⇒ only `same_day` at 14:00; booked inside 4h of the class ⇒ no reminders; booked at 20:00 for tomorrow ⇒ only `same_day`.
+- **Rebook fix (same file + src/db/queries.ts):** `followups` is UNIQUE(phone, kind, record), so INSERT OR IGNORE silently kept the OLD date's reminders on a rebook (the lead moved to another day → the old `same_day` still fired, the new date got nothing). `rescheduleFollowup` upserts `day_before`/`same_day` on a moved due time (same slot re-run = no-op, sent rows stay sent), a dropped step cancels its scheduled row, and reminders of a *different* record for the same phone are cancelled (`#n` sibling slots kept). `trial_confirm` keeps INSERT OR IGNORE.
+- **Escalations in Aprobar (Evan):** `escalate_to_human` used to leave only a Slack `<!here>` note + an unread chat, so "I cleared Aprobar" still left leads waiting. Now the pipeline also creates a **draft-less `pending_approvals` row** (kv `escalation:<id>` = reason — summary) that the Aprobar tab and the chat's pending card render as "⚠️ Necesita respuesta humana · <reason>" with **✏️ Responder** (edit box → sends as the human reply, 🪄 Reescribir works) and **🗑 Descartar**; no Aprobar button. `approveAndSend` refuses an empty draft (`empty_draft`). No sureness key ⇒ never best-bets; the 10-min holding line and 12h expiry apply as for any card. No Slack draft card (the note already pings). No D1 migration.
+- Not covered on purpose: reactions ("[reaccionó 👍]") and paused (human-led) chats still only show under "No leídos" — they are not replies the bot owes.
+- Tests 913 → **921**. Build not re-run (site repo absent in this session; KB untouched).
+- [ ] **Evan:** the 2 pm `same_day` reminder for that lead — you asked to cancel it; D1 console: `UPDATE followups SET status='cancelled' WHERE phone='5215549180788' AND kind='same_day' AND status='scheduled';`
 
 ### BFC price $1,996 + same-day buffer 4h → 1h + Teens weekend + Reto double reply + plan links (2026-09-22) — SHIPPED
 

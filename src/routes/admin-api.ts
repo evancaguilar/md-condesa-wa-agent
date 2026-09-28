@@ -206,6 +206,7 @@ import {
   type ApprovalResult,
   surenessKey,
   guardedApprovalKey,
+  escalationReason,
 } from "../services/approvals.js";
 import { runKbChat, applyProposal, accrueChatUsage } from "../services/kb-editor.js";
 import { auditHumanSend, parseBookingFromText } from "../services/booking-guard.js";
@@ -1312,13 +1313,18 @@ async function handleConversationDetail(
   const sinceRaw = Number(url.searchParams.get("since"));
   const since =
     Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const [contact, messages, pending, laterRows] = await Promise.all([
+  const [contact, messages, pendingRows, laterRows] = await Promise.all([
     getContact(env.DB, phone),
     recentMessages(env.DB, phone, 100, since),
     getPendingApprovals(env.DB, phone),
     listStaffLater(env.DB, phone, nowSec() - SCHEDULED_CANCELLED_TTL),
   ]);
   if (!contact) return json({ error: "not_found" }, 404);
+  // Same escalation flag the Aprobar list carries, so the in-chat pending
+  // card renders the "needs a human" variant too.
+  const pending = await Promise.all(
+    pendingRows.map(async (a) => ({ ...a, escalation: await escalationReason(env, a.id) })),
+  );
   const shown = await withTemplateText(env, messages, contact.name, undefined, displayTemplateSend);
   // Unparseable notes are skipped, not surfaced — the cron cancels those rows.
   const scheduled = laterRows.flatMap((r) => {
@@ -1439,6 +1445,9 @@ async function handleApprovalsList(env: Env): Promise<Response> {
         sureness:
           surenessRaw !== null && Number.isFinite(surenessNum) ? surenessNum : null,
         guarded: (await kvGet(env.DB, guardedApprovalKey(a.id))) === "1",
+        // Non-null ⇒ a draft-less "needs a human" row: the panel hides Aprobar
+        // and offers Responder / Descartar instead.
+        escalation: await escalationReason(env, a.id),
       };
     }),
   );

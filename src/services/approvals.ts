@@ -35,9 +35,10 @@ import {
 /** Result of an approval flow. `ok:false` carries a machine-readable reason. */
 export type ApprovalResult =
   | { ok: true }
-  | { ok: false; reason: "not_pending" | "window_closed" | "opted_out" };
+  | { ok: false; reason: "not_pending" | "window_closed" | "opted_out" | "empty_draft" };
 
 const NOT_PENDING: ApprovalResult = { ok: false, reason: "not_pending" };
+const EMPTY_DRAFT: ApprovalResult = { ok: false, reason: "empty_draft" };
 const WINDOW_CLOSED: ApprovalResult = { ok: false, reason: "window_closed" };
 const OPTED_OUT: ApprovalResult = { ok: false, reason: "opted_out" };
 
@@ -81,6 +82,24 @@ export function surenessKey(id: number): string {
  */
 export function guardedApprovalKey(id: number): string {
   return `guarded:${id}`;
+}
+
+/**
+ * kv key holding the brain's escalation reason for an approval row that carries
+ * NO draft: the bot decided a human must answer (escalate_to_human). The row
+ * exists so the lead shows up in the Aprobar tab next to every other reply
+ * Evan owes (2026-09-28: escalations only lived as a Slack note + an unread
+ * chat, so "I answered everything in Aprobar" still left leads waiting).
+ * Approve is refused on such a row (nothing to send); Editar/Responder sends
+ * the human's text; Descartar closes it. No sureness key ⇒ never best-bets.
+ */
+export function escalationKey(id: number): string {
+  return `escalation:${id}`;
+}
+
+/** The escalation reason behind an approval row, or null for a normal draft. */
+export async function escalationReason(env: Env, id: number): Promise<string | null> {
+  return await kvGet(env.DB, escalationKey(id));
 }
 
 async function isBookingApproval(env: Env, id: number): Promise<boolean> {
@@ -179,6 +198,8 @@ export async function approveAndSend(
 ): Promise<ApprovalResult> {
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
+  // An escalation row has nothing to send — a human writes the reply (Editar).
+  if (!a.draft || !a.draft.trim()) return EMPTY_DRAFT;
   const res = await claimAndSend(env, id, "approved", a.draft, a.draft);
   if (res.ok) {
     await markApprovedCard(env, a, a.draft);

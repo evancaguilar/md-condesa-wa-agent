@@ -12,6 +12,9 @@
 import type { Env, Followup } from "../types.js";
 import {
   scheduleFollowup,
+  rescheduleFollowup,
+  cancelFollowupForRecord,
+  cancelFollowupsOfOtherRecords,
   markFollowup,
   dueFollowups,
   kvGet,
@@ -116,22 +119,35 @@ export interface SequenceStep {
 }
 
 export interface SequenceOpts {
-  /** When the booking was detected (epoch s). trial_confirm fires here, not at
-   *  class time. Defaults to now. */
+  /** When the booking was made/detected (epoch s). trial_confirm fires here,
+   *  not at class time, and any reminder whose slot is already behind this
+   *  moment is dropped. Defaults to now. */
   nowEpoch?: number;
   /** false for chat bookings — the bot already confirmed inline. */
   includeConfirm?: boolean;
 }
 
+/** The date-anchored reminder kinds a trial sequence can carry. */
+export const TRIAL_REMINDER_KINDS = ["day_before", "same_day"] as const;
+
 /**
  * Pure computation of the followup sequence for a trial at `trialEpoch`
  * (epoch seconds). Sends are clamped to the 09:00–21:00 CDMX window. Exposed
  * for unit testing; scheduleTrialSequence persists the result.
+ *
+ * A reminder whose slot is already in the past at booking time is NOT
+ * scheduled: the cron fires anything past-due on its next tick, so a same-day
+ * booking (booked 13:00 for 18:00 today) used to get "te recordamos tu clase
+ * MAÑANA" four minutes after confirming today's class (2026-09-28). The
+ * confirmation that just went out already covers that lead; the same_day
+ * reminder still fires when its slot (class − 4h) is still ahead. Nothing is
+ * ever scheduled at or after class start either.
  */
 export function computeTrialSequence(
   trialEpoch: number,
   opts: SequenceOpts = {},
 ): SequenceStep[] {
+  const now = opts.nowEpoch ?? nowSec();
   const p = cdmxParts(trialEpoch);
   // day-before at 18:00 CDMX
   const dayBefore = cdmxToEpoch(p.year, p.month, p.day, 18, 0, 0) - DAY;
@@ -139,19 +155,28 @@ export function computeTrialSequence(
   if (opts.includeConfirm !== false) {
     steps.push({
       kind: "trial_confirm",
-      dueAt: clampToWindow(opts.nowEpoch ?? nowSec()),
+      dueAt: clampToWindow(now),
     });
   }
   // No Slack "¿Llegó?" card since 2026-09-18 (Evan): attendance lives ONLY in
   // Airtable (front desk sets Resultado Clase Prueba); the result watcher reacts.
-  steps.push(
+  const reminders: SequenceStep[] = [
     { kind: "day_before", dueAt: clampToWindow(dayBefore) },
     { kind: "same_day", dueAt: clampToWindow(trialEpoch - 4 * 3600) },
-  );
-  return steps;
+  ];
+  for (const r of reminders) {
+    if (r.dueAt < now) continue; // slot already behind us → the confirmation covers it
+    steps.push(r);
+  }
+  return steps.filter((s) => s.dueAt < trialEpoch);
 }
 
-/** Idempotently schedules the full anti-no-show sequence for a booking. */
+/**
+ * Idempotently schedules the full anti-no-show sequence for a booking, and
+ * makes it the phone's ONLY one: a rebook re-arms the reminders at the new
+ * slot (rescheduleFollowup), retires any reminder step the new slot no longer
+ * has, and cancels reminders left over from a different booking record.
+ */
 export async function scheduleTrialSequence(
   env: Env,
   phone: string,
@@ -161,14 +186,23 @@ export async function scheduleTrialSequence(
 ): Promise<void> {
   const trialEpoch = Math.floor(Date.parse(trialDateTimeIso) / 1000);
   if (!Number.isFinite(trialEpoch)) return;
-  for (const step of computeTrialSequence(trialEpoch, opts)) {
-    await scheduleFollowup(env.DB, {
+  const steps = computeTrialSequence(trialEpoch, opts);
+  await cancelFollowupsOfOtherRecords(env.DB, phone, TRIAL_REMINDER_KINDS, recordId);
+  for (const kind of TRIAL_REMINDER_KINDS) {
+    if (!steps.some((s) => s.kind === kind)) {
+      await cancelFollowupForRecord(env.DB, phone, kind, recordId);
+    }
+  }
+  for (const step of steps) {
+    const input = {
       phone,
       kind: step.kind,
       dueAt: step.dueAt,
       airtableRecordId: recordId,
       note: step.note ?? null,
-    });
+    };
+    if (step.kind === "trial_confirm") await scheduleFollowup(env.DB, input);
+    else await rescheduleFollowup(env.DB, input);
   }
 }
 

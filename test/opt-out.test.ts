@@ -241,3 +241,35 @@ test("approveAndSend: opted-out lead → draft discarded, reason opted_out, no s
   assert.equal(claimedStatus, "discarded");
   assert.equal(sends(), 0);
 });
+
+// ---- escalation rows (2026-09-28): draft-less approvals a human must answer --
+
+test("approveAndSend: an escalation row (empty draft) is refused, stays pending, no send", async () => {
+  const sends = countingFetch();
+  const approval: PendingApproval = {
+    id: 8,
+    phone: "5215512345678",
+    draft: "",
+    context: null,
+    confidence: "low",
+    status: "pending",
+    slack_ts: null,
+    final_text: null,
+    holding_sent: 0,
+    created_at: 0,
+    resolved_at: null,
+  };
+  let updates = 0;
+  const db = fakeDb((sql) => {
+    if (sql.includes("SELECT * FROM pending_approvals")) return { first: approval };
+    if (sql.includes("UPDATE pending_approvals")) {
+      updates++;
+      return { changes: 1 };
+    }
+    return {};
+  });
+  const res = await approveAndSend(envWith(db), 8);
+  assert.deepEqual(res, { ok: false, reason: "empty_draft" });
+  assert.equal(updates, 0); // the row is untouched — Responder/Descartar resolve it
+  assert.equal(sends(), 0);
+});

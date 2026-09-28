@@ -968,13 +968,19 @@ function renderPendingCards(pending){
   if(!pending.length){ wrap.innerHTML=""; return; }
   wrap.innerHTML=pending.map(function(p){
     return '<div class="pendcard" id="pend-'+p.id+'">'
-      +'<div class="lbl">🟡 Borrador del bot pendiente</div>'
-      +'<div class="pbody" style="font-size:14px;white-space:pre-wrap;word-break:break-word">'+esc(p.draft||"")+'</div>'
-      +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'
-      +'<button class="btn green sm" data-pa="approve">✅ Aprobar</button>'
-      +'<button class="btn sm" data-pa="edit">✏️ Editar</button>'
-      +'<button class="btn red sm" data-pa="discard">🗑 Descartar</button></div>'
-      +'<div class="editbox hidden" style="margin-top:8px"><textarea class="field ta">'+esc(p.draft||"")+'</textarea>'
+      +(p.escalation
+        ? '<div class="lbl">⚠️ Necesita respuesta humana</div>'
+          +'<div class="pbody" style="font-size:14px;white-space:pre-wrap;word-break:break-word">'+esc(p.escalation)+'</div>'
+          +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'
+          +'<button class="btn gold sm" data-pa="edit">✏️ Responder</button>'
+          +'<button class="btn red sm" data-pa="discard">🗑 Descartar</button></div>'
+        : '<div class="lbl">🟡 Borrador del bot pendiente</div>'
+          +'<div class="pbody" style="font-size:14px;white-space:pre-wrap;word-break:break-word">'+esc(p.draft||"")+'</div>'
+          +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'
+          +'<button class="btn green sm" data-pa="approve">✅ Aprobar</button>'
+          +'<button class="btn sm" data-pa="edit">✏️ Editar</button>'
+          +'<button class="btn red sm" data-pa="discard">🗑 Descartar</button></div>')
+      +'<div class="editbox hidden" style="margin-top:8px"><textarea class="field ta" placeholder="Escribe la respuesta…">'+esc(p.draft||"")+'</textarea>'
       +'<div class="row" style="margin-top:6px;flex-wrap:wrap">'
       +'<input class="field guide" style="flex:1;min-width:180px;margin-top:0" placeholder="Dile al bot cómo cambiarlo… (ej. ofrécele el horario de mañana)">'
       +'<button class="btn blue sm rewrite">🪄 Reescribir</button>'
@@ -1144,6 +1150,7 @@ function pendResultToast(st,action){
   else if(st==="not_pending") toast("Ya resuelta (Slack u otro usuario)");
   else if(st==="window_closed") toast("Ventana de 24h cerrada","err");
   else if(st==="opted_out") toast("Contacto dado de baja — borrador descartado","err");
+  else if(st==="empty_draft") toast("No hay borrador: usa Responder","err");
   else toast("No se pudo procesar","err");
 }
 async function sendChatMsg(){
@@ -1387,12 +1394,19 @@ function apprCard(it){
     +'<div class="between"><div style="font-weight:700">'+esc(nameOr(it.name,it.phone))+'</div>'
     +'<div class="muted sm">'+esc(relTime(it.createdAt))+'</div></div>'
     +(ctxHtml?'<div style="margin:8px 0">'+ctxHtml+'</div>':"")
-    +'<div class="sm muted" style="margin-top:8px">Respuesta propuesta</div>'
-    +'<div class="bub bot" style="max-width:100%;margin:4px 0 10px;align-self:stretch">'+esc(it.draft||"")+'</div>'
-    +'<div class="row" style="flex-wrap:wrap"><button class="btn green sm" data-a="approve">✅ Aprobar</button>'
-    +'<button class="btn sm" data-a="edit">✏️ Editar</button>'
-    +'<button class="btn red sm" data-a="discard">🗑 Descartar</button></div>'
-    +'<div class="editbox hidden" style="margin-top:10px"><textarea class="field ta">'+esc(it.draft||"")+'</textarea>'
+    // Escalation row (no draft): the bot asked for a human. No Aprobar — there
+    // is nothing to send — the edit box opens as the reply composer.
+    +(it.escalation
+      ? '<div class="pendcard" style="margin:8px 0 10px"><div class="lbl">⚠️ Necesita respuesta humana</div>'
+        +'<div class="sm" style="white-space:pre-wrap;word-break:break-word">'+esc(it.escalation)+'</div></div>'
+        +'<div class="row" style="flex-wrap:wrap"><button class="btn gold sm" data-a="edit">✏️ Responder</button>'
+        +'<button class="btn red sm" data-a="discard">🗑 Descartar</button></div>'
+      : '<div class="sm muted" style="margin-top:8px">Respuesta propuesta</div>'
+        +'<div class="bub bot" style="max-width:100%;margin:4px 0 10px;align-self:stretch">'+esc(it.draft||"")+'</div>'
+        +'<div class="row" style="flex-wrap:wrap"><button class="btn green sm" data-a="approve">✅ Aprobar</button>'
+        +'<button class="btn sm" data-a="edit">✏️ Editar</button>'
+        +'<button class="btn red sm" data-a="discard">🗑 Descartar</button></div>')
+    +'<div class="editbox hidden" style="margin-top:10px"><textarea class="field ta" placeholder="Escribe la respuesta…">'+esc(it.draft||"")+'</textarea>'
     +'<div class="row" style="margin-top:8px;flex-wrap:wrap">'
     +'<input class="field guide" style="flex:1;min-width:180px;margin-top:0" placeholder="Dile al bot cómo cambiarlo…">'
     +'<button class="btn blue sm rewrite">🪄 Reescribir</button>'
@@ -1429,10 +1443,10 @@ async function resolveApprovalApi(id,kind,text){
   var opts= kind==="edit" ? {method:"POST",body:{text:text}} : {method:"POST"};
   try{
     var r=await api(path,opts);
-    if(r && r.ok===false) return r.reason==="not_pending"||r.reason==="window_closed"||r.reason==="opted_out" ? r.reason : "error";
+    if(r && r.ok===false) return r.reason==="not_pending"||r.reason==="window_closed"||r.reason==="opted_out"||r.reason==="empty_draft" ? r.reason : "error";
     return "ok";
   }catch(e){
-    if(e.data && (e.data.reason==="not_pending"||e.data.reason==="window_closed"||e.data.reason==="opted_out")) return e.data.reason;
+    if(e.data && (e.data.reason==="not_pending"||e.data.reason==="window_closed"||e.data.reason==="opted_out"||e.data.reason==="empty_draft")) return e.data.reason;
     return "error";
   }
 }
@@ -1443,6 +1457,7 @@ async function resolveAppr(id,kind,text){
     removeCard(id);
   }else if(st==="not_pending"){ toast("Ya resuelta (probablemente desde Slack)"); removeCard(id); }
   else if(st==="window_closed"){ toast("Ventana de 24h cerrada","err"); removeCard(id); }
+  else if(st==="empty_draft"){ toast("No hay borrador: usa Responder","err"); }
   else toast("No se pudo procesar","err");
 }
 

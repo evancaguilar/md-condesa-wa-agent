@@ -444,6 +444,78 @@ export async function scheduleFollowup(
     .run();
 }
 
+/**
+ * Date-anchored variant for the anti-no-show reminders (day_before/same_day):
+ * a re-run for the SAME slot is a no-op (a row already sent stays sent), but a
+ * MOVED slot re-arms the row at its new due time whatever its status — the
+ * "rebook" case that plain INSERT OR IGNORE silently dropped (the lead kept the
+ * old date's reminders and never got the new date's). Opt-out rows stay out.
+ */
+export async function rescheduleFollowup(
+  db: D1Database,
+  input: ScheduleFollowupInput,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO followups(phone, kind, due_at, status, airtable_record_id, note, created_at)
+       VALUES(?1, ?2, ?3, 'scheduled', ?4, ?5, ?6)
+       ON CONFLICT(phone, kind, airtable_record_id) DO UPDATE SET
+         due_at = excluded.due_at, status = 'scheduled', note = excluded.note, created_at = excluded.created_at
+       WHERE followups.due_at <> excluded.due_at AND followups.status <> 'skipped_optout'`,
+    )
+    .bind(
+      input.phone,
+      input.kind,
+      input.dueAt,
+      input.airtableRecordId ?? "",
+      input.note ?? null,
+      now(),
+    )
+    .run();
+}
+
+/**
+ * Cancel this phone's scheduled rows of `kinds` that belong to ANOTHER booking
+ * record — a rebook that landed on a new Airtable record must retire the old
+ * record's reminders. `<recordId>#n` sibling slots (planBookingSequences) are
+ * the same booking and are kept.
+ */
+export async function cancelFollowupsOfOtherRecords(
+  db: D1Database,
+  phone: string,
+  kinds: readonly string[],
+  recordId: string,
+): Promise<void> {
+  if (kinds.length === 0) return;
+  const bare = recordId.split("#")[0] ?? recordId;
+  const placeholders = kinds.map((_, i) => `?${i + 4}`).join(", ");
+  await db
+    .prepare(
+      `UPDATE followups SET status = 'cancelled'
+       WHERE phone = ?1 AND status = 'scheduled'
+         AND airtable_record_id <> ?2 AND airtable_record_id NOT LIKE ?3
+         AND kind IN (${placeholders})`,
+    )
+    .bind(phone, bare, `${bare}#%`, ...kinds)
+    .run();
+}
+
+/** Cancel one scheduled row (phone, kind, record) — a reminder step this booking no longer has. */
+export async function cancelFollowupForRecord(
+  db: D1Database,
+  phone: string,
+  kind: string,
+  recordId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE followups SET status = 'cancelled'
+       WHERE phone = ?1 AND kind = ?2 AND airtable_record_id = ?3 AND status = 'scheduled'`,
+    )
+    .bind(phone, kind, recordId)
+    .run();
+}
+
 /** Scheduled followups due at or before `at` (default now). Blast rows are
  *  drained separately (src/cron/blasts.ts) with their own pacing and cap. */
 export async function dueFollowups(

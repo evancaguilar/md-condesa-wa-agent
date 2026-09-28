@@ -69,6 +69,7 @@ import {
   awaitingReplyKey,
   guardedApprovalKey,
   surenessKey,
+  escalationKey,
 } from "../services/approvals.js";
 import {
   evaluateAutoSendLane,
@@ -614,6 +615,14 @@ async function routeResult(
     await ports.slack.postNote(
       `<!here> ⚠️ Escalar (${phone}): ${result.reason}\n${result.summary}\n_El bot NO respondió nada — este lead espera respuesta humana._`,
     );
+    // ...and a draft-less row in pending_approvals so the lead is listed in
+    // the Aprobar tab with everything else waiting on a human (Evan,
+    // 2026-09-28: one place to work through, not Aprobar + "No leídos").
+    try {
+      await queueEscalation(env, ports, ctx, history, result.reason, result.summary);
+    } catch (err) {
+      console.error("[routeResult] queueEscalation failed", phone, err);
+    }
     return;
   }
 
@@ -896,6 +905,79 @@ async function supersedeStalePending(
   }
 }
 
+/** The last 6 turns as the emoji transcript the approval cards render. */
+function approvalContextText(history: StoredMessage[]): string {
+  return history
+    .slice(-6)
+    .map((m) => {
+      const who =
+        m.direction === "in"
+          ? "👤"
+          : m.direction === "out_human" || m.direction === "out_human_echo"
+            ? "🧑"
+            : "🤖";
+      const mic = isVoiceMeta(m.meta) ? "🎤 " : "";
+      return `${who} ${mic}${m.body}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Creates the pending_approvals row and supersedes this phone's older pending
+ * cards: they are strictly stale — the new row was built from the FULL
+ * conversation. Returns the new row id.
+ */
+async function createSupersedingApproval(
+  env: Env,
+  ports: Ports,
+  phone: string,
+  draft: string,
+  contextText: string,
+  confidence: "high" | "low",
+): Promise<number> {
+  const stale = await getPendingApprovals(env.DB, phone);
+  const id = await createApproval(env.DB, { phone, draft, context: contextText, confidence });
+  for (const s of stale) {
+    try {
+      // Atomic guard: skip the card swap if Evan approved it in a race.
+      if (await supersedeApproval(env.DB, s.id)) {
+        await ports.slack.markSuperseded(s, id);
+      }
+    } catch (err) {
+      console.error("supersede approval failed", s.id, err);
+    }
+  }
+  return id;
+}
+
+/**
+ * An escalation as a draft-less approval row: the Aprobar tab (and the chat's
+ * pending card) shows "necesita respuesta humana · <reason>" with Responder /
+ * Descartar. No Slack draft card — the <!here> note already went out, and a
+ * card with an Aprobar button on an empty draft would be a trap. No sureness
+ * key ⇒ the timeout cron never best-bets it; the 10-min holding line still
+ * applies (the lead IS waiting), and it expires like any other card.
+ */
+async function queueEscalation(
+  env: Env,
+  ports: Ports,
+  ctx: ConvoContext,
+  history: StoredMessage[],
+  reason: string,
+  summary: string,
+): Promise<void> {
+  const id = await createSupersedingApproval(
+    env,
+    ports,
+    ctx.phone,
+    "",
+    approvalContextText(history),
+    "low",
+  );
+  const label = summary ? `${reason} — ${summary}` : reason;
+  await kvSet(env.DB, escalationKey(id), label.slice(0, 500));
+}
+
 async function queueApproval(
   env: Env,
   ports: Ports,
@@ -909,38 +991,15 @@ async function queueApproval(
   /** Model's 0–100 self-report; drives the card chip + the 1h best-bet timeout. */
   sureness?: number,
 ): Promise<void> {
-  const contextText = history
-    .slice(-6)
-    .map((m) => {
-      const who =
-        m.direction === "in"
-          ? "👤"
-          : m.direction === "out_human" || m.direction === "out_human_echo"
-            ? "🧑"
-            : "🤖";
-      const mic = isVoiceMeta(m.meta) ? "🎤 " : "";
-      return `${who} ${mic}${m.body}`;
-    })
-    .join("\n");
-  // Older pending cards for this phone are strictly stale — this new draft was
-  // built from the FULL conversation. Snapshot them now, supersede after create.
-  const stale = await getPendingApprovals(env.DB, ctx.phone);
-  const id = await createApproval(env.DB, {
-    phone: ctx.phone,
+  const contextText = approvalContextText(history);
+  const id = await createSupersedingApproval(
+    env,
+    ports,
+    ctx.phone,
     draft,
-    context: contextText,
+    contextText,
     confidence,
-  });
-  for (const s of stale) {
-    try {
-      // Atomic guard: skip the card swap if Evan approved it in a race.
-      if (await supersedeApproval(env.DB, s.id)) {
-        await ports.slack.markSuperseded(s, id);
-      }
-    } catch (err) {
-      console.error("supersede approval failed", s.id, err);
-    }
-  }
+  );
   // Booking-origin marker (kv, keyed by approval id) so the video fires when this
   // draft is approved/edited later. Kept off the stored context column, which is
   // rendered verbatim in Slack + the dashboard.
