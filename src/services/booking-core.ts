@@ -20,7 +20,7 @@
 // module) — the unit tests drive the whole flow with fakes.
 
 import type { BookTrialInput, Env, SlackPort } from "../types.js";
-import { kvSet, setQualification } from "../db/queries.js";
+import { kvSet, setContactName, setQualification } from "../db/queries.js";
 import { syncLead } from "./lead-sync.js";
 import { scheduleTrialSequence } from "../cron/followups.js";
 import { cdmxDateStr, cdmxIso } from "../cron/time.js";
@@ -179,6 +179,7 @@ export interface FinalizeBookingOpts {
 export interface BookingCoreDeps {
   scheduleTrialSequence: typeof scheduleTrialSequence;
   setQualification: typeof setQualification;
+  setContactName: typeof setContactName;
   syncLead: typeof syncLead;
   bookTrial: (env: Env, input: BookTrialInput) => Promise<string>;
   validateSlot: typeof validateSlot;
@@ -192,6 +193,7 @@ export function realBookingDeps(): BookingCoreDeps {
   return {
     scheduleTrialSequence,
     setQualification,
+    setContactName,
     syncLead,
     bookTrial,
     validateSlot,
@@ -311,6 +313,17 @@ export async function finalizeBooking(
     );
   } catch (err) {
     console.error("[finalizeBooking] qualification failed", err);
+  }
+  // The booking name is one the lead TOLD us (or a human typed) — it replaces
+  // the WhatsApp push name on the contact, so greetings/inbox/CRM stop calling
+  // them by their profile handle (2026-09-28).
+  const statedName = (b.name ?? "").trim();
+  if (statedName) {
+    try {
+      await deps.setContactName(env.DB, b.phone, statedName);
+    } catch (err) {
+      console.error("[finalizeBooking] contact name failed", err);
+    }
   }
   try {
     await deps.syncLead(env, b.phone, "booking_created");

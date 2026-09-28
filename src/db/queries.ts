@@ -198,6 +198,22 @@ export async function newestInboundWamid(
  * profile (push) name — a display alias that must never overwrite a real name
  * the bot learned in conversation or a booking.
  */
+/**
+ * Overwrite the contact's name with one the lead TOLD us (book_trial.name /
+ * send_reply.lead_name). Greetings, the inbox and the CRM sync read it from
+ * here; setContactNameIfEmpty below is the push-name stopgap it replaces.
+ */
+export async function setContactName(
+  db: D1Database,
+  phone: string,
+  name: string,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE contacts SET name = ?2, updated_at = ?3 WHERE phone = ?1`)
+    .bind(phone, name, now())
+    .run();
+}
+
 export async function setContactNameIfEmpty(
   db: D1Database,
   phone: string,

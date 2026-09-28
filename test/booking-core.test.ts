@@ -51,6 +51,7 @@ interface CoreLog {
   notes: string[];
   sequences: { phone: string; recordId: string; iso: string; opts: unknown }[];
   qualifications: { phone: string; json: string }[];
+  names: { phone: string; name: string }[];
   syncs: { phone: string; event: string }[];
   booked: BookTrialInput[];
   videos: string[];
@@ -69,6 +70,7 @@ function harness(over: Partial<BookingCoreDeps> = {}): {
     notes: [],
     sequences: [],
     qualifications: [],
+    names: [],
     syncs: [],
     booked: [],
     videos: [],
@@ -80,6 +82,9 @@ function harness(over: Partial<BookingCoreDeps> = {}): {
     },
     async setQualification(_db, phone, json) {
       log.qualifications.push({ phone, json });
+    },
+    async setContactName(_db, phone, name) {
+      log.names.push({ phone, name });
     },
     async syncLead(_env, phone, event) {
       log.syncs.push({ phone, event });
@@ -146,6 +151,8 @@ test("finalizeBooking: FYI card, sequence (includeConfirm:false), qualification,
     name: "Ana",
   });
   assert.deepEqual(log.syncs, [{ phone: PHONE, event: "booking_created" }]);
+  // The stated booking name replaces the WhatsApp push name on the contact.
+  assert.deepEqual(log.names, [{ phone: PHONE, name: "Ana" }]);
 });
 
 test("finalizeBooking: a Slack failure never throws and skips NOTHING after it", async () => {

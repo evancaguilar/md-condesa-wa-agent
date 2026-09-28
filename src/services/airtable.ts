@@ -253,7 +253,9 @@ export async function bookTrial(
   fields[m.discipline] = m.disciplineIsMulti
     ? [...new Set([...toStringArray(cur?.[m.discipline]), discOpt])]
     : discOpt;
-  if (input.name && isEmpty(cur?.[m.name])) fields[m.name] = input.name;
+  if (shouldWriteName(cur?.[m.name], input.name, input.replaceName)) {
+    fields[m.name] = input.name;
+  }
   if (input.childName && isEmpty(cur?.[m.childName])) {
     fields[m.childName] = input.childName;
   }
@@ -532,8 +534,38 @@ export async function upsertLead(
 export interface LeadFieldsInput {
   phone: string;
   name?: string | null;
+  /** See BookTrialInput.replaceName — the push name we wrote, ours to replace. */
+  replaceName?: string | null;
   campaignName?: string | null;
   ad?: string | null; // "headline (id)" attribution label
+}
+
+/** Case/space-insensitive name equality for the replace rule. */
+function sameName(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown): string =>
+    typeof v === "string" ? v.trim().replace(/\s+/g, " ").toLowerCase() : "";
+  const x = norm(a);
+  return x !== "" && x === norm(b);
+}
+
+/**
+ * Pure. Should the CRM name column be written with `name`?
+ *  - empty column ⇒ yes (fill-if-empty, the historic rule);
+ *  - column equals `replaceName` — the WhatsApp push name WE filled in earlier
+ *    — ⇒ yes: the lead told us their real name, the push name was a stopgap
+ *    (2026-09-28: leads stayed "El Shadow" in Airtable after saying "soy Luis");
+ *  - anything else (a name a human typed, or the same name) ⇒ no.
+ */
+export function shouldWriteName(
+  current: unknown,
+  name: string | null | undefined,
+  replaceName: string | null | undefined,
+): boolean {
+  const n = (name ?? "").trim();
+  if (!n) return false;
+  if (isEmpty(current)) return true;
+  if (sameName(current, n)) return false;
+  return sameName(current, replaceName);
 }
 
 /**
@@ -550,7 +582,7 @@ export function buildLeadFields(
   if (isEmpty(current?.[map.source]))
     f[map.source] = sourceValueFor(input.phone, map);
   const name = (input.name ?? "").trim();
-  if (name && isEmpty(current?.[map.name])) f[map.name] = name;
+  if (shouldWriteName(current?.[map.name], name, input.replaceName)) f[map.name] = name;
   const ad = (input.ad ?? "").trim();
   if (ad && isEmpty(current?.[map.ad])) f[map.ad] = ad;
   const camp = (input.campaignName ?? "").trim();

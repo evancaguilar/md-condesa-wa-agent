@@ -24,7 +24,21 @@ import { postNote } from "./slack.js";
 import { cdmxDateStr } from "../cron/time.js";
 
 /** What triggered a sync — only used for logging/Slack context. */
-export type SyncEvent = "lead_created" | "campaign_matched" | "booking_created" | "opted_out";
+export type SyncEvent =
+  | "lead_created"
+  | "campaign_matched"
+  | "booking_created"
+  | "opted_out"
+  | "name_updated";
+
+export interface SyncLeadOpts {
+  /**
+   * The name the CRM currently carries because WE wrote it (the WhatsApp push
+   * name). Passed by the callers that just learned the lead's real name, so
+   * the column is overwritten instead of fill-if-empty'd (see shouldWriteName).
+   */
+  replaceName?: string | null;
+}
 
 const nowSec = (): number => Math.floor(Date.now() / 1000);
 
@@ -51,7 +65,12 @@ function adLabelFromRef(adRef: string | null): string | null {
  * Sync a lead to Airtable and apply matching rules. Gated + fully swallowed:
  * any failure surfaces as a throttled daily Slack note, never an exception.
  */
-export async function syncLead(env: Env, phone: string, event: SyncEvent): Promise<void> {
+export async function syncLead(
+  env: Env,
+  phone: string,
+  event: SyncEvent,
+  opts: SyncLeadOpts = {},
+): Promise<void> {
   if (!CLIENT.features.airtableSync) return;
   try {
     const contact = await getContact(env.DB, phone);
@@ -70,6 +89,7 @@ export async function syncLead(env: Env, phone: string, event: SyncEvent): Promi
     const baseFields = buildLeadFields(current?.fields ?? null, {
       phone,
       name: contact.name,
+      replaceName: opts.replaceName ?? null,
       campaignName,
       ad,
     });

@@ -1095,3 +1095,26 @@ test("guardUnbackedBookingClaim: asking for the name 'para dejarlo agendado' is 
   assert.equal(r.action, "send", "must pass through untouched so auto-send / best-bet can deliver it");
   assert.equal((r as { sureness?: number }).sureness, 80);
 });
+
+// ---- send_reply.lead_name (2026-09-28) ------------------------------------
+
+test("sendResult: lead_name rides along on send and draft results", () => {
+  const send = sendResult(
+    sendReplyUse({ message: "Va", language: "es", confidence: "high", lead_name: " Luis  Pérez " }),
+  );
+  assert.equal(send.action, "send");
+  if (send.action === "send") assert.equal(send.leadName, "Luis Pérez");
+  const draft = sendResult(
+    sendReplyUse({ message: "Va", language: "es", confidence: "low", lead_name: "Ana" }),
+  );
+  if (draft.action === "draft") assert.equal(draft.leadName, "Ana");
+});
+
+test("sendResult: garbage lead_name is dropped", () => {
+  for (const bad of ["", "   ", "12345", "🔥", 42, null, "x".repeat(61)]) {
+    const r = sendResult(
+      sendReplyUse({ message: "Va", language: "es", confidence: "high", lead_name: bad }),
+    );
+    if (r.action === "send") assert.equal(r.leadName, undefined, String(bad));
+  }
+});

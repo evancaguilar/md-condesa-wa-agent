@@ -30,6 +30,7 @@ import {
   recentMessages,
   scheduleFollowup,
   setApprovalSlackTs,
+  setContactName,
   setContactNameIfEmpty,
   setContactStatus,
   setHumanOverride,
@@ -716,6 +717,17 @@ async function routeResult(
     if (result.followup) {
       await scheduleCustomFollowup(env, phone, result.followup);
     }
+    // The lead told us their real name without booking: replace the push name
+    // on the contact and in the CRM (the booking path does the same through
+    // book_trial.name). Best-effort — never blocks the reply.
+    if (result.leadName && !sameContactName(ctx.contact.name, result.leadName)) {
+      try {
+        await setContactName(env.DB, phone, result.leadName);
+        await syncLead(env, phone, "name_updated", { replaceName: ctx.contact.name });
+      } catch (err) {
+        console.error("[routeResult] lead name update failed", phone, err);
+      }
+    }
   }
 
   const autoSend =
@@ -1070,4 +1082,11 @@ function cdmxNow(): CdmxNow {
     parts.find((p) => p.type === t)?.value ?? "";
   const iso = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
   return { iso, weekday: get("weekday") };
+}
+
+/** Case/space-insensitive: is the stated name already the contact's name? */
+function sameContactName(current: string | null, stated: string): boolean {
+  const norm = (v: string | null): string =>
+    (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  return norm(current) === norm(stated);
 }

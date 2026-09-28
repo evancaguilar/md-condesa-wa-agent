@@ -340,6 +340,13 @@ export interface BookTrialInput {
   ad?: string;
   /** Child's name for kid/baby bookings (`name` stays the parent/contact). */
   childName?: string;
+  /**
+   * The name WE wrote to the CRM earlier (the WhatsApp push name, i.e. the
+   * contact's current `name`). A stored Airtable name equal to it is ours to
+   * overwrite with `name` — the lead just told us their real one. A name a
+   * human typed in Airtable never matches and is kept. Absent ⇒ fill-if-empty.
+   */
+  replaceName?: string | null;
 }
 
 /**
@@ -395,6 +402,8 @@ export type BrainResult =
       followup?: FollowupRequest;
       /** False when the lead was just closing (thanks/ok) — nobody is waiting. */
       awaitingReply?: boolean;
+      /** send_reply.lead_name: the real name the lead gave this turn (no booking). */
+      leadName?: string;
     }
   | {
       action: "draft";
@@ -407,6 +416,8 @@ export type BrainResult =
       followup?: FollowupRequest;
       /** False when the lead was just closing (thanks/ok) — nobody is waiting. */
       awaitingReply?: boolean;
+      /** send_reply.lead_name: the real name the lead gave this turn (no booking). */
+      leadName?: string;
     }
   | { action: "escalate"; reason: string; summary: string }
   | ({

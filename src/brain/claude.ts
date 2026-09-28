@@ -514,6 +514,9 @@ async function handleBookTrial(
   const ad = adLabelFromRef(ctx.contact.ad_ref);
   if (ad) bookInput.ad = ad;
   if (childName) bookInput.childName = childName;
+  // The CRM name we may hold is the push name (contact.name); the name the
+  // lead gave for the booking replaces it there (see shouldWriteName).
+  if (ctx.contact.name) bookInput.replaceName = ctx.contact.name;
 
   const check = validateSlot(trialDate, trialTime, audience, discipline);
   if (!check.ok) {
@@ -605,8 +608,10 @@ export function sendResult(
     confidence?: string;
     escalation_reason?: string;
     awaiting_reply?: boolean;
+    lead_name?: unknown;
   };
   const language: Language = input.language === "en" ? "en" : "es";
+  const leadName = cleanLeadName(input.lead_name);
   // Sureness is the source of truth (owner directive 2026-08-25: "if it's at
   // least 75% sure it has the correct answer, it sends"). The high/low enum is
   // DERIVED from it and kept only so every downstream consumer — D1 column,
@@ -634,6 +639,7 @@ export function sendResult(
       ...(sureness !== undefined ? { sureness } : {}),
       followup: fu,
       awaitingReply,
+      ...(leadName ? { leadName } : {}),
     };
   }
   const reason = input.escalation_reason;
@@ -645,8 +651,22 @@ export function sendResult(
     ...(sureness !== undefined ? { sureness } : {}),
     followup: fu,
     awaitingReply,
+    ...(leadName ? { leadName } : {}),
   };
   return reason ? { ...base, reason } : base;
+}
+
+/**
+ * Pure. send_reply.lead_name as a usable name or undefined: a string, trimmed,
+ * collapsed, ≤ 60 chars, with at least one letter. Garbage (numbers only,
+ * emoji, an empty string) is dropped so it can never overwrite a real name.
+ */
+export function cleanLeadName(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim().replace(/\s+/g, " ");
+  if (!s || s.length > 60) return undefined;
+  if (!/\p{L}/u.test(s)) return undefined;
+  return s;
 }
 
 /**

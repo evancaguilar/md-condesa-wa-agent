@@ -55,6 +55,11 @@ const sendReply: AnthropicTool = {
         description:
           "Is the lead left waiting for an answer? false ONLY when the lead is closing the conversation (thanks / ok / 'sería todo' / bye) and your message is a mere pleasantry — going silent after it would be natural. true whenever the lead asked something, is mid-scheduling, or expects information.",
       },
+      lead_name: {
+        type: "string",
+        description:
+          "ONLY when the lead TOLD you their name in this conversation ('soy Luis', 'me llamo Ana', 'mi nombre es…') and it differs from — or is missing in — the <context> name: their name as they gave it (first name is fine). This corrects the CRM, which otherwise keeps their WhatsApp profile name. Omit in every other case; never guess it from the profile name.",
+      },
     },
     required: ["message", "language", "sureness", "confidence", "awaiting_reply"],
     additionalProperties: false,

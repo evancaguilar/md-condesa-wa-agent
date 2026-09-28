@@ -4,6 +4,7 @@ import {
   AirtableWriteError,
   buildPatchFields,
   buildLeadFields,
+  shouldWriteName,
   createWithDriftRetry,
   essentialLeadFields,
   schemaSummary,
@@ -348,4 +349,35 @@ test("asAmount: numbers, formatted strings, arrays; junk and non-positives → n
 
 test("the client maps Pago Inicial, so a booking row can carry a purchase value", () => {
   assert.equal(leadsMap().initialPayment, "Pago Inicial");
+});
+
+// ---- shouldWriteName: the push-name replace rule (2026-09-28) --------------
+
+test("shouldWriteName: empty column → write", () => {
+  assert.equal(shouldWriteName(null, "Luis", "El Shadow"), true);
+  assert.equal(shouldWriteName("", "Luis", null), true);
+});
+
+test("shouldWriteName: column holds the push name we wrote → replace with the stated name", () => {
+  assert.equal(shouldWriteName("El Shadow", "Luis", "El Shadow"), true);
+  assert.equal(shouldWriteName("  el shadow ", "Luis", "El Shadow"), true); // loose match
+});
+
+test("shouldWriteName: a human-typed name is never clobbered", () => {
+  assert.equal(shouldWriteName("Luis Hernández", "Luis", "El Shadow"), false);
+  assert.equal(shouldWriteName("Luis Hernández", "Luis", null), false);
+});
+
+test("shouldWriteName: same name / no name → nothing to write", () => {
+  assert.equal(shouldWriteName("Luis", "luis", "Luis"), false);
+  assert.equal(shouldWriteName("El Shadow", "", "El Shadow"), false);
+});
+
+test("buildLeadFields overwrites a push name when told it is ours (replaceName)", () => {
+  const f = buildLeadFields(
+    { Name: "El Shadow" },
+    { phone: "5215500000000", name: "Luis", replaceName: "El Shadow" },
+    DEFAULT_LEADS_MAP,
+  );
+  assert.equal(f["Name"], "Luis");
 });
