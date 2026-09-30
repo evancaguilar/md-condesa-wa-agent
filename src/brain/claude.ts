@@ -331,12 +331,23 @@ function buildInitialMessages(ctx: ConvoContext): ApiMessage[] {
   return ensureUserFirst(msgs);
 }
 
-/** The Messages API requires the first message to be role 'user'. */
-function ensureUserFirst(msgs: ApiMessage[]): ApiMessage[] {
-  while (msgs.length > 0 && msgs[0]!.role !== "user") msgs.shift();
+/** Placeholder user turn when the window opens with our own message. Marked as
+ *  a note so the model never reads it as something the lead wrote. */
+export const HISTORY_OPENER = "[nota: sin mensajes del lead en las últimas 48 h — lo anterior es lo que le enviamos]";
+
+/**
+ * The Messages API requires the first message to be role 'user'. Leading
+ * assistant turns are KEPT behind a placeholder user note: until 2026-09-29 they
+ * were shifted off, so a lead answering a blast template weeks after their last
+ * message ("Sí, por favor") reached the brain with the template gone and the
+ * bot re-proposed or asked "¿a qué te refieres?".
+ */
+export function ensureUserFirst(msgs: ApiMessage[]): ApiMessage[] {
   if (msgs.length === 0) {
     msgs.push({ role: "user", content: "Hola" });
+    return msgs;
   }
+  if (msgs[0]!.role !== "user") msgs.unshift({ role: "user", content: HISTORY_OPENER });
   return msgs;
 }
 

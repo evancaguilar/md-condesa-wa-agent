@@ -1118,3 +1118,25 @@ test("sendResult: garbage lead_name is dropped", () => {
     if (r.action === "send") assert.equal(r.leadName, undefined, String(bad));
   }
 });
+
+// ---- history opener (2026-09-29): a leading assistant turn survives ----------
+import { ensureUserFirst, HISTORY_OPENER } from "../src/brain/claude.js";
+
+test("ensureUserFirst keeps a leading assistant turn (blast template) behind a placeholder user note", () => {
+  const msgs: ApiMessage[] = [
+    { role: "assistant", content: "[template:bfc_confianza_miercoles]" },
+    { role: "user", content: "Sí, por favor" },
+  ];
+  const out = ensureUserFirst(msgs);
+  assert.equal(out.length, 3);
+  assert.deepEqual(out[0], { role: "user", content: HISTORY_OPENER });
+  assert.equal(out[1]!.role, "assistant");
+  assert.equal(out[1]!.content, "[template:bfc_confianza_miercoles]");
+  assert.equal(out[2]!.content, "Sí, por favor");
+});
+
+test("ensureUserFirst leaves a user-first history untouched and seeds an empty one", () => {
+  const ok: ApiMessage[] = [{ role: "user", content: "hola" }, { role: "assistant", content: "¡Hola!" }];
+  assert.deepEqual(ensureUserFirst(ok.slice()), ok);
+  assert.deepEqual(ensureUserFirst([]), [{ role: "user", content: "Hola" }]);
+});
