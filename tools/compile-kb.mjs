@@ -54,6 +54,21 @@ async function main() {
   const persona = readFileSync(join(clientDir, "persona.md"), "utf8").trimEnd();
   const intake = readFileSync(join(clientDir, "intake.md"), "utf8");
 
+  // `--client-only`: regenerate ONLY src/client.gen.ts (copy, links, persona)
+  // from client.mjs + persona.md, keeping the committed kb.md / slots as they
+  // are. For a machine with neither the site checkout nor network access to it
+  // (a sandboxed session), where a copy change in client.mjs still has to reach
+  // the worker. The version is read back from the committed kb.md so the three
+  // generated files keep agreeing; CI re-runs the full build on push anyway.
+  if (process.argv.includes("--client-only")) {
+    const kbPath = join(REPO, "kb", "compiled", "kb.md");
+    const prev = existsSync(kbPath) ? readFileSync(kbPath, "utf8") : "";
+    const version = /version:\s*(\S+)/.exec(prev)?.[1] ?? "unbuilt";
+    writeFileSync(join(REPO, "src", "client.gen.ts"), renderClientTs(cfg, persona, version));
+    console.log(`[${clientId}] client.gen.ts regenerated (--client-only, kb.md untouched) [${version}]`);
+    return;
+  }
+
   // KB body + slots: custom builder when the client has one, else generic.
   const kbBuildPath = join(clientDir, "kb-build.mjs");
   let built;

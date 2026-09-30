@@ -215,10 +215,16 @@ export const CLIENT: ClientConfig = {
     "noShowD3En": "Hi{who}! We're still holding a spot for your free trial class at MD Condesa 🥋 {cta}",
     "welcomeEs": "¡Bienvenid@ a la familia{who}! 🥋🎉 Nos da mucho gusto tenerte. Lo que sigue: revisa los horarios ({link}) y recuerda que hay 10% de descuento si te inscribes en equipo. ¡Nos vemos en el tatami!",
     "welcomeEn": "Welcome to the family{who}! 🥋🎉 So glad you joined. Next: check the schedule ({link}) and remember there's a 10% discount when you sign up as a team. See you on the mats!",
-    "postTrialD0Es": "¡Hola{who}! Qué gusto verte hoy en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.",
-    "postTrialD0En": "Hi{who}! So good to have you at the academy today 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.",
+    "postTrialD0Es": "¡Hola{who}! Qué gusto verte {when} en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.",
+    "postTrialD0En": "Hi{who}! So good to have you at the academy {when} 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.",
     "postTrialD2Es": "¡Hola{who}! ¿Cómo amaneció el cuerpo después de tu clase? 😄 Lo más difícil ya lo hiciste: venir la primera vez. ¿Qué te falta saber para decidirte? Te ayudamos a elegir horario y paquete.",
     "postTrialD2En": "Hi{who}! How's the body feeling after your class? 😄 The hardest part is already done: showing up the first time. What else do you need to know to decide? We'll help you pick a schedule and a plan.",
+    "postTrialD4Es": "¡Hola{who}! Por aquí seguimos 🙂 Cuéntame con confianza: ¿qué es lo que te frena — el horario, el paquete o alguna otra duda? Lo vemos juntos y buscamos la forma de que sí te acomode.",
+    "postTrialD4En": "Hi{who}! Still here 🙂 Tell me honestly: what's holding you back — the schedule, the plan, or some other question? Let's work through it together and find a way that fits you.",
+    "postTrialD7Es": "¡Hola{who}! Ya pasó una semana desde tu clase 🥋 Sé cómo es: la rutina se lo come todo. Si quieres retomarlo, te ayudo a armar un horario que sí te funcione y dejamos tu inscripción lista en cinco minutos. ¿Le entramos?",
+    "postTrialD7En": "Hi{who}! It's been a week since your class 🥋 I know how it goes: life gets in the way. If you want to pick it back up, I'll help you build a schedule that actually works and get your enrollment done in five minutes. Shall we?",
+    "postTrialD14Es": "¡Hola{who}! Solo paso a saludar 🙂 Tu lugar en la academia sigue aquí. Si estas semanas te queda mejor, dime qué días te acomodan y te comparto el horario: {link}",
+    "postTrialD14En": "Hi{who}! Just checking in 🙂 Your spot at the academy is still here. If the next few weeks work better for you, tell me which days suit you and I'll send the schedule: {link}",
     "postTrialD5Es": "¡Hola{who}! No queremos insistir más 🙂 Este es nuestro último mensaje. Nos dio mucho gusto tenerte en clase y aquí seguimos cuando quieras volver — estos son los horarios: {link}",
     "postTrialD5En": "Hi{who}! We won't keep writing 🙂 This is our last message. We loved having you in class and we're here whenever you want to come back — here's the schedule: {link}"
   }

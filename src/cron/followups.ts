@@ -89,10 +89,11 @@ import {
   computePostTrialSequence,
   decodeCardNote,
   encodeCardNote,
+  encodeChainNote,
   POST_TRIAL_CARD_KIND,
+  POST_TRIAL_CARD_MAX_AGE,
   processPostTrial,
   POST_TRIAL_ALL_KINDS,
-  POST_TRIAL_MAX_AGE,
   type FollowUpKindHere,
 } from "./post-trial.js";
 import { captureCapiEvent, captureResultCapiEvents } from "../services/meta-capi.js";
@@ -410,7 +411,11 @@ async function processOne(
 
     case "post_trial_d0":
     case "post_trial_d2":
-    case "post_trial_d5":
+    case "post_trial_d4":
+    case "post_trial_d5": // retired slot — rows armed before 2026-09-30 drain here
+    case "post_trial_d7":
+    case "post_trial_d14":
+    case "post_trial_d30":
     case "no_show_d3": {
       // Same quiet-hour re-check the nudges do: cron drift must never turn a
       // 09:30 row into a 23:00 message.
@@ -420,7 +425,7 @@ async function processOne(
       }
       const res = await processPostTrial(
         env,
-        { phone: f.phone, kind: f.kind as FollowUpKindHere, created_at: f.created_at },
+        { phone: f.phone, kind: f.kind as FollowUpKindHere, created_at: f.created_at, note: f.note },
         {
           sendText,
           sendTemplate,
@@ -443,8 +448,9 @@ async function processOne(
       }
       await markFollowup(env.DB, f.id, res.outcome);
       if (res.outcome === "cancelled" && res.stopChain) {
-        // They enrolled / wrote in / booked again: drop the rest of the chain
-        // rather than letting each remaining row re-discover it.
+        // They enrolled / booked again: drop the rest of the chain rather than
+        // letting each remaining row re-discover it. (A reply only PAUSES the
+        // chain — see processPostTrial — so it never sets stopChain.)
         await cancelFollowupsByKinds(env.DB, f.phone, POST_TRIAL_ALL_KINDS);
       }
       return;
@@ -989,13 +995,14 @@ async function processResult(
   // Reaction window (2026-09-18): the front desk often marks results late —
   // "No asistió" the next morning, "Se inscribió" days later when they pay. A
   // no-show reschedule is still relevant for 48h; an enrolment welcome for 14
-  // days. Older trials stay silent (ghost-welcome guard above).
+  // days; the attended Slack card for 5 (the chain itself decides its own age
+  // limit inside computePostTrialSequence). Older trials stay silent.
   const ageSec = Number.isFinite(trialEpoch) ? nowSec() - trialEpoch : NaN;
   const maxAge =
     action === "no_show"
       ? RESULT_NO_SHOW_MAX_AGE
       : action === "attended"
-        ? POST_TRIAL_MAX_AGE
+        ? POST_TRIAL_CARD_MAX_AGE
         : RESULT_ENROLLED_MAX_AGE;
   const sendReaction = Number.isFinite(ageSec) && ageSec >= -DAY && ageSec <= maxAge;
 
@@ -1056,7 +1063,7 @@ async function processResult(
         kind: step.kind,
         dueAt: step.dueAt,
         airtableRecordId: recordId, // UNIQUE(phone,kind,record) ⇒ idempotent
-        note: null,
+        note: encodeChainNote(trialEpoch), // the CLASS date: "hoy" vs "ayer" at send time
       });
     }
     if (sendReaction) {

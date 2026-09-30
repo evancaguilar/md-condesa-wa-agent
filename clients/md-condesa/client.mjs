@@ -234,19 +234,41 @@ export default {
       "¡Bienvenid@ a la familia{who}! 🥋🎉 Nos da mucho gusto tenerte. Lo que sigue: revisa los horarios ({link}) y recuerda que hay 10% de descuento si te inscribes en equipo. ¡Nos vemos en el tatami!",
     welcomeEn:
       "Welcome to the family{who}! 🥋🎉 So glad you joined. Next: check the schedule ({link}) and remember there's a 10% discount when you sign up as a team. See you on the mats!",
-    // Post-trial chain (attended, did not sign up).
+    // Post-trial chain (attended, did not sign up) — docs/post-trial-sequence.md.
     // NO PRICE, NO DISCOUNT, NO DEADLINE in any of these (owner, 2026-09-21):
     // the inscription discount is SAME-DAY-ONLY at the academy, so holding it
     // open for 48h in a follow-up would be a promise we cannot keep. These
     // messages open a conversation; the humans quote the numbers.
+    //
+    // {when} in the first touch is "hoy"/"ayer" (today/yesterday), decided at
+    // SEND time from the trial date — an evening class spills past 21:00 and
+    // fires at 09:30 the next morning, and the front desk often marks "Asistió"
+    // the morning after (2026-09-30: Paola got "qué gusto verte hoy" a day late).
     postTrialD0Es:
-      "¡Hola{who}! Qué gusto verte hoy en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.",
+      "¡Hola{who}! Qué gusto verte {when} en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.",
     postTrialD0En:
-      "Hi{who}! So good to have you at the academy today 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.",
+      "Hi{who}! So good to have you at the academy {when} 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.",
     postTrialD2Es:
       "¡Hola{who}! ¿Cómo amaneció el cuerpo después de tu clase? 😄 Lo más difícil ya lo hiciste: venir la primera vez. ¿Qué te falta saber para decidirte? Te ayudamos a elegir horario y paquete.",
     postTrialD2En:
       "Hi{who}! How's the body feeling after your class? 😄 The hardest part is already done: showing up the first time. What else do you need to know to decide? We'll help you pick a schedule and a plan.",
+    // +4d: objection discovery — name the three usual blockers and ask which.
+    postTrialD4Es:
+      "¡Hola{who}! Por aquí seguimos 🙂 Cuéntame con confianza: ¿qué es lo que te frena — el horario, el paquete o alguna otra duda? Lo vemos juntos y buscamos la forma de que sí te acomode.",
+    postTrialD4En:
+      "Hi{who}! Still here 🙂 Tell me honestly: what's holding you back — the schedule, the plan, or some other question? Let's work through it together and find a way that fits you.",
+    // +7d: one week later, same weekday as the class — "the routine ate it".
+    postTrialD7Es:
+      "¡Hola{who}! Ya pasó una semana desde tu clase 🥋 Sé cómo es: la rutina se lo come todo. Si quieres retomarlo, te ayudo a armar un horario que sí te funcione y dejamos tu inscripción lista en cinco minutos. ¿Le entramos?",
+    postTrialD7En:
+      "Hi{who}! It's been a week since your class 🥋 I know how it goes: life gets in the way. If you want to pick it back up, I'll help you build a schedule that actually works and get your enrollment done in five minutes. Shall we?",
+    // +14d: soft check-in, schedule link so they can self-serve.
+    postTrialD14Es:
+      "¡Hola{who}! Solo paso a saludar 🙂 Tu lugar en la academia sigue aquí. Si estas semanas te queda mejor, dime qué días te acomodan y te comparto el horario: {link}",
+    postTrialD14En:
+      "Hi{who}! Just checking in 🙂 Your spot at the academy is still here. If the next few weeks work better for you, tell me which days suit you and I'll send the schedule: {link}",
+    // +30d: the goodbye. Kept under the D5 name because the approved Meta
+    // templates are post_trial_d5_es/en (same body) — the kind is post_trial_d30.
     postTrialD5Es:
       "¡Hola{who}! No queremos insistir más 🙂 Este es nuestro último mensaje. Nos dio mucho gusto tenerte en clase y aquí seguimos cuando quieras volver — estos son los horarios: {link}",
     postTrialD5En:

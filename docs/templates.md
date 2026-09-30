@@ -16,7 +16,7 @@ Template name mapping (base → sent name):
 - `reengage_lead` → `reengage_lead_es` / `_en`
 - `human_followup` → `human_followup_es` / `_en`  (owned/sent by C's late-approval
   path; copy included here for convenience)
-- `post_trial_d0` / `post_trial_d2` / `post_trial_d5` → `…_es` / `…_en`
+- `post_trial_d0` / `d1` / `d2` / `d4` / `d7` / `d14` / `d5` (the +30d goodbye) → `…_es` / `…_en`
   (2026-09-21, attended-and-didn't-sign-up chain — see the section below)
 
 Address string used across templates: **Av. México 49, 1º piso, Condesa**.
@@ -216,41 +216,50 @@ kids & baby → https://mdcondesa.com/clase-prueba-ninos/
 
 ---
 
-# Post-trial templates (post_trial_d0 … d5)
+# Post-trial templates (post_trial_d0 … d30)
 
-Shipped 2026-09-21 for the lead who CAME to the free class and did not sign up
-(163 of them since July, previously untouched by the bot). Same shape as the
-extended drip: the engine sends free-form first — most of these leads are still
-inside the 24h window, having just been in the gym — and only falls back to a
-template when the window is closed. Until these are approved the fallback fails,
-the send is SKIPPED and one Slack note goes out per day (kv `tmpl_missing_note`).
+Shipped 2026-09-21 (d0 / d2 / d5) for the lead who CAME to the free class and
+did not sign up, extended 2026-09-30 to a six-touch, one-month arc after the
+first version signed up two people on its first live day. Spec:
+docs/post-trial-sequence.md. Same shape as the extended drip: the engine sends
+free-form first — most of these leads are still inside the 24h window, having
+just been in the gym — and only falls back to a template when the window is
+closed. Until a template is approved that fallback fails, the send is SKIPPED
+and one Slack note goes out per day (kv `tmpl_missing_note`).
 
 - Base names → sent name: `post_trial_d0` → `post_trial_d0_es` / `_en`, same for
-  `post_trial_d2` and `post_trial_d5` (6 templates).
-- Variables: **{{1}}** = contact first name (sender substitutes `👋` when the
-  push name is junk/unknown — keep {{1}} where that still reads naturally).
-- **All three are Marketing**, with the **BAJA opt-out footer** (FOOTER
-  component): _Responde BAJA para dejar de recibir mensajes._ (EN: _Reply BAJA to
-  stop receiving messages._) d0 was briefly written as Utility, but with the
-  offer gone it is a plain re-engagement follow-up and would not survive review
-  as Utility — and Meta recategorizes on its own anyway. The send code does not
-  care which category comes back.
-- **NO price, NO discount, NO deadline in any of the three** (owner,
-  2026-09-21): the inscription discount is **same-day-only** at the academy, so
-  a follow-up that holds it open for 48h promises something the gym will not
-  honor. These messages open a conversation; the humans quote the numbers.
+  `post_trial_d1` (the first touch when it fires the morning AFTER the class —
+  "ayer" instead of "hoy"), `post_trial_d2`, `post_trial_d4`, `post_trial_d7`,
+  `post_trial_d14` (12 templates). The +30d goodbye reuses `post_trial_d5_es` /
+  `_en` unchanged (the 2026-09-21 goodbye body, already approved).
+- Variables: **{{1}}** = contact first name (sender substitutes `qué tal` /
+  `there` when the push name is junk/unknown — keep {{1}} where that still reads
+  naturally). One variable per template: "hoy"/"ayer" are two templates, not a
+  second parameter.
+- **All are Marketing**, with the **BAJA opt-out footer** (FOOTER component):
+  _Responde BAJA para dejar de recibir mensajes._ (EN: _Reply BAJA to stop
+  receiving messages._) Meta recategorizes on its own anyway; the send code does
+  not care which category comes back.
+- **NO price, NO discount, NO deadline in any of them** (owner, 2026-09-21):
+  the inscription discount is **same-day-only** at the academy, so a follow-up
+  that holds it open for 48h promises something the gym will not honor. These
+  messages open a conversation; the humans quote the numbers.
+- The 2026-09-30 batch (d1, d4, d7, d14 × es/en) is submitted automatically by
+  the cron on the first tick after deploy (`createPostTrialV2Templates`, kv
+  `tpl_create:post_trial_v2:2026-09-30`); manual path:
+  `POST /admin/api/blast/templates/create`.
 
 ## 7. post_trial_d0 — Marketing (BAJA opt-out footer required)
 
-Sent ~3h after the class starts (past 21:00 CDMX → 09:30 the next morning).
+Sent ~3h after the class starts, when that is still the same CDMX day.
 
 **ES (`post_trial_d0_es`)**
-> ¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si te quedó alguna duda de horarios o paquetes, aquí estamos. ¿Te apartamos tu lugar para tu siguiente clase?
+> ¡Hola {{1}}! Qué gusto verte hoy en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
 **EN (`post_trial_d0_en`)**
-> Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you have any questions about schedules or packages, we're right here. Want us to save you a spot for your next class?
+> Hi {{1}}! So good to have you at the academy today 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.
 >
 > _Reply BAJA to stop receiving messages._
 
@@ -258,7 +267,24 @@ Variables: {{1}} name. Footer text must be the template FOOTER component.
 
 ---
 
-## 8. post_trial_d2 — Marketing (BAJA opt-out footer required)
+## 8. post_trial_d1 — Marketing (BAJA opt-out footer required)
+
+The same first touch when it fires the morning after (evening class whose +3h
+spills past 21:00 → 09:30 next day, or a result marked the next morning).
+
+**ES (`post_trial_d1_es`)**
+> ¡Hola {{1}}! Qué gusto verte ayer en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**EN (`post_trial_d1_en`)**
+> Hi {{1}}! So good to have you at the academy yesterday 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.
+>
+> _Reply BAJA to stop receiving messages._
+
+---
+
+## 9. post_trial_d2 — Marketing (BAJA opt-out footer required)
 
 11:00 CDMX two days after the trial.
 
@@ -272,13 +298,60 @@ Variables: {{1}} name. Footer text must be the template FOOTER component.
 >
 > _Reply BAJA to stop receiving messages._
 
-Variables: {{1}} name. Footer text must be the template FOOTER component.
+---
+
+## 10. post_trial_d4 — Marketing (BAJA opt-out footer required)
+
+18:00 CDMX four days after the trial. Objection discovery.
+
+**ES (`post_trial_d4_es`)**
+> ¡Hola {{1}}! Por aquí seguimos 🙂 Cuéntame con confianza: ¿qué es lo que te frena — el horario, el paquete o alguna otra duda? Lo vemos juntos y buscamos la forma de que sí te acomode.
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**EN (`post_trial_d4_en`)**
+> Hi {{1}}! Still here 🙂 Tell me honestly: what's holding you back — the schedule, the plan, or some other question? Let's work through it together and find a way that fits you.
+>
+> _Reply BAJA to stop receiving messages._
 
 ---
 
-## 9. post_trial_d5 — Marketing (BAJA opt-out footer required)
+## 11. post_trial_d7 — Marketing (BAJA opt-out footer required)
 
-The goodbye, 11:00 CDMX five days after the trial.
+11:00 CDMX one week after the trial (same weekday as the class).
+
+**ES (`post_trial_d7_es`)**
+> ¡Hola {{1}}! Ya pasó una semana desde tu clase 🥋 Sé cómo es: la rutina se lo come todo. Si quieres retomarlo, te ayudo a armar un horario que sí te funcione y dejamos tu inscripción lista en cinco minutos. ¿Le entramos?
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**EN (`post_trial_d7_en`)**
+> Hi {{1}}! It's been a week since your class 🥋 I know how it goes: life gets in the way. If you want to pick it back up, I'll help you build a schedule that actually works and get your enrollment done in five minutes. Shall we?
+>
+> _Reply BAJA to stop receiving messages._
+
+---
+
+## 12. post_trial_d14 — Marketing (BAJA opt-out footer required)
+
+18:00 CDMX two weeks after the trial. Soft check-in with the schedule.
+
+**ES (`post_trial_d14_es`)**
+> ¡Hola {{1}}! Solo paso a saludar 🙂 Tu lugar en la academia sigue aquí. Si estas semanas te queda mejor, dime qué días te acomodan y te comparto el horario: https://mdcondesa.com/#horarios
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**EN (`post_trial_d14_en`)**
+> Hi {{1}}! Just checking in 🙂 Your spot at the academy is still here. If the next few weeks work better for you, tell me which days suit you and I'll send the schedule: https://mdcondesa.com/#horarios
+>
+> _Reply BAJA to stop receiving messages._
+
+---
+
+## 13. post_trial_d5 — the +30d goodbye (Marketing, BAJA footer)
+
+Sent by kind `post_trial_d30`, 11:00 CDMX thirty days after the trial. The
+template keeps its 2026-09-21 name — it is already approved with this body.
 
 **ES (`post_trial_d5_es`)**
 > ¡Hola {{1}}! No queremos insistir más 🙂 Este es nuestro último mensaje. Nos dio mucho gusto tenerte en clase y aquí seguimos cuando quieras volver — estos son los horarios: https://mdcondesa.com/#horarios

@@ -246,12 +246,18 @@ export type FollowupKind =
   /** Second no-show touch, ~3 days after the missed trial (src/cron/post-trial.ts).
    *  The first one goes out the moment Airtable is marked "No asistió". */
   | "no_show_d3"
-  /** Post-trial sequence for a lead who CAME and did not sign up: same evening,
-   *  +2 days, +5 days (src/cron/post-trial.ts). Armed by the result watcher when
-   *  `Resultado Clase Prueba` says "Asistió". */
+  /** Post-trial sequence for a lead who CAME and did not sign up: same evening
+   *  (or the next morning, saying "ayer"), +2, +4, +7, +14 and +30 days
+   *  (src/cron/post-trial.ts, docs/post-trial-sequence.md). Armed by the result
+   *  watcher when `Resultado Clase Prueba` says "Asistió". `post_trial_d5` is the
+   *  retired goodbye slot (2026-09-30) — rows already armed keep draining. */
   | "post_trial_d0"
   | "post_trial_d2"
+  | "post_trial_d4"
   | "post_trial_d5"
+  | "post_trial_d7"
+  | "post_trial_d14"
+  | "post_trial_d30"
   /** The Slack "asistió y no se inscribió" card, held until ~30 min after the
    *  class ends so the front desk can close in person first (src/cron/post-trial.ts). */
   | "post_trial_card"

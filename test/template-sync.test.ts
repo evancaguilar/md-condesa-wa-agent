@@ -1,12 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CREATE_V2_KEY,
+  createPostTrialV2Templates,
   postTrialD0TemplateInputs,
+  postTrialV2TemplateInputs,
   SYNC_KEY,
   syncPostTrialD0Templates,
   templateBodyFromCopy,
 } from "../src/cron/template-sync.js";
-import { buildUpdateTemplatePayload } from "../src/services/blast-templates.js";
+import { buildUpdateTemplatePayload, countVars } from "../src/services/blast-templates.js";
 import type { Env } from "../src/types.js";
 import { CLIENT } from "../src/client.gen.js";
 
@@ -46,14 +49,76 @@ function fakeFetch(route: (url: string, init?: RequestInit) => { status?: number
   return { doFetch, calls };
 }
 
-test("templateBodyFromCopy: {who} → ' {{1}}'", () => {
+test("templateBodyFromCopy: {who} → ' {{1}}', {when}/{link} fixed at template time", () => {
   assert.equal(templateBodyFromCopy("¡Hola{who}! Qué tal"), "¡Hola {{1}}! Qué tal");
+  assert.equal(
+    templateBodyFromCopy("Verte {when} — {link}", { when: "ayer", link: "https://x.test/h" }),
+    "Verte ayer — https://x.test/h",
+  );
   const inputs = postTrialD0TemplateInputs();
   assert.deepEqual(inputs.map((i) => i.name), ["post_trial_d0_es", "post_trial_d0_en"]);
   assert.match(inputs[0].body, /^¡Hola \{\{1\}\}!/);
   // client.gen.ts is a build artifact — pin the transform, not the prose.
-  assert.equal(inputs[0].body, templateBodyFromCopy(CLIENT.copy.postTrialD0Es));
+  assert.equal(inputs[0].body, templateBodyFromCopy(CLIENT.copy.postTrialD0Es, { when: "hoy" }));
+  assert.ok(inputs[0].body.includes("verte hoy"), inputs[0].body);
+  assert.ok(!inputs[0].body.includes("{when}"), inputs[0].body);
   assert.match(inputs[0].footer ?? "", /BAJA/);
+});
+
+test("postTrialV2TemplateInputs: d1 says 'ayer', d14 carries the schedule link, one {{1}} each", () => {
+  const inputs = postTrialV2TemplateInputs();
+  assert.deepEqual(
+    inputs.map((i) => i.name),
+    [
+      "post_trial_d1_es", "post_trial_d1_en",
+      "post_trial_d4_es", "post_trial_d4_en",
+      "post_trial_d7_es", "post_trial_d7_en",
+      "post_trial_d14_es", "post_trial_d14_en",
+    ],
+  );
+  const by = Object.fromEntries(inputs.map((i) => [i.name, i]));
+  assert.ok(by["post_trial_d1_es"]!.body.includes("verte ayer en la academia"), by["post_trial_d1_es"]!.body);
+  assert.ok(by["post_trial_d1_en"]!.body.includes("at the academy yesterday"), by["post_trial_d1_en"]!.body);
+  assert.ok(/https?:\/\//.test(by["post_trial_d14_es"]!.body), by["post_trial_d14_es"]!.body);
+  for (const i of inputs) {
+    assert.equal(i.category, "MARKETING");
+    assert.equal(countVars(i.body), 1, i.name);
+    assert.ok(!/\{(who|when|link|cta)\}/.test(i.body), i.body);
+    assert.deepEqual(i.bodyExamples, ["Ana"]);
+    assert.match(i.footer ?? "", /BAJA/);
+    assert.equal(i.language, i.name.endsWith("_en") ? "en" : "es");
+  }
+});
+
+test("createPostTrialV2Templates: submits the 8 once, kv-guarded, 'already exists' counts as ok", async () => {
+  const { db, store } = fakeDb();
+  const env = { DB: db, WA_WABA_ID: "waba1", WA_ACCESS_TOKEN: "t" } as unknown as Env;
+  const notes: string[] = [];
+  const { doFetch, calls } = fakeFetch((_url, init) => {
+    const body = JSON.parse(String(init?.body)) as { name: string };
+    if (body.name === "post_trial_d4_es")
+      return { status: 400, body: { error: { message: "Message template with this name already exists" } } };
+    return { body: { id: "1", status: "PENDING", category: "MARKETING" } };
+  });
+  await createPostTrialV2Templates(env, { postNote: async (t) => { notes.push(t); } }, doFetch);
+  assert.equal(calls.length, 8);
+  assert.ok(calls.every((c) => c.method === "POST" && c.url.includes("/waba1/message_templates")));
+  assert.equal(store.get(CREATE_V2_KEY), "ok");
+  assert.equal(notes.length, 1);
+  assert.ok(notes[0]!.includes("post_trial_d4_es: ya existía"), notes[0]);
+  // Second tick: the guard holds, nothing is submitted again.
+  await createPostTrialV2Templates(env, { postNote: async (t) => { notes.push(t); } }, doFetch);
+  assert.equal(calls.length, 8);
+  assert.equal(notes.length, 1);
+});
+
+test("createPostTrialV2Templates: no WABA id ⇒ nothing sent, guard NOT set (retries next tick)", async () => {
+  const { db, store } = fakeDb();
+  const env = { DB: db } as unknown as Env;
+  const { doFetch, calls } = fakeFetch(() => ({ body: {} }));
+  await createPostTrialV2Templates(env, { postNote: async () => {} }, doFetch);
+  assert.equal(calls.length, 0);
+  assert.equal(store.get(CREATE_V2_KEY), undefined);
 });
 
 test("buildUpdateTemplatePayload: components only (no name/category)", () => {

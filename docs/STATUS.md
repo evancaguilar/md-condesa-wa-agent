@@ -1,8 +1,20 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-28**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-09-30**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### Post-trial sequence v2: "hoy"/"ayer" fix + six-touch, one-month arc (2026-09-30) — ON BRANCH
+
+**Why now:** the v1 chain (d0/d2/d5) signed up **two people on its first live day** — both had tried the class the day before and walked out without paying. Spec + roadmap: **docs/post-trial-sequence.md**.
+
+- **Bug (Paola, +52 66 2470 4166):** `post_trial_d0_es` went out at 09:31 the morning after her evening class saying "qué gusto verte **hoy**". Two paths land there: an evening class (+3h spills past 21:00 → 09:30 next day) and the desk marking "Asistió" the next morning. **Fix:** every chain row's `note` now carries the class epoch (`encodeChainNote`); `processPostTrial` counts CDMX calendar days class → now: 0 = "hoy" (template `post_trial_d0`), 1 = "ayer" (NEW template `post_trial_d1`), ≥2 = the first touch is dropped (d2 does not name the day). Copy has a `{when}` placeholder (client.mjs); `renderCopy` learned `when`. Legacy rows without a note fall back to their arming time.
+- **Arc:** `post_trial_d0` → `d2` (11:00) → **`d4` (18:00, objection discovery: horario/paquete/otra duda) → `d7` (11:00, same weekday: "ya pasó una semana") → `d14` (18:00, soft check-in + schedule) → `d30` (11:00, the goodbye — reuses the approved `post_trial_d5` body)**. `post_trial_d5` is retired (never armed; rows already in D1 drain with the same copy). `POST_TRIAL_MAX_AGE` 5d → **14d** (a late mark still gets the tail); the Slack 🔥 card keeps its own 5-day limit (`POST_TRIAL_CARD_MAX_AGE`). Card + claim texts now list the six touches.
+- **A reply PAUSES the chain instead of killing it:** lead wrote < 3 days ago (`CONVERSATION_GRACE`) → skip this touch; wrote ≥ 3 days ago but their message is the last in the thread → skip (a human owes the reply, never a bot nudge on top); wrote ≥ 3 days ago and we answered since → **send**. "Asked for prices, got them, vanished" is exactly who +7d/+14d are for. Student / new booking still stop the chain; **Perdido** in Airtable is how the desk stops it for a lead who said no.
+- **Templates:** 8 new (`post_trial_d1`, `d4`, `d7`, `d14` × es/en, Marketing + BAJA footer, one `{{1}}`) are **submitted automatically** on the first cron tick after deploy (`createPostTrialV2Templates`, kv `tpl_create:post_trial_v2:2026-09-30`, one 📝/⚠️ Slack note). Until approved, closed-window sends of those touches skip with the daily note; in-window free-form works from the deploy on. Bodies: docs/templates.md §7–13, docs/template-submission.md §31–38.
+- **Build without the site repo:** `node tools/compile-kb.mjs --client-only` regenerates `src/client.gen.ts` from client.mjs + persona.md and leaves kb.md alone (used here: the sandbox cannot reach mdcondesa.com; CI re-runs the full build on push).
+- Tests 940 → **953**. No D1 migration (new kinds are comment-only).
+- [ ] **Evan:** watch the Slack note for the 8 template submissions; approve in WhatsApp Manager if Meta asks. Roadmap in docs/post-trial-sequence.md — top pick: per-touch outcome counter (which touch closes).
 
 ### Website-form bookings flagged "NO se creó ningún booking en Airtable" (2026-09-30) — ON BRANCH
 
@@ -160,7 +172,7 @@ The bot cannot see the follow-up staff actually do: they write these leads from 
 - It records kv `post_trial_claim:<phone>` = `{user, ts}` and rewrites the card (kv `post_trial_card:<phone>` holds the Slack ts — there is no approval row to hang one on). Idempotent: a second click by anyone else only reports who got there first. If d0 had already gone out, the claim is still recorded and the card says at what time (from the row's `due_at`; the drain fires within one 5-minute tick and `followups` has no `sent_at`).
 - `CronSlackDeps.postPostTrialCard` is optional so the console stubs and the one-line fakes in test/ stay one-liners; without it the watcher falls back to the plain note.
 
-**Para el equipo (en corto).** Cuando alguien viene a su clase de prueba y no se inscribe, al canal llega una tarjeta 🔥 con su nombre. El bot le va a escribir tres veces: hoy mismo, a los 2 días y a los 5. **Si tú le vas a escribir por tu cuenta, dale al botón «🙋 Yo le escribo»** — así el bot NO manda el mensaje de hoy y no quedan dos mensajes encimados. Los de +2d y +5d siguen programados por si el lead no contesta y nadie marca resultado en Airtable; si se inscribe, responde por WhatsApp, o agenda otra clase, se cancelan solos. Si alguien ya le picó antes que tú, la tarjeta te dice quién y a qué hora.
+**Para el equipo (en corto).** Cuando alguien viene a su clase de prueba y no se inscribe, al canal llega una tarjeta 🔥 con su nombre. El bot le va a escribir hasta seis veces: hoy mismo (o mañana diciendo «ayer»), a los 2, 4, 7, 14 y 30 días. **Si tú le vas a escribir por tu cuenta, dale al botón «🙋 Yo le escribo»** — así el bot NO manda el mensaje de hoy y no quedan dos mensajes encimados. Los demás siguen programados por si el lead no contesta y nadie marca resultado en Airtable; si se inscribe o agenda otra clase se cancelan solos, y si responde el bot se espera 3 días de silencio antes de volver a escribir. Si un lead dijo que no, márcalo **Perdido** en Airtable y el bot lo deja en paz. Si alguien ya le picó antes que tú, la tarjeta te dice quién y a qué hora.
 
 **Pendiente Evan: aprobar textos + enviar plantillas post_trial_\*** (6 templates — **las tres MARKETING con footer BAJA**; bodies ready to paste in docs/template-submission.md §13–18). Until they are approved, out-of-window post-trial sends are skipped with one Slack note a day.
 

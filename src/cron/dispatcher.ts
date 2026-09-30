@@ -29,7 +29,7 @@ import { runMetricsBrief } from "./metrics-brief.js";
 import { runBlastBatch } from "./blasts.js";
 import { runSalesAudio } from "./sales-audio.js";
 import { runCapiDrain } from "./capi.js";
-import { syncPostTrialD0Templates } from "./template-sync.js";
+import { createPostTrialV2Templates, syncPostTrialD0Templates } from "./template-sync.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -82,6 +82,10 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // One-shot template copy sync (src/cron/template-sync.ts, kv-guarded).
   await safe("syncPostTrialD0Templates", () =>
     syncPostTrialD0Templates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+  );
+  // One-shot submission of the +30d arc's templates (kv-guarded, same module).
+  await safe("createPostTrialV2Templates", () =>
+    createPostTrialV2Templates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
   );
 
   // Every tick: due followups + approval timeouts. Isolate failures so one

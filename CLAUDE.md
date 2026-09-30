@@ -45,6 +45,7 @@ WhatsApp AI agent for MD Self Defense Academy Condesa (martial-arts gym, CDMX). 
 ```bash
 npm run typecheck && npm test        # gates
 npm run build                        # compile KB + client.gen
+node tools/compile-kb.mjs --client-only   # client.gen.ts only (no site repo / no network); CI does the full build
 npx wrangler deploy --dry-run        # bundle check
 git push                             # = deploy (Workers Builds)
 npm run chat                         # local brain REPL (needs ANTHROPIC_API_KEY inline, never saved)

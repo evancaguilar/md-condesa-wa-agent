@@ -62,13 +62,22 @@ export interface ClientCopy {
   welcomeEn: string;
   /**
    * Post-trial sequence for a lead who attended and did not sign up
-   * (kinds: post_trial_d0 / d2 / d5). d0+d2 use {who}; d5 also uses {link}
-   * (the public schedule).
+   * (kinds: post_trial_d0 / d2 / d4 / d7 / d14 / d30 — docs/post-trial-sequence.md).
+   * All use {who}; d0 also uses {when} ("hoy"/"ayer", decided at send time);
+   * d14 and the goodbye also use {link} (the public schedule). The goodbye
+   * copy keeps the D5 name because the approved Meta templates are
+   * post_trial_d5_es/en; it is sent by kind post_trial_d30.
    */
   postTrialD0Es: string;
   postTrialD0En: string;
   postTrialD2Es: string;
   postTrialD2En: string;
+  postTrialD4Es: string;
+  postTrialD4En: string;
+  postTrialD7Es: string;
+  postTrialD7En: string;
+  postTrialD14Es: string;
+  postTrialD14En: string;
   postTrialD5Es: string;
   postTrialD5En: string;
 }
@@ -347,10 +356,11 @@ export interface ClientConfig {
 /** Interpolate {who}/{address}/{link}/{cta} placeholders in copy strings. */
 export function renderCopy(
   template: string,
-  vars: { who?: string; address?: string; link?: string; cta?: string },
+  vars: { who?: string; address?: string; link?: string; cta?: string; when?: string },
 ): string {
   return template
     .replaceAll("{who}", vars.who ?? "")
+    .replaceAll("{when}", vars.when ?? "")
     .replaceAll("{address}", vars.address ?? "")
     .replaceAll("{link}", vars.link ?? "")
     .replaceAll("{cta}", vars.cta ?? "");

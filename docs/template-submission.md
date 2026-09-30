@@ -43,6 +43,24 @@ business.facebook.com → **WhatsApp Manager** → account **"MD Self Defense Co
 `no_show_d3` (the second no-show touch, 2026-09-21) reuses `no_show_followup_*`
 above — nothing extra to submit for it.
 
+### Post-trial v2 (2026-09-30, ES + EN = 8, all Marketing, all with Footer)
+
+Submitted **automatically** by the cron on the first tick after deploy
+(`createPostTrialV2Templates`, one 📝/⚠️ Slack note). Listed here for the
+manual path (`POST /admin/api/blast/templates/create`) and for review. The
++30d goodbye reuses `post_trial_d5_*` (#17–18) — nothing new for it.
+
+| # | Name | Lang | Category | Extras |
+|---|------|------|----------|--------|
+| 31 | `post_trial_d1_es` | Spanish | Marketing | Footer |
+| 32 | `post_trial_d1_en` | English | Marketing | Footer |
+| 33 | `post_trial_d4_es` | Spanish | Marketing | Footer |
+| 34 | `post_trial_d4_en` | English | Marketing | Footer |
+| 35 | `post_trial_d7_es` | Spanish | Marketing | Footer |
+| 36 | `post_trial_d7_en` | English | Marketing | Footer |
+| 37 | `post_trial_d14_es` | Spanish | Marketing | Footer |
+| 38 | `post_trial_d14_en` | English | Marketing | Footer |
+
 ### Extended drip (ES only = 12, all Marketing, all with Footer)
 
 | # | Name | # | Name |
@@ -157,7 +175,59 @@ Hi {{1}}! So good to have you at the academy today 🥋 How was the experience? 
 Hi {{1}}! How's the body feeling after your class? 😄 The hardest part is already done: showing up the first time. What else do you need to know to decide? We'll help you pick a schedule and a plan.
 ```
 
-### 17–18 · post_trial_d5 (Marketing + Footer)
+### 31–32 · post_trial_d1 (Marketing + Footer) — the first touch, the morning after
+
+Same message as post_trial_d0 with "ayer"/"yesterday": an evening class whose
++3h spills past 21:00 fires at 09:30 the next day, and the desk often marks
+"Asistió" the next morning (2026-09-30: Paola got "verte hoy" a day late).
+
+**`post_trial_d1_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
+```
+¡Hola {{1}}! Qué gusto verte ayer en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.
+```
+
+**`post_trial_d1_en`** — Footer: `Reply BAJA to stop receiving messages.`
+```
+Hi {{1}}! So good to have you at the academy yesterday 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.
+```
+
+### 33–34 · post_trial_d4 (Marketing + Footer)
+
+**`post_trial_d4_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
+```
+¡Hola {{1}}! Por aquí seguimos 🙂 Cuéntame con confianza: ¿qué es lo que te frena — el horario, el paquete o alguna otra duda? Lo vemos juntos y buscamos la forma de que sí te acomode.
+```
+
+**`post_trial_d4_en`** — Footer: `Reply BAJA to stop receiving messages.`
+```
+Hi {{1}}! Still here 🙂 Tell me honestly: what's holding you back — the schedule, the plan, or some other question? Let's work through it together and find a way that fits you.
+```
+
+### 35–36 · post_trial_d7 (Marketing + Footer)
+
+**`post_trial_d7_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
+```
+¡Hola {{1}}! Ya pasó una semana desde tu clase 🥋 Sé cómo es: la rutina se lo come todo. Si quieres retomarlo, te ayudo a armar un horario que sí te funcione y dejamos tu inscripción lista en cinco minutos. ¿Le entramos?
+```
+
+**`post_trial_d7_en`** — Footer: `Reply BAJA to stop receiving messages.`
+```
+Hi {{1}}! It's been a week since your class 🥋 I know how it goes: life gets in the way. If you want to pick it back up, I'll help you build a schedule that actually works and get your enrollment done in five minutes. Shall we?
+```
+
+### 37–38 · post_trial_d14 (Marketing + Footer)
+
+**`post_trial_d14_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
+```
+¡Hola {{1}}! Solo paso a saludar 🙂 Tu lugar en la academia sigue aquí. Si estas semanas te queda mejor, dime qué días te acomodan y te comparto el horario: https://mdcondesa.com/#horarios
+```
+
+**`post_trial_d14_en`** — Footer: `Reply BAJA to stop receiving messages.`
+```
+Hi {{1}}! Just checking in 🙂 Your spot at the academy is still here. If the next few weeks work better for you, tell me which days suit you and I'll send the schedule: https://mdcondesa.com/#horarios
+```
+
+### 17–18 · post_trial_d5 (Marketing + Footer) — now the +30d goodbye (kind `post_trial_d30`)
 
 **`post_trial_d5_es`** — Footer: `Responde BAJA para dejar de recibir mensajes.`
 ```

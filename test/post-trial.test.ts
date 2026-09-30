@@ -3,11 +3,18 @@ import assert from "node:assert/strict";
 
 import {
   attendedCardText,
+  cdmxDayOffset,
   computeNoShowRebook,
   computePostTrialSequence,
+  CONVERSATION_GRACE,
   decideClaim,
+  decodeChainNote,
+  encodeChainNote,
+  firstTouchWhen,
   parsePostTrialClaim,
   POST_TRIAL_CLAIM_VERB,
+  POST_TRIAL_ALL_KINDS,
+  POST_TRIAL_MAX_AGE,
   postTrialCopy,
   postTrialTemplateName,
   processPostTrial,
@@ -164,18 +171,24 @@ test("isLostResult reads 'Perdido' out of any join, and nothing else", () => {
 
 // ---- post-trial timing (pure) --------------------------------------------
 
-test("computePostTrialSequence: evening trial → same-day d0, then 11:00 d2/d5", () => {
+test("computePostTrialSequence: evening trial → next-morning d0, then the +2/+4/+7/+14/+30 arc", () => {
   const marked = WED_TRIAL + 30 * 60; // marked half an hour after class
   const steps = computePostTrialSequence(WED_TRIAL, marked);
   const by = Object.fromEntries(steps.map((s) => [s.kind, s.dueAt]));
-  // 19:00 + 3h = 22:00, past the 21:00 close → 09:30 the next morning.
+  // 19:00 + 3h = 22:00, past the 21:00 close → 09:30 the next morning (it
+  // will say "ayer" — see the send-time tests).
   assert.equal(by["post_trial_d0"], cdmxToEpoch(2026, 9, 17, 9, 30, 0));
   assert.equal(by["post_trial_d2"], cdmxToEpoch(2026, 9, 18, 11, 0, 0));
-  assert.equal(by["post_trial_d5"], cdmxToEpoch(2026, 9, 21, 11, 0, 0));
+  assert.equal(by["post_trial_d4"], cdmxToEpoch(2026, 9, 20, 18, 0, 0));
+  assert.equal(by["post_trial_d7"], cdmxToEpoch(2026, 9, 23, 11, 0, 0)); // same weekday
+  assert.equal(by["post_trial_d14"], cdmxToEpoch(2026, 9, 30, 18, 0, 0));
+  assert.equal(by["post_trial_d30"], cdmxToEpoch(2026, 10, 16, 11, 0, 0));
   assert.deepEqual(
     steps.map((s) => s.kind),
     [...POST_TRIAL_KINDS],
   );
+  // The retired d5 slot is never armed any more.
+  assert.equal(by["post_trial_d5"], undefined);
 });
 
 test("computePostTrialSequence: a morning class gets its d0 the same afternoon", () => {
@@ -204,7 +217,7 @@ test("computePostTrialSequence: late-evening Saturday trial rolls d0 into Sunday
   const by = Object.fromEntries(steps.map((s) => [s.kind, s.dueAt]));
   assert.equal(by["post_trial_d0"], cdmxToEpoch(2026, 9, 20, 9, 30, 0)); // Sunday
   assert.equal(by["post_trial_d2"], cdmxToEpoch(2026, 9, 21, 11, 0, 0)); // Monday
-  assert.equal(by["post_trial_d5"], cdmxToEpoch(2026, 9, 24, 11, 0, 0)); // Thursday
+  assert.equal(by["post_trial_d7"], cdmxToEpoch(2026, 9, 26, 11, 0, 0)); // next Saturday
 });
 
 test("computePostTrialSequence: a Sunday trial crosses the month boundary cleanly", () => {
@@ -213,34 +226,63 @@ test("computePostTrialSequence: a Sunday trial crosses the month boundary cleanl
     computePostTrialSequence(sun, sun + 60).map((s) => [s.kind, s.dueAt]),
   );
   assert.equal(by["post_trial_d2"], cdmxToEpoch(2026, 9, 29, 11, 0, 0));
-  assert.equal(by["post_trial_d5"], cdmxToEpoch(2026, 10, 2, 11, 0, 0));
-  assert.equal(cdmxParts(by["post_trial_d5"]!).month, 10);
+  assert.equal(by["post_trial_d4"], cdmxToEpoch(2026, 10, 1, 18, 0, 0));
+  assert.equal(cdmxParts(by["post_trial_d4"]!).month, 10);
+  assert.equal(by["post_trial_d30"], cdmxToEpoch(2026, 10, 27, 11, 0, 0));
 });
 
 test("computePostTrialSequence: marked 3 days late keeps only what is still ahead", () => {
   const marked = WED_TRIAL + 3 * DAY; // Saturday evening
   const kinds = computePostTrialSequence(WED_TRIAL, marked).map((s) => s.kind);
-  assert.deepEqual(kinds, ["post_trial_d5"]); // d0 stale, d2 (Friday 11:00) past
+  // d0 stale, d2 (Friday 11:00) past; d4 is Sunday 18:00, still ahead.
+  assert.deepEqual(kinds, ["post_trial_d4", "post_trial_d7", "post_trial_d14", "post_trial_d30"]);
 });
 
-test("computePostTrialSequence: the 48h cutoff is what drops d0, not the clock alone", () => {
-  const marked = WED_TRIAL + 2 * DAY + 3600; // Friday 20:00, d2 was Friday 11:00
-  const late = WED_TRIAL + 2 * DAY - 12 * 3600; // Thursday ~07:00: past 48h? no
+test("computePostTrialSequence: the first touch is dropped once it could only say 'anteayer'", () => {
+  // Thursday 07:00, 12h after the Wednesday-evening class: the row is past due
+  // (09:30 Thursday is ahead, fine) and fires the day after the class → "ayer".
+  const nextMorning = WED_TRIAL + 12 * 3600;
   assert.deepEqual(
-    computePostTrialSequence(WED_TRIAL, late).map((s) => s.kind),
-    ["post_trial_d0", "post_trial_d2", "post_trial_d5"],
+    computePostTrialSequence(WED_TRIAL, nextMorning).map((s) => s.kind),
+    [...POST_TRIAL_KINDS],
   );
+  // Friday 08:00 (37h later): still under the 48h cap, but a touch firing now
+  // would be TWO calendar days after the class. d2 covers it — d0 is dropped.
+  const twoDaysLater = cdmxToEpoch(2026, 9, 18, 8, 0, 0);
   assert.deepEqual(
-    computePostTrialSequence(WED_TRIAL, marked).map((s) => s.kind),
-    ["post_trial_d5"],
+    computePostTrialSequence(WED_TRIAL, twoDaysLater).map((s) => s.kind),
+    ["post_trial_d2", "post_trial_d4", "post_trial_d7", "post_trial_d14", "post_trial_d30"],
   );
 });
 
-test("computePostTrialSequence: a trial older than 5 days arms nothing", () => {
-  assert.deepEqual(computePostTrialSequence(WED_TRIAL, WED_TRIAL + 6 * DAY), []);
+test("computePostTrialSequence: a late mark still gets the tail, a cold trial nothing", () => {
+  // 10 days late: d14 and d30 are still ahead — the chain runs a month.
+  assert.deepEqual(
+    computePostTrialSequence(WED_TRIAL, WED_TRIAL + 10 * DAY).map((s) => s.kind),
+    ["post_trial_d14", "post_trial_d30"],
+  );
+  assert.deepEqual(computePostTrialSequence(WED_TRIAL, WED_TRIAL + POST_TRIAL_MAX_AGE + 3600), []);
   // …and neither does a nonsense record dated far in the future.
   assert.deepEqual(computePostTrialSequence(WED_TRIAL, WED_TRIAL - 3 * DAY), []);
   assert.deepEqual(computePostTrialSequence(NaN, WED_TRIAL), []);
+});
+
+test("cdmxDayOffset counts CDMX calendar days, not 24h blocks", () => {
+  const lateEvening = cdmxToEpoch(2026, 9, 16, 23, 30, 0);
+  const earlyMorning = cdmxToEpoch(2026, 9, 17, 0, 30, 0); // one hour later
+  assert.equal(cdmxDayOffset(lateEvening, earlyMorning), 1);
+  assert.equal(cdmxDayOffset(WED_TRIAL, WED_TRIAL + 3600), 0);
+  assert.equal(cdmxDayOffset(WED_TRIAL, cdmxToEpoch(2026, 9, 17, 9, 30, 0)), 1);
+  assert.equal(cdmxDayOffset(WED_TRIAL, cdmxToEpoch(2026, 9, 18, 9, 30, 0)), 2);
+  assert.equal(cdmxDayOffset(WED_TRIAL, WED_TRIAL - DAY), -1);
+});
+
+test("chain note round-trips the trial epoch and tolerates junk", () => {
+  assert.equal(decodeChainNote(encodeChainNote(WED_TRIAL)), WED_TRIAL);
+  assert.equal(encodeChainNote(NaN), null);
+  assert.equal(decodeChainNote(null), null);
+  assert.equal(decodeChainNote("{not json"), null);
+  assert.equal(decodeChainNote(JSON.stringify({ name: "Ana" })), null); // a card note
 });
 
 test("every computed post-trial time sits inside 09:00–21:00 CDMX", () => {
@@ -270,7 +312,7 @@ test("computeNoShowRebook: nothing left to schedule when the moment has passed",
 
 // ---- copy -----------------------------------------------------------------
 
-test("post-trial copy: d0 asks how it felt, d2 asks what's missing, d5 links the schedule", () => {
+test("post-trial copy: each touch has its own angle, only d14 and the goodbye carry a link", () => {
   const c = contact({ name: "Ana" });
   const d0 = postTrialCopy(c, "post_trial_d0");
   assert.ok(d0.startsWith("¡Hola Ana!"), d0);
@@ -278,8 +320,34 @@ test("post-trial copy: d0 asks how it felt, d2 asks what's missing, d5 links the
   assert.ok(/inscripción/.test(d0), d0); // d0 closes on enrollment, not another trial
   const d2 = postTrialCopy(c, "post_trial_d2");
   assert.ok(/¿Qué te falta saber/.test(d2), d2);
-  const d5 = postTrialCopy(c, "post_trial_d5");
-  assert.ok(/https?:\/\//.test(d5), d5); // the goodbye links to the schedule
+  const d4 = postTrialCopy(c, "post_trial_d4");
+  assert.ok(/qué es lo que te frena/.test(d4), d4); // objection discovery
+  const d7 = postTrialCopy(c, "post_trial_d7");
+  assert.ok(/una semana/.test(d7), d7);
+  const d14 = postTrialCopy(c, "post_trial_d14");
+  assert.ok(/https?:\/\//.test(d14), d14);
+  const d30 = postTrialCopy(c, "post_trial_d30");
+  assert.ok(/último mensaje/.test(d30), d30);
+  assert.ok(/https?:\/\//.test(d30), d30); // the goodbye links to the schedule
+  assert.equal(postTrialCopy(c, "post_trial_d5"), d30); // the retired slot = the goodbye
+  // Six different bodies — no touch repeats another.
+  const bodies = POST_TRIAL_KINDS.map((k) => postTrialCopy(c, k));
+  assert.equal(new Set(bodies).size, bodies.length);
+  for (const body of bodies) assert.ok(!/\{(who|when|link|cta)\}/.test(body), body);
+});
+
+test("post-trial copy: the first touch says 'hoy' the same day and 'ayer' the morning after", () => {
+  const c = contact({ name: "Ana" });
+  assert.ok(postTrialCopy(c, "post_trial_d0", null, 0).includes("verte hoy en la academia"));
+  assert.ok(postTrialCopy(c, "post_trial_d0", null, 1).includes("verte ayer en la academia"));
+  const en = contact({ name: "Mike", lang: "en" });
+  assert.ok(postTrialCopy(en, "post_trial_d0", null, 0).includes("at the academy today"));
+  assert.ok(postTrialCopy(en, "post_trial_d0", null, 1).includes("at the academy yesterday"));
+  assert.equal(firstTouchWhen(0, "es"), "hoy");
+  assert.equal(firstTouchWhen(1, "es"), "ayer");
+  assert.equal(firstTouchWhen(1, "en"), "yesterday");
+  // The day word only lives in the first touch — the others never mention it.
+  assert.equal(postTrialCopy(c, "post_trial_d2", null, 1), postTrialCopy(c, "post_trial_d2", null, 0));
 });
 
 test("post-trial copy names NO price, discount or deadline, in either language", () => {
@@ -324,8 +392,15 @@ test("no-show copy: the two touches differ and both close with a CTA + link", ()
   }
 });
 
-test("postTrialTemplateName: post-trial kinds are their own base, no_show_d3 reuses the existing one", () => {
+test("postTrialTemplateName: d0 splits into hoy/ayer, the goodbye reuses post_trial_d5, no_show_d3 the no-show one", () => {
   assert.equal(postTrialTemplateName("post_trial_d0"), "post_trial_d0");
+  assert.equal(postTrialTemplateName("post_trial_d0", 0), "post_trial_d0");
+  assert.equal(postTrialTemplateName("post_trial_d0", 1), "post_trial_d1");
+  assert.equal(postTrialTemplateName("post_trial_d2"), "post_trial_d2");
+  assert.equal(postTrialTemplateName("post_trial_d4"), "post_trial_d4");
+  assert.equal(postTrialTemplateName("post_trial_d7"), "post_trial_d7");
+  assert.equal(postTrialTemplateName("post_trial_d14"), "post_trial_d14");
+  assert.equal(postTrialTemplateName("post_trial_d30"), "post_trial_d5"); // already approved body
   assert.equal(postTrialTemplateName("post_trial_d5"), "post_trial_d5");
   assert.equal(postTrialTemplateName("no_show_d3"), "no_show_followup");
 });
@@ -366,12 +441,20 @@ function contactDb(c: Contact | null, booking = false) {
   });
 }
 
-const ROW = { phone: "5215512345678", kind: "post_trial_d0" as const, created_at: 1000 };
+/** A d0 row armed right after the Wednesday class (note = the class date). */
+const ROW = {
+  phone: "5215512345678",
+  kind: "post_trial_d0" as const,
+  created_at: WED_TRIAL + 600,
+  note: encodeChainNote(WED_TRIAL),
+};
+/** When the send-time tests run: the same evening, 3h after the class. */
+const SEND_AT = WED_TRIAL + 3 * 3600;
 
 test("processPostTrial: happy path sends the free-form body", async () => {
   const { sent, deps } = sendDeps([]);
   const { db } = contactDb(contact({}));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.deepEqual(res, { outcome: "sent" });
   assert.equal(sent.length, 1);
   assert.ok(sent[0]!.includes("¿Qué te pareció la experiencia?"), sent[0]);
@@ -380,7 +463,7 @@ test("processPostTrial: happy path sends the free-form body", async () => {
 test("processPostTrial: an opted-out lead gets silence", async () => {
   const { sent, deps } = sendDeps([]);
   const { db } = contactDb(contact({ status: "opted_out" }));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.deepEqual(res, { outcome: "skipped_optout" });
   assert.equal(sent.length, 0);
 });
@@ -388,30 +471,127 @@ test("processPostTrial: an opted-out lead gets silence", async () => {
 test("processPostTrial: a lead who enrolled meanwhile stops the whole chain", async () => {
   const { sent, deps } = sendDeps([]);
   const { db } = contactDb(contact({ status: "student" }));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.deepEqual(res, { outcome: "cancelled", stopChain: true });
   assert.equal(sent.length, 0);
 });
 
-test("processPostTrial: a reply since the row was armed stops the chain", async () => {
+test("processPostTrial: a recent reply pauses this touch — it does NOT stop the chain", async () => {
   const { sent, deps } = sendDeps([]);
   const { db } = contactDb(contact({ last_inbound_at: ROW.created_at + 1 }));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
-  assert.deepEqual(res, { outcome: "cancelled", stopChain: true });
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
+  assert.deepEqual(res, { outcome: "cancelled" }); // no stopChain: the later touches re-check
   assert.equal(sent.length, 0);
-  // An inbound from BEFORE the arming is not a reason to stop.
+  // An inbound from BEFORE the arming is not a reason to pause.
   const fresh = sendDeps([]);
   const { db: db2 } = contactDb(contact({ last_inbound_at: ROW.created_at - 1 }));
   assert.deepEqual(
-    await processPostTrial(envWith(db2), ROW, fresh.deps, WED_TRIAL),
+    await processPostTrial(envWith(db2), ROW, fresh.deps, SEND_AT),
     { outcome: "sent" },
   );
 });
 
+/** contactDb plus a scripted "last message in the thread" (direction). */
+function threadDb(c: Contact, lastDirection: "in" | "out_bot" | "out_human_echo" | null) {
+  return fakeDb((sql) => {
+    if (sql.includes("SELECT * FROM contacts")) return { first: c };
+    if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
+    if (sql.includes("FROM messages"))
+      return {
+        all: lastDirection
+          ? [{ wamid: "w", phone: c.phone, direction: lastDirection, body: "x", ts: 1, meta: null }]
+          : [],
+      };
+    return {};
+  });
+}
+
+test("processPostTrial: replied, got answered, went quiet ≥3 days → the chain resumes", async () => {
+  // Paola's case: asks about the basic membership after d0, gets the numbers
+  // from a human, then silence. d7 must still go out.
+  const d7 = { ...ROW, kind: "post_trial_d7" as const };
+  const now = WED_TRIAL + 7 * DAY;
+  const repliedAt = now - CONVERSATION_GRACE - 3600; // quiet for just over the grace
+  const { sent, deps } = sendDeps([]);
+  const { db } = threadDb(contact({ last_inbound_at: repliedAt }), "out_human_echo");
+  assert.deepEqual(await processPostTrial(envWith(db), d7, deps, now), { outcome: "sent" });
+  assert.ok(sent[0]!.includes("una semana"), sent[0]);
+  // Same, answered by the bot.
+  const bot = sendDeps([]);
+  const { db: db2 } = threadDb(contact({ last_inbound_at: repliedAt }), "out_bot");
+  assert.deepEqual(await processPostTrial(envWith(db2), d7, bot.deps, now), { outcome: "sent" });
+});
+
+test("processPostTrial: a lead still inside the conversation grace is left alone", async () => {
+  const d7 = { ...ROW, kind: "post_trial_d7" as const };
+  const now = WED_TRIAL + 7 * DAY;
+  const { sent, deps } = sendDeps([]);
+  const { db, calls } = threadDb(contact({ last_inbound_at: now - CONVERSATION_GRACE + 3600 }), "out_bot");
+  assert.deepEqual(await processPostTrial(envWith(db), d7, deps, now), { outcome: "cancelled" });
+  assert.equal(sent.length, 0);
+  // Cheap path: the thread is not even read while the grace holds.
+  assert.ok(!calls.some((c) => c.sql.includes("FROM messages")));
+});
+
+test("processPostTrial: never stacks a nudge on a lead nobody answered", async () => {
+  // Their message is the last one in the thread: a human owes the reply, and
+  // an automated "¿qué te frena?" on top of an unanswered question is the
+  // worst thing we could send. Skip this touch; the chain itself survives.
+  const d4 = { ...ROW, kind: "post_trial_d4" as const };
+  const now = WED_TRIAL + 4 * DAY + 18 * 3600;
+  const { sent, deps } = sendDeps([]);
+  const { db } = threadDb(contact({ last_inbound_at: now - CONVERSATION_GRACE - DAY }), "in");
+  assert.deepEqual(await processPostTrial(envWith(db), d4, deps, now), { outcome: "cancelled" });
+  assert.equal(sent.length, 0);
+});
+
+test("processPostTrial: the first touch says 'ayer' when it fires the morning after", async () => {
+  // Wednesday 19:00 class → the row lands at 09:30 Thursday.
+  const thursday = cdmxToEpoch(2026, 9, 17, 9, 30, 0);
+  const { sent, deps } = sendDeps([]);
+  const { db } = contactDb(contact({ name: "Paola" }));
+  assert.deepEqual(await processPostTrial(envWith(db), ROW, deps, thursday), { outcome: "sent" });
+  assert.ok(sent[0]!.includes("Qué gusto verte ayer en la academia"), sent[0]);
+  // …and the closed-window fallback picks the "ayer" template, not the "hoy" one.
+  const closed = sendDeps([], { windowClosed: true });
+  const { db: db2 } = contactDb(contact({ name: "Paola" }));
+  assert.deepEqual(await processPostTrial(envWith(db2), ROW, closed.deps, thursday), { outcome: "sent" });
+  assert.deepEqual(closed.sent, ["[template:post_trial_d1_es]"]);
+});
+
+test("processPostTrial: the first touch two days after the class is dropped, not sent stale", async () => {
+  // The desk marked "Asistió" on Friday for a Wednesday class: d0 was armed
+  // past due and fires now. "¿Qué te pareció la experiencia?" two days late
+  // reads like a bot — d2 covers it without naming the day.
+  const friday = cdmxToEpoch(2026, 9, 18, 10, 0, 0);
+  const { sent, deps } = sendDeps([]);
+  const { db } = contactDb(contact({}));
+  assert.deepEqual(await processPostTrial(envWith(db), ROW, deps, friday), { outcome: "cancelled" });
+  assert.equal(sent.length, 0);
+  // Only the FIRST touch is day-sensitive.
+  const later = sendDeps([]);
+  const { db: db2 } = contactDb(contact({}));
+  assert.deepEqual(
+    await processPostTrial(envWith(db2), { ...ROW, kind: "post_trial_d2" }, later.deps, friday),
+    { outcome: "sent" },
+  );
+});
+
+test("processPostTrial: a row armed before the note existed falls back to its arming time", async () => {
+  // Legacy rows (before 2026-09-30) carry no trial epoch. The arming moment is
+  // the best stand-in: armed Wednesday evening, fired Thursday morning → "ayer".
+  const legacy = { ...ROW, note: null };
+  const thursday = cdmxToEpoch(2026, 9, 17, 9, 30, 0);
+  const { sent, deps } = sendDeps([]);
+  const { db } = contactDb(contact({}));
+  assert.deepEqual(await processPostTrial(envWith(db), legacy, deps, thursday), { outcome: "sent" });
+  assert.ok(sent[0]!.includes("verte ayer"), sent[0]);
+});
+
 test("processPostTrial: a human takeover skips this touch only", async () => {
   const { sent, deps } = sendDeps([]);
-  const { db } = contactDb(contact({ human_override_until: WED_TRIAL + 3600 }));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const { db } = contactDb(contact({ human_override_until: SEND_AT + 3600 }));
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.deepEqual(res, { outcome: "cancelled" }); // no stopChain
   assert.equal(sent.length, 0);
 });
@@ -419,7 +599,7 @@ test("processPostTrial: a human takeover skips this touch only", async () => {
 test("processPostTrial: a new future booking stops the chain", async () => {
   const { sent, deps } = sendDeps([]);
   const { db } = contactDb(contact({}), true);
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.deepEqual(res, { outcome: "cancelled", stopChain: true });
   assert.equal(sent.length, 0);
 });
@@ -427,7 +607,7 @@ test("processPostTrial: a new future booking stops the chain", async () => {
 test("processPostTrial: a closed window falls back to the per-kind template", async () => {
   const { sent, deps } = sendDeps([], { windowClosed: true });
   const { db } = contactDb(contact({}));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.deepEqual(res, { outcome: "sent" });
   assert.deepEqual(sent, ["[template:post_trial_d0_es]"]);
 });
@@ -439,7 +619,7 @@ test("processPostTrial: no_show_d3 falls back to the existing no_show_followup t
     envWith(db),
     { ...ROW, kind: "no_show_d3" },
     deps,
-    WED_TRIAL,
+    SEND_AT,
   );
   assert.deepEqual(res, { outcome: "sent" });
   assert.deepEqual(sent, ["[template:no_show_followup_es]"]);
@@ -451,7 +631,7 @@ test("processPostTrial: an unapproved template is reported as approval-pending",
     templateError: "WA send failed (400) [132001]: template name does not exist",
   });
   const { db } = contactDb(contact({}));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.equal(res.outcome, "template_missing");
   assert.equal(res.outcome === "template_missing" && res.template, "post_trial_d0_es");
   assert.equal(res.outcome === "template_missing" && res.missing, true);
@@ -466,7 +646,7 @@ test("processPostTrial: a param-count failure is NOT filed as 'not approved yet'
     templateError: "WA send failed (400) [132000]: number of parameters does not match",
   });
   const { db } = contactDb(contact({}));
-  const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
+  const res = await processPostTrial(envWith(db), ROW, deps, SEND_AT);
   assert.equal(res.outcome === "template_missing" && res.missing, false);
   assert.ok(
     res.outcome === "template_missing" && /132000/.test(res.error),
@@ -485,7 +665,7 @@ test("processPostTrial: the template carries exactly ONE body param — the firs
     },
   };
   const { db } = contactDb(contact({ name: "Ana Pérez" }));
-  await processPostTrial(envWith(db), ROW, spied, WED_TRIAL);
+  await processPostTrial(envWith(db), ROW, spied, SEND_AT);
   assert.deepEqual(calls[0], [
     "post_trial_d0_es",
     "es",
@@ -505,7 +685,7 @@ test("processPostTrial: a nameless lead still gets a legal, readable param", asy
   };
   // A push name greetingName() rejects ⇒ no name at all. Meta rejects "" (131008).
   const { db } = contactDb(contact({ name: "ana@gmail.com" }));
-  await processPostTrial(envWith(db), ROW, spied, WED_TRIAL);
+  await processPostTrial(envWith(db), ROW, spied, SEND_AT);
   assert.deepEqual(calls[0], [
     [{ type: "body", parameters: [{ type: "text", text: "qué tal" }] }],
   ]);
@@ -549,7 +729,13 @@ test("runDueFollowups: a post-trial row sends and is marked sent", async () => {
     const marks: { id: unknown; status: unknown }[] = [];
     const { db } = fakeDb((sql, binds) => {
       if (sql.includes("SELECT * FROM followups WHERE status = 'scheduled'"))
-        return { all: [dueRow("post_trial_d0")] };
+        return {
+          all: [
+            dueRow("post_trial_d0", {
+              note: encodeChainNote(cdmxToEpoch(2026, 9, 21, 9, 0, 0)), // this morning's class
+            }),
+          ],
+        };
       if (sql.includes("SELECT * FROM contacts")) return { first: contact({}) };
       if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
       if (sql.startsWith("UPDATE followups SET status")) {
@@ -584,20 +770,16 @@ test("runDueFollowups: a stopChain outcome cancels the rest of the chain by kind
     await runDueFollowups(envWith(db), {
       slack: { async postNote() {}, async postAttendanceCheck() {} },
     });
-    assert.deepEqual(cancelledKinds, [
-      "post_trial_d0",
-      "post_trial_d2",
-      "post_trial_d5",
-      "no_show_d3",
-      "post_trial_card",
-    ]);
+    assert.deepEqual(cancelledKinds, [...POST_TRIAL_ALL_KINDS]);
+    assert.ok(POST_TRIAL_ALL_KINDS.includes("post_trial_d5")); // the retired slot is still retired
+    assert.ok(POST_TRIAL_ALL_KINDS.includes("post_trial_d30"));
   });
 });
 
 // ---- the result watcher end to end (through syncBookings) -----------------
 
 interface WatcherRun {
-  scheduled: { kind: string; dueAt: number; recordId: unknown }[];
+  scheduled: { kind: string; dueAt: number; recordId: unknown; note: string | null }[];
   cancelledKinds: string[][];
   cancelledAll: number;
   notes: string[];
@@ -648,6 +830,7 @@ async function runWatcher(
         kind: String(binds[1]),
         dueAt: Number(binds[2]),
         recordId: binds[3],
+        note: binds[4] == null ? null : String(binds[4]),
       });
       return {};
     }
@@ -693,13 +876,16 @@ function recentTrial(): number {
   return Math.floor(Date.now() / 1000) - 2 * 3600;
 }
 
-test("result watcher: 'Asistió' arms the three post-trial rows and pings Slack", async () => {
-  const run = await runWatcher("Asistió", recentTrial());
+test("result watcher: 'Asistió' arms the six post-trial rows and pings Slack", async () => {
+  const trial = recentTrial();
+  const run = await runWatcher("Asistió", trial);
   assert.deepEqual(
     run.scheduled.map((s) => s.kind),
-    ["post_trial_d0", "post_trial_d2", "post_trial_d5"],
+    [...POST_TRIAL_KINDS],
   );
   assert.ok(run.scheduled.every((s) => s.recordId === "recA"));
+  // Every chain row carries the CLASS date, so the first touch can say hoy/ayer.
+  assert.ok(run.scheduled.every((s) => decodeChainNote(s.note) === trial));
   assert.equal(run.notes.length, 1);
   assert.ok(/asistió y no se inscribió/.test(run.notes[0]!), run.notes[0]);
   assert.ok(/Ana/.test(run.notes[0]!), run.notes[0]);
@@ -717,7 +903,7 @@ test("result watcher: arming 'Asistió' twice is a no-op the second time", async
   const kv = new Map<string, string>();
   const first = await runWatcher("Asistió", trial, { kv });
   const second = await runWatcher("Asistió", trial, { kv });
-  assert.equal(first.scheduled.length, 3);
+  assert.equal(first.scheduled.length, POST_TRIAL_KINDS.length);
   assert.equal(second.scheduled.length, 0);
   assert.equal(second.notes.length, 0);
 });
@@ -742,8 +928,20 @@ test("result watcher: an opted-out attendee gets bookkeeping and nothing else", 
   assert.equal(run.kv.get("resultado:recA"), "attended");
 });
 
-test("result watcher: an attendance marked 6 days late arms nothing and stays quiet", async () => {
+test("result watcher: an attendance marked 6 days late arms the tail but posts no card", async () => {
+  // The Slack "escríbele hoy" card is stale after 5 days; the chain is not —
+  // d7 / d14 / d30 are still ahead and worth sending.
   const run = await runWatcher("Asistió", Math.floor(Date.now() / 1000) - 6 * DAY);
+  assert.deepEqual(
+    run.scheduled.map((s) => s.kind),
+    ["post_trial_d7", "post_trial_d14", "post_trial_d30"],
+  );
+  assert.deepEqual(run.notes, []);
+  assert.equal(run.kv.get("resultado:recA"), "attended");
+});
+
+test("result watcher: an attendance marked 3 weeks late arms nothing and stays quiet", async () => {
+  const run = await runWatcher("Asistió", Math.floor(Date.now() / 1000) - 21 * DAY);
   assert.deepEqual(run.scheduled, []);
   assert.deepEqual(run.notes, []);
   assert.equal(run.kv.get("resultado:recA"), "attended");
@@ -753,7 +951,7 @@ test("result watcher: 'Asistió' → 'Asistió, Perdido' is a NEW value and reti
   const trial = recentTrial();
   const kv = new Map<string, string>();
   const armed = await runWatcher("Asistió", trial, { kv });
-  assert.equal(armed.scheduled.length, 3);
+  assert.equal(armed.scheduled.length, POST_TRIAL_KINDS.length);
   assert.equal(kv.get("resultado:recA"), "attended");
 
   const lost = await runWatcher("Asistió, Perdido", trial, { kv });
@@ -763,7 +961,7 @@ test("result watcher: 'Asistió' → 'Asistió, Perdido' is a NEW value and reti
   assert.deepEqual(lost.scheduled, []);
   assert.deepEqual(lost.notes, []);
   const cancelled = lost.cancelledKinds.flat();
-  for (const kind of ["post_trial_d0", "post_trial_d2", "post_trial_d5", "no_show_d3"]) {
+  for (const kind of [...POST_TRIAL_KINDS, "post_trial_d5", "no_show_d3"]) {
     assert.ok(cancelled.includes(kind), `${kind} not cancelled: ${cancelled.join()}`);
   }
   // Class reminders are NOT touched — a "Perdido" must not cancel a live booking.
@@ -852,7 +1050,7 @@ test("decideClaim: a fresh claim records and stops today's message only", () => 
   assert.equal(d.record, true);
   assert.ok(d.text.includes("evan le escribe hoy a Ana (5215512345678)"), d.text);
   assert.ok(d.text.includes("el bot NO manda el mensaje de hoy"), d.text);
-  assert.ok(d.text.includes("+2d y +5d siguen"), d.text);
+  assert.ok(d.text.includes("(+2d … +30d) sigue"), d.text);
 });
 
 test("decideClaim: a second click reports who got there first, records nothing", () => {
@@ -936,7 +1134,7 @@ test("claimPendingFollowup: a cancelled/absent row reports no send time", async 
 test("attendedCardText is the 🔥 line the card leads with", () => {
   const t = attendedCardText("Ana", "5215512345678");
   assert.ok(t.startsWith("🔥 Ana (5215512345678) asistió y no se inscribió"), t);
-  assert.ok(t.includes("hoy, +2d, +5d"), t);
+  assert.ok(t.includes("hoy, +2d, +4d, +7d, +14d, +30d"), t);
 });
 
 // ---- the two result readers stay independent but must not contradict -------
@@ -985,7 +1183,6 @@ import {
   computePostTrialCardAt,
   decodeCardNote,
   encodeCardNote,
-  POST_TRIAL_ALL_KINDS,
   POST_TRIAL_CARD_KIND,
 } from "../src/cron/post-trial.js";
 
