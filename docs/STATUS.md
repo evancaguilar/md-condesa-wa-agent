@@ -23,6 +23,10 @@
 - Tests 913 → **930**. Build not re-run (site repo absent in this session; KB/persona untouched).
 - [ ] **Evan:** the 2 pm `same_day` reminder for that lead — you asked to cancel it; D1 console: `UPDATE followups SET status='cancelled' WHERE phone='5215549180788' AND kind='same_day' AND status='scheduled';`
 
+### Unbooked parents filed as adults — program signal (2026-09-30) — SHIPPED
+
+`contacts.qualification` was written only at booking, so a parent who said "2 años" / "mi hija" but never booked fell through `classifyProgram` to ADULTS (a BFC parent got the 09-29 adults blast and picked an adult 6 pm class). Now `src/services/program-signal.ts` reads each inbound message (ages 1–2 / ≤36 months → baby, 3–12 → kids, only when clearly about a third person) and the pipeline fills the gap; a booking's audience is never overridden. One-time backfill `POST /admin/api/contacts/backfill-program {dryRun}` ran on 2026-09-30: 2,375 unqualified leads scanned, 528 updated (201 baby, 327 kids — most were already kids/baby by campaign; the fix matters for Sitio web / adult-campaign parents). Also fixed a latent `\b`-after-"é" regex bug. Tests 940.
+
 ### Blast replies: the brain never saw the template it was answering (2026-09-29) — SHIPPED
 
 **Bug.** `ensureUserFirst` in src/brain/claude.ts shifted off every assistant turn before the first user turn (Messages API wants user-first). A blast recipient whose last message was weeks ago has a 48h history of just `[template, "Sí, por favor"]`, so the brain saw only the yes: it re-proposed other times ("¿te late 7 u 8 am?" when the template said 7/10/6/7), asked "¿a qué te refieres?", or scored 45–70 and sat in Aprobar for two hours. Seen on every blast since 09-17; the Slack card looked fine because it renders from D1, not from the brain's view.
