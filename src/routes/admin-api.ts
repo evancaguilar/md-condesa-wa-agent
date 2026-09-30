@@ -6,6 +6,9 @@
 // the Ports bundle so the sandbox route can build a per-request brain that reuses
 // the same overlay loader + real usage accrual as production.
 
+import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
+import { setQualification } from "../db/queries.js";
+import type { Qualification } from "../types.js";
 import type {
   BookTrialInput,
   BrainResult,
@@ -433,6 +436,15 @@ export async function handleAdminApi(
       return res.response;
     }
     return json({ error: "not found" }, 404);
+  }
+
+  // One-time backfill (2026-09-30): classify unbooked leads from what they
+  // wrote ("2 años", "mi hija") so blasts/nudges stop filing parents as adults.
+  // Owner-only; {dryRun:true} reports without writing. Reads each unqualified
+  // lead's inbound messages once (idx_messages_phone_ts) — run it once, not on a cron.
+  if (path === "/admin/api/contacts/backfill-program" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    return handleBackfillProgram(req, env);
   }
 
   // ---- marketing metrics (owner-only; docs/marketing-metrics.md) ----
@@ -2585,4 +2597,54 @@ async function handleMetricsBrief(env: Env, ports: Ports): Promise<Response> {
   } catch (err) {
     return metricsErrorResponse(err);
   }
+}
+
+async function handleBackfillProgram(req: Request, env: Env): Promise<Response> {
+  const body = await readJson<{ dryRun?: boolean; sinceDays?: number }>(req);
+  const dryRun = body.dryRun !== false;
+  const sinceDays = Math.min(365, Math.max(1, Number(body.sinceDays) || 120));
+  const since = nowSec() - sinceDays * 86400;
+  const { results } = await env.DB.prepare(
+    `SELECT c.phone AS phone, c.qualification AS qualification, m.body AS body
+       FROM contacts c JOIN messages m ON m.phone = c.phone AND m.direction = 'in'
+      WHERE c.status = 'lead' AND m.ts >= ?1
+        AND (c.qualification IS NULL OR c.qualification NOT LIKE '%"audience"%')
+      ORDER BY c.phone, m.ts`,
+  )
+    .bind(since)
+    .all<{ phone: string; qualification: string | null; body: string | null }>();
+  const byPhone = new Map<string, { q: Qualification; changed: boolean }>();
+  for (const r of results) {
+    let cur = byPhone.get(r.phone);
+    if (!cur) {
+      let q: Qualification = {};
+      try {
+        q = r.qualification ? (JSON.parse(r.qualification) as Qualification) : {};
+      } catch {
+        q = {};
+      }
+      cur = { q, changed: false };
+      byPhone.set(r.phone, cur);
+    }
+    const merged = mergeProgramSignal(cur.q, programSignalFromText(r.body));
+    if (merged) {
+      cur.q = merged;
+      cur.changed = true;
+    }
+  }
+  const changes = [...byPhone.entries()].filter(([, v]) => v.changed);
+  const counts = { baby: 0, kids: 0 };
+  for (const [, v] of changes) counts[(v.q.discipline ?? "").includes("baby") ? "baby" : "kids"]++;
+  if (!dryRun) {
+    for (const [phone, v] of changes) await setQualification(env.DB, phone, JSON.stringify(v.q));
+  }
+  return json({
+    ok: true,
+    dryRun,
+    scannedLeads: byPhone.size,
+    scannedMessages: results.length,
+    updated: changes.length,
+    counts,
+    sample: changes.slice(0, 15).map(([phone, v]) => ({ phone, q: v.q })),
+  });
 }

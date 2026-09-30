@@ -99,6 +99,9 @@ import {
   type FinalizeBookingInput,
 } from "../services/booking-core.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
+import { parseQualification } from "../cron/nudge-copy.js";
+import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
+import { setQualification } from "../db/queries.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
 // Crisis patterns compiled once per isolate (empty when the feature is off).
@@ -345,8 +348,23 @@ export async function processInbound(
     }
   }
 
-  const contact = await getContact(env.DB, msg.phone);
+  let contact = await getContact(env.DB, msg.phone);
   if (!contact) return;
+
+  // Program signal (2026-09-30): "2 años", "mi hija", "18 meses" → store
+  // audience/discipline now, not only at booking, so nudges and blast
+  // audiences stop filing unbooked parents as adults. Side effect only — not
+  // a gate; fail-soft.
+  try {
+    const merged = mergeProgramSignal(parseQualification(contact), programSignalFromText(body));
+    if (merged) {
+      const q = JSON.stringify(merged);
+      await setQualification(env.DB, msg.phone, q);
+      contact = { ...contact, qualification: q };
+    }
+  } catch (err) {
+    console.warn("[inbound] program signal failed", msg.phone, err);
+  }
 
   // Airtable sync — ONE sequential chain, never parallel calls: a first ad
   // message needs both lead_created and campaign_matched, and firing them
