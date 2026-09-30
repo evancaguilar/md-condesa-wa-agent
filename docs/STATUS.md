@@ -23,6 +23,14 @@
 - Tests 913 → **930**. Build not re-run (site repo absent in this session; KB/persona untouched).
 - [ ] **Evan:** the 2 pm `same_day` reminder for that lead — you asked to cancel it; D1 console: `UPDATE followups SET status='cancelled' WHERE phone='5215549180788' AND kind='same_day' AND status='scheduled';`
 
+### Blast replies: the brain never saw the template it was answering (2026-09-29) — SHIPPED
+
+**Bug.** `ensureUserFirst` in src/brain/claude.ts shifted off every assistant turn before the first user turn (Messages API wants user-first). A blast recipient whose last message was weeks ago has a 48h history of just `[template, "Sí, por favor"]`, so the brain saw only the yes: it re-proposed other times ("¿te late 7 u 8 am?" when the template said 7/10/6/7), asked "¿a qué te refieres?", or scored 45–70 and sat in Aprobar for two hours. Seen on every blast since 09-17; the Slack card looked fine because it renders from D1, not from the brain's view.
+
+**Fix (3308c94):** a placeholder user note (`HISTORY_OPENER`) now precedes a leading assistant turn instead of dropping it. Persona (429ea74): a yes to OUR offer confirms that slot ("Les aparto mañana 1 pm, ¿me confirmas tu nombre y el del bebé?"); several offered times → ask which of THOSE; kids age split → ask age + names; sureness box 8 no longer penalises asking names/age after an accepted offer (still covers the turn that books a minor). Sandbox after deploy: BFC 90, adults 85, kids 85 — all auto-send.
+
+**Blast ops this week:** per-tick ceiling 25→75 (bfb79e7). Fri 09-25 600 sent → 25 replies / 6 bookings / 0 shows. Sun 09-27 497 → 17 replies / 3 bookings. Tue 09-29 500 (7 runs, 4 new day-specific templates approved in <10 min). Audience rule Evan wants kept: no message of any kind in 3 days (4 for post-trial), different hook than the last blast a lead got. Not yet built into the sender — done by hand via `excludePhones`. Unmarked trial results ≈ 90% no-shows (Evan): BFC show rate ≈ 32%, not 45%.
+
 ### BFC price $1,996 + same-day buffer 4h → 1h + Teens weekend + Reto double reply + plan links (2026-09-22) — SHIPPED
 
 - **Baby Fight Club membership is now $1,996 cada 4 semanas (1 clase/sem)** (Evan): intake.md price table + suggested reply, persona exception + sureness checklist. The old "2 clases/sem $2,500" line is gone — the KB now escalates that question (Evan never gave a new number for it).
