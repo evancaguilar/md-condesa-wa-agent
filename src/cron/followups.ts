@@ -29,6 +29,7 @@ import {
 } from "../db/queries.js";
 import {
   bookingRecordedKey,
+  bookingRecordedValue,
   parseBookingRecordedMarker,
 } from "../services/booking-core.js";
 import {
@@ -862,6 +863,25 @@ export async function syncBookings(
         await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso, {
           includeConfirm: !knownRecord && !recentlyConfirmedInline,
         });
+        // The same "real Airtable booking" marker chat bookings write, so the
+        // brain knows this lead is booked (no duplicate book_trial) and its
+        // "¡nos vemos mañana!" ack is not flagged as unbacked (2026-09-30: a
+        // website-form booking for Wed 5 pm got the ⚠️ warning card).
+        // Written AFTER includeConfirm was decided from the old marker.
+        try {
+          const tp = cdmxParts(trialEpoch);
+          await kvSet(
+            env.DB,
+            bookingRecordedKey(phone),
+            bookingRecordedValue(
+              nowSec(),
+              `${tp.year}-${String(tp.month).padStart(2, "0")}-${String(tp.day).padStart(2, "0")}`,
+              `${String(tp.hour).padStart(2, "0")}:${String(tp.minute).padStart(2, "0")}`,
+            ),
+          );
+        } catch (err) {
+          console.error("[syncBookings] booking marker failed", phone, err);
+        }
         await cancelFollowupsByKinds(env.DB, phone, ALL_NUDGE_KINDS);
         // ---- Meta CAPI hook (docs/meta-capi.md) — BEGIN ----
         // "Booked" for web-form bookers (chat/human bookings fire inside

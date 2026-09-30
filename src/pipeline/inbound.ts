@@ -48,7 +48,9 @@ import {
   hasScheduledFollowupOfKind,
   setContactAdRef,
   setContactCampaign,
+  trialReminderRows,
 } from "../db/queries-admin.js";
+import { upcomingTrialDateFromReminders } from "../services/booking-guard.js";
 import {
   FIRST_REPLY_RESEND_COOLDOWN_SECONDS,
   adIdToLearn,
@@ -538,6 +540,15 @@ export async function processInbound(
     );
     if (marker && bookingMarkerLive(marker, nowSec)) {
       recordedBooking = marker;
+    } else {
+      // No chat-path marker: a website-form booking only shows up as its
+      // anti-no-show sequence (armed by syncBookings from the real Airtable
+      // record). An upcoming trial date there backs the claim just the same.
+      const trialDate = upcomingTrialDateFromReminders(
+        await trialReminderRows(env.DB, msg.phone),
+        nowSec,
+      );
+      if (trialDate) recordedBooking = { ts: nowSec, trialDate };
     }
   } catch (err) {
     console.error("[inbound] recordedBooking read failed", msg.phone, err);

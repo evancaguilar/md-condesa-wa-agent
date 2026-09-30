@@ -790,6 +790,26 @@ export async function scheduledFollowupsOfKind(
   return results;
 }
 
+/**
+ * The phone's anti-no-show reminder rows that were scheduled or already sent
+ * (cancelled ones belong to a moved/cancelled booking). Their due times imply
+ * the trial date (see trialDatesFromFollowups). Uses the UNIQUE(phone, kind,
+ * airtable_record_id) autoindex — no scan.
+ */
+export async function trialReminderRows(
+  db: D1Database,
+  phone: string,
+): Promise<Array<{ kind: string; due_at: number }>> {
+  const { results } = await db
+    .prepare(
+      `SELECT kind, due_at FROM followups
+       WHERE phone = ?1 AND kind IN ('day_before', 'same_day') AND status IN ('scheduled', 'sent')`,
+    )
+    .bind(phone)
+    .all<{ kind: string; due_at: number }>();
+  return results ?? [];
+}
+
 // ---- approvals: atomic claim ----
 
 /**

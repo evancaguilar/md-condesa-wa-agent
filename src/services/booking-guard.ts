@@ -204,7 +204,7 @@ export interface BackedCheck {
  *   - `trial_confirm` = when the booking was DETECTED, not the class → carries
  *     no date signal, so it is ignored here.
  */
-function trialDatesFromFollowups(
+export function trialDatesFromFollowups(
   rows: Array<{ kind: string; due_at: number }>,
 ): Set<string> {
   const dates = new Set<string>();
@@ -711,4 +711,20 @@ export async function submitBookingCaptureEdit(
 
   const force = !verdict.ok && previousFailed;
   await applyBookingCapture(env, key, { force, ...(by ? { by } : {}) }, deps);
+}
+
+/**
+ * Pure. The soonest trial date (YYYY-MM-DD, CDMX) implied by a phone's reminder
+ * rows that is today or later, or null. Backs booking-claim language for leads
+ * whose booking reached us through the Airtable sync (website form) — they
+ * never get a booking_recorded marker from the chat path (2026-09-30: Ana, a
+ * form booking for Wed 5 pm, had "¡Nos vemos mañana!" flagged as unbacked).
+ */
+export function upcomingTrialDateFromReminders(
+  rows: Array<{ kind: string; due_at: number }>,
+  nowSec: number,
+): string | null {
+  const today = cdmxDateStr(nowSec);
+  const future = [...trialDatesFromFollowups(rows)].filter((d) => d >= today).sort();
+  return future[0] ?? null;
 }

@@ -273,6 +273,40 @@ test("syncBookings skips past/phoneless records, schedules future ones, advances
   assert.ok(cursorWritten !== null); // cursor advanced
 });
 
+test("syncBookings writes the booking_recorded marker for a website-form booking (2026-09-30)", async () => {
+  const kvWrites: { key: string; value: string }[] = [];
+  const trialEpoch = Math.floor(Date.now() / 1000) + 2 * 86400;
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.includes("SELECT value FROM kv")) return { first: null };
+    if (sql.startsWith("INSERT INTO kv")) {
+      kvWrites.push({ key: String(binds[0]), value: String(binds[1]) });
+      return {};
+    }
+    if (sql.includes("SELECT * FROM contacts")) return { first: null };
+    return {};
+  });
+  const fakeAirtable = {
+    async listRecentBookings() {
+      return [
+        {
+          id: "recFORM",
+          phone: "5540085609",
+          name: "Ana",
+          trialDateTimeIso: new Date(trialEpoch * 1000).toISOString(),
+          result: null,
+        },
+      ];
+    },
+  };
+  await syncBookings(envWith(db), fakeAirtable);
+  const marker = kvWrites.find((w) => w.key === "booking_recorded:5215540085609");
+  assert.ok(marker, JSON.stringify(kvWrites));
+  const v = JSON.parse(marker!.value) as { trialDate: string; trialTime: string };
+  const p = cdmxParts(trialEpoch);
+  assert.equal(v.trialDate, `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`);
+  assert.match(v.trialTime, /^\d{2}:\d{2}$/);
+});
+
 // ---- followup state transitions ----
 
 // Stub the WA HTTP layer so sendText/sendTemplate succeed without real network.

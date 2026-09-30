@@ -13,6 +13,7 @@ import {
   BOOKING_META_PREFIX,
   BOOKING_MODAL_FIELDS,
   type BookingGuardDeps,
+  upcomingTrialDateFromReminders,
 } from "../src/services/booking-guard.js";
 import {
   bookingRecordedKey,
@@ -651,4 +652,30 @@ test("submitBookingCaptureEdit: a child name flips the audience to kid", async (
   const input = log.registered[0]!.input as { audience: string; childName?: string };
   assert.equal(input.audience, "kid");
   assert.equal(input.childName, "Sofía");
+});
+
+// ---- upcomingTrialDateFromReminders (2026-09-30, website-form bookings) ----
+
+test("upcomingTrialDateFromReminders: a sent day_before + pending same_day imply the trial date", () => {
+  // Ana: form booking for Wed 30 Sep 17:00. day_before went out Tue 18:00,
+  // same_day is due Wed 13:00. On Tue evening the trial date is Wed.
+  const rows = [
+    { kind: "day_before", due_at: cdmxToEpoch(2026, 9, 29, 18, 0, 0) },
+    { kind: "same_day", due_at: cdmxToEpoch(2026, 9, 30, 13, 0, 0) },
+  ];
+  assert.equal(
+    upcomingTrialDateFromReminders(rows, cdmxToEpoch(2026, 9, 29, 20, 0, 0)),
+    "2026-09-30",
+  );
+  // Still backed on the class day itself.
+  assert.equal(
+    upcomingTrialDateFromReminders(rows, cdmxToEpoch(2026, 9, 30, 16, 0, 0)),
+    "2026-09-30",
+  );
+});
+
+test("upcomingTrialDateFromReminders: a past trial or no rows backs nothing", () => {
+  const rows = [{ kind: "same_day", due_at: cdmxToEpoch(2026, 9, 20, 13, 0, 0) }];
+  assert.equal(upcomingTrialDateFromReminders(rows, cdmxToEpoch(2026, 9, 29, 12, 0, 0)), null);
+  assert.equal(upcomingTrialDateFromReminders([], cdmxToEpoch(2026, 9, 29, 12, 0, 0)), null);
 });

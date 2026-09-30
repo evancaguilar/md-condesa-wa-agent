@@ -4,6 +4,13 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### Website-form bookings flagged "NO se creó ningún booking en Airtable" (2026-09-30) — ON BRANCH
+
+- **Case (Ana, Kids campaign, 5215540085609):** booked through the website form (Airtable record reccNItjc91fuz6J2, Wed 30 Sep 5:00 pm, "Agendó Clase Prueba"); the sync armed her reminders; after the day-before reminder she wrote "Sii gracias" and the bot's "¡Nos vemos mañana, Ana!" arrived as a low draft with the ⚠️ unbacked-booking warning. **The booking was real.**
+- **Cause:** `guardUnbackedBookingClaim` (and the prompt's "Reserva YA registrada" line) only trust kv `booking_recorded:<phone>`, which ONLY chat/human bookings write. `syncBookings` (website form → Airtable → sequence) never wrote it, so every form booker's post-booking ack was flagged, and the brain did not know they were booked (duplicate book_trial risk).
+- **Fix:** (1) `syncBookings` writes the marker with the record's slot (after deciding trial_confirm from the old one). (2) The pipeline falls back to the lead's reminder rows (scheduled or sent `day_before`/`same_day`) when no marker is live: an upcoming implied trial date backs the claim (`upcomingTrialDateFromReminders`, booking-guard.ts). (2) covers form bookings already synced before this deploy. Query is on the UNIQUE(phone,…) autoindex.
+- Tests 930 → **933**.
+
 ### Same-day "tu clase MAÑANA" reminder, escalations in Aprobar, real names into the CRM (2026-09-28) — SHIPPED
 
 - **Bug (Google-ads lead +52 55 4918 0788, 13:06):** booked for 18:00 the same day, and at 13:10 got `trial_reminder_day_before_es` ("te recordamos tu clase mañana"). `computeTrialSequence` always scheduled day_before at 18:00 *the day before* — for a same-day booking that slot was already in the past, `clampToWindow` only moves times forward inside a day, and `dueFollowups` fires anything past-due on the next cron tick. Same latent bug for any booking made after 18:00 for the next day (an immediate "mañana" reminder minutes after the confirmation).
