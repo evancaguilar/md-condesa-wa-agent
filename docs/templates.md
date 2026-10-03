@@ -19,7 +19,7 @@ Template name mapping (base → sent name):
 - `post_trial_d0` / `post_trial_d2` / `post_trial_d5` → `…_es` / `…_en`
   (2026-09-21, attended-and-didn't-sign-up chain — see the section below)
 - `student_welcome` → `student_welcome_es` / `_en`  (2026-10-03, enrolment
-  welcome when the 24h window is closed — see §10)
+  welcome when the 24h window is closed — see §10; the ONE template with no {{1}})
 
 Address string used across templates: **Av. México 49, 1º piso, Condesa**.
 
@@ -311,7 +311,7 @@ delivery paths. Until Meta approves it the code falls back to `human_followup` (
 old generic text) and posts one Slack note saying so.
 
 **ES (`student_welcome_es`)**
-> ¡Bienvenid@ a la familia Elias {{1}}! 🥋🎉 Nos da mucho gusto tenerte.
+> ¡Bienvenid@ a la familia Elias! 🥋🎉 Nos da mucho gusto tenerte.
 >
 > Lo primero: únete al grupo de WhatsApp de la academia. Ahí avisamos cambios de horario, eventos y dudas rápidas: https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t
 >
@@ -320,7 +320,7 @@ old generic text) and posts one Slack note saying so.
 > ¡Nos vemos en el tatami!
 
 **EN (`student_welcome_en`)**
-> Welcome to the Elias family {{1}}! 🥋🎉 So glad to have you.
+> Welcome to the Elias family! 🥋🎉 So glad to have you.
 >
 > First thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t
 >
@@ -328,9 +328,9 @@ old generic text) and posts one Slack note saying so.
 >
 > See you on the mats!
 
-Variables: {{1}} name (sample: `Ana`). No footer (Utility). Links are plain
-body text so the template needs no URL-button sample; if Meta asks, they are
-fixed URLs.
+Variables: **none** (owner 2026-10-03: push names are too often junk, so no
+{{1}} here — the sender passes no body parameters). No footer (Utility). Links
+are plain body text so the template needs no URL-button sample.
 
 ---
 

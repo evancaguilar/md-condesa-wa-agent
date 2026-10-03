@@ -8,7 +8,7 @@
 
 - **Copy** (`copy.welcomeEs/En`, client.mjs): the old text garbled the gear discount ("10% si te inscribes en equipo"). New: family greeting → members' WhatsApp group link (`links.group`) → new-member guide `https://mdcondesa.com/bienvenida/` (`links.welcome`: horarios, lo básico de cada disciplina, qué incluye el plan, equipo Venum 25%). `renderCopy` gained `{group}`.
 - **KB** (intake.md): gear line is now "25% de descuento en equipo Venum (sobre el precio de venum.com; no aplica a ofertas)" + the guide link. Evan: it was called 10% because that is 10% off the member price; vs the Venum site price it is 25%. The bienvenida page's own gear section is being updated separately in the site repo.
-- **Closed-window path** (followups.ts, enrolled branch): tries the new Utility template `student_welcome_es/_en` (docs/templates.md §10, same body as the free-form copy, {{1}} name) and, while Meta has not approved it, falls back to `human_followup` as before with one Slack note. **Pendiente Evan: submit `student_welcome_es` / `_en` in WhatsApp Manager** (or via `/admin/api/blast/templates/create`) with the §10 body, category Utility, sample `Ana`.
+- **Closed-window path** (followups.ts, enrolled branch): tries the new Utility template `student_welcome_es/_en` (docs/templates.md §10, same body as the free-form copy, no name variable) and, while Meta has not approved it, falls back to `human_followup` as before with one Slack note. **Pendiente Evan: submit `student_welcome_es` / `_en` in WhatsApp Manager** (or via `/admin/api/blast/templates/create`) with the §10 body, category Utility, no variables.
 
 ### Blindaje 8 campaign, seeded from the worker (2026-10-02)
 

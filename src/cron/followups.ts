@@ -1186,9 +1186,8 @@ async function processResult(
           // send fails, so we fall back to the generic human_followup (what this
           // branch always sent) and leave one Slack note saying which went out.
           try {
-            await sendTemplate(env, phone, tpl("student_welcome", lang), lang, [
-              nameParam(name, lang),
-            ]);
+            // student_welcome has NO body variables (docs/templates.md §10).
+            await sendTemplate(env, phone, tpl("student_welcome", lang), lang, []);
           } catch (tErr) {
             try {
               await sendTemplate(env, phone, tpl("human_followup", lang), lang, [
