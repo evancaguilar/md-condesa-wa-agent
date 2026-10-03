@@ -31,6 +31,7 @@
     "src/db/indexes.ts",
     "src/services/wa-migrate.ts",
     "src/cron/template-sync.ts",
+    "src/cron/seed-campaigns.ts",
     "src/db/approvals-history.ts",
     "src/cron/time.ts",
     "src/cron/quiet.ts",

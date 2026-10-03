@@ -4,6 +4,13 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### Blindaje 8 campaign, seeded from the worker (2026-10-02)
+
+Evan launched the Blindaje 8 ad (8-week self-defense fundamentals, Saturdays 12:00–1:30 pm, coach Daniel Reynoso, first class free). Campaigns live only in D1 behind the owner login, so `src/cron/seed-campaigns.ts` creates it on the first cron tick after deploy (kv guard `seed_campaign:blindaje-8:2026-10-02`, one 📣 Slack note), then it is Evan's to edit in /admin → Campañas. Cheatsheet adjustments: the canned welcome says "este sábado" (no hardcoded day — the ad is relaunching as evergreen on 2026-10-03), the "which Saturday" logic reads the clock in campaign.info, bookings go through `book_trial` as jiu/adultos/sáb 12:00 (the real grid row) and say "Blindaje 8" in the confirmation, 16+ is written as an explicit exception to the KB's 13+ adult rule, Monday 10 am interest escalates with note "Blindaje lunes 10am", no end date. Airtable creates the «Blindaje 8» Campaña option itself (typecast). Tests 914 → **943**.
+
+- [ ] Evan: paste the ad ID(s) into the campaign once the evergreen ad is live (phrase matching works meanwhile).
+- [ ] Nudge drips are not campaign-aware: a Blindaje lead who stalls gets "soonest adult class" copy (e.g. lunes 7 am). Make nudges point at sábado 12 pm for this campaign if volume justifies it.
+
 ### Website-form bookings flagged "NO se creó ningún booking en Airtable" (2026-09-30) — ON BRANCH
 
 - **Case (Ana, Kids campaign, 5215540085609):** booked through the website form (Airtable record reccNItjc91fuz6J2, Wed 30 Sep 5:00 pm, "Agendó Clase Prueba"); the sync armed her reminders; after the day-before reminder she wrote "Sii gracias" and the bot's "¡Nos vemos mañana, Ana!" arrived as a low draft with the ⚠️ unbacked-booking warning. **The booking was real.**
