@@ -486,11 +486,11 @@ function noopSlack() {
 // ---- early-class same-day reminder (2026-10-03) ----
 import { sameDayReminderAt } from "../src/cron/followups.js";
 
-test("sameDayReminderAt: early classes get it 1 h before, never before 06:30; later classes unchanged", () => {
+test("sameDayReminderAt: early classes get it 1 h before, never before 06:00; later classes unchanged", () => {
   const at = (h: number, m = 0) => cdmxToEpoch(2026, 10, 3, h, m, 0);
   assert.equal(sameDayReminderAt(at(9)), at(8));
   assert.equal(sameDayReminderAt(at(8)), at(7));
-  assert.equal(sameDayReminderAt(at(7)), at(6, 30));
+  assert.equal(sameDayReminderAt(at(7)), at(6));
   assert.equal(sameDayReminderAt(at(10)), at(9)); // clamp to 09:00, still before class
   assert.equal(sameDayReminderAt(at(11)), at(9));
   assert.equal(sameDayReminderAt(at(13, 15)), at(9, 15));

@@ -172,15 +172,15 @@ export function computeTrialSequence(
   return steps.filter((s) => s.dueAt < trialEpoch);
 }
 
-/** Earliest same-day reminder for an early class (CDMX minute of day, 06:30). */
-export const EARLY_SAME_DAY_FLOOR_MIN = 6 * 60 + 30;
+/** Earliest same-day reminder for an early class (CDMX minute of day, 06:00). */
+export const EARLY_SAME_DAY_FLOOR_MIN = 6 * 60;
 
 /**
  * Pure. When the "hoy es tu clase" reminder goes out. Default: class − 4 h,
  * clamped into 09:00–21:00. Classes so early that the clamp lands at or after
  * class start (7, 8, 9 am) used to get NO same-day reminder at all
- * (2026-10-03, Evan): they now get it 1 h before class, never before 06:30 —
- * 9 am → 08:00, 8 am → 07:00, 7 am → 06:30. A trial reminder the lead asked
+ * (2026-10-03, Evan): they now get it 1 h before class, never before 06:00 —
+ * 9 am → 08:00, 8 am → 07:00, 7 am → 06:00. A trial reminder the lead asked
  * for by booking, so the 08:00 quiet-hours end does not apply to it.
  */
 export function sameDayReminderAt(trialEpoch: number): number {
