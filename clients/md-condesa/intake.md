@@ -172,7 +172,7 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 - **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día.
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
-- 10% de descuento en equipo para alumnos inscritos.
+- **25% de descuento en equipo Venum** para alumnos inscritos (sobre el precio de venum.com; no aplica a productos ya en oferta). Cómo pedirlo: https://mdcondesa.com/bienvenida/
 
 Respuesta sugerida la PRIMERA vez que preguntan precio (adultos/kids/teens):
 > Con gusto 🙌 Tenemos varias opciones de planes, paquetes y promos según la frecuencia de tu entrenamiento y el programa — y justo por eso preferimos platicar un poco contigo primero, así te recomendamos la que mejor se ajuste a tu objetivo y presupuesto, en vez de mandarte una lista genérica. Lo ideal es que vengas a tu día de prueba gratis y ahí lo vemos 💪 ¿Te queda bien [día] a las [hora]?

@@ -941,7 +941,7 @@ export async function syncBookings(
  *    channel who to call today. Nothing is sent from here.
  *  - "se inscribio" → set status=student, cancel ALL pending followups (which is
  *    what retires a post-trial chain armed earlier for the same record), send a
- *    warm welcome (free-form if window open, else human_followup template
+ *    warm welcome (free-form if window open, else student_welcome template
  *    fallback; failure → Slack).
  *
  * Two options of the multi-select are orthogonal to the outcome and gate all of
@@ -1165,23 +1165,43 @@ async function processResult(
     }
     const body = renderCopy(
       lang === "en" ? CLIENT.copy.welcomeEn : CLIENT.copy.welcomeEs,
-      { who, link: withAttribution(CLIENT.links.schedule, await linkAttribution(env, contact)) },
+      {
+        who,
+        link: withAttribution(
+          CLIENT.links.welcome ?? CLIENT.links.schedule,
+          await linkAttribution(env, contact),
+        ),
+        group: CLIENT.links.group ?? "",
+      },
     );
     try {
       await sendText(env, phone, body);
     } catch (err) {
       if (err instanceof WindowClosedError) {
         if (channelOf(phone) !== "wa") {
-          await noteMessengerWindowClosed(env, deps, phone, "human_followup");
+          await noteMessengerWindowClosed(env, deps, phone, "student_welcome");
         } else {
+          // Utility template with the same copy (group link + new-member page
+          // baked in); {{1}} = name. Until Meta approves student_welcome the
+          // send fails, so we fall back to the generic human_followup (what this
+          // branch always sent) and leave one Slack note saying which went out.
           try {
-            await sendTemplate(env, phone, tpl("human_followup", lang), lang, [
+            await sendTemplate(env, phone, tpl("student_welcome", lang), lang, [
               nameParam(name, lang),
             ]);
           } catch (tErr) {
-            await deps.slack.postNote(
-              `No pude enviar bienvenida a ${phone} (plantilla human_followup falló): ${String(tErr)}`,
-            );
+            try {
+              await sendTemplate(env, phone, tpl("human_followup", lang), lang, [
+                nameParam(name, lang),
+              ]);
+              await deps.slack.postNote(
+                `Bienvenida a ${phone}: la plantilla student_welcome falló (${String(tErr)}); mandé human_followup en su lugar. ¿Ya está aprobada en Meta?`,
+              );
+            } catch (t2Err) {
+              await deps.slack.postNote(
+                `No pude enviar bienvenida a ${phone} (student_welcome y human_followup fallaron): ${String(t2Err)}`,
+              );
+            }
           }
         }
       } else {

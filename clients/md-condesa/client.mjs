@@ -15,6 +15,11 @@ export default {
     booking: BOOKING_ADULTS,
     bookingKids: BOOKING_KIDS,
     schedule: "https://mdcondesa.com/#horarios",
+    // New-member guide (unlisted page, generated from content/welcome.js in
+    // the site repo): schedule, address, plan benefits, Venum gear discount.
+    welcome: "https://mdcondesa.com/bienvenida/",
+    // Members' WhatsApp group (one group for everyone, owner 2026-10-03).
+    group: "https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t",
   },
   services: [
     { key: "jiu", label: "Jiu-Jitsu", match: "jiu|bjj|jitsu|grappl" },
@@ -230,10 +235,14 @@ export default {
       "¡Hola{who}! Seguimos con tu lugar apartado para tu clase de prueba gratis en MD Condesa 🥋 {cta}",
     noShowD3En:
       "Hi{who}! We're still holding a spot for your free trial class at MD Condesa 🥋 {cta}",
+    // Enrolment welcome (result watcher, "Se inscribió"). Short on purpose:
+    // group link inline, everything else lives on the new-member page
+    // ({link} = links.welcome). Same text is the student_welcome template
+    // (docs/templates.md) for the closed-window fallback — keep them in sync.
     welcomeEs:
-      "¡Bienvenid@ a la familia{who}! 🥋🎉 Nos da mucho gusto tenerte. Lo que sigue: revisa los horarios ({link}) y recuerda que hay 10% de descuento si te inscribes en equipo. ¡Nos vemos en el tatami!",
+      "¡Bienvenid@ a la familia Elias{who}! 🥋🎉 Nos da mucho gusto tenerte.\n\nLo primero: únete al grupo de WhatsApp de la academia. Ahí avisamos cambios de horario, eventos y dudas rápidas: {group}\n\nY guarda tu guía de nuevo miembro: horarios, lo básico de cada disciplina, qué incluye tu plan y cómo pedir tu equipo Venum con 25% de descuento: {link}\n\n¡Nos vemos en el tatami!",
     welcomeEn:
-      "Welcome to the family{who}! 🥋🎉 So glad you joined. Next: check the schedule ({link}) and remember there's a 10% discount when you sign up as a team. See you on the mats!",
+      "Welcome to the Elias family{who}! 🥋🎉 So glad to have you.\n\nFirst thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: {group}\n\nAnd save your new-member guide: schedule, the basics of each discipline, what your plan includes and how to order Venum gear at 25% off: {link}\n\nSee you on the mats!",
     // Post-trial chain (attended, did not sign up).
     // NO PRICE, NO DISCOUNT, NO DEADLINE in any of these (owner, 2026-09-21):
     // the inscription discount is SAME-DAY-ONLY at the academy, so holding it
