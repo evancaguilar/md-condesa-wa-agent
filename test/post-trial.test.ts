@@ -182,15 +182,15 @@ test("computePostTrialSequence: a morning class gets its d0 the same afternoon",
   const trial = cdmxToEpoch(2026, 9, 16, 11, 0, 0);
   const steps = computePostTrialSequence(trial, trial + 3600);
   const d0 = steps.find((s) => s.kind === "post_trial_d0")!;
-  assert.equal(d0.dueAt, cdmxToEpoch(2026, 9, 16, 14, 0, 0)); // 11:00 + 3h, in-window
+  assert.equal(d0.dueAt, cdmxToEpoch(2026, 9, 16, 14, 30, 0)); // card 14:00 (11:00 + 3h), d0 30 min later
 });
 
 test("computePostTrialSequence: a 7:00 am class never writes before 09:30", () => {
-  const trial = cdmxToEpoch(2026, 9, 16, 7, 0, 0); // +3h = 10:00, fine
+  const trial = cdmxToEpoch(2026, 9, 16, 7, 0, 0); // card 10:00, d0 10:30
   const early = cdmxToEpoch(2026, 9, 16, 5, 30, 0); // a 5:30 am class: +3h = 08:30
   assert.equal(
     computePostTrialSequence(trial, trial)[0]!.dueAt,
-    cdmxToEpoch(2026, 9, 16, 10, 0, 0),
+    cdmxToEpoch(2026, 9, 16, 10, 30, 0),
   );
   assert.equal(
     computePostTrialSequence(early, early)[0]!.dueAt,
@@ -689,8 +689,11 @@ async function runWatcher(
 }
 
 /** A trial a couple of hours ago — the ordinary "front desk just marked it" case. */
+/** A trial whose attended card is already due at "now" whatever the wall
+ *  clock: the card waits at most 12 h (a 9 pm class → 09:00 next day), so 13 h
+ *  ago always posts immediately instead of arming a post_trial_card row. */
 function recentTrial(): number {
-  return Math.floor(Date.now() / 1000) - 2 * 3600;
+  return Math.floor(Date.now() / 1000) - 13 * 3600;
 }
 
 test("result watcher: 'Asistió' arms the three post-trial rows and pings Slack", async () => {
@@ -980,20 +983,40 @@ test("an enrolment reports QualifiedLead AND Purchase, in that order", () => {
 // ---- delayed attended card (2026-09-21) ----
 
 import {
-  CARD_DELAY_AFTER_END,
-  CLASS_LENGTH,
   computePostTrialCardAt,
+  postTrialCardTime,
   decodeCardNote,
   encodeCardNote,
   POST_TRIAL_ALL_KINDS,
   POST_TRIAL_CARD_KIND,
 } from "../src/cron/post-trial.js";
 
-test("computePostTrialCardAt: class start + 1h + 30min; null once that moment passed", () => {
-  const start = cdmxToEpoch(2026, 9, 21, 18, 0, 0);
-  assert.equal(computePostTrialCardAt(start, start + 300), start + CLASS_LENGTH + CARD_DELAY_AFTER_END);
-  assert.equal(computePostTrialCardAt(start, start + 2 * 3600), null, "marked late → post now");
+test("computePostTrialCardAt: class start + 3h; null once that moment passed", () => {
+  const start = cdmxToEpoch(2026, 10, 3, 9, 0, 0);
+  assert.equal(computePostTrialCardAt(start, start + 300), cdmxToEpoch(2026, 10, 3, 12, 0, 0));
+  assert.equal(computePostTrialCardAt(start, start + 4 * 3600), null, "marked late → post now");
   assert.equal(computePostTrialCardAt(NaN, start), null);
+});
+
+test("postTrialCardTime: 3h after start; 6 pm → 20:59; 7/8/9 pm → 09:00 next day", () => {
+  const at = (d: number, h: number, m = 0) => cdmxToEpoch(2026, 10, d, h, m, 0);
+  assert.equal(postTrialCardTime(at(3, 9)), at(3, 12));
+  assert.equal(postTrialCardTime(at(3, 11)), at(3, 14));
+  assert.equal(postTrialCardTime(at(3, 14)), at(3, 17));
+  assert.equal(postTrialCardTime(at(5, 17)), at(5, 20));
+  assert.equal(postTrialCardTime(at(5, 18)), at(5, 20, 59));
+  assert.equal(postTrialCardTime(at(5, 19)), at(6, 9));
+  assert.equal(postTrialCardTime(at(5, 20)), at(6, 9));
+  assert.equal(postTrialCardTime(at(5, 21)), at(6, 9));
+  assert.equal(postTrialCardTime(at(31, 20)), cdmxToEpoch(2026, 11, 1, 9, 0, 0)); // month rollover
+});
+
+test("post-trial d0 always lands after the card (so 🙋 Yo le escribo can stop it)", () => {
+  for (const h of [7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21]) {
+    const trial = cdmxToEpoch(2026, 10, 5, h, 0, 0);
+    const d0 = computePostTrialSequence(trial, trial + 600).find((s) => s.kind === "post_trial_d0")!;
+    assert.ok(d0.dueAt > postTrialCardTime(trial), `class ${h}:00`);
+  }
 });
 
 test("post_trial_card is part of the cancellation surface and its note round-trips", () => {

@@ -1084,9 +1084,9 @@ async function processResult(
       // that kills today's automated message. Staff follow up from their own
       // phones, which the bot cannot see, so that click is the only signal we
       // will ever get. Falls back to a plain note when no card dep is injected.
-      // Held until ~30 min after the class ENDS (Evan, 2026-09-21): the desk
-      // closes in person first, then the card asks who follows up. A result
-      // marked after that moment posts right away.
+      // Held until class start + 3 h (night classes: 20:59 / 09:00 next day —
+      // postTrialCardTime, Evan 2026-10-03) so a lead on a back-to-back second
+      // class is off the mat. A result marked after that moment posts right away.
       const who = displayName(name, contact?.name);
       const cardAt = computePostTrialCardAt(trialEpoch, nowSec());
       if (cardAt !== null) {

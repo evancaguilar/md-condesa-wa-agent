@@ -54,22 +54,39 @@ export const POST_TRIAL_CARD_KIND = "post_trial_card";
 /** Every kind this module owns — the cancellation surface. */
 export const POST_TRIAL_ALL_KINDS = [...POST_TRIAL_KINDS, NO_SHOW_KIND, POST_TRIAL_CARD_KIND] as const;
 
-/** Assumed class length: adult/kids classes run ~1 h (Baby is 40 min — the card
- *  is a few minutes later there, which is harmless). */
-export const CLASS_LENGTH = 60 * 60;
-/** The card waits this long AFTER the class ends — the front desk closes in
- *  person first; a card saying "escríbele hoy" while the lead is still on the
- *  mat was the complaint (Evan, 2026-09-21). */
-export const CARD_DELAY_AFTER_END = 30 * 60;
+/**
+ * When the attended card ("asistió y no se inscribió" + 🙋) posts (Evan,
+ * 2026-10-03): 3 h after class START, so a lead taking the second class back to
+ * back is off the mat first. Night exceptions:
+ *   - class at 19:00 or later (7, 8, 9 pm) → 09:00 the next morning;
+ *   - otherwise, if +3 h reaches 21:00 (a 6 pm class) → 20:59 the same day.
+ * Never before 09:00. Pure.
+ */
+export const CARD_AFTER_START = 3 * 60 * 60;
+export const NIGHT_CLASS_FROM_MIN = 19 * 60;
+export function postTrialCardTime(trialEpoch: number): number {
+  const p = cdmxParts(trialEpoch);
+  const day0 = cdmxToEpoch(p.year, p.month, p.day, 0, 0, 0);
+  if (p.hour * 60 + p.minute >= NIGHT_CLASS_FROM_MIN) {
+    return cdmxToEpoch(p.year, p.month, p.day + 1, 9, 0, 0);
+  }
+  const t = trialEpoch + CARD_AFTER_START;
+  if (t >= day0 + 21 * 3600) return day0 + 21 * 3600 - 60; // 20:59
+  if (t < day0 + 9 * 3600) return day0 + 9 * 3600;
+  return t;
+}
+
+/** The lead's d0 WhatsApp goes this long after the card, so "🙋 Yo le escribo"
+ *  can still stop it. */
+export const D0_AFTER_CARD = 30 * 60;
 
 /**
- * When the attended card should post: class start + CLASS_LENGTH +
- * CARD_DELAY_AFTER_END. Null when that moment already passed (the result was
- * marked late) — post it right away. Pure.
+ * When the attended card should post (postTrialCardTime). Null when that moment
+ * already passed (the result was marked late) — post it right away. Pure.
  */
 export function computePostTrialCardAt(trialEpoch: number, now: number): number | null {
   if (!Number.isFinite(trialEpoch)) return null;
-  const dueAt = trialEpoch + CLASS_LENGTH + CARD_DELAY_AFTER_END;
+  const dueAt = postTrialCardTime(trialEpoch);
   return dueAt > now ? dueAt : null;
 }
 
@@ -100,8 +117,6 @@ export interface PostTrialStep {
 export const POST_TRIAL_MAX_AGE = 5 * DAY;
 /** Marked later than this ⇒ the "same evening" touch is skipped as stale. */
 export const POST_TRIAL_D0_MAX_AGE = 2 * DAY;
-/** How long after the trial the d0 touch naturally lands. */
-export const POST_TRIAL_D0_DELAY = 3 * HOUR;
 
 /**
  * Push an epoch into the 09:00–21:00 CDMX send window. Anything before 09:00 or
@@ -131,7 +146,8 @@ function morningAfter(trialEpoch: number, days: number): number {
  * The post-trial touches to arm for a trial at `trialEpoch`, marked "Asistió"
  * at `now`. Pure.
  *
- *  - d0 ≈ 3h after the class STARTS (same evening); past 21:00 → 09:30 tomorrow.
+ *  - d0 = 30 min after the attended card (card ≈ class start + 3 h; see
+ *    postTrialCardTime); anything that lands at/after 21:00 → 09:30 tomorrow.
  *    Dropped when the front desk marked the result more than 48h late — a
  *    "¿cómo te sentiste hoy?" two days after the fact reads like a bot.
  *  - d2 / d5 at 11:00 CDMX on the trial date + 2 / + 5 days, and only when that
@@ -151,7 +167,7 @@ export function computePostTrialSequence(
   if (age <= POST_TRIAL_D0_MAX_AGE) {
     steps.push({
       kind: "post_trial_d0",
-      dueAt: placeInWindow(trialEpoch + POST_TRIAL_D0_DELAY),
+      dueAt: placeInWindow(postTrialCardTime(trialEpoch) + D0_AFTER_CARD),
     });
   }
   for (const [kind, days] of [
