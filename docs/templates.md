@@ -311,7 +311,7 @@ delivery paths. Until Meta approves it the code falls back to `human_followup` (
 old generic text) and posts one Slack note saying so.
 
 **ES (`student_welcome_es`)**
-> ¡Bienvenid@ a la familia! 🥋🎉 Nos da mucho gusto tenerte.
+> ¡Bienvenid@ a la familia MD Condesa! 🥋🎉 Nos da mucho gusto tenerte.
 >
 > Lo primero: únete al grupo de WhatsApp de la academia. Ahí avisamos cambios de horario, eventos y dudas rápidas: https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t
 >
@@ -320,7 +320,7 @@ old generic text) and posts one Slack note saying so.
 > ¡Nos vemos en el tatami!
 
 **EN (`student_welcome_en`)**
-> Welcome to the family! 🥋🎉 So glad to have you.
+> Welcome to the MD Condesa family! 🥋🎉 So glad to have you.
 >
 > First thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t
 >
