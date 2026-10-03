@@ -2,4 +2,4 @@
 // Content hash of the source tree this build ships (src/**/*.ts +
 // src/ui/admin.html). Surfaced as /health rev so a code-only deploy can
 // be verified: re-run tools/gen-rev.mjs at a commit and compare.
-export const REV: string = "e13388e1532e";
+export const REV: string = "0c063e3a9fa3";

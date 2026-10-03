@@ -6,6 +6,7 @@
 // the Ports bundle so the sandbox route can build a per-request brain that reuses
 // the same overlay loader + real usage accrual as production.
 
+import { scheduleTrialSequence } from "../cron/followups.js";
 import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
 import { setQualification } from "../db/queries.js";
 import type { Qualification } from "../types.js";
@@ -445,6 +446,23 @@ export async function handleAdminApi(
   if (path === "/admin/api/contacts/backfill-program" && method === "POST") {
     if (session.role !== "owner") return json({ error: "forbidden" }, 403);
     return handleBackfillProgram(req, env);
+  }
+
+  // Re-arm the reminder sequence for given bookings (owner-only, 2026-10-03).
+  // Used after a reminder-timing change so bookings already on the books pick
+  // up the new schedule. Never re-sends the confirmation; only scheduled rows move.
+  if (path === "/admin/api/followups/rearm" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const body = await readJson<{ items?: { phone?: string; recordId?: string; trialIso?: string }[] }>(req);
+    const items = Array.isArray(body.items) ? body.items.slice(0, 100) : [];
+    const done: string[] = [];
+    for (const it of items) {
+      const phone = normalizeMxPhone(String(it.phone ?? ""));
+      if (!phone || !it.recordId || !it.trialIso) continue;
+      await scheduleTrialSequence(env, phone, it.recordId, it.trialIso, { includeConfirm: false });
+      done.push(phone);
+    }
+    return json({ ok: true, rearmed: done.length, phones: done });
   }
 
   // ---- marketing metrics (owner-only; docs/marketing-metrics.md) ----

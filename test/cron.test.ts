@@ -170,13 +170,15 @@ test("computeTrialSequence: booked after 18:00 for tomorrow → same_day only", 
 });
 
 test("computeTrialSequence: nothing is scheduled at or after class start", () => {
-  // 09:00 class booked the night before: same_day (05:00) clamps to 09:00 =
-  // class start → dropped; day_before (18:00 yesterday) is behind → dropped;
-  // the web-form confirm (clamped to 09:00) is dropped too.
+  // 09:00 class booked the night before: day_before (18:00 yesterday) is behind
+  // → dropped; the web-form confirm (clamped to 09:00 = class start) is dropped.
+  // Since 2026-10-03 the same_day reminder goes 1 h before (08:00) instead of
+  // being dropped, so it is the ONE step left — and it is before class.
   const trial = cdmxToEpoch(2026, 9, 29, 9, 0, 0);
   const booked = cdmxToEpoch(2026, 9, 28, 23, 0, 0);
   const steps = computeTrialSequence(trial, { nowEpoch: booked });
-  assert.deepEqual(steps, []);
+  assert.deepEqual(steps, [{ kind: "same_day", dueAt: cdmxToEpoch(2026, 9, 29, 8, 0, 0) }]);
+  for (const s of steps) assert.ok(s.dueAt < trial);
 });
 
 test("computeTrialSequence: a web-form booking days ahead keeps all three steps", () => {
@@ -480,3 +482,27 @@ function noopSlack() {
     async postAttendanceCheck() {},
   };
 }
+
+// ---- early-class same-day reminder (2026-10-03) ----
+import { sameDayReminderAt } from "../src/cron/followups.js";
+
+test("sameDayReminderAt: early classes get it 1 h before, never before 06:30; later classes unchanged", () => {
+  const at = (h: number, m = 0) => cdmxToEpoch(2026, 10, 3, h, m, 0);
+  assert.equal(sameDayReminderAt(at(9)), at(8));
+  assert.equal(sameDayReminderAt(at(8)), at(7));
+  assert.equal(sameDayReminderAt(at(7)), at(6, 30));
+  assert.equal(sameDayReminderAt(at(10)), at(9)); // clamp to 09:00, still before class
+  assert.equal(sameDayReminderAt(at(11)), at(9));
+  assert.equal(sameDayReminderAt(at(13, 15)), at(9, 15));
+  assert.equal(sameDayReminderAt(at(14)), at(10));
+  assert.equal(sameDayReminderAt(at(19)), at(15));
+});
+
+test("computeTrialSequence: a 9 am class booked the day before now carries a same_day step at 08:00", () => {
+  const trial = cdmxToEpoch(2026, 10, 3, 9, 0, 0);
+  const booked = cdmxToEpoch(2026, 10, 2, 19, 0, 0);
+  const steps = computeTrialSequence(trial, { includeConfirm: false, nowEpoch: booked });
+  const same = steps.find((s) => s.kind === "same_day");
+  assert.ok(same, "same_day step exists");
+  assert.equal(same!.dueAt, cdmxToEpoch(2026, 10, 3, 8, 0, 0));
+});
