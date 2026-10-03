@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-10-03+e24ababc7137
-     approx_tokens: 10942 (chars 38295 / 3.5)
+     version: 2026-10-03+48d0a92c9bfc
+     approx_tokens: 11505 (chars 40266 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -21,29 +21,29 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 ## Horario (America/Mexico_City)
 
 ### Por disciplina
-- **Jiu-Jitsu**: Lun 7:00 AM (Gi), 8:00 AM (Gi), 10:00 AM (Gi), 11:00 AM (Gi), 5:00 PM (Gi, Niños), 5:00 PM (Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Mar 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Niños), 5:00 PM (Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Mié 7:00 AM (Gi), 8:00 AM (Gi), 5:00 PM (Gi, Niños), 5:00 PM (Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Jue 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Niños), 5:00 PM (Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Vie 7:00 AM (No-Gi), 8:00 AM (No-Gi) · Sáb 9:00 AM (Fundamentos), 10:00 AM (No-Gi), 11:00 AM (No-Gi, Niños), 12:00 PM (Gi) · Dom 12:00 PM (No-Gi)
-- **Muay Thai**: Lun 7:00 AM, 8:00 AM, 9:00 AM, 10:00 AM, 3:15 PM (3-5 años), 4:00 PM (Niños), 6:00 PM, 7:00 PM · Mar 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Niños), 6:00 PM, 7:00 PM · Mié 7:00 AM, 8:00 AM, 9:00 AM, 10:00 AM, 3:15 PM (3-5 años), 4:00 PM (Niños), 6:00 PM, 7:00 PM · Jue 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Niños), 6:00 PM (Sparring), 7:00 PM (Sparring) · Vie 7:00 AM, 8:00 AM, 9:00 AM, 10:00 AM · Sáb 10:00 AM, 11:00 AM (Sparring), 12:00 PM (Niños), 1:15 PM (3-5 años) · Dom 11:00 AM
-- **MMA**: Lun 4:00 PM (Teens), 8:00 PM · Mar 9:00 AM, 4:00 PM (Teens), 8:00 PM · Mié 4:00 PM (Teens), 8:00 PM · Jue 9:00 AM, 4:00 PM (Teens), 8:00 PM
+- **Jiu-Jitsu**: Lun 7:00 AM (Gi), 8:00 AM (Gi), 10:00 AM (Gi), 11:00 AM (Gi), 5:00 PM (Gi, Niños), 5:00 PM (Gi, Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Mar 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Niños), 5:00 PM (No-Gi, Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Mié 7:00 AM (Gi), 8:00 AM (Gi), 5:00 PM (Gi, Niños), 5:00 PM (Gi, Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Jue 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Niños), 5:00 PM (No-Gi, Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Vie 7:00 AM (Open Mat), 8:00 AM (Open Mat) · Sáb 9:00 AM (Fundamentos), 10:00 AM (No-Gi), 11:00 AM (No-Gi, Niños), 12:00 PM (Gi) · Dom 12:00 PM (No-Gi)
+- **Muay Thai**: Lun 7:00 AM, 8:00 AM, 10:00 AM, 3:15 PM (3-5 años), 4:00 PM (Niños), 6:00 PM, 7:00 PM · Mar 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Niños), 6:00 PM, 7:00 PM · Mié 7:00 AM (Sparring), 8:00 AM, 10:00 AM, 3:15 PM (3-5 años), 4:00 PM (Niños), 6:00 PM, 7:00 PM · Jue 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Niños), 6:00 PM (Sparring), 7:00 PM (Sparring) · Vie 7:00 AM, 8:00 AM, 10:00 AM · Sáb 10:00 AM, 11:00 AM (Sparring), 12:00 PM (Niños), 1:15 PM (3-5 años) · Dom 11:00 AM
+- **MMA**: Lun 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Mar 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Mié 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM (Sparring) · Jue 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Vie 9:00 AM (Striking)
 - **Boxing**: Mar 9:00 PM · Jue 9:00 PM · Sáb 2:00 PM
-- **Baby Fight Club**: Mié 12:00 PM · Sáb 3:00 PM
+- **Baby Fight Club**: Mié 12:00 PM · Sáb 3:00 PM (Nivel 1), 3:45 PM (Nivel 2)
 
 ### Por día
-- **Lunes**: 7:00 AM Jiu-Jitsu (Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (Gi) / Muay Thai; 9:00 AM Muay Thai; 10:00 AM Jiu-Jitsu (Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (Gi); 3:15 PM Muay Thai (3-5 años); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (Gi, Niños) / Jiu-Jitsu (Teens); 6:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (Gi) / MMA
-- **Martes**: 7:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 9:00 AM MMA; 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (No-Gi); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (No-Gi, Niños) / Jiu-Jitsu (Teens); 6:00 PM Jiu-Jitsu (Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (No-Gi) / MMA; 9:00 PM Boxing
-- **Miércoles**: 7:00 AM Jiu-Jitsu (Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (Gi) / Muay Thai; 9:00 AM Muay Thai; 10:00 AM Muay Thai; 12:00 PM Baby Fight Club; 3:15 PM Muay Thai (3-5 años); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (Gi, Niños) / Jiu-Jitsu (Teens); 6:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (Gi) / MMA
-- **Jueves**: 7:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 9:00 AM MMA; 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (No-Gi); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (No-Gi, Niños) / Jiu-Jitsu (Teens); 6:00 PM Jiu-Jitsu (Gi) / Muay Thai (Sparring); 7:00 PM Jiu-Jitsu (No-Gi) / Muay Thai (Sparring); 8:00 PM Jiu-Jitsu (No-Gi) / MMA; 9:00 PM Boxing
-- **Viernes**: 7:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 9:00 AM Muay Thai; 10:00 AM Muay Thai
-- **Sábado**: 9:00 AM Jiu-Jitsu (Fundamentos); 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Muay Thai (Sparring) / Jiu-Jitsu (No-Gi, Niños); 12:00 PM Jiu-Jitsu (Gi) / Muay Thai (Niños); 1:15 PM Muay Thai (3-5 años); 2:00 PM Boxing; 3:00 PM Baby Fight Club
+- **Lunes**: 7:00 AM Jiu-Jitsu (Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (Gi) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Jiu-Jitsu (Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (Gi); 3:15 PM Muay Thai (3-5 años); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (Gi, Niños) / Jiu-Jitsu (Gi, Teens); 6:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (Gi) / MMA
+- **Martes**: 7:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (No-Gi); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (No-Gi, Niños) / Jiu-Jitsu (No-Gi, Teens); 6:00 PM Jiu-Jitsu (Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (No-Gi) / MMA; 9:00 PM Boxing
+- **Miércoles**: 7:00 AM Jiu-Jitsu (Gi) / Muay Thai (Sparring); 8:00 AM Jiu-Jitsu (Gi) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Muay Thai; 12:00 PM Baby Fight Club; 3:15 PM Muay Thai (3-5 años); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (Gi, Niños) / Jiu-Jitsu (Gi, Teens); 6:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (Gi) / MMA (Sparring)
+- **Jueves**: 7:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (No-Gi); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (No-Gi, Niños) / Jiu-Jitsu (No-Gi, Teens); 6:00 PM Jiu-Jitsu (Gi) / Muay Thai (Sparring); 7:00 PM Jiu-Jitsu (No-Gi) / Muay Thai (Sparring); 8:00 PM Jiu-Jitsu (No-Gi) / MMA; 9:00 PM Boxing
+- **Viernes**: 7:00 AM Jiu-Jitsu (Open Mat) / Muay Thai; 8:00 AM Jiu-Jitsu (Open Mat) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Muay Thai
+- **Sábado**: 9:00 AM Jiu-Jitsu (Fundamentos); 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Muay Thai (Sparring) / Jiu-Jitsu (No-Gi, Niños); 12:00 PM Jiu-Jitsu (Gi) / Muay Thai (Niños); 1:15 PM Muay Thai (3-5 años); 2:00 PM Boxing; 3:00 PM Baby Fight Club (Nivel 1); 3:45 PM Baby Fight Club (Nivel 2)
 - **Domingo**: 11:00 AM Muay Thai; 12:00 PM Jiu-Jitsu (No-Gi)
 
-> Los horarios en dorado son de sparring de Muay Thai (Jueves 6 y 7 PM · Sábado 11 AM).
+> Los horarios en dorado son de sparring: Muay Thai (Miércoles 7 AM · Jueves 6 y 7 PM · Sábado 11 AM) y MMA (Miércoles 8 PM).
 
 ### Schedule (English, by discipline)
-- **Jiu-Jitsu**: Mon 7:00 AM (Gi), 8:00 AM (Gi), 10:00 AM (Gi), 11:00 AM (Gi), 5:00 PM (Gi, Kids), 5:00 PM (Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Tue 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Kids), 5:00 PM (Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Wed 7:00 AM (Gi), 8:00 AM (Gi), 5:00 PM (Gi, Kids), 5:00 PM (Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Thu 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Kids), 5:00 PM (Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Fri 7:00 AM (No-Gi), 8:00 AM (No-Gi) · Sat 9:00 AM (Fundamentos), 10:00 AM (No-Gi), 11:00 AM (No-Gi, Kids), 12:00 PM (Gi) · Sun 12:00 PM (No-Gi)
-- **Muay Thai**: Mon 7:00 AM, 8:00 AM, 9:00 AM, 10:00 AM, 3:15 PM (Ages 3-5), 4:00 PM (Kids), 6:00 PM, 7:00 PM · Tue 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Kids), 6:00 PM, 7:00 PM · Wed 7:00 AM, 8:00 AM, 9:00 AM, 10:00 AM, 3:15 PM (Ages 3-5), 4:00 PM (Kids), 6:00 PM, 7:00 PM · Thu 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Kids), 6:00 PM (Sparring), 7:00 PM (Sparring) · Fri 7:00 AM, 8:00 AM, 9:00 AM, 10:00 AM · Sat 10:00 AM, 11:00 AM (Sparring), 12:00 PM (Kids), 1:15 PM (Ages 3-5) · Sun 11:00 AM
-- **MMA**: Mon 4:00 PM (Teens), 8:00 PM · Tue 9:00 AM, 4:00 PM (Teens), 8:00 PM · Wed 4:00 PM (Teens), 8:00 PM · Thu 9:00 AM, 4:00 PM (Teens), 8:00 PM
+- **Jiu-Jitsu**: Mon 7:00 AM (Gi), 8:00 AM (Gi), 10:00 AM (Gi), 11:00 AM (Gi), 5:00 PM (Gi, Kids), 5:00 PM (Gi, Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Tue 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Kids), 5:00 PM (No-Gi, Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Wed 7:00 AM (Gi), 8:00 AM (Gi), 5:00 PM (Gi, Kids), 5:00 PM (Gi, Teens), 6:00 PM (No-Gi), 7:00 PM (Gi), 8:00 PM (Gi) · Thu 7:00 AM (No-Gi), 8:00 AM (No-Gi), 10:00 AM (No-Gi), 11:00 AM (No-Gi), 5:00 PM (No-Gi, Kids), 5:00 PM (No-Gi, Teens), 6:00 PM (Gi), 7:00 PM (No-Gi), 8:00 PM (No-Gi) · Fri 7:00 AM (Open Mat), 8:00 AM (Open Mat) · Sat 9:00 AM (Fundamentos), 10:00 AM (No-Gi), 11:00 AM (No-Gi, Kids), 12:00 PM (Gi) · Sun 12:00 PM (No-Gi)
+- **Muay Thai**: Mon 7:00 AM, 8:00 AM, 10:00 AM, 3:15 PM (Ages 3-5), 4:00 PM (Kids), 6:00 PM, 7:00 PM · Tue 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Kids), 6:00 PM, 7:00 PM · Wed 7:00 AM (Sparring), 8:00 AM, 10:00 AM, 3:15 PM (Ages 3-5), 4:00 PM (Kids), 6:00 PM, 7:00 PM · Thu 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Kids), 6:00 PM (Sparring), 7:00 PM (Sparring) · Fri 7:00 AM, 8:00 AM, 10:00 AM · Sat 10:00 AM, 11:00 AM (Sparring), 12:00 PM (Kids), 1:15 PM (Ages 3-5) · Sun 11:00 AM
+- **MMA**: Mon 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Tue 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Wed 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM (Sparring) · Thu 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Fri 9:00 AM (Striking)
 - **Boxing**: Tue 9:00 PM · Thu 9:00 PM · Sat 2:00 PM
-- **Baby Fight Club**: Wed 12:00 PM · Sat 3:00 PM
+- **Baby Fight Club**: Wed 12:00 PM · Sat 3:00 PM (Nivel 1), 3:45 PM (Nivel 2)
 
 ## Disciplinas
 
@@ -54,8 +54,8 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 - **Clases de Box en Condesa**: La dulce ciencia: manos rápidas, juego de pies y cabeza fría. Boxeo técnico para ponerte en forma, quitarte el estrés y aprender a defenderte, a una cuadra de Parque México. Desde principiantes hasta nivel avanzado.
 - **Defensa Personal en Condesa**: Defensa personal que de verdad funciona: no trucos, sino habilidades probadas del Jiu-Jitsu, el Muay Thai y el Box, entrenadas contra resistencia real. Aprende a mantener la calma y a protegerte, a una cuadra de Parque México.
 - **Defensa Personal para Mujeres en Condesa**: Habilidades reales, en un ambiente seguro y respetuoso. Aprende a protegerte con Jiu-Jitsu, Muay Thai y Box —las artes pensadas para que una persona más pequeña controle a una más grande— a una cuadra de Parque México.
-- **Artes Marciales para Niños en Condesa**: Jiu-Jitsu y Muay Thai para niños de 4 a 12 años y teens de 13 a 17, junto a Parque México. Más que pelear: confianza, disciplina, coordinación, respeto y defensa personal, en un ambiente seguro y divertido.
-- **Baby Fight Club en Condesa**: Una clase de movimiento para bebés de 12 a 36 meses, junto a mamá o papá. No es pelea: es juego, desarrollo motriz, equilibrio, coordinación, socialización y confianza, en un espacio seguro a una cuadra de Parque México.
+- **Artes Marciales para Niños en Condesa**: Jiu-Jitsu y Muay Thai para niños de 6 a 12 años y teens de 13 a 17, junto a Parque México. Más que pelear: confianza, disciplina, coordinación, respeto y defensa personal, en un ambiente seguro y divertido.
+- **Baby Fight Club en Condesa**: Una clase de movimiento para bebés de 6 a 36 meses, junto a mamá o papá. No es pelea: es juego, desarrollo motriz, equilibrio, coordinación, socialización y confianza, en un espacio seguro a una cuadra de Parque México.
 
 ### English
 - **Brazilian Jiu-Jitsu in Mexico City**: Train at a Renzo Gracie–lineage academy in the heart of Condesa, one block from Parque México. Gi and No-Gi classes every day, from complete beginners to competitors — visitors and drop-ins welcome.
@@ -64,8 +64,8 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 - **Boxing in Mexico City**: The sweet science: fast hands, smart feet, cool head. Technical boxing to get in shape, shed stress and learn to defend yourself, one block from Parque México. Complete beginners to advanced — visitors welcome.
 - **Self Defense in Mexico City**: Self defense that actually works: not tricks, but proven skills from Brazilian Jiu-Jitsu, Muay Thai and boxing, trained against real resistance. Learn to stay calm and protect yourself, one block from Parque México.
 - **Women's Self Defense in Mexico City**: Real skills in a safe, respectful room. Learn to protect yourself with Brazilian Jiu-Jitsu, Muay Thai and boxing — the arts designed so a smaller person can control a larger one — one block from Parque México.
-- **Kids Martial Arts in Mexico City**: Jiu-Jitsu and Muay Thai for kids ages 4–12 and teens 13–17, next to Parque México. More than fighting: confidence, discipline, coordination, respect and self defense, in a safe and fun environment. Great for expat and visiting families.
-- **Baby Fight Club in Mexico City**: A movement class for babies 12–36 months, together with mom or dad. It's not fighting — it's play, motor development, balance, coordination, socialization and confidence, in a safe space one block from Parque México.
+- **Kids Martial Arts in Mexico City**: Jiu-Jitsu and Muay Thai for kids ages 6–12 and teens 13–17, next to Parque México. More than fighting: confidence, discipline, coordination, respect and self defense, in a safe and fun environment. Great for expat and visiting families.
+- **Baby Fight Club in Mexico City**: A movement class for babies 6–36 months, together with mom or dad. It's not fighting — it's play, motor development, balance, coordination, socialization and confidence, in a safe space one block from Parque México.
 
 ## Fundador y confianza
 
@@ -81,7 +81,7 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 - **¿Necesito experiencia para empezar a boxear?** No. La mayoría empieza desde cero. Aprendes guardia, jab y footwork desde la primera clase, a tu ritmo.
 - **¿Cuál es la mejor arte marcial para defensa personal?** No hay una sola: el Jiu-Jitsu domina el suelo y el control, mientras el Muay Thai y el Box dominan la distancia de pie. Lo ideal es una base de las tres, que es justo lo que puedes entrenar en MD Condesa con un solo plan.
 - **¿Hay clases solo para mujeres?** Nuestras clases regulares son mixtas, en un ambiente respetuoso y seguro donde entrenan muchas mujeres. Si te interesa un formato o taller específico para mujeres, escríbenos por WhatsApp y te contamos las opciones disponibles.
-- **¿Desde qué edad pueden empezar?** Desde los 3 años en el grupo Mini (Muay Thai), de 4 a 12 en Jiu-Jitsu y Muay Thai Kids, y de 13 a 17 en Teens. Para bebés de 12 a 36 meses tenemos Baby Fight Club.
+- **¿Desde qué edad pueden empezar?** Desde los 3 años en el grupo Mini (Muay Thai), de 6 a 12 en Jiu-Jitsu y Muay Thai Kids, y de 13 a 17 en Teens. Para bebés de 6 a 36 meses tenemos Baby Fight Club.
 - **¿Mi bebé va a pelear?** No. El nombre es un guiño divertido, pero la clase es puramente de movimiento, juego y estimulación. La seguridad del bebé es la prioridad número uno.
 
 ### English
@@ -91,7 +91,7 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 - **Do you accept drop-ins from visitors?** Yes — visiting athletes are welcome. Message us on WhatsApp (+52 55 3426 0813) to confirm a boxing class and the current drop-in rate.
 - **What's the best martial art for self defense?** There isn't a single one: BJJ dominates ground control while Muay Thai and boxing dominate stand-up distance. A base in all three is ideal — exactly what one MD Condesa membership lets you train.
 - **Are there women-only classes?** Our regular classes are mixed, in a respectful and safe environment where many women train. If you're interested in a women-specific format or workshop, message us on WhatsApp and we'll share current options.
-- **What ages do you teach?** From age 3 in the Mini group (Muay Thai), ages 4–12 in Jiu-Jitsu and Muay Thai Kids, and 13–17 in Teens. For babies 12–36 months we have Baby Fight Club.
+- **What ages do you teach?** From age 3 in the Mini group (Muay Thai), ages 6–12 in Jiu-Jitsu and Muay Thai Kids, and 13–17 in Teens. For babies 6–36 months we have Baby Fight Club.
 - **Will my baby actually fight?** No. The name is a playful wink, but the class is purely movement, play and stimulation. Your baby's safety is the number-one priority.
 
 ## Precios y políticas
@@ -114,7 +114,7 @@ Diferenciadores:
 - Ubicación céntrica en Condesa, junto a Parque México.
 - Academia bilingüe: español principal, inglés disponible.
 - Linaje directo Renzo Gracie. Fundada por Mario Delgado, una de las figuras más importantes del Jiu-Jitsu y MMA en México.
-- Clases para adultos, teens, niños, peques y bebés — programas familiares desde 12 meses hasta adultos.
+- Clases para adultos, teens, niños, peques y bebés — programas familiares desde 6 meses hasta adultos.
 - Una membresía de adultos permite entrenar varias disciplinas.
 - Opción de Ice Bath e InBody en varios planes.
 - Clase de prueba gratis para residentes de CDMX.
@@ -143,7 +143,9 @@ Más retador que Kids y adaptado a su edad. Disciplina, seguridad, condición f�
 ### Mini Muay Thai (3–5 años)
 Clase lúdica, segura y adaptada a su edad: coordinación, equilibrio, atención, disciplina básica, movimiento, juego y confianza. No es una clase agresiva, pero sí empiezan a ver técnica real. **Los papás ayudan en PARTES de la clase — que vengan listos para moverse en algunos momentos** (no participan toda la clase como en Baby Fight Club; no lo presentes como "clase para papás e hijos").
 
-### Baby Fight Club (12–36 meses)
+### Baby Fight Club (6–36 meses)
+**Niveles:** Nivel 0 = 6–12 meses (nuevo); Nivel 1 y 2 = 12–36 meses (la profe asigna).
+
 No es pelea real: es una clase de movimiento, juego y desarrollo físico inspirada en artes marciales. Obstáculos, coordinación, equilibrio, confianza, socialización y exploración segura. **Los papás participan activamente — deben venir listos para moverse.** Ideal para bebés con mucha energía, niños aprendiendo a moverse mejor, y familias que quieren introducir movimiento desde temprano.
 
 ### Defensa personal (incluida "defensa personal para mujeres")
@@ -157,21 +159,26 @@ Si el lead no elige, no te frenes: propón la clase que caiga en el horario más
 
 Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases seguidas salvo BFC/Mini MT):
 
-**Sparring de Muay Thai (jueves 6 y 7 pm · sábado 11 am): SÍ se pueden agendar clases de prueba.** El profesor separa a los principiantes y les da una mini-clase aparte mientras el grupo hace sparring. Menciónalo con confianza — ven el ambiente real del gimnasio desde el día uno. No hace falta advertir nada ni pedir experiencia previa.
+**Sparring de Muay Thai entre semana (miércoles 7 am · jueves 6 y 7 pm): SÍ se pueden agendar clases de prueba.** El profesor separa a los principiantes y les da una mini-clase aparte mientras el grupo hace sparring. Menciónalo con confianza — ven el ambiente real del gimnasio desde el día uno. No hace falta advertir nada ni pedir experiencia previa.
 
-- **Adultos L–J mañana**: llegar 7 u 8 am ⇒ Jiu-Jitsu y Muay Thai seguidas. Lun/mar/jue también 10 am (y 11 am solo Jiu-Jitsu). **Mié y vie solo hay Jiu-Jitsu a las 7 y 8 am** — si solo quieren Muay Thai, mié/vie también pueden 9 o 10 am.
-- **Adultos L–J tarde/noche**: combo recomendado **6 pm Jiu-Jitsu + 7 pm Muay Thai** — todos los días, jueves incluido. Si necesitan más tarde: lun/mié Jiu-Jitsu o MMA a las 8 pm; mar/jue lo mismo a las 8 pm y además Box a las 9 pm.
-- **Box (adultos)**: SOLO **martes 9 pm, jueves 9 pm y sábado 2 pm**. NO hay Box por la mañana ningún día, ni lunes, miércoles, viernes o domingo — los horarios de 7, 8, 9 y 10 am son Jiu-Jitsu y Muay Thai, nunca Box. Si alguien pide Box, ofrécele UNO de esos tres horarios reales; si ninguno le acomoda, propón Muay Thai (sí corre mañana y tarde, y es el pariente de pie más cercano) diciéndoselo con claridad, nunca como si fuera Box.
-- **MMA (adultos)**: SOLO **martes 9 am, jueves 9 am, y lun–jue 8 pm**. No hay MMA a las 7, 8 o 10 am, ni viernes, sábado o domingo.
-- **Viernes (leer con cuidado — es el día que más se equivoca)**: NO hay absolutamente ninguna clase después de las 10 am. No existe Muay Thai ni Jiu-Jitsu por la tarde ni por la noche los viernes; si el lead pide viernes en la tarde, dilo en una línea y propón otro día con hora concreta. Por la mañana: **7 y 8 am son las ÚNICAS horas con las dos clases seguidas (Jiu-Jitsu No-Gi + Muay Thai)**; **9 y 10 am son SOLO Muay Thai** (una sola clase). Sí hay Jiu-Jitsu los viernes — nunca digas lo contrario.
-- **Sábado adultos**: llegar **9 am** (Jiu-Jitsu Fundamentos) y luego Muay Thai a las 10 am. También hay Muay Thai 11 am y Jiu-Jitsu 12 pm — el combo de 10 + 11 am (Muay Thai seguido) o el de 11 am + 12 pm (Muay Thai + Jiu-Jitsu) también funcionan para el día de prueba.
+**Sin prueba (Evan, 2026-10-03): sábado 11 am (Muay Thai sparring) y miércoles 8 pm (MMA sparring).** Nunca agendes ahí; ofrece la clase válida más cercana (sáb: Muay Thai 10 am o Jiu-Jitsu 12 pm; mié noche: Jiu-Jitsu 8 pm).
+
+**MMA Striking (lun–vie 9 am)** es en la práctica una clase de **Muay Thai** con elementos de MMA: ofrécela a quien pide Muay Thai (agenda `muay`) o MMA (agenda `mma`).
+
+- **Adultos L–J mañana**: llegar 7 u 8 am ⇒ Jiu-Jitsu y Muay Thai seguidas. **9 am (lun–vie) es MMA Striking** — una sola clase, cuenta como Muay Thai. Lun/mar/jue también 10 am (Jiu-Jitsu y Muay Thai; y 11 am solo Jiu-Jitsu). **Mié y vie solo hay Jiu-Jitsu a las 7 y 8 am** — si solo quieren Muay Thai, mié/vie también pueden 9 am (MMA Striking) o 10 am.
+- **Adultos L–J tarde/noche**: combo recomendado **6 pm Jiu-Jitsu + 7 pm Muay Thai** — todos los días, jueves incluido. Si necesitan más tarde: lun Jiu-Jitsu o MMA a las 8 pm; **mié a las 8 pm solo Jiu-Jitsu (el MMA de miércoles 8 pm es sparring: sin pruebas)**; mar/jue Jiu-Jitsu o MMA a las 8 pm y además Box a las 9 pm.
+- **Box (adultos)**: SOLO **martes 9 pm, jueves 9 pm y sábado 2 pm**. NO hay Box por la mañana ningún día, ni lunes, miércoles, viernes o domingo — los horarios de 7, 8, 9 y 10 am son Jiu-Jitsu, Muay Thai y MMA Striking, nunca Box. Si alguien pide Box, ofrécele UNO de esos tres horarios reales; si ninguno le acomoda, propón Muay Thai (sí corre mañana y tarde, y es el pariente de pie más cercano) diciéndoselo con claridad, nunca como si fuera Box.
+- **MMA (adultos)**: SOLO **lunes a viernes 9 am (MMA Striking) y lun, mar y jue 8 pm**. El miércoles 8 pm es sparring de MMA — existe, pero NO se agenda prueba ahí. No hay MMA a las 7, 8 o 10 am, ni sábado o domingo; el viernes solo a las 9 am.
+- **Viernes (leer con cuidado — es el día que más se equivoca)**: NO hay absolutamente ninguna clase después de las 10 am. No existe Muay Thai ni Jiu-Jitsu por la tarde ni por la noche los viernes; si el lead pide viernes en la tarde, dilo en una línea y propón otro día con hora concreta. Por la mañana: **7 y 8 am son las ÚNICAS horas con las dos clases seguidas (Jiu-Jitsu Open Mat + Muay Thai)** — el Jiu-Jitsu del viernes es open mat (práctica libre; sí se puede agendar prueba); **9 am es MMA Striking (cuenta como Muay Thai) y 10 am es Muay Thai** (una sola clase cada una). Sí hay Jiu-Jitsu los viernes — nunca digas lo contrario.
+- **Sábado adultos**: llegar **9 am** (Jiu-Jitsu Fundamentos) y luego Muay Thai a las 10 am. También hay Jiu-Jitsu a las 10 am y a las 12 pm. **El Muay Thai del sábado 11 am es sparring y NO acepta pruebas** — no lo ofrezcas ni lo uses en un combo; quien quiera Muay Thai en sábado va a las 10 am.
 - **Domingo**: SOLO adultos (13+ para Muay Thai). Llegar **11 am** ⇒ Muay Thai 11 am + Jiu-Jitsu 12 pm — ofrécelas SIEMPRE juntas, nunca solo la de 12 pm. **El domingo NO hay Kids, NI Teens, NI Mini Muay Thai, NI Baby Fight Club.** Si preguntan por un menor en domingo, la respuesta es la siguiente clase de SU programa entre semana (Kids/Teens: lunes 4 pm; Mini MT: lunes 3:15 pm; BFC: miércoles 1 pm).
 - **Kids 6–12**: L–J la hora de llegada para prueba es SIEMPRE **4:00 pm** ⇒ Muay Thai Kids 4 pm + Jiu-Jitsu Kids 5 pm. NUNCA ofrezcas las 5 pm como hora de llegada entre semana (perderían una de las dos clases gratis). Sábado llegar **11 am** ⇒ Jiu-Jitsu Niños 11 am + Muay Thai Niños 12 pm. **NO hay Kids el domingo.**
-- **Teens 13–17**: L–J llegada SIEMPRE **4:00 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm. **NO existe NINGUNA clase Teens en sábado ni domingo — a ninguna hora; nunca la inventes.** En sábado, desde los 13 entran a CUALQUIER clase de adultos (9 am Jiu-Jitsu, 10 am Jiu-Jitsu/Muay Thai, 11 am Muay Thai, 12 pm Jiu-Jitsu, 2 pm Box); solo con 13–14 años pueden optar por la clase Kids (6–12) del sábado 11 am.
+- **Teens 13–17**: L–J llegada SIEMPRE **4:00 pm** ⇒ MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm. **NO existe NINGUNA clase Teens en sábado ni domingo — a ninguna hora; nunca la inventes.** En sábado, desde los 13 entran a CUALQUIER clase de adultos (9 am Jiu-Jitsu, 10 am Jiu-Jitsu/Muay Thai, 12 pm Jiu-Jitsu, 2 pm Box — la de 11 am es sparring, sin pruebas); solo con 13–14 años pueden optar por la clase Kids (6–12) del sábado 11 am.
 - **Teen que acompaña otra reserva** (p. ej. la familia ya viene el sábado a Baby Fight Club y preguntan si el hermano de 13 puede probar): SÍ. Respuesta sugerida:
 > ¡Claro que sí! 🙌 El sábado no hay grupo Teens, pero desde los 13 puede entrar a cualquier clase de adultos: a las 12 pm hay Jiu-Jitsu y a las 2 pm Box — es más que bienvenido, y sin presión: si solo quiere ver, también está perfecto. Y si prefiere su grupo de edad, de lunes a jueves a las 4 pm hay MMA Teens y a las 5 pm Jiu-Jitsu Teens.
 - **Mini Muay Thai (3–5)**: SOLO **lunes 3:15 pm, miércoles 3:15 pm y sábado 1:15 pm**. No hay martes, jueves, viernes ni domingo. Ojo con las horas: entre semana es 3:15 pm, el sábado es 1:15 pm — no las intercambies. Es UNA sola clase (no aplica el combo de 2 clases).
-- **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 1 pm y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí. **Menores de 12 meses: aún no — invítalos a volver cuando el bebé cumpla el año.**
+- **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 1 pm y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3:00 / 3:45 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí.
+- **Baby Fight Club Nivel 0 (6–12 meses)** (Evan, 2026-10-03): ya aceptamos bebés desde los 6 meses, pero **su clase de prueba aún no tiene horario** — NO la agendes ni inventes día. Dilo con gusto ("¡Sí! Estamos abriendo el Nivel 0 🙌 en cuanto quede el horario te aviso"), toma nombre y edad del bebé y pásalo a humano. **Menores de 6 meses: aún no.**
 
 ## Después de agendar (obligatorio)
 
@@ -266,11 +273,11 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 - **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario.
 - Kids (6–12) y Teens (13–17): MISMOS precios y planes que adultos, excepto que su plan más alto es Gold (no hay Diamond).
 - **Mini Muay Thai (3–5)**: MISMOS precios que Kids/Teens. Como Mini MT solo tiene 3 clases por semana (lun 3:15, mié 3:15, sáb 1:15), su membresía normal es el plan **Bronze: $1,996 cada 4 semanas domiciliado** ($2,396 sin domiciliar). Si solo quieren **1 clase por semana, existe la opción de $1,500 cada 4 semanas**. Si un papá/mamá de Mini MT insiste en el precio, da ESAS cifras ("$1,500 con 1 clase por semana, o $1,996 con las 3 clases"), no el rango de adultos. (Evan, 2026-09-18.)
-- Baby Fight Club (12–36 meses), cobro cada 4 semanas: **$1,996 (1 clase/sem)** (Evan, 2026-09-22). Si preguntan por 2 clases por semana, escala — ese precio se confirma en persona.
+- Baby Fight Club (12–36 meses; Nivel 0: precio por confirmar, escala), cobro cada 4 semanas: **$1,996 (1 clase/sem)** (Evan, 2026-09-22). Si preguntan por 2 clases por semana, escala — ese precio se confirma en persona.
 - **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día.
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
-- 10% de descuento en equipo para alumnos inscritos.
+- Descuento en equipo **Venum** para inscritos (solo si preguntan; Evan, 2026-10-03): mandan el link de venum.com y pagan 25% menos en su primer pedido (15% después) vs. pedirlo directo con envío y aranceles. No aplica en productos ya rebajados.
 
 Respuesta sugerida la PRIMERA vez que preguntan precio (adultos/kids/teens):
 > Con gusto 🙌 Tenemos varias opciones de planes, paquetes y promos según la frecuencia de tu entrenamiento y el programa — y justo por eso preferimos platicar un poco contigo primero, así te recomendamos la que mejor se ajuste a tu objetivo y presupuesto, en vez de mandarte una lista genérica. Lo ideal es que vengas a tu día de prueba gratis y ahí lo vemos 💪 ¿Te queda bien [día] a las [hora]?

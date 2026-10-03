@@ -257,9 +257,16 @@ function parentParticipates(cls) {
  *     while the group spars. So NO slot sets this flag today — the mechanism
  *     stays wired end to end (here → renderSlotsTs → validateSlot) for the next
  *     class that needs it.
+ *     UPDATE (owner, 2026-10-03, new poster): two sparring sessions do NOT
+ *     take trials — sáb 11 am Muay Thai sparring and mié 8 pm MMA sparring
+ *     (NO_TRIAL_SPARRING). The other sparring hours (mié 7 am, jue 6/7 pm
+ *     Muay Thai) still do.
  *   - `dual: true`   → parent-participation class; expandDualAudience() below
  *     mirrors it into the other audience. Stripped before emission.
  */
+/** `${weekdayIdx}|${HH:mm}|${program}` of sparring sessions closed to trials. */
+const NO_TRIAL_SPARRING = new Set(["5|11:00|muay", "2|20:00|mma"]);
+
 function buildSlots(schedule) {
   const byKey = new Map();
   for (const day of schedule.order) {
@@ -283,10 +290,19 @@ function buildSlots(schedule) {
           discipline: cls.n, // jiu|muay|mma|box|baby
           audience, // 'adult'|'kid'
         };
-        // No `out.trial = false` here: sparring hours take trials again
-        // (owner, 2026-08-25 — see the header note).
+        // Sparring hours take trials (owner, 2026-08-25 — see the header
+        // note) EXCEPT the two in NO_TRIAL_SPARRING (owner, 2026-10-03).
+        if (cls.s && NO_TRIAL_SPARRING.has(`${idx}|${time}|${cls.n}`)) out.trial = false;
         if (parentParticipates(cls)) out.dual = true;
         byKey.set(key, out);
+        // MMA Striking (lun–vie 9 am) is, for all practical purposes, a Muay
+        // Thai class with MMA elements mixed in (owner, 2026-10-03): a lead
+        // who asks for Muay Thai books it as `muay`, one who asks for MMA as
+        // `mma` — so the hour must validate under BOTH disciplines.
+        if (cls.n === "mma" && cls.l === "Striking" && !cls.a) {
+          const mk = `${idx}|${time}|muay|${audience}`;
+          if (!byKey.has(mk)) byKey.set(mk, { weekday: idx, time, discipline: "muay", audience });
+        }
       }
     }
   }

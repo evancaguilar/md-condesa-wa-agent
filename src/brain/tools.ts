@@ -314,7 +314,7 @@ export function validateSlot(
 
   // The requested hour exists but is closed to trials — say so, or the model
   // just re-proposes it (the KB lists it) or tells the lead it doesn't exist.
-  // Inert today: nothing in the generated grid sets `trial: false`.
+  // Live since 2026-10-03: sáb 11 Muay Thai sparring and mié 20 MMA sparring.
   if (sameDayDisc.some((s) => s.time === time && s.trial === false)) {
     const tail = alternatives.length
       ? ` Same-day trial options: ${alternatives.join(", ")} CDMX.`

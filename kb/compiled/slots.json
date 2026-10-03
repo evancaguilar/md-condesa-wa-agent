@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-03+e24ababc7137",
+  "version": "2026-10-03+48d0a92c9bfc",
   "slots": [
     {
       "weekday": 0,
@@ -28,6 +28,12 @@
     {
       "weekday": 0,
       "time": "09:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 0,
+      "time": "09:00",
       "discipline": "muay",
       "audience": "adult"
     },
@@ -142,6 +148,12 @@
     },
     {
       "weekday": 1,
+      "time": "09:00",
+      "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 1,
       "time": "10:00",
       "discipline": "jiu",
       "audience": "adult"
@@ -240,6 +252,12 @@
       "weekday": 2,
       "time": "08:00",
       "discipline": "muay",
+      "audience": "adult"
+    },
+    {
+      "weekday": 2,
+      "time": "09:00",
+      "discipline": "mma",
       "audience": "adult"
     },
     {
@@ -313,7 +331,8 @@
       "weekday": 2,
       "time": "20:00",
       "discipline": "mma",
-      "audience": "adult"
+      "audience": "adult",
+      "trial": false
     },
     {
       "weekday": 3,
@@ -343,6 +362,12 @@
       "weekday": 3,
       "time": "09:00",
       "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 3,
+      "time": "09:00",
+      "discipline": "muay",
       "audience": "adult"
     },
     {
@@ -450,6 +475,12 @@
     {
       "weekday": 4,
       "time": "09:00",
+      "discipline": "mma",
+      "audience": "adult"
+    },
+    {
+      "weekday": 4,
+      "time": "09:00",
       "discipline": "muay",
       "audience": "adult"
     },
@@ -481,7 +512,8 @@
       "weekday": 5,
       "time": "11:00",
       "discipline": "muay",
-      "audience": "adult"
+      "audience": "adult",
+      "trial": false
     },
     {
       "weekday": 5,

@@ -16,6 +16,7 @@ import { CLIENT } from "../src/client.gen.js";
 const MON = "2026-08-31";
 const WED = "2026-09-02";
 const THU = "2026-09-03";
+const FRI = "2026-09-04";
 const SAT = "2026-09-05";
 const AUDIENCES = ["adult", "kid"];
 
@@ -57,23 +58,39 @@ test("SLOTS: mini Muay Thai bookable under BOTH audiences", () => {
 // generated slot sets `trial: false` any more — the mechanism itself is still
 // covered by the hand-authored fixtures in brain-slot.test.ts.
 
-test("SLOTS: Muay Thai sparring hours (jue 18/19, sáb 11) are bookable", () => {
+test("SLOTS: weekday Muay Thai sparring hours (mié 7, jue 18/19) are bookable", () => {
   for (const [date, time] of [
+    [WED, "07:00"],
     [THU, "18:00"],
     [THU, "19:00"],
-    [SAT, "11:00"],
   ]) {
     const r = validateSlot(date, time, "adult", "muay", SLOTS);
     assert.equal(r.ok, true, `${date} ${time} should be bookable`);
   }
 });
 
-test("SLOTS: no generated slot is closed to trials", () => {
-  assert.equal(
-    SLOTS.filter((s) => s.trial === false).length,
-    0,
-    "sparring hours reopened — nothing should carry trial:false",
-  );
+// Owner, 2026-10-03 (new poster): exactly two sparring sessions refuse trials.
+test("SLOTS: sáb 11 Muay Thai sparring and mié 20 MMA sparring are closed to trials", () => {
+  const closed = SLOTS.filter((s) => s.trial === false)
+    .map((s) => `${s.weekday}|${s.time}|${s.discipline}|${s.audience}`)
+    .sort();
+  assert.deepEqual(closed, ["2|20:00|mma|adult", "5|11:00|muay|adult"]);
+  const sat = validateSlot(SAT, "11:00", "adult", "muay", SLOTS);
+  assert.equal(sat.ok, false);
+  assert.match(sat.reason ?? "", /SPARRING/);
+  assert.equal(validateSlot(WED, "20:00", "adult", "mma", SLOTS).ok, false);
+  // The neighbours stay open: sáb 10 Muay Thai, mié 20 Jiu-Jitsu, sáb 11 Kids.
+  assert.equal(validateSlot(SAT, "10:00", "adult", "muay", SLOTS).ok, true);
+  assert.equal(validateSlot(WED, "20:00", "adult", "jiu", SLOTS).ok, true);
+  assert.equal(validateSlot(SAT, "11:00", "kid", "jiu", SLOTS).ok, true);
+});
+
+// MMA Striking (lun–vie 9 am) is a Muay Thai class in practice: both keys book.
+test("SLOTS: 9 am MMA Striking validates as mma AND muay, Mon–Fri", () => {
+  for (const date of [MON, WED, FRI]) {
+    assert.equal(validateSlot(date, "09:00", "adult", "mma", SLOTS).ok, true, `${date} mma`);
+    assert.equal(validateSlot(date, "09:00", "adult", "muay", SLOTS).ok, true, `${date} muay`);
+  }
 });
 
 test("SLOTS: Thu 18:00 Jiu-Jitsu still books alongside the Muay Thai hour", () => {

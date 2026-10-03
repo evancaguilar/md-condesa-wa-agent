@@ -34,7 +34,10 @@ const REPO = join(__dirname, "..");
 // Raised 9000 → 11000 with the 2026-08 conversation-audit KB pack (Friday /
 // Sunday / Mini-MT schedule guards + "Datos que preguntan seguido"). Both
 // system blocks carry a 1h-TTL cache_control, so the cost delta is marginal.
-const TOKEN_LIMIT = 11000;
+// Raised 11000 → 11750 (2026-10-03): the new poster schedule is wordier
+// (MMA Striking, Open Mat, Teens Gi/No-Gi, BFC niveles) and HEAD already sat
+// at ~11 005.
+const TOKEN_LIMIT = 11750;
 
 async function main() {
   const clientId = process.env.CLIENT || "md-condesa";
