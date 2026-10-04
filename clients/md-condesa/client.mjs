@@ -241,9 +241,9 @@ export default {
     // (docs/templates.md) for the closed-window fallback — keep them in sync.
     // No name on purpose (owner 2026-10-03): push names are too often junk.
     welcomeEs:
-      "¡Bienvenid@ a la familia MD Condesa! 🥋🎉 Nos da mucho gusto tenerte.\n\nLo primero: únete al grupo de WhatsApp de la academia. Ahí avisamos cambios de horario, eventos y dudas rápidas: {group}\n\nY guarda tu guía de nuevo miembro: horarios, lo básico de cada disciplina, qué incluye tu plan y cómo pedir tu equipo Venum con 25% de descuento: {link}\n\n¡Nos vemos en el tatami!",
+      "¡Bienvenid@ a la familia MD Condesa! 🥋🎉 Nos da mucho gusto tenerte.\n\nLo primero: únete al grupo de WhatsApp de la academia. Ahí avisamos cambios de horario, eventos y dudas rápidas: {group}\n\nY guarda tu guía de nuevo miembro: horarios, lo básico de cada disciplina, qué incluye tu plan y cómo pedir tu equipo Venum con 25% de descuento: {link}\n\nUn dato: este WhatsApp es el de ventas. Puedes seguir escribiendo aquí para dudas generales, pero para hablar con el equipo administrativo o recepción escribe al +52 55 3426 0813.\n\n¡Nos vemos en el tatami!",
     welcomeEn:
-      "Welcome to the MD Condesa family! 🥋🎉 So glad to have you.\n\nFirst thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: {group}\n\nAnd save your new-member guide: schedule, the basics of each discipline, what your plan includes and how to order Venum gear at 25% off: {link}\n\nSee you on the mats!",
+      "Welcome to the MD Condesa family! 🥋🎉 So glad to have you.\n\nFirst thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: {group}\n\nAnd save your new-member guide: schedule, the basics of each discipline, what your plan includes and how to order Venum gear at 25% off: {link}\n\nOne note: this WhatsApp is our sales line. You can keep writing here for general questions, but to reach the admin team or front desk, message +52 55 3426 0813.\n\nSee you on the mats!",
     // Post-trial chain (attended, did not sign up).
     // NO PRICE, NO DISCOUNT, NO DEADLINE in any of these (owner, 2026-09-21):
     // the inscription discount is SAME-DAY-ONLY at the academy, so holding it

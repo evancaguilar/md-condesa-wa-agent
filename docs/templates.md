@@ -317,6 +317,8 @@ old generic text) and posts one Slack note saying so.
 >
 > Y guarda tu guía de nuevo miembro: horarios, lo básico de cada disciplina, qué incluye tu plan y cómo pedir tu equipo Venum con 25% de descuento: https://mdcondesa.com/bienvenida/
 >
+> Un dato: este WhatsApp es el de ventas. Puedes seguir escribiendo aquí para dudas generales, pero para hablar con el equipo administrativo o recepción escribe al +52 55 3426 0813.
+>
 > ¡Nos vemos en el tatami!
 
 **EN (`student_welcome_en`)**
@@ -325,6 +327,8 @@ old generic text) and posts one Slack note saying so.
 > First thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t
 >
 > And save your new-member guide: schedule, the basics of each discipline, what your plan includes and how to order Venum gear at 25% off: https://mdcondesa.com/bienvenida/
+>
+> One note: this WhatsApp is our sales line. You can keep writing here for general questions, but to reach the admin team or front desk, message +52 55 3426 0813.
 >
 > See you on the mats!
 
