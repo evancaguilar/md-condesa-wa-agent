@@ -1,6 +1,6 @@
 # WhatsApp message templates (submit verbatim to Meta)
 
-Nine templates, ES + EN each (one template per language — the code appends `_es` /
+Ten templates, ES + EN each (one template per language — the code appends `_es` /
 `_en` to the base name). All bodies use `{{1}}` = contact first name; the sender
 passes `""` when the name is unknown, so keep the greeting readable without it.
 
@@ -18,6 +18,8 @@ Template name mapping (base → sent name):
   path; copy included here for convenience)
 - `post_trial_d0` / `post_trial_d2` / `post_trial_d5` → `…_es` / `…_en`
   (2026-09-21, attended-and-didn't-sign-up chain — see the section below)
+- `student_welcome` → `student_welcome_es` / `_en`  (2026-10-03, enrolment
+  welcome when the 24h window is closed — see §10; the ONE template with no {{1}})
 
 Address string used across templates: **Av. México 49, 1º piso, Condesa**.
 
@@ -295,6 +297,40 @@ Variables: {{1}} name. Footer text must be the template FOOTER component.
 **The second no-show touch needs NO new template.** `no_show_d3` (11:00 CDMX
 three days after a missed class) reuses `no_show_followup_es` / `_en` from §4 —
 only the free-form body differs between the two touches.
+
+---
+
+## 10. student_welcome — Utility (enrolment welcome, window closed)
+
+Sent by the Airtable result watcher when the front desk marks a trial
+"Se inscribió" and the lead's 24h window is already closed (open window → the
+same copy goes free-form from `CLIENT.copy.welcomeEs/En`). Utility: it follows a
+completed enrolment and carries no promo. **Keep the body identical to
+`copy.welcomeEs/En` in clients/md-condesa/client.mjs** — one source of copy, two
+delivery paths. Until Meta approves it the code falls back to `human_followup` (the
+old generic text) and posts one Slack note saying so.
+
+**ES (`student_welcome_es`)**
+> ¡Bienvenid@ a la familia MD Condesa! 🥋🎉 Nos da mucho gusto tenerte.
+>
+> Lo primero: únete al grupo de WhatsApp de la academia. Ahí avisamos cambios de horario, eventos y dudas rápidas: https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t
+>
+> Y guarda tu guía de nuevo miembro: horarios, lo básico de cada disciplina, qué incluye tu plan y cómo pedir tu equipo Venum con 25% de descuento: https://mdcondesa.com/bienvenida/
+>
+> ¡Nos vemos en el tatami!
+
+**EN (`student_welcome_en`)**
+> Welcome to the MD Condesa family! 🥋🎉 So glad to have you.
+>
+> First thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: https://chat.whatsapp.com/J72ov37T8BuBp6u1eJwSg9?mode=gi_t
+>
+> And save your new-member guide: schedule, the basics of each discipline, what your plan includes and how to order Venum gear at 25% off: https://mdcondesa.com/bienvenida/
+>
+> See you on the mats!
+
+Variables: **none** (owner 2026-10-03: push names are too often junk, so no
+{{1}} here — the sender passes no body parameters). No footer (Utility). Links
+are plain body text so the template needs no URL-button sample.
 
 ---
 

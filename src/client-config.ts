@@ -321,6 +321,10 @@ export interface ClientConfig {
     bookingKids?: string;
     /** Public schedule link; falls back to `booking`. */
     schedule?: string;
+    /** New-member guide page (enrolment welcome). Falls back to `schedule`. */
+    welcome?: string;
+    /** Members' WhatsApp group invite (enrolment welcome, {group}). */
+    group?: string;
   };
   /** Bookable services. Empty when features.booking is false. */
   services: ServiceDef[];
@@ -347,11 +351,12 @@ export interface ClientConfig {
 /** Interpolate {who}/{address}/{link}/{cta} placeholders in copy strings. */
 export function renderCopy(
   template: string,
-  vars: { who?: string; address?: string; link?: string; cta?: string },
+  vars: { who?: string; address?: string; link?: string; cta?: string; group?: string },
 ): string {
   return template
     .replaceAll("{who}", vars.who ?? "")
     .replaceAll("{address}", vars.address ?? "")
     .replaceAll("{link}", vars.link ?? "")
-    .replaceAll("{cta}", vars.cta ?? "");
+    .replaceAll("{cta}", vars.cta ?? "")
+    .replaceAll("{group}", vars.group ?? "");
 }

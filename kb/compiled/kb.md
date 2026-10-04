@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-10-03+48d0a92c9bfc
-     approx_tokens: 11505 (chars 40266 / 3.5)
+     version: 2026-10-04+cb68211bedf2
+     approx_tokens: 11519 (chars 40314 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -277,7 +277,7 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 - **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día.
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
-- Descuento en equipo **Venum** para inscritos (solo si preguntan; Evan, 2026-10-03): mandan el link de venum.com y pagan 25% menos en su primer pedido (15% después) vs. pedirlo directo con envío y aranceles. No aplica en productos ya rebajados.
+- Descuento en equipo **Venum** para inscritos (solo si preguntan; Evan, 2026-10-03): mandan el link de venum.com y pagan 25% menos en su primer pedido (15% después) vs. pedirlo directo con envío y aranceles. No aplica en productos ya rebajados. Cómo pedirlo: https://mdcondesa.com/bienvenida/
 
 Respuesta sugerida la PRIMERA vez que preguntan precio (adultos/kids/teens):
 > Con gusto 🙌 Tenemos varias opciones de planes, paquetes y promos según la frecuencia de tu entrenamiento y el programa — y justo por eso preferimos platicar un poco contigo primero, así te recomendamos la que mejor se ajuste a tu objetivo y presupuesto, en vez de mandarte una lista genérica. Lo ideal es que vengas a tu día de prueba gratis y ahí lo vemos 💪 ¿Te queda bien [día] a las [hora]?
