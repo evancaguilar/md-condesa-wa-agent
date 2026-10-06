@@ -84,6 +84,34 @@ export interface InfraAlertDeps {
 // Per-isolate fallback throttle: kind → epoch seconds of the last note.
 const lastNoteAt = new Map<InfraKind, number>();
 
+/**
+ * Colo-wide throttle that does NOT touch D1: the Workers Cache API (shared by
+ * every isolate in the colo). 2026-10-06 15:00: with only the per-isolate
+ * memory gate, a dozen isolates each posted their own <!here> inside 25 min.
+ * Returns true = this caller won the window, false = someone already posted,
+ * null = Cache API unavailable (tests, or a runtime without it).
+ */
+async function cacheGate(kind: InfraKind, ttlSeconds: number): Promise<boolean | null> {
+  // Structural types on purpose: this module is compiled by the node test
+  // config (lib ES2022, no DOM/Workers globals) as well as by the worker.
+  type CacheLike = {
+    match(key: string): Promise<unknown>;
+    put(key: string, res: unknown): Promise<void>;
+  };
+  type ResponseCtor = new (body: string, init: { headers: Record<string, string> }) => unknown;
+  const g = globalThis as { caches?: { default?: CacheLike }; Response?: ResponseCtor };
+  const store = g.caches?.default;
+  if (!store || !g.Response) return null;
+  try {
+    const key = `https://infra-alert.internal/${kind}`;
+    if (await store.match(key)) return false;
+    await store.put(key, new g.Response("1", { headers: { "Cache-Control": `max-age=${ttlSeconds}` } }));
+    return true;
+  } catch {
+    return null;
+  }
+}
+
 /** Test hook. */
 export function resetInfraAlertMemoryForTests(): void {
   lastNoteAt.clear();
@@ -105,7 +133,7 @@ export function formatInfraAlert(
     `Error: \`${c.detail}\`\n` +
     `Qué revisar: ${c.hint}` +
     (viaMemory
-      ? "\n_(La base de datos no respondió para coordinar esta alerta: puede repetirse algunas veces.)_"
+      ? "\n_(Sin base de datos ni caché para coordinar esta alerta: puede repetirse.)_"
       : "")
   );
 }
@@ -138,8 +166,16 @@ export async function reportInfraError(
         return null;
       }
     } catch {
-      viaMemory = true; // kv (D1) is down — fall through on the memory gate alone
+      viaMemory = true; // kv (D1) is down — colo-wide Cache API gate, then memory
     }
+  }
+  if (viaMemory) {
+    const won = await cacheGate(c.kind, INFRA_ALERT_THROTTLE_SECONDS);
+    if (won === false) {
+      lastNoteAt.set(c.kind, nowSec);
+      return null;
+    }
+    if (won === true) viaMemory = false;
   }
   lastNoteAt.set(c.kind, nowSec);
   try {

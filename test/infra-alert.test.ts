@@ -139,3 +139,41 @@ test("report: works without a kv claim (no deps.kvClaim) on the memory gate alon
   assert.equal(await reportInfraError(deps, "admin", D1_OVERLOADED, 20), null);
   assert.equal(posts.length, 1);
 });
+
+test("report: when kv throws, the colo-wide Cache API gate coordinates isolates", async () => {
+  resetInfraAlertMemoryForTests();
+  const posts: string[] = [];
+  const stored = new Map<string, number>();
+  const fakeCache = {
+    async match(key: string) {
+      return stored.has(key) ? "hit" : undefined;
+    },
+    async put(key: string, res: unknown) {
+      const headers = (res as { headers: { get(n: string): string | null } }).headers;
+      stored.set(key, Number(/max-age=(\d+)/.exec(headers.get("Cache-Control") ?? "")?.[1]));
+    },
+  };
+  (globalThis as { caches?: unknown }).caches = { default: fakeCache };
+  try {
+    const deps = {
+      postNote: async (t: string) => void posts.push(t),
+      kvClaim: async () => {
+        throw D1_OVERLOADED;
+      },
+    };
+    // Isolate 1 wins the cache window and posts (no "puede repetirse" caveat).
+    assert.equal(await reportInfraError(deps, "webhook inbound", D1_OVERLOADED, 100), "d1_overloaded");
+    assert.equal(posts.length, 1);
+    assert.doesNotMatch(posts[0]!, /puede repetirse/);
+    assert.equal(stored.get("https://infra-alert.internal/d1_overloaded"), INFRA_ALERT_THROTTLE_SECONDS);
+    // Isolate 2 (fresh memory) sees the cache entry and stays quiet.
+    resetInfraAlertMemoryForTests();
+    assert.equal(await reportInfraError(deps, "admin", D1_OVERLOADED, 200), null);
+    assert.equal(posts.length, 1);
+    // A different kind has its own cache key.
+    assert.equal(await reportInfraError(deps, "cron x", new Error("anthropic HTTP 529: x"), 200), "anthropic");
+    assert.equal(posts.length, 2);
+  } finally {
+    delete (globalThis as { caches?: unknown }).caches;
+  }
+});
