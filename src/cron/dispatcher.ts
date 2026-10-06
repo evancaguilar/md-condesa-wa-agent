@@ -20,7 +20,8 @@ import { runNightlyAudit } from "./nightly-audit.js";
 import { KB } from "../kb.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
-import { kvGet, kvSet } from "../db/queries.js";
+import { kvGet, kvSet, kvClaimIfAbsentOrOlder } from "../db/queries.js";
+import { reportInfraError } from "../services/infra-alert.js";
 import { ensureIndexes } from "../db/indexes.js";
 import { CLIENT } from "../client.gen.js";
 import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./ad-spend.js";
@@ -60,6 +61,8 @@ export function setCronDeps(deps: CronDeps): void {
 
 export async function runCron(env: Env, _ports: Ports): Promise<void> {
   const nowEpoch = Math.floor(Date.now() / 1000);
+  const safe = (label: string, fn: () => Promise<unknown>): Promise<void> =>
+    safeWith(env, label, fn);
   const p = cdmxParts(nowEpoch);
 
   // One-time (kv-guarded, retried until it succeeds): additive index from
@@ -202,11 +205,21 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   );
 }
 
-async function safe(label: string, fn: () => Promise<unknown>): Promise<void> {
+async function safeWith(env: Env, label: string, fn: () => Promise<unknown>): Promise<void> {
   try {
     await fn();
   } catch (err) {
     console.error(`[cron] ${label} failed: ${String(err)}`);
+    // Infra outage (D1 saturated, Anthropic down…) ⇒ throttled <!here>; an
+    // ordinary bug stays a console line. Never throws.
+    await reportInfraError(
+      {
+        postNote: (t) => cronDeps.slack.postNote(t),
+        kvClaim: (k, n, a) => kvClaimIfAbsentOrOlder(env.DB, k, n, a),
+      },
+      `cron ${label}`,
+      err,
+    );
   }
 }
 

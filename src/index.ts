@@ -6,7 +6,8 @@ import { handleAdminUi } from "./routes/admin-ui.js";
 import { handleAdminApi } from "./routes/admin-api.js";
 import { runCron, setCronDeps } from "./cron/dispatcher.js";
 import { createBrainWithKb, makeOverlayLoader } from "./brain/index.js";
-import { accrueUsage } from "./db/queries.js";
+import { accrueUsage, kvClaimIfAbsentOrOlder } from "./db/queries.js";
+import { reportInfraError } from "./services/infra-alert.js";
 import { makeAirtablePort } from "./services/airtable.js";
 import { makeBookingFailureNotifier } from "./services/booking-alerts.js";
 import {
@@ -65,6 +66,34 @@ function makePorts(env: Env): Ports {
   return cachedPorts;
 }
 
+/**
+ * Re-throws after reporting an INFRA failure (D1 saturated, etc.) to Slack,
+ * throttled (src/services/infra-alert.ts). The dashboard polls every 5 s, so
+ * it is usually the first thing to hit a D1 outage — well before a lead does.
+ */
+async function withInfraAlert(
+  env: Env,
+  ctx: ExecutionContext,
+  scope: string,
+  fn: () => Promise<Response>,
+): Promise<Response> {
+  try {
+    return await fn();
+  } catch (err) {
+    ctx.waitUntil(
+      reportInfraError(
+        {
+          postNote: (t) => postNote(env, t),
+          kvClaim: (k, n, a) => kvClaimIfAbsentOrOlder(env.DB, k, n, a),
+        },
+        scope,
+        err,
+      ),
+    );
+    throw err;
+  }
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
@@ -84,7 +113,7 @@ export default {
     if (pathname === "/slack/interactive" && req.method === "POST") {
       // Ensure cron deps are installed even if this is the first request.
       makePorts(env);
-      return handleSlackInteractive(req, env, ctx);
+      return withInfraAlert(env, ctx, "slack", () => handleSlackInteractive(req, env, ctx));
     }
 
     if (pathname === "/health") return handleHealth(env);
@@ -94,7 +123,7 @@ export default {
       return handleAdminUi(req, env, ctx);
     }
     if (pathname.startsWith("/admin/api/")) {
-      return handleAdminApi(req, env, ctx, makePorts(env));
+      return withInfraAlert(env, ctx, "admin", () => handleAdminApi(req, env, ctx, makePorts(env)));
     }
 
     return new Response("not found", { status: 404 });

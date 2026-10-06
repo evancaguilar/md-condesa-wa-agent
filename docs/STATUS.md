@@ -1,8 +1,21 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-03**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-06**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### D1 outage with no alarm → infra alert that does not depend on D1 (2026-10-06) — ON BRANCH `claude/fervent-dirac-j0a2wu`
+
+**Incident (2026-10-06, from ~00:00 CDMX, still open at 13:00):** Workers Observability shows `D1_ERROR: D1 DB is overloaded. Requests queued for too long.` on dashboard calls, intermittent (info and error rows interleaved). Effect: the early inbound gates (dedupe, campaign tag, canned welcome) kept working — 8 "⚡ Nuevo lead" notes went out today (00:14 → 12:47) — but every brain turn died on one of its ~20 D1 calls: **no draft, no Aprobar card, no booking, no Slack note since 23:59 on 10-05.** Cron ran (gasto + recon at 10:31). Cloudflare billing is fine (Workers Paid active, renews Oct 18); Anthropic is not it (the `api_error` path would have produced holding-line drafts + the 🧠⚠️ note — it sits AFTER the failing D1 calls). Root cause of the overload itself **not yet established** — needs D1 → Metrics / Query insights (sandbox cannot reach the dashboard or D1). This is the 4th D1 incident (rows-read limit on 09-10, 09-16, 09-17); this one is throughput, not rows.
+
+**Why nothing alerted:** `processEvents` (webhook) and `safe()` (cron) only `console.error`. The brain alarm claims its throttle in kv = D1. `/health` has `dbOk` but nothing probes it.
+
+**Shipped:** `src/services/infra-alert.ts` — `classifyInfraError` (D1 overloaded / D1 generic / Anthropic 5xx-429-400 / Meta 5xx-429; a Meta 400 bad-parameter or a TypeError is NOT an outage) + `reportInfraError`: one `<!here> 🛑` per kind per 15 min, throttle via the shared kv claim when D1 answers, per-isolate memory when it does not (so the alarm still fires while D1 is down; a few isolates ⇒ a few notes, never a flood). Wired into the webhook event catch, the cron `safe()` wrapper, and `/admin/api/*` + `/slack/interactive` (report then re-throw) — the dashboard's 5 s poll is the earliest canary. 6 tests (943 → **954**). No D1 migration.
+
+- [ ] **Evan:** Cloudflare → D1 → wa-agent-db → Metrics + Query insights for 10-06: which query is slow / what spiked at ~00:00 CDMX? Paste it here.
+- [ ] **Evan:** today's leads got the canned welcome and nothing after — Chats → No leídos, answer from the composer. Messages that arrived while D1 was failing are lost after the 200 ack (Meta does not retry).
+- [ ] Add an external probe on `/health` (`dbOk:false` ⇒ alert) — in-worker alerts cannot fire if the worker itself is down. Cloudflare Health Checks or UptimeRobot, 1 min.
+- [ ] Channel redesign proposal: **docs/slack-channels-review.md** (≈5 % of #wa-leads is a task; #ventas Airtable automations duplicate the bot). Evan decides §6.
 
 ### Enrolment welcome rewritten + `student_welcome` template (2026-10-03) — ON BRANCH `claude/gallant-brahmagupta-ke72uk`
 

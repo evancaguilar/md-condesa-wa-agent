@@ -12,7 +12,9 @@ import {
   setHumanOverride,
   upsertContact,
   kvSet,
+  kvClaimIfAbsentOrOlder,
 } from "../db/queries.js";
+import { reportInfraError } from "../services/infra-alert.js";
 import { processInbound } from "../pipeline/inbound.js";
 import { channelOf, displayContact, type Channel } from "../services/channel.js";
 import { CLIENT } from "../client.gen.js";
@@ -93,6 +95,17 @@ async function processEvents(
       // other statuses + app_state_sync: nothing to do.
     } catch (err) {
       console.error("webhook event error", ev.type, err);
+      // D1 / Anthropic / Meta outage ⇒ one <!here> per 15 min, throttled
+      // OUTSIDE D1 when D1 is the thing that is down (2026-10-06 incident:
+      // hours of "D1 DB is overloaded" with nothing but console.error).
+      await reportInfraError(
+        {
+          postNote: (t) => ports.slack.postNote(t),
+          kvClaim: (k, n, a) => kvClaimIfAbsentOrOlder(env.DB, k, n, a),
+        },
+        `webhook ${ev.type}`,
+        err,
+      );
     }
   }
 }

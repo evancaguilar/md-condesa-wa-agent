@@ -25,6 +25,7 @@
     "src/routes/admin-auth.ts",
     "src/services/slack-timeouts.ts",
     "src/services/slack.ts",
+    "src/services/infra-alert.ts",
     "src/services/staff-send.ts",
     "src/services/edit-tuner-core.ts",
     "src/db/queries-admin.ts",
