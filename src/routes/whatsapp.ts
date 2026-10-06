@@ -57,9 +57,36 @@ export async function handleWebhook(
     return new Response("bad json", { status: 400 });
   }
 
+  const events = parseWebhook(payload);
+
+  // D1 gate BEFORE the ack (2026-10-06 outage): Meta redelivers any webhook we
+  // do not answer 200 to, with decreasing frequency for up to 7 days
+  // (developers.facebook.com/docs/whatsapp/cloud-api/webhooks). For ~15 h we
+  // acked first and then lost every inbound whose first INSERT threw. Now a
+  // payload carrying a lead's message is refused (503) while D1 is refusing
+  // us, so Meta brings it back once the DB answers; INSERT OR IGNORE on wamid
+  // makes the redelivery idempotent. Statuses/echoes are not worth a retry.
+  // One cheap probe per payload (~ms when healthy); a probe that passes but a
+  // later write that fails still has the Slack relay in processEvents.
+  if (events.some((ev) => ev.type === "inbound")) {
+    try {
+      await env.DB.prepare("SELECT 1").first();
+    } catch (err) {
+      console.error("[webhook] D1 probe failed — asking Meta to retry", err);
+      ctx.waitUntil(
+        reportInfraError(
+          { postNote: (t) => ports.slack.postNote(t) },
+          "webhook probe",
+          err,
+        ),
+      );
+      return new Response("db unavailable, retry", { status: 503 });
+    }
+  }
+
   // Ack Meta immediately; do all work off the response path so we never risk a
   // webhook retry storm from a slow downstream (Anthropic/Slack/Airtable).
-  ctx.waitUntil(processEvents(env, ctx, ports, payload));
+  ctx.waitUntil(processEvents(env, ctx, ports, events));
   return new Response("ok", { status: 200 });
 }
 
@@ -67,9 +94,8 @@ async function processEvents(
   env: Env,
   ctx: ExecutionContext,
   ports: Ports,
-  payload: unknown,
+  events: ReturnType<typeof parseWebhook>,
 ): Promise<void> {
-  const events = parseWebhook(payload);
   for (const ev of events) {
     try {
       const contactId =
@@ -144,7 +170,8 @@ async function fallbackUnstoredInbound(env: Env, ports: Ports, ev: InboundEvent)
 ` +
         `> ${body.slice(0, 600)}
 ` +
-        `_No está en el panel. Respóndele desde la app de WhatsApp Business o espera a que la BD vuelva._`,
+        `_No quedó guardado en el panel (la BD falló después del ack a Meta, así que Meta no lo reintenta). ` +
+        `Ya recibió la línea de espera; si vuelve a escribir, entra normal. Si no, escríbele tú desde el panel._`,
     );
   } catch (e) {
     console.error("[webhook] fallback slack note failed", ev.from, e);
