@@ -185,7 +185,55 @@ test("query plan: never a full scan of messages or pending_approvals", () => {
       plan.some((d) => /SEARCH pa USING (COVERING )?INDEX idx_pending_approvals_phone/.test(d)),
       `approval counts must use idx_pending_approvals_phone:\n${plan.join("\n")}`,
     );
+    // 2026-10-06 incident: EVERY probe into messages / pending_approvals must
+    // go through the phone-led index. Without planner stats SQLite used to pick
+    // idx_pending_approvals_status for the approval counts and
+    // idx_messages_direction_ts for inboundCount — "scan every approved row /
+    // every inbound message" once per listed contact (~964k rows, 1.6 s/call).
+    for (const d of plan) {
+      if (/^SEARCH (m|mi|ms) /.test(d)) {
+        assert.match(d, /USING (COVERING )?INDEX idx_messages_phone_ts/, `messages probe off the phone index:\n${d}`);
+      }
+      if (/^SEARCH pa /.test(d)) {
+        assert.match(d, /USING (COVERING )?INDEX idx_pending_approvals_phone/, `approval probe off the phone index:\n${d}`);
+      }
+      assert.doesNotMatch(d, /idx_pending_approvals_status|idx_messages_direction_ts/, plan.join("\n"));
+    }
   }
+});
+
+test("query plan: identical with and without planner statistics (ANALYZE)", () => {
+  const fx = openDb(true);
+  seed(fx.raw);
+  const sql = conversationsSql(2, false);
+  // Only the probes into messages / pending_approvals matter (the campaigns
+  // join legitimately becomes a SCAN of a one-row table once stats exist).
+  const probes = (): string[] =>
+    fx.raw
+      .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      .all(100, 0)
+      .map((r) => String(r.detail))
+      .filter((d) => /^SEARCH (m|mi|ms|pa) /.test(d));
+  const before = probes();
+  fx.raw.exec("ANALYZE");
+  const after = probes();
+  assert.ok(before.length >= 5, before.join("\n"));
+  assert.deepEqual(after, before);
+});
+
+test("listConversations: falls back to the unpinned query when a hinted index is missing", async () => {
+  const fx = openDb(true);
+  seed(fx.raw);
+  fx.raw.exec("DROP INDEX idx_pending_approvals_phone");
+  const rows = await listConversations(fx.db, 100, 0);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0]!.phone, C); // same order as the pinned query
+  const attempts = fx.sqls.filter((q) => /AS pendingCount/.test(q.sql));
+  assert.equal(attempts.length, 2);
+  assert.match(attempts[0]!.sql, /INDEXED BY idx_pending_approvals_phone/);
+  assert.doesNotMatch(attempts[1]!.sql, /INDEXED BY/);
+  // The unpinned text is what the planner-choice fallback runs — still no full scans.
+  assert.doesNotMatch(conversationsSql(2, false, false), /INDEXED BY/);
 });
 
 test("conversationsEtag: moves on every write the inbox renders, stable otherwise", async () => {

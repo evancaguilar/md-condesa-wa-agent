@@ -975,20 +975,24 @@ export async function listConversations(
   const pattern = query ? likePattern(query) : null;
   const digits = query.replace(/\D/g, "");
   const digitsPattern = digits.length >= 4 ? "%" + digits + "%" : pattern;
-  const run = async (tier: number): Promise<ConversationRow[]> => {
+  const run = async (tier: number, pinned: boolean): Promise<ConversationRow[]> => {
     try {
-      const stmt = db.prepare(conversationsSql(tier, pattern !== null));
+      const stmt = db.prepare(conversationsSql(tier, pattern !== null, pinned));
       const bound = pattern
         ? stmt.bind(limit, offset, pattern, digitsPattern)
         : stmt.bind(limit, offset);
       const { results } = await bound.all<ConversationRow>();
       return results;
     } catch (err) {
-      if (tier === 0 || !/no such column/i.test(String(err))) throw err;
-      return run(tier - 1);
+      const msg = String(err);
+      // INDEXED BY on an index this install does not have yet (ensureIndexes
+      // has not run): same query without the hints, planner's choice.
+      if (pinned && /no such index/i.test(msg)) return run(tier, false);
+      if (tier === 0 || !/no such column/i.test(msg)) throw err;
+      return run(tier - 1, pinned);
     }
   };
-  return run(2);
+  return run(2, true);
 }
 
 /**
@@ -997,7 +1001,16 @@ export async function listConversations(
  * list working: 2 = assigned_to + read_at, 1 = assigned_to only, 0 = base.
  * Exported for the SQLite-backed test that checks the query plan.
  */
-export function conversationsSql(tier: number, search: boolean): string {
+export function conversationsSql(tier: number, search: boolean, pinned = true): string {
+  // 2026-10-06 incident: WITHOUT planner statistics (D1 never runs ANALYZE),
+  // SQLite picked idx_pending_approvals_status for the per-row approval
+  // counts and idx_messages_direction_ts for inboundCount — i.e. "scan every
+  // approved approval / every inbound message in the table" once per listed
+  // contact. ~964k rows and 1.6 s per call, 97% of D1's time, D1 "overloaded",
+  // every brain turn dead. With the hints: 27 ms with or without stats
+  // (node:sqlite, 5k contacts / 300k messages). The plan is pinned by test.
+  const byPhoneTs = pinned ? " INDEXED BY idx_messages_phone_ts" : "";
+  const byPaPhone = pinned ? " INDEXED BY idx_pending_approvals_phone" : "";
   return `SELECT
        p.phone                         AS phone,
        p.name                          AS name,
@@ -1008,18 +1021,18 @@ export function conversationsSql(tier: number, search: boolean): string {
        lm.body                         AS lastBody,
        p.lastTs                        AS lastTs,
        lm.direction                    AS lastDirection,
-       (SELECT COUNT(*) FROM pending_approvals pa
+       (SELECT COUNT(*) FROM pending_approvals pa${byPaPhone}
         WHERE pa.phone = p.phone AND pa.status = 'pending')     AS pendingCount,
-       (SELECT COUNT(*) FROM pending_approvals pa
+       (SELECT COUNT(*) FROM pending_approvals pa${byPaPhone}
         WHERE pa.phone = p.phone AND pa.confidence = 'high')    AS hiConfCount,
-       (SELECT COUNT(*) FROM pending_approvals pa
+       (SELECT COUNT(*) FROM pending_approvals pa${byPaPhone}
         WHERE pa.phone = p.phone AND pa.status = 'approved')    AS approvedAsIsCount,
-       (SELECT COUNT(*) FROM messages mi
+       (SELECT COUNT(*) FROM messages mi${byPhoneTs}
         WHERE mi.phone = p.phone AND mi.direction = 'in')       AS inboundCount,
        camp.name                       AS campaignName${
          search
            ? `,
-       (SELECT ms.body FROM messages ms
+       (SELECT ms.body FROM messages ms${byPhoneTs}
         WHERE ms.phone = p.phone AND ms.body LIKE ?3 ESCAPE '\\'
         ORDER BY ms.ts DESC LIMIT 1)   AS matchBody`
            : ""
@@ -1030,10 +1043,10 @@ export function conversationsSql(tier: number, search: boolean): string {
                 ${tier >= 1 ? "c.assigned_to," : ""}
                 ${tier >= 2 ? "c.read_at," : ""}
                 c.campaign_id, c.updated_at,
-                (SELECT m.rowid FROM messages m
+                (SELECT m.rowid FROM messages m${byPhoneTs}
                  WHERE m.phone = c.phone AND ${notHoldingSql("m")}
                  ORDER BY m.ts DESC, m.rowid DESC LIMIT 1) AS lastRowid,
-                (SELECT m.ts FROM messages m
+                (SELECT m.ts FROM messages m${byPhoneTs}
                  WHERE m.phone = c.phone AND ${notHoldingSql("m")}
                  ORDER BY m.ts DESC, m.rowid DESC LIMIT 1) AS lastTs
          FROM contacts c
@@ -1041,7 +1054,7 @@ export function conversationsSql(tier: number, search: boolean): string {
            search
              ? `WHERE (c.name LIKE ?3 ESCAPE '\\'
                 OR c.phone LIKE ?4
-                OR EXISTS (SELECT 1 FROM messages ms
+                OR EXISTS (SELECT 1 FROM messages ms${byPhoneTs}
                            WHERE ms.phone = c.phone AND ms.body LIKE ?3 ESCAPE '\\'))`
              : ""
          }
