@@ -326,5 +326,7 @@ test("context: <respuesta_tardia> only on a redriven turn", () => {
   assert.match(late, /~17 h SIN respuesta/);
   assert.match(late, /disculpa breve/);
   assert.match(late, /NO agendes \(book_trial\)/);
+  assert.match(late, /YA PASÓ/);
+  assert.match(late, /<sin_respuesta>/);
   assert.match(late, /<\/respuesta_tardia>/);
 });

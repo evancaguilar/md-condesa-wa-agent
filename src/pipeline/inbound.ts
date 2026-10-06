@@ -634,8 +634,10 @@ export async function runBrainTurn(
   // The welcome already said everything: the model asked us to stay quiet.
   // Only honored on a welcome turn, and never for a booking/escalation (those
   // carry side effects a human must see).
+  // Also honored on a redrive turn: a lead who only confirmed ("ahí estaré",
+  // "gracias") or whose class already happened needs no late reply.
   if (
-    justSentWelcome &&
+    (justSentWelcome || opts?.forceReview) &&
     (result.action === "send" || result.action === "draft") &&
     isNoReplySentinel(result.message)
   ) {
@@ -734,7 +736,7 @@ async function routeResult(
         skipLeadSync: i > 0,
       });
     }
-    if (ctx.trainingWheels) {
+    if (ctx.trainingWheels || opts?.forceReview) {
       // Booking confirmation routes through approval; mark it booking-origin so
       // approve/edit fires the booking video after sending (R4). Confidence
       // "high": without wheels this send happens unconditionally, so the audit
@@ -789,8 +791,14 @@ async function routeResult(
     }
   }
 
+  // forceReview (outage redrive): NEVER the direct path, whatever the mode.
+  // 2026-10-06 15:03–15:11: the first version only gated the training-wheels
+  // paths; the bot was in auto mode and six stale replies went straight out.
   const autoSend =
-    result.action === "send" && result.confidence === "high" && !ctx.trainingWheels;
+    result.action === "send" &&
+    result.confidence === "high" &&
+    !ctx.trainingWheels &&
+    !opts?.forceReview;
 
   if (autoSend) {
     const delivered = await deliverOrDraft(env, ports, ctx, result.message, "high", history);

@@ -312,7 +312,9 @@ export function buildContextBlock(ctx: ConvoContext): string {
       `El último mensaje del lead llegó el ${ctx.staleReply.lastInboundCdmx} y lleva ~${h} h SIN respuesta por una falla técnica NUESTRA (no del lead). Reglas de este turno:`,
       "- Empieza con una disculpa breve y natural por la demora (una frase, sin explicar la falla), luego responde lo que preguntó.",
       "- \"hoy\", \"mañana\", \"ahorita\" en su mensaje se refieren al momento en que ESCRIBIÓ, no a ahora. Si la hora que propuso ya pasó, ofrécele la siguiente opción real.",
+      "- Si la clase o cita de la que hablan YA PASÓ (compara su fecha/hora con la hora actual del <context>), NO la confirmes como si fuera futura: pregunta si pudo asistir y, si no, ofrece reagendar.",
       "- NO agendes (book_trial) en este turno: confirma primero día y hora con el lead. Si ya hay una reserva registrada, solo confírmala.",
+      `- Si el lead solo confirmó o cerró (\"ahí estaré\", \"gracias\", \"ok\") y no hay nada útil que agregar, NO contestes: llama send_reply con message exactamente \"${NO_REPLY_SENTINEL}\" (sin nada más). Un mensaje tardío sin contenido molesta más que el silencio.`,
       "</respuesta_tardia>",
     );
   }
