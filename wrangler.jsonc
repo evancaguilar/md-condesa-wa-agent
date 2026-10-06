@@ -23,6 +23,7 @@
   },
   "vars": {
     "SLACK_CHANNEL_ID": "C0BFKQ6AU9F",
+    "SLACK_CHANNEL_OPS_ID": "C0C76L1QPFY",
     "AIRTABLE_BASE_ID": "appcX38TBVltyxHR6",
     "AIRTABLE_TRIALS_TABLE": "Leads",
     "TRAINING_WHEELS": "1",

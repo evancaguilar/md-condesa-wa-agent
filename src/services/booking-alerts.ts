@@ -14,7 +14,7 @@
 import type { BookingFailureEvent, BookingFailureNotifier, Env } from "../types.js";
 import { kvGet, kvSet, kvSetIfAbsent } from "../db/queries.js";
 import { cdmxDateStr } from "../cron/time.js";
-import { postNote } from "./slack.js";
+import { postTaskNote } from "./slack.js";
 
 /** Injected so the unit tests can stub Slack and freeze the clock. */
 export interface BookingAlertDeps {
@@ -24,7 +24,7 @@ export interface BookingAlertDeps {
 }
 
 const DEFAULT_DEPS: BookingAlertDeps = {
-  postNote,
+  postNote: postTaskNote,
   now: () => Math.floor(Date.now() / 1000),
 };
 

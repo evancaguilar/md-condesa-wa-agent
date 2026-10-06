@@ -2,7 +2,7 @@
 
 > Written 2026-10-06 after Evan: "the #wa-leads channel is overwhelming. I think it's getting ignored by the team and me because of it. We have to start from first principles, review how everything's been used up to this point, and think about the best way to manage the channel moving forward (especially in conjunction with #ventas)."
 >
-> Status: **proposal, nothing changed yet.** Evan decides; the implementation sketch at the end is ~1 day.
+> Status 2026-10-06 evening: **decided and shipped (phase 1).** Evan: two channels (#wa-leads tasks only, #bot-ops everything else), the rolling scoreboard instead of per-card ⏳ pings, Airtable keeps "¿Llegó X?" and fixes its own timing, the bot's 📅 booking card moves to #bot-ops. Shipped: `SLACK_CHANNEL_OPS_ID=C0C76L1QPFY` + `channelFor()` routing in services/slack.ts (`postNote` → ops, `postTaskNote` → task), `ensureStatusLine` (services/status-line.ts) edited every cron tick + pinned, one `<!here>` per hour past 30 min, `postHoldingPing` removed. Not yet: the single 08:00 digest (reports post to #bot-ops as separate messages for now). **Evan (Airtable):** turn OFF the "acaba de agendar" automation in #ventas (the bot already confirms); fix "¿Llegó X?" to fire at class start + 60 min once per record.
 
 ## 1. What actually lands in the channels today
 

@@ -83,6 +83,7 @@ import {
 } from "../services/auto-send.js";
 import { CLIENT } from "../client.gen.js";
 import { isNoReplySentinel } from "../brain/prompt.js";
+import { taskNote } from "../cron/deps.js";
 import {
   fetchMediaBytes,
   fetchMediaBytesFromUrl,
@@ -257,7 +258,7 @@ export async function processInbound(
 
   // 2. Global kill switch.
   if (!(await isBotEnabled(env.DB))) {
-    await ports.slack.postNote(
+    await taskNote(ports.slack, 
       `Bot en pausa (kill switch). Mensaje de ${msg.phone}: ${body}`,
     );
     return;
@@ -387,7 +388,7 @@ export async function processInbound(
 
   // 4. Student on the lead line: silent, ping Slack.
   if (contact.status === "student") {
-    await ports.slack.postNote(
+    await taskNote(ports.slack, 
       `Alumno conocido escribió en la línea de leads (${msg.phone}): ${body}`,
     );
     return;
@@ -415,7 +416,7 @@ export async function processInbound(
     } catch (err) {
       if (!(err instanceof WindowClosedError)) throw err;
     }
-    await ports.slack.postNote(
+    await taskNote(ports.slack, 
       `🚨 SEÑAL DE CRISIS (${msg.phone}). Bot pausado ${safety.pauseHours}h; se envió el mensaje de contención con recursos. ATENCIÓN HUMANA URGENTE.\nMensaje: ${body}`,
     );
     return;
@@ -674,7 +675,7 @@ async function routeResult(
     // "quiero pagar/inscribirme"). Without the ping it drowns in a channel
     // muted to Mentions-only and the lead never gets any reply (seen live
     // 2026-08-07: enrollment-ready lead silently dropped for 6 hours).
-    await ports.slack.postNote(
+    await taskNote(ports.slack, 
       `<!here> ⚠️ Escalar (${phone}): ${result.reason}\n${result.summary}\n_El bot NO respondió nada — este lead espera respuesta humana._`,
     );
     // ...and a draft-less row in pending_approvals so the lead is listed in

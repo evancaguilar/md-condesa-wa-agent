@@ -15,6 +15,8 @@ import { makeBookingFailureNotifier } from "./services/booking-alerts.js";
 import {
   makeSlackPort,
   postNote,
+  postTaskNote,
+  ensureStatusLine,
   postAttendanceCheck,
   postPostTrialCard,
   ensureControlPanel,
@@ -51,8 +53,10 @@ function makePorts(env: Env): Ports {
   // per isolate.
   if (!cronDepsInstalled) {
     setCronDeps({
+      ensureStatusLine: (e, pending, now) => ensureStatusLine(e, pending, now),
       slack: {
         postNote: (text) => postNote(env, text),
+        postTaskNote: (text) => postTaskNote(env, text),
         postAttendanceCheck: (a) =>
           postAttendanceCheck(env, a.name, a.phone, a.recordId).then(() => {}),
         postPostTrialCard: (a) => postPostTrialCard(env, a).then(() => {}),

@@ -176,7 +176,7 @@ test("runApprovalTimeouts: losing the holding claim sends nothing and pings nobo
   assert.equal(log.releases.length, 0);
 });
 
-test("runApprovalTimeouts: winning the claim sends ONE holding line (meta holding:1) + pings", async () => {
+test("runApprovalTimeouts: winning the claim sends ONE holding line (meta holding:1), no Slack re-ping", async () => {
   slackCalls.length = 0;
   const { queries, log } = makeQueries([approval()]);
   const { deps, log: sendLog } = makeDeps();
@@ -191,10 +191,9 @@ test("runApprovalTimeouts: winning the claim sends ONE holding line (meta holdin
   assert.equal(opts.metaExtra.holding, 1);
   assert.equal(log.releases.length, 0);
 
-  // Re-ping posted to Slack, identifying the approval.
-  assert.equal(slackCalls.length, 1);
-  assert.equal(slackCalls[0]!.method, "chat.postMessage");
-  assert.ok(slackCalls[0]!.body.text!.includes("#42"));
+  // No per-card re-ping any more (2026-10-06): the #wa-leads scoreboard
+  // (services/status-line.ts) carries the ageing + one <!here> per hour.
+  assert.equal(slackCalls.length, 0);
 });
 
 test("runApprovalTimeouts: a draft resolved between claim and send is NOT interrupted", async () => {

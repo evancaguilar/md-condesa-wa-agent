@@ -116,6 +116,14 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     const pending = await getPendingApprovals(env.DB);
     await cronDeps.runApprovalTimeouts(env, pending);
   });
+  // #wa-leads scoreboard (services/status-line.ts): re-read AFTER the
+  // timeouts so best-bets/expiries this tick are already out of the count.
+  if (cronDeps.ensureStatusLine) {
+    const ensure = cronDeps.ensureStatusLine;
+    await safe("statusLine", async () => {
+      await ensure(env, await getPendingApprovals(env.DB), nowEpoch);
+    });
+  }
 
   // Marketing metrics feeder (docs/marketing-metrics.md): gated by the client
   // feature flag AND the ad-account var, so other clients / a bare deploy skip it.

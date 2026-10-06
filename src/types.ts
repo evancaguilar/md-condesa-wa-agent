@@ -40,6 +40,9 @@ export interface Env {
 
   // Vars
   SLACK_CHANNEL_ID: string;
+  /** Everything that is NOT a human task (FYIs, alerts, reports, debug) goes
+   *  here when set; unset ⇒ same channel as SLACK_CHANNEL_ID. docs/slack-channels-review.md */
+  SLACK_CHANNEL_OPS_ID?: string;
   AIRTABLE_BASE_ID: string;
   AIRTABLE_TRIALS_TABLE: string;
   /** Airtable field holding the trial-class outcome. Defaults in code to
@@ -465,8 +468,11 @@ export interface SlackPort {
   postDraft(
     a: PendingApproval & { contextText: string; sureness?: number },
   ): Promise<string>;
-  /** Posts a plain informational note to the channel. */
+  /** Plain note to the OPS channel (FYI / alert / debug — nobody must act). */
   postNote(text: string): Promise<void>;
+  /** Plain note to the TASK channel (#wa-leads): a human must do something.
+   *  Optional so one-line test fakes stay one-liners; callers fall back to postNote. */
+  postTaskNote?(text: string): Promise<void>;
   /** FYI card posted whenever book_trial fires (spec: always ALSO to Slack). */
   postBookingFyi(booking: BookTrialInput): Promise<void>;
   /** FYI card for a reply the gated auto-send lane sent without approval. */

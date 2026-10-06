@@ -6,6 +6,14 @@
 // Pure, unit-testable helpers (signature verify, payload parse, business-hours /
 // timeout logic) live in ./slack-timeouts.js and are re-exported here.
 
+import {
+  buildPingText,
+  buildStatusLine,
+  shouldPing,
+  summarizeQueue,
+  KV_STATUS_LINE_PING_AT,
+  KV_STATUS_LINE_TS,
+} from "./status-line.js";
 import type {
   AutoSentFyi,
   BookTrialInput,
@@ -99,14 +107,28 @@ async function slackCall(
   return data;
 }
 
+/**
+ * Two channels (docs/slack-channels-review.md, 2026-10-06): "task" is
+ * SLACK_CHANNEL_ID (#wa-leads) — only things a human must do, with the
+ * buttons; "ops" is SLACK_CHANNEL_OPS_ID (#bot-ops) — FYIs, alerts, reports,
+ * debug. Unset ops var ⇒ both resolve to the task channel (safe rollout).
+ */
+export type NoteKind = "task" | "ops";
+
+export function channelFor(env: Pick<Env, "SLACK_CHANNEL_ID" | "SLACK_CHANNEL_OPS_ID">, kind: NoteKind): string {
+  if (kind === "ops" && env.SLACK_CHANNEL_OPS_ID) return env.SLACK_CHANNEL_OPS_ID;
+  return env.SLACK_CHANNEL_ID;
+}
+
 async function postMessage(
   env: Env,
   blocks: unknown[],
   text: string,
   extra?: Record<string, unknown>,
+  kind: NoteKind = "task",
 ): Promise<string> {
   const data = await slackCall(env, "chat.postMessage", {
-    channel: env.SLACK_CHANNEL_ID,
+    channel: channelFor(env, kind),
     text,
     blocks,
     ...extra,
@@ -120,12 +142,16 @@ async function updateMessage(
   blocks: unknown[],
   text: string,
 ): Promise<void> {
-  await slackCall(env, "chat.update", {
-    channel: env.SLACK_CHANNEL_ID,
-    ts,
-    text,
-    blocks,
-  });
+  // Cards live in the task channel; the auto-sent FYI (with its "Tomar
+  // control" button) lives in ops. Button payloads only carry the ts, so a
+  // miss in the task channel retries in ops.
+  try {
+    await slackCall(env, "chat.update", { channel: channelFor(env, "task"), ts, text, blocks });
+  } catch (err) {
+    const ops = channelFor(env, "ops");
+    if (ops === channelFor(env, "task") || !/message_not_found|channel_not_found/.test(String(err))) throw err;
+    await slackCall(env, "chat.update", { channel: ops, ts, text, blocks });
+  }
 }
 
 // ---- Block Kit builders (pure) ----
@@ -318,8 +344,14 @@ export async function postDraft(
 }
 
 /** Plain informational note to the channel. */
+/** FYI / alert / debug note → ops channel. */
 export async function postNote(env: Env, text: string): Promise<void> {
-  await postMessage(env, [section(text)], text);
+  await postMessage(env, [section(text)], text, undefined, "ops");
+}
+
+/** A human must act → task channel (#wa-leads). */
+export async function postTaskNote(env: Env, text: string): Promise<void> {
+  await postMessage(env, [section(text)], text, undefined, "task");
 }
 
 /** FYI card posted when the model's book_trial tool fires. */
@@ -333,7 +365,7 @@ export async function postBookingFyi(env: Env, booking: BookTrialInput): Promise
       `${booking.discipline} · ${booking.audience === "kid" ? "niños" : "adultos"} · ${when}`,
     ),
   ];
-  await postMessage(env, blocks, `Clase de prueba agendada — ${booking.name}`);
+  await postMessage(env, blocks, `Clase de prueba agendada — ${booking.name}`, undefined, "ops");
 }
 
 /**
@@ -359,7 +391,7 @@ export async function postAutoSentFyi(env: Env, fyi: AutoSentFyi): Promise<void>
       elements: [button("🙋 Tomar control", `takeover_phone|${fyi.phone}`)],
     },
   ];
-  await postMessage(env, blocks, `Auto-enviado — ${fyi.phone}`);
+  await postMessage(env, blocks, `Auto-enviado — ${fyi.phone}`, undefined, "ops");
 }
 
 /**
@@ -422,22 +454,6 @@ export async function postAttendanceCheck(
     },
   ];
   return postMessage(env, blocks, `<!here> ¿Llegó ${name}?`);
-}
-
-/** Re-ping with <!here> for a still-pending approval (cron timeout path). */
-export async function postHoldingPing(
-  env: Env,
-  approvalId: number,
-  who?: { name?: string | null; phone?: string; draft?: string },
-): Promise<void> {
-  // Identify the approval — a bare "#816" is unfindable when the channel has
-  // scrolled past the card. Name + number + draft snippet locate it instantly.
-  const label = [who?.name, who?.phone].filter(Boolean).join(" · ");
-  const snippet = who?.draft
-    ? ` — «${who.draft.length > 80 ? `${who.draft.slice(0, 80)}…` : who.draft}»`
-    : "";
-  const text = `<!here> ⏳ La respuesta #${approvalId}${label ? ` para ${label}` : ""} lleva rato pendiente${snippet} — ¿la revisamos?`;
-  await postMessage(env, [section(text)], text);
 }
 
 // ---- edit-tuner cards (weekly edit-pattern analysis) ----
@@ -661,6 +677,50 @@ export async function ensureControlPanel(env: Env): Promise<string> {
     // pins.add is best-effort (needs pins:write; not fatal if it fails).
   }
   return ts;
+}
+
+/**
+ * #wa-leads scoreboard: one message edited in place each cron tick, pinned on
+ * first post, re-posted if someone deleted it. <!here> at most once per hour
+ * while the oldest open item is past 30 min (services/status-line.ts).
+ */
+export async function ensureStatusLine(
+  env: Env,
+  pending: PendingApproval[],
+  nowSec: number,
+): Promise<void> {
+  const q = summarizeQueue(pending, nowSec);
+  const text = buildStatusLine(q, nowSec);
+  const existing = await kvGet(env.DB, KV_STATUS_LINE_TS);
+  let posted = false;
+  if (existing) {
+    try {
+      await slackCall(env, "chat.update", {
+        channel: channelFor(env, "task"),
+        ts: existing,
+        text,
+        blocks: [section(text)],
+      });
+      posted = true;
+    } catch (err) {
+      if (!/message_not_found|channel_not_found/.test(String(err))) throw err;
+    }
+  }
+  if (!posted) {
+    const ts = await postMessage(env, [section(text)], text, undefined, "task");
+    await kvSet(env.DB, KV_STATUS_LINE_TS, ts);
+    try {
+      await slackCall(env, "pins.add", { channel: channelFor(env, "task"), timestamp: ts });
+    } catch {
+      // best-effort
+    }
+  }
+  const lastPingRaw = await kvGet(env.DB, KV_STATUS_LINE_PING_AT);
+  const lastPing = lastPingRaw ? Number(lastPingRaw) : null;
+  if (shouldPing(q, Number.isFinite(lastPing) ? lastPing : null, nowSec)) {
+    await kvSet(env.DB, KV_STATUS_LINE_PING_AT, String(nowSec));
+    await postTaskNote(env, buildPingText(q));
+  }
 }
 
 /** Refreshes the pinned control panel to reflect the current bot_enabled flag. */
@@ -919,11 +979,8 @@ export async function runApprovalTimeouts(
           }
           throw err;
         }
-        await postHoldingPing(env, a.id, {
-          name: contact?.name ?? null,
-          phone: a.phone,
-          draft: a.draft,
-        });
+        // No per-card "⏳ lleva rato pendiente" re-ping any more: the #wa-leads
+        // scoreboard (ensureStatusLine) carries the ageing + one <!here>.
       } else if (decision.kind === "bestbet") {
         // Defensive baja check, same as approveAndSend: the inbound gate already
         // discards pending drafts on opt-out, so reaching here is a race (or a
@@ -982,6 +1039,7 @@ export function makeSlackPort(env: Env): SlackPort {
   return {
     postDraft: (a) => postDraft(env, a),
     postNote: (text) => postNote(env, text),
+    postTaskNote: (text) => postTaskNote(env, text),
     postBookingFyi: (booking) => postBookingFyi(env, booking),
     postAutoSentFyi: (fyi) => postAutoSentFyi(env, fyi),
     markSuperseded: (a, newId) => markSupersededCard(env, a, newId),

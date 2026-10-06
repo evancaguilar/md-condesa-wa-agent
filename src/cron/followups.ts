@@ -50,6 +50,7 @@ import {
 } from "../services/send.js";
 import { channelOf, displayContact } from "../services/channel.js";
 import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
+import { taskNote } from "./deps.js";
 import {
   clampToWindow,
   cdmxToEpoch,
@@ -380,7 +381,7 @@ async function processOne(
         isWindowClosed: (err) => err instanceof WindowClosedError,
         campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
         onBuyIntent: async (_e, phone) => {
-          await deps.slack.postNote(
+          await taskNote(deps.slack, 
             `<!here> 💳 ${phone} dijo que quiere pagar/inscribirse (o que ya pagó). Se canceló el seguimiento automático — atiéndelo un humano.`,
           );
         },

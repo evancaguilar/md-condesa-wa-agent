@@ -8,8 +8,11 @@ import type { UnansweredRow } from "./redrive.js";
 
 /** Slack surface the cron needs (superset of SlackPort.postNote). */
 export interface CronSlackDeps {
-  /** Plain informational note to #wa-leads (budget report, sync FYIs). */
+  /** Plain note to the OPS channel (budget report, sync FYIs, alerts). */
   postNote(text: string): Promise<void>;
+  /** Plain note to the TASK channel (#wa-leads) — a human must act. Optional:
+   *  callers fall back to postNote (see taskNote()). */
+  postTaskNote?(text: string): Promise<void>;
   /** Post the "¿Llegó {name}?" Sí/No attendance card (C owns the buttons). */
   postAttendanceCheck(args: {
     phone: string;
@@ -42,7 +45,14 @@ export type EnsureControlPanel = (
 ) => Promise<void>;
 
 /** Everything the dispatcher needs beyond queries/airtable. */
+/** Task-channel note with the postNote fallback for fakes/stubs. */
+export function taskNote(slack: Pick<CronSlackDeps, "postNote" | "postTaskNote">, text: string): Promise<void> {
+  return slack.postTaskNote ? slack.postTaskNote(text) : slack.postNote(text);
+}
+
 export interface CronDeps {
+  /** #wa-leads scoreboard, edited in place every tick (services/status-line.ts). */
+  ensureStatusLine?(env: import("../types.js").Env, pending: PendingApproval[], nowSec: number): Promise<void>;
   /**
    * Outage redrive (src/cron/redrive.ts): run one forced-review brain turn for
    * a lead whose last message went unanswered. Wired in index.ts from
