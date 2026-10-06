@@ -93,6 +93,22 @@ export interface SendTextOpts {
  * Free-form text send. Throws WindowClosedError if the contact's last inbound
  * is older than 24h (callers must switch to sendTemplate).
  */
+/**
+ * Text send that touches NOTHING but the Graph API — no window check, no
+ * outbound row. Only for the D1-outage fallback (routes/whatsapp.ts): the lead
+ * just wrote (window open by definition) and the DB that would record the
+ * send is the thing that is down. Returns the wamid.
+ */
+export async function sendTextRaw(env: Env, phone: string, body: string): Promise<string> {
+  return post(env, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: phone,
+    type: "text",
+    text: { preview_url: false, body },
+  });
+}
+
 export async function sendText(
   env: Env,
   phone: string,

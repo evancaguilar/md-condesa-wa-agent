@@ -14,7 +14,9 @@ import {
   kvSet,
   kvClaimIfAbsentOrOlder,
 } from "../db/queries.js";
-import { reportInfraError } from "../services/infra-alert.js";
+import { classifyInfraError, reportInfraError } from "../services/infra-alert.js";
+import { sendTextRaw } from "../services/wa.js";
+import { HOLDING_LINE } from "../services/slack-timeouts.js";
 import { processInbound } from "../pipeline/inbound.js";
 import { channelOf, displayContact, type Channel } from "../services/channel.js";
 import { CLIENT } from "../client.gen.js";
@@ -95,6 +97,12 @@ async function processEvents(
       // other statuses + app_state_sync: nothing to do.
     } catch (err) {
       console.error("webhook event error", ev.type, err);
+      // D1 down ⇒ the message was NOT stored and nothing downstream will ever
+      // see it (Meta got its 200). Make it visible anyway: the raw text to
+      // Slack, a holding line to the lead (Graph API only, no DB). Best-effort.
+      if (ev.type === "inbound" && classifyInfraError(err)?.kind.startsWith("d1")) {
+        await fallbackUnstoredInbound(env, ports, ev);
+      }
       // D1 / Anthropic / Meta outage ⇒ one <!here> per 15 min, throttled
       // OUTSIDE D1 when D1 is the thing that is down (2026-10-06 incident:
       // hours of "D1 DB is overloaded" with nothing but console.error).
@@ -107,6 +115,48 @@ async function processEvents(
         err,
       );
     }
+  }
+}
+
+// Per-isolate memory (D1 is down, there is nowhere else): wamids already
+// relayed (Meta may redeliver) and the last holding line per phone.
+const relayedWamids = new Set<string>();
+const holdingSentAt = new Map<string, number>();
+const HOLDING_FALLBACK_COOLDOWN_SEC = 30 * 60;
+
+/**
+ * 2026-10-06 D1 outage: for ~15 h every inbound was acked to Meta and then
+ * lost when the first D1 call threw; Evan had no way to even SEE the leads.
+ * Slack gets the raw text (phone + body, "responde desde la app de WhatsApp
+ * Business o espera al reproceso"); the lead gets ONE holding line per 30 min
+ * so they are not left on read. Both via paths that do not touch D1.
+ */
+async function fallbackUnstoredInbound(env: Env, ports: Ports, ev: InboundEvent): Promise<void> {
+  if (!ev.wamid || !ev.from || relayedWamids.has(ev.wamid)) return;
+  relayedWamids.add(ev.wamid);
+  if (relayedWamids.size > 2000) relayedWamids.clear();
+  const body = (ev.body ?? "").trim() || "[sin texto / media]";
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await ports.slack.postNote(
+      `📥 *Mensaje SIN guardar (base de datos caída)* — ${displayContact(ev.from)}` +
+        `${ev.profileName ? ` · ${ev.profileName}` : ""}
+` +
+        `> ${body.slice(0, 600)}
+` +
+        `_No está en el panel. Respóndele desde la app de WhatsApp Business o espera a que la BD vuelva._`,
+    );
+  } catch (e) {
+    console.error("[webhook] fallback slack note failed", ev.from, e);
+  }
+  if (channelOf(ev.from) !== "wa") return;
+  const last = holdingSentAt.get(ev.from) ?? 0;
+  if (nowSec - last < HOLDING_FALLBACK_COOLDOWN_SEC) return;
+  holdingSentAt.set(ev.from, nowSec);
+  try {
+    await sendTextRaw(env, ev.from, HOLDING_LINE);
+  } catch (e) {
+    console.error("[webhook] fallback holding line failed", ev.from, e);
   }
 }
 

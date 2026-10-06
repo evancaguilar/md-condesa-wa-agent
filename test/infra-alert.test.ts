@@ -140,8 +140,8 @@ test("report: works without a kv claim (no deps.kvClaim) on the memory gate alon
   resetInfraAlertMemoryForTests();
   const posts: string[] = [];
   const deps = { postNote: async (t: string) => void posts.push(t) };
-  assert.equal(await reportInfraError(deps, "admin", D1_OVERLOADED, 10), "d1_overloaded");
-  assert.equal(await reportInfraError(deps, "admin", D1_OVERLOADED, 20), null);
+  assert.equal(await reportInfraError(deps, "cron x", D1_OVERLOADED, 10), "d1_overloaded");
+  assert.equal(await reportInfraError(deps, "cron x", D1_OVERLOADED, 20), null);
   assert.equal(posts.length, 1);
 });
 
