@@ -304,6 +304,19 @@ export function buildContextBlock(ctx: ConvoContext): string {
     );
   }
 
+  // Outage redrive (2026-10-06): the reply is hours late and it is our fault.
+  if (ctx.staleReply) {
+    const h = Math.max(1, Math.round(ctx.staleReply.waitedHours));
+    lines.push(
+      "<respuesta_tardia>",
+      `El último mensaje del lead llegó el ${ctx.staleReply.lastInboundCdmx} y lleva ~${h} h SIN respuesta por una falla técnica NUESTRA (no del lead). Reglas de este turno:`,
+      "- Empieza con una disculpa breve y natural por la demora (una frase, sin explicar la falla), luego responde lo que preguntó.",
+      "- \"hoy\", \"mañana\", \"ahorita\" en su mensaje se refieren al momento en que ESCRIBIÓ, no a ahora. Si la hora que propuso ya pasó, ofrécele la siguiente opción real.",
+      "- NO agendes (book_trial) en este turno: confirma primero día y hora con el lead. Si ya hay una reserva registrada, solo confírmala.",
+      "</respuesta_tardia>",
+    );
+  }
+
   return lines.join("\n");
 }
 

@@ -5,6 +5,8 @@ import { handleSlackInteractive } from "./routes/slack.js";
 import { handleAdminUi } from "./routes/admin-ui.js";
 import { handleAdminApi } from "./routes/admin-api.js";
 import { runCron, setCronDeps } from "./cron/dispatcher.js";
+import { runBrainTurn } from "./pipeline/inbound.js";
+import { staleReplyFor } from "./cron/redrive.js";
 import { createBrainWithKb, makeOverlayLoader } from "./brain/index.js";
 import { accrueUsage, kvClaimIfAbsentOrOlder } from "./db/queries.js";
 import { reportInfraError } from "./services/infra-alert.js";
@@ -59,6 +61,15 @@ function makePorts(env: Env): Ports {
       // ignore the list the dispatcher passes and just bind env.
       runApprovalTimeouts: (e) => runApprovalTimeouts(e),
       ensureControlPanel: (e) => ensureControlPanel(e).then(() => {}),
+      redriveTurn: (row, nowSec) =>
+        runBrainTurn(
+          env,
+          cachedPorts!,
+          { wamid: row.wamid, phone: row.phone, body: row.body, ts: row.ts },
+          nowSec,
+          undefined,
+          { forceReview: true, stale: staleReplyFor(row, nowSec) },
+        ),
     });
     cronDepsInstalled = true;
   }

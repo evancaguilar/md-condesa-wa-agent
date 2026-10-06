@@ -33,6 +33,7 @@
     "src/services/wa-migrate.ts",
     "src/cron/template-sync.ts",
     "src/cron/seed-campaigns.ts",
+    "src/cron/redrive.ts",
     "src/db/approvals-history.ts",
     "src/cron/time.ts",
     "src/cron/quiet.ts",

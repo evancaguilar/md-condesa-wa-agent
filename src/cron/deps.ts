@@ -4,6 +4,7 @@
 // exact wiring E must apply.
 
 import type { PendingApproval } from "../types.js";
+import type { UnansweredRow } from "./redrive.js";
 
 /** Slack surface the cron needs (superset of SlackPort.postNote). */
 export interface CronSlackDeps {
@@ -42,6 +43,12 @@ export type EnsureControlPanel = (
 
 /** Everything the dispatcher needs beyond queries/airtable. */
 export interface CronDeps {
+  /**
+   * Outage redrive (src/cron/redrive.ts): run one forced-review brain turn for
+   * a lead whose last message went unanswered. Wired in index.ts from
+   * pipeline/inbound.runBrainTurn; absent ⇒ the redrive is skipped.
+   */
+  redriveTurn?(row: UnansweredRow, nowSec: number): Promise<void>;
   slack: CronSlackDeps;
   runApprovalTimeouts: RunApprovalTimeouts;
   ensureControlPanel: EnsureControlPanel;

@@ -504,6 +504,34 @@ export async function processInbound(
   const newest = await newestInboundWamid(env.DB, msg.phone);
   if (newest !== msg.wamid) return;
 
+  await runBrainTurn(env, ports, msg, nowSec, justSentWelcome);
+}
+
+/**
+ * Options for a brain turn that did not come straight from the webhook.
+ * `forceReview` (outage redrive, src/cron/redrive.ts): the reply ALWAYS lands
+ * in Aprobar — no auto-send lane, no 1h best-bet (no sureness key), no 10-min
+ * holding line (awaitingReply=false) — Evan reviews and sends each one.
+ * `stale` rides into the prompt as <respuesta_tardia>.
+ */
+export interface BrainTurnOptions {
+  forceReview?: boolean;
+  stale?: ConvoContext["staleReply"];
+}
+
+/**
+ * Step 7 of the pipeline: build the brain context for `msg` (the newest
+ * inbound of its phone), call the brain, route the result. Exported for the
+ * outage redrive; processInbound calls it after the debounce.
+ */
+export async function runBrainTurn(
+  env: Env,
+  ports: Ports,
+  msg: InboundMessage,
+  nowSec: number,
+  justSentWelcome: string | undefined,
+  opts?: BrainTurnOptions,
+): Promise<void> {
   // 7. Brain → route.
   const fresh = await getContact(env.DB, msg.phone);
   if (!fresh) return;
@@ -586,6 +614,7 @@ export async function processInbound(
     adRef,
     justSentWelcome,
     recordedBooking,
+    ...(opts?.stale ? { staleReply: opts.stale } : {}),
   };
 
   const result = await ports.brain.respond(brainCtx);
@@ -613,7 +642,7 @@ export async function processInbound(
     console.log(`[inbound] welcome covered it; no reply for ${msg.phone}`);
     return;
   }
-  await routeResult(env, ports, brainCtx, result, history);
+  await routeResult(env, ports, brainCtx, result, history, opts);
 }
 
 async function routeResult(
@@ -622,6 +651,7 @@ async function routeResult(
   ctx: ConvoContext,
   result: BrainResult,
   history: StoredMessage[],
+  opts?: BrainTurnOptions,
 ): Promise<void> {
   // Belt-and-braces sentinel stop (2026-08-27: a lead RECEIVED a literal
   // "<sin_respuesta>"). The welcome-turn early return upstream is the normal
@@ -721,9 +751,9 @@ async function routeResult(
         history,
         undefined,
         true,
-        true,
+        !opts?.forceReview,
         "high",
-        surenessOf(undefined, "high"),
+        opts?.forceReview ? undefined : surenessOf(undefined, "high"),
       );
     } else {
       const delivered = await deliverOrDraft(
@@ -778,7 +808,7 @@ async function routeResult(
   // switch `auto_send_enabled` is "1". Anything it refuses falls through to the
   // normal approval queue below, where the 1h best-bet timeout can still send
   // it (services/slack-timeouts.ts).
-  if (ctx.trainingWheels) {
+  if (ctx.trainingWheels && !opts?.forceReview) {
     const lane = await evaluateAutoSendLane(env.DB, {
       phone,
       action: result.action,
@@ -857,9 +887,9 @@ async function routeResult(
     history,
     reason,
     false,
-    result.awaitingReply ?? true,
+    opts?.forceReview ? false : (result.awaitingReply ?? true),
     result.confidence,
-    result.sureness,
+    opts?.forceReview ? undefined : result.sureness,
   );
 }
 

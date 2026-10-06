@@ -314,3 +314,17 @@ test("slot hints degrade to nothing when the clock can't be parsed", () => {
   assert.ok(!block.includes("próximos horarios válidos"));
   assert.ok(block.startsWith("<context>"));
 });
+
+test("context: <respuesta_tardia> only on a redriven turn", () => {
+  const plain = buildContextBlock(ctx());
+  assert.doesNotMatch(plain, /respuesta_tardia/);
+  const late = buildContextBlock(
+    ctx({ staleReply: { waitedHours: 17.4, lastInboundCdmx: "5/10/2026 22:14 (hora CDMX)" } }),
+  );
+  assert.match(late, /<respuesta_tardia>/);
+  assert.match(late, /5\/10\/2026 22:14/);
+  assert.match(late, /~17 h SIN respuesta/);
+  assert.match(late, /disculpa breve/);
+  assert.match(late, /NO agendes \(book_trial\)/);
+  assert.match(late, /<\/respuesta_tardia>/);
+});

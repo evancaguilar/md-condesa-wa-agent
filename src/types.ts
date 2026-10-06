@@ -326,6 +326,13 @@ export interface ConvoContext {
    * mañana"-style acks through instead of demoting them to low drafts.
    */
   recordedBooking?: { ts: number; trialDate?: string; trialTime?: string };
+  /**
+   * Set ONLY by the outage redrive (src/cron/redrive.ts): the lead's last
+   * message sat unanswered for hours because of a failure on OUR side. The
+   * prompt then asks for a short apology, relative-time care ("mañana" meant
+   * the day after they WROTE) and no booking without re-confirming the slot.
+   */
+  staleReply?: { waitedHours: number; lastInboundCdmx: string };
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */

@@ -32,6 +32,7 @@ import { runSalesAudio } from "./sales-audio.js";
 import { runCapiDrain } from "./capi.js";
 import { syncPostTrialD0Templates } from "./template-sync.js";
 import { seedCampaigns } from "./seed-campaigns.js";
+import { runRedrive } from "./redrive.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -95,6 +96,19 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // Every tick: due followups + approval timeouts. Isolate failures so one
   // subsystem can't starve the others.
   await safe("runDueFollowups", () => runDueFollowups(env, cronDeps));
+  // One-shot outage redrive (src/cron/redrive.ts, kv-guarded): leads whose
+  // last message went unanswered during the 2026-10-06 D1 outage get a brain
+  // draft in Aprobar, a few per tick, review-only.
+  if (cronDeps.redriveTurn) {
+    const turn = cronDeps.redriveTurn;
+    await safe("redrive", () =>
+      runRedrive(
+        env,
+        { turn: (row, now) => turn(row, now), postNote: (t) => cronDeps.slack.postNote(t) },
+        nowEpoch,
+      ),
+    );
+  }
   // Template blasts (docs/blasts.md): a few paced sends per tick, 09:00–21:00
   // CDMX, under the run's daily cap; auto-pauses on template/account errors.
   await safe("runBlastBatch", () => runBlastBatch(env, { slack: cronDeps.slack }, nowEpoch));
