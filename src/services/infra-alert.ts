@@ -177,6 +177,16 @@ export async function reportInfraError(
     }
     if (won === true) viaMemory = false;
   }
+  if (viaMemory && !/^cron\b/.test(scope)) {
+    // No shared throttle at all (D1 down; Cache API is a no-op on workers.dev —
+    // 2026-10-06 15:17: five identical <!here> in one minute from the
+    // dashboard's polls landing on different isolates). Only the cron may
+    // post in this state: one invocation per 5 min is a hard ceiling. The
+    // webhook/admin paths stay silent; the cron sees the same outage within
+    // minutes because its own queries fail too.
+    lastNoteAt.set(c.kind, nowSec);
+    return null;
+  }
   lastNoteAt.set(c.kind, nowSec);
   try {
     await deps.postNote(formatInfraAlert(scope, c, viaMemory));

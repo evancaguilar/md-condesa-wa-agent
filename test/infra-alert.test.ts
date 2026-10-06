@@ -87,7 +87,7 @@ test("report: posts once per kind per window via the kv claim, quiet in between"
   assert.equal(posts.length, 2);
 });
 
-test("report: when kv (D1) itself throws, the alarm still goes out on the memory gate", async () => {
+test("report: when kv (D1) itself throws, only the cron posts (memory gate); webhook/admin stay silent", async () => {
   resetInfraAlertMemoryForTests();
   const posts: string[] = [];
   const deps = {
@@ -98,15 +98,20 @@ test("report: when kv (D1) itself throws, the alarm still goes out on the memory
       throw D1_OVERLOADED;
     },
   };
-  assert.equal(await reportInfraError(deps, "webhook inbound", D1_OVERLOADED, 5000), "d1_overloaded");
+  // Dashboard polls / webhooks fan out over many isolates: no shared throttle ⇒ silent.
+  assert.equal(await reportInfraError(deps, "webhook inbound", D1_OVERLOADED, 5000), null);
+  assert.equal(await reportInfraError(deps, "admin", D1_OVERLOADED, 5000), null);
+  assert.equal(posts.length, 0);
+  resetInfraAlertMemoryForTests();
+  assert.equal(await reportInfraError(deps, "cron runDueFollowups", D1_OVERLOADED, 5000), "d1_overloaded");
   assert.equal(posts.length, 1);
   assert.match(posts[0]!, /puede repetirse/);
   // Still throttled per isolate.
-  assert.equal(await reportInfraError(deps, "webhook inbound", D1_OVERLOADED, 5000 + 120), null);
+  assert.equal(await reportInfraError(deps, "cron redrive", D1_OVERLOADED, 5000 + 120), null);
   assert.equal(posts.length, 1);
   // ...and fires again after the window.
   assert.equal(
-    await reportInfraError(deps, "webhook inbound", D1_OVERLOADED, 5000 + INFRA_ALERT_THROTTLE_SECONDS),
+    await reportInfraError(deps, "cron redrive", D1_OVERLOADED, 5000 + INFRA_ALERT_THROTTLE_SECONDS),
     "d1_overloaded",
   );
   assert.equal(posts.length, 2);
