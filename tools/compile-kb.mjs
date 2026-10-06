@@ -218,6 +218,9 @@ function renderClientTs(cfg, persona, version) {
       booking: cfg.links?.booking ?? "",
       bookingKids: cfg.links?.bookingKids ?? cfg.links?.booking ?? "",
       schedule: cfg.links?.schedule ?? cfg.links?.booking ?? "",
+      // Enrolment welcome ({link} / {group}); optional, the sender falls back.
+      ...(cfg.links?.welcome ? { welcome: cfg.links.welcome } : {}),
+      ...(cfg.links?.group ? { group: cfg.links.group } : {}),
     },
     services: cfg.services ?? [],
     closedDates: Array.isArray(cfg.closedDates)
