@@ -12,6 +12,11 @@
       "binding": "DB",
       "database_name": "wa-agent-db",
       "database_id": "c57b17de-9e0c-4a48-adc7-7cb791372cdc"
+    },
+    {
+      "binding": "DB_TARGET",
+      "database_name": "wa-agent-db-2",
+      "database_id": "3b3d9ee3-d294-4fa5-834b-1c677984e1cb"
     }
   ],
   // Workers AI: Whisper transcription for inbound voice notes (src/services/media.ts).
