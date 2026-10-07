@@ -392,3 +392,128 @@ test("ensureDataset: returns the linked dataset when one exists, POSTs to create
   assert.ok(!c.error!.includes("TOKEN-SECRET"));
   assert.equal(seen.length, 2, "the create is still attempted (a read-only token may lack the read edge)");
 });
+
+// ---- getLeadRecord + backfill (fake global fetch) ----
+
+function withFetch<T>(impl: (url: string, init?: RequestInit) => Promise<Response>, fn: () => Promise<T>): Promise<T> {
+  const g = globalThis as { fetch: typeof fetch };
+  const prev = g.fetch;
+  g.fetch = impl as typeof fetch;
+  return fn().finally(() => {
+    g.fetch = prev;
+  });
+}
+
+function backfillDb(rows: { phone: string; ad_ref: string | null; airtable_lead_id: string }[], kv: Map<string, string>): D1Database {
+  const make = (sql: string): D1PreparedStatement => {
+    let binds: unknown[] = [];
+    const stmt = {
+      bind(...args: unknown[]) {
+        binds = args;
+        return stmt;
+      },
+      async first<T>() {
+        if (sql.includes("SELECT value FROM kv")) {
+          const v = kv.get(String(binds[0]));
+          return (v === undefined ? null : { value: v }) as T;
+        }
+        return null as T;
+      },
+      async all<T>() {
+        const after = String(binds[0]);
+        const limit = Number(binds[1]);
+        const page = rows
+          .filter((r) => r.phone > after && r.airtable_lead_id && (r.ad_ref ?? "").includes('"ctwaClid":"'))
+          .sort((a, b) => (a.phone < b.phone ? -1 : 1))
+          .slice(0, limit);
+        return { results: page as T[], success: true, meta: {} };
+      },
+      async run() {
+        if (sql.includes("INSERT INTO kv")) kv.set(String(binds[0]), String(binds[1]));
+        return { success: true, meta: { changes: 1 } };
+      },
+    } as unknown as D1PreparedStatement;
+    return stmt;
+  };
+  return { prepare: make } as unknown as D1Database;
+}
+
+test("getLeadRecord: plain GET /<table>/<recordId> — no fields[] (the single-record endpoint rejects it)", async () => {
+  const { getLeadRecord } = await import("../src/services/capi-airtable.js");
+  const env = { AIRTABLE_PAT: "pat", AIRTABLE_BASE_ID: "appX", AIRTABLE_TRIALS_TABLE: "Leads" } as unknown as Env;
+  const urls: string[] = [];
+  const rec = await withFetch(
+    async (url) => {
+      urls.push(url);
+      return url.endsWith("/recMissing")
+        ? fakeRes(404, {})
+        : fakeRes(200, { id: "recA", fields: { "CTWA Click ID": "", "Nombre de Lead": "Ana" } });
+    },
+    async () => getLeadRecord(env, "recA"),
+  );
+  assert.equal(urls[0], "https://api.airtable.com/v0/appX/Leads/recA");
+  assert.ok(!urls[0]!.includes("?"), "no query string at all");
+  assert.deepEqual(rec, { id: "recA", fields: { "CTWA Click ID": "", "Nombre de Lead": "Ana" } });
+  const missing = await withFetch(async () => fakeRes(404, {}), async () => getLeadRecord(env, "recMissing"));
+  assert.equal(missing, null);
+  await assert.rejects(
+    () =>
+      withFetch(
+        async () => fakeRes(422, { error: { type: "INVALID_REQUEST_UNKNOWN", message: "Unknown parameter fields" } }),
+        async () => getLeadRecord(env, "recA"),
+      ),
+    /HTTP 422.*Unknown parameter/,
+  );
+});
+
+test("backfill: writes only blank cells, reports firstError, never advances past an all-error page, reset restarts", async () => {
+  const { backfillCtwaClids, KV_CAPI_BACKFILL_CURSOR } = await import("../src/services/capi-airtable.js");
+  const kv = new Map<string, string>();
+  const rows = [
+    { phone: "5215500000001", ad_ref: JSON.stringify({ ctwaClid: "C1" }), airtable_lead_id: "rec1" },
+    { phone: "5215500000002", ad_ref: JSON.stringify({ ctwaClid: "C2" }), airtable_lead_id: "rec2" },
+    { phone: "5215500000003", ad_ref: JSON.stringify({ ctwaClid: null }), airtable_lead_id: "rec3" },
+    { phone: "5215500000004", ad_ref: JSON.stringify({ ctwaClid: "C4" }), airtable_lead_id: "rec4" },
+  ];
+  const env = {
+    DB: backfillDb(rows, kv),
+    AIRTABLE_PAT: "pat",
+    AIRTABLE_BASE_ID: "appX",
+    AIRTABLE_TRIALS_TABLE: "Leads",
+  } as unknown as Env;
+
+  // 1) Airtable rejects everything (the bug we shipped): errors surface, cursor stays put.
+  const broken = await withFetch(
+    async () => fakeRes(422, { error: { type: "INVALID_REQUEST_UNKNOWN", message: "Unknown parameter" } }),
+    async () => backfillCtwaClids(env, { limit: 10 }),
+  );
+  assert.equal(broken.written, 0);
+  assert.ok(broken.errors >= 1);
+  assert.match(broken.firstError!, /HTTP 422 .*Unknown parameter/);
+  assert.equal(broken.done, false);
+  assert.equal(broken.cursor, "", "an all-error page does not move the cursor");
+  assert.equal(kv.get(KV_CAPI_BACKFILL_CURSOR), "");
+
+  // 2) Working Airtable: rec1 blank → written; rec2 already set → skipped; rec4 missing.
+  const patched: { url: string; body: unknown }[] = [];
+  const ok = await withFetch(
+    async (url, init) => {
+      if (init?.method === "PATCH") {
+        patched.push({ url, body: JSON.parse(String(init.body)) });
+        return fakeRes(200, { id: url.split("/").pop(), fields: {} });
+      }
+      if (url.endsWith("/rec1")) return fakeRes(200, { id: "rec1", fields: {} });
+      if (url.endsWith("/rec2")) return fakeRes(200, { id: "rec2", fields: { "CTWA Click ID": "OLD" } });
+      return fakeRes(404, {});
+    },
+    async () => backfillCtwaClids(env, { limit: 10, reset: true }),
+  );
+  assert.deepEqual(
+    { scanned: ok.scanned, written: ok.written, alreadySet: ok.alreadySet, missing: ok.missing, errors: ok.errors, done: ok.done },
+    { scanned: 3, written: 1, alreadySet: 1, missing: 1, errors: 0, done: true },
+  );
+  assert.equal(patched.length, 1);
+  assert.ok(patched[0]!.url.endsWith("/Leads/rec1"));
+  assert.deepEqual(patched[0]!.body, { fields: { "CTWA Click ID": "C1" }, typecast: true });
+  assert.equal(ok.firstError, null);
+});
