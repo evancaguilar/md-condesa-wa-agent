@@ -4,6 +4,12 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### Reto double reply, round 3: campaign vocabulary is never the lead's question (2026-10-07) — SHIPPED
+
+- **Symptom (Fernando, 14:05):** Reto lead sent the ad prefill "¿Cómo funciona el Reto Gladiador?" and got the canned welcome AND a brain reply, again. The ad (120249684011780518, headline "Reto Gladiador / ¡Agenda tu Día Gratis!") matched by ad id against a stored trigger that does not name the program, so `hasRealQuestion` saw "reto" and "gladiador" as words of the lead's own and fell through to the brain.
+- **Fix:** `hasRealQuestion(text, trigger, knownPhrases)` now also treats the campaign's own vocabulary as boilerplate — campaign `name`, `ad_keywords`, and the referral `headline` — and the "meaningfully longer" length baseline uses the longest of those phrases, not just the trigger. The inbound gate 5c passes all three. A real question ("¿es apto para niños?", "¿cuánto cuesta?") still gets both the welcome and a brain reply. Tests 998 green.
+- Not changed: the ad BODY is deliberately excluded (long marketing copy would swallow real questions that reuse its words).
+
 ### Post-trial d0 "ayer" variant (2026-10-07) — SHIPPED (on branch, unpushed)
 
 d0 fires 30 min after the attended card and spills to 09:30 the next day for every class from ~17:30 on, so leads got "verte **hoy**" the morning after (real case: class Tue 6 Oct 18:00 → d0 Wed 7 Oct 09:32). `computePostTrialSequence` now tags d0 with note `ayer` when its effective send moment (max(dueAt, now)) is on a later CDMX date than the class; send time picks `copy.postTrialD0AyerEs/En` and, window closed, template `post_trial_d0_ayer_es/_en` (docs/templates.md §7b). Rows armed before this deploy have no note and keep the "hoy" copy.

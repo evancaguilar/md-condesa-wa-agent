@@ -485,7 +485,17 @@ export async function processInbound(
           // carries a real question, fall through so they get BOTH: the
           // instant welcome now, plus a real reply through the normal
           // debounce → brain → approval path.
-          if (!hasRealQuestion(body, matchedCampaign.trigger_phrase)) return;
+          // The campaign's own vocabulary (name, ad keywords, the ad's
+          // headline) is never the lead's question — a prefill that names
+          // the program must not read as one (2026-10-07 double reply).
+          if (
+            !hasRealQuestion(body, matchedCampaign.trigger_phrase, [
+              matchedCampaign.name,
+              matchedCampaign.ad_keywords ?? null,
+              msg.referral?.headline ?? null,
+            ])
+          )
+            return;
           justSentWelcome = canned;
         } catch (err) {
           // WindowClosed can't happen here (last_inbound was just touched); any
