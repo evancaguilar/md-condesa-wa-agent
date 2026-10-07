@@ -33,6 +33,7 @@ import { runCapiDrain } from "./capi.js";
 import { syncPostTrialD0Templates } from "./template-sync.js";
 import { seedCampaigns } from "./seed-campaigns.js";
 import { runRedrive } from "./redrive.js";
+import { copyStep, startCursor, type CopyCursor, type DbLike } from "../services/d1-copy.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -92,6 +93,29 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   await safe("seedCampaigns", () =>
     seedCampaigns(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
   );
+
+  // One-shot post-switch delta (2026-10-06 D1 migration): DB_TARGET is the OLD
+  // database after the switch; copy anything written there after the first
+  // copy into DB (INSERT OR IGNORE ⇒ idempotent), ~15 s per tick until done.
+  // kv-guarded in the NEW database. Remove with the DB_TARGET binding.
+  if (env.DB_TARGET) {
+    await safe("postSwitchDelta", async () => {
+      const KEY = "post_switch_delta:2026-10-06";
+      const raw = await kvGet(env.DB, KEY);
+      if (raw === "done") return;
+      // Casts: the node test shim for D1Database lacks batch(); the real binding has it.
+      const target = env.DB_TARGET as unknown as DbLike;
+      const dest = env.DB as unknown as DbLike;
+      const cursor: CopyCursor = raw ? (JSON.parse(raw) as CopyCursor) : await startCursor(target);
+      const r = await copyStep(target, dest, cursor, 15_000);
+      await kvSet(env.DB, KEY, r.done ? "done" : JSON.stringify(r.cursor));
+      if (r.done) {
+        await cronDeps.slack.postNote(
+          `✅ Migración D1: delta de la base vieja copiado (${r.cursor.copied} filas revisadas, solo se añadieron las que faltaban). El bot corre en wa-agent-db-2.`,
+        );
+      }
+    });
+  }
 
   // Every tick: due followups + approval timeouts. Isolate failures so one
   // subsystem can't starve the others.
