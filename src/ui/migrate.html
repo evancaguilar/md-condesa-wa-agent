@@ -42,6 +42,17 @@
   <table id="counts"><thead><tr><th>Tabla</th><th>Origen</th><th>Destino</th><th></th></tr></thead><tbody></tbody></table>
 </div>
 
+<div class="card">
+  <b>Reinyectar mensaje perdido</b>
+  <div class="muted">Para los 📥 "Mensaje SIN guardar" de Slack: pega teléfono, nombre y los mensajes del lead (uno por línea, en orden). Se guardan como entrantes y el cerebro deja un borrador en Aprobar (sin envío automático).</div>
+  <div style="margin-top:8px;display:grid;gap:8px;grid-template-columns:1fr 1fr">
+    <input id="rjPhone" placeholder="Teléfono (5215512345678)" style="padding:8px;border-radius:6px;border:0;background:#2d2d2d;color:#eee">
+    <input id="rjName" placeholder="Nombre (opcional)" style="padding:8px;border-radius:6px;border:0;background:#2d2d2d;color:#eee">
+  </div>
+  <textarea id="rjBody" rows="4" placeholder="Mensajes del lead, uno por línea" style="width:100%;margin-top:8px;padding:8px;border-radius:6px;border:0;background:#2d2d2d;color:#eee;box-sizing:border-box"></textarea>
+  <button id="bReinject" style="margin-top:8px">Guardar y crear borrador en Aprobar</button>
+</div>
+
 <div class="card"><b>Log</b><pre id="log"></pre></div>
 
 <script>
@@ -91,6 +102,20 @@ document.getElementById("bCounts").onclick=async function(){
     });
     log("Conteos comparados.");
   }catch(e){ log("ERROR conteos: "+e.message); }
+};
+document.getElementById("bReinject").onclick=async function(){
+  var phone=document.getElementById("rjPhone").value.trim(), name=document.getElementById("rjName").value.trim();
+  var lines=document.getElementById("rjBody").value.split("\n").map(function(l){return l.trim();}).filter(Boolean);
+  if(!phone||!lines.length){ log("Falta teléfono o mensajes."); return; }
+  this.disabled=true;
+  try{
+    var r=await fetch("/admin/api/reinject",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({phone:phone,name:name||undefined,messages:lines.map(function(b){return {body:b};})})});
+    var j=await r.json().catch(function(){return {error:"respuesta inválida"};});
+    if(!r.ok) throw new Error(j.error||("HTTP "+r.status));
+    log("Reinyectado "+j.stored+" mensaje(s) de "+j.phone+" → revisa Aprobar en ~30 s.");
+    document.getElementById("rjBody").value="";
+  }catch(e){ log("ERROR reinyectar: "+e.message); }
+  this.disabled=false;
 };
 status();
 </script>

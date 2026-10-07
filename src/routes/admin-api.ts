@@ -7,6 +7,14 @@
 // the same overlay loader + real usage accrual as production.
 
 import { copySchema, copyStep, startCursor, tableCounts, type CopyCursor } from "../services/d1-copy.js";
+import { runBrainTurn } from "../pipeline/inbound.js";
+import { staleReplyFor } from "../cron/redrive.js";
+import {
+  upsertContact as upsertContactRow,
+  insertMessageIfNew as insertMessageRow,
+  touchLastInbound as touchLastInboundRow,
+  setContactNameIfEmpty as setNameIfEmptyRow,
+} from "../db/queries.js";
 import { scheduleTrialSequence } from "../cron/followups.js";
 import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
 import { setQualification } from "../db/queries.js";
@@ -412,6 +420,47 @@ export async function handleAdminApi(
       return json({ counts: await tableCounts(src, dst) });
     }
     return json({ error: "not found" }, 404);
+  }
+
+  // ---- re-inject a lead's message that D1 refused (owner-only) ----
+  // 2026-10-06: the Slack relay (📥 "Mensaje SIN guardar") kept the text but
+  // the lead never reached the panel. This stores the message(s) as inbound,
+  // then runs a forced-review brain turn ⇒ a draft in Aprobar for the team.
+  if (path === "/admin/api/reinject" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const body = (await req.json().catch(() => null)) as
+      | { phone?: string; name?: string; messages?: Array<{ body?: string; ts?: number }> }
+      | null;
+    const phone = (body?.phone ?? "").replace(/\D/g, "");
+    const msgs = (body?.messages ?? []).filter((m) => typeof m.body === "string" && m.body.trim());
+    if (phone.length < 8 || msgs.length === 0) return json({ error: "phone y messages[] requeridos" }, 400);
+    const now = nowSec();
+    await upsertContactRow(env.DB, { phone });
+    if (body?.name) await setNameIfEmptyRow(env.DB, phone, body.name);
+    let last: { wamid: string; body: string; ts: number } | null = null;
+    msgs.forEach((m, i) => {
+      const ts = Number.isFinite(m.ts) && (m.ts as number) > 0 ? Math.floor(m.ts as number) : now - (msgs.length - i) * 60;
+      last = { wamid: `manual:${phone}:${ts}:${i}`, body: (m.body as string).trim(), ts };
+    });
+    for (const [i, m] of msgs.entries()) {
+      const ts = Number.isFinite(m.ts) && (m.ts as number) > 0 ? Math.floor(m.ts as number) : now - (msgs.length - i) * 60;
+      await insertMessageRow(env.DB, {
+        wamid: `manual:${phone}:${ts}:${i}`,
+        phone,
+        direction: "in",
+        body: (m.body as string).trim(),
+        ts,
+        meta: JSON.stringify({ reinjected: true, by: session.user }),
+      });
+    }
+    const lastMsg = last as { wamid: string; body: string; ts: number } | null;
+    if (!lastMsg) return json({ error: "sin mensajes" }, 400);
+    await touchLastInboundRow(env.DB, phone, lastMsg.ts);
+    await runBrainTurn(env, ports, { wamid: lastMsg.wamid, phone, body: lastMsg.body, ts: lastMsg.ts }, now, undefined, {
+      forceReview: true,
+      stale: staleReplyFor({ ts: lastMsg.ts }, now),
+    });
+    return json({ ok: true, phone, stored: msgs.length });
   }
 
   // ---- template blasts (owner-only; docs/blasts.md, services/blast.ts) ----
