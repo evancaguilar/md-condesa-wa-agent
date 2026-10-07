@@ -456,6 +456,18 @@ test("getLeadRecord: plain GET /<table>/<recordId> — no fields[] (the single-r
   assert.deepEqual(rec, { id: "recA", fields: { "CTWA Click ID": "", "Nombre de Lead": "Ana" } });
   const missing = await withFetch(async () => fakeRes(404, {}), async () => getLeadRecord(env, "recMissing"));
   assert.equal(missing, null);
+  // A stale record id (deleted lead) comes back as 403 "model was not found" — also "missing".
+  const stale = await withFetch(
+    async () =>
+      fakeRes(403, {
+        error: {
+          type: "INVALID_PERMISSIONS_OR_MODEL_NOT_FOUND",
+          message: "Invalid permissions, or the requested model was not found. Check that both your user and your token have the required permissions, and that the model names and/or ids are correct.",
+        },
+      }),
+    async () => getLeadRecord(env, "recGone"),
+  );
+  assert.equal(stale, null);
   await assert.rejects(
     () =>
       withFetch(
