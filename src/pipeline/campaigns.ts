@@ -245,14 +245,28 @@ const REAL_QUESTION_SLACK = 15;
  * reply, while a false negative loses the lead's question entirely:
  *  - any "?" / "¿" anywhere in the raw text, or
  *  - normalized text meaningfully longer than the normalized trigger phrase.
+ *
+ * `knownPhrases` is the campaign's own vocabulary beyond the trigger — its
+ * name, ad keywords, the referral headline. 2026-10-07: a Reto lead matched by
+ * ad id against a trigger that never named the program ("¿Cómo funciona el
+ * Reto Gladiador?" vs an "agenda tu día gratis" prefill) — "reto" and
+ * "gladiador" looked like the lead's own words, so the welcome AND a brain
+ * reply went out again. Words of the campaign itself are never the lead's.
  */
 export function hasRealQuestion(
   text: string,
   triggerPhrase: string | null | undefined,
+  knownPhrases: readonly (string | null | undefined)[] = [],
 ): boolean {
   const body = normalizeText(text);
   const trigger = normalizeText(triggerPhrase ?? "");
-  if (body.length > trigger.length + REAL_QUESTION_SLACK) return true;
+  const known = knownPhrases
+    .map((p) => normalizeText(p ?? ""))
+    .filter((p) => p !== "");
+  // Boilerplate length = the longest phrase the ad itself could have put in
+  // the lead's mouth (prefill, campaign name, headline), not just the trigger.
+  const baseline = Math.max(trigger.length, ...known.map((p) => p.length));
+  if (body.length > baseline + REAL_QUESTION_SLACK) return true;
   // Boilerplate-length message: a "?" only counts when it is the LEAD's, not
   // the ad's. 2026-09-22: the Reto prefill is itself "¿Cómo funciona el Reto
   // Gladiador?", so every Reto lead got the canned welcome AND a brain reply.
@@ -263,11 +277,13 @@ export function hasRealQuestion(
   // rewrites prefills over time, so the stored trigger may lack the "?" the
   // current ad carries (2026-09-22: "Como funciona el reto gladiador?" matched
   // by ad id against an older trigger and got two replies). Real question =
-  // at least one word that is neither in the trigger nor generic filler.
-  const triggerWords = new Set(trigger.split(" ").filter(Boolean));
+  // at least one word that is neither the campaign's own nor generic filler.
+  const campaignWords = new Set(
+    [trigger, ...known].flatMap((p) => p.split(" ")).filter(Boolean),
+  );
   return body
     .split(" ")
-    .some((w) => w && !triggerWords.has(w) && !GENERIC_ASK_WORDS.has(w));
+    .some((w) => w && !campaignWords.has(w) && !GENERIC_ASK_WORDS.has(w));
 }
 
 /** Words that never make a first message a question of the lead's own. */

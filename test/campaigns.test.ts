@@ -439,6 +439,21 @@ test("hasRealQuestion: a generic 'how does it work?' about the campaign is boile
   assert.equal(hasRealQuestion("¿Es apto para niños?", oldTrigger), true);
 });
 
+test("hasRealQuestion: the campaign's own vocabulary is never the lead's question (2026-10-07 double reply)", () => {
+  // Reto lead matched by ad id; the stored trigger never names the program.
+  const trigger = "Hola, quiero agendar mi día gratis";
+  const q = "¿Cómo funciona el Reto Gladiador?";
+  assert.equal(hasRealQuestion(q, trigger), true); // without the campaign words: looks real
+  assert.equal(hasRealQuestion(q, trigger, ["Reto Gladiador"]), false);
+  assert.equal(hasRealQuestion(q, trigger, [null, "reto, gladiador", undefined]), false);
+  assert.equal(hasRealQuestion(q, trigger, [null, null, "Reto Gladiador ¡Agenda tu Día Gratis!"]), false);
+  // A question of the lead's own still gets through.
+  assert.equal(hasRealQuestion("¿El Reto Gladiador es apto para niños?", trigger, ["Reto Gladiador"]), true);
+  assert.equal(hasRealQuestion("¿Cuánto cuesta el Reto Gladiador?", trigger, ["Reto Gladiador"]), true);
+  // The length baseline grows with the longest known phrase, not just the trigger.
+  assert.equal(hasRealQuestion("Hola, quiero información del Reto Gladiador", "Día gratis", ["Hola, quiero información del Reto Gladiador"]), false);
+});
+
 test("hasRealQuestion: a bare '¿' counts too", () => {
   assert.equal(hasRealQuestion("¿costo", TRIGGER), true);
 });
