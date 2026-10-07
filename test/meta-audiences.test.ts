@@ -77,7 +77,7 @@ function envWith(kv: Map<string, string>, over: Partial<Env> = {}): Env {
   return {
     DB: fakeDb(kv),
     META_AD_ACCOUNT_ID: "act_1334257084455191",
-    META_CAPI_TOKEN: "TOKEN-SECRET-ABC123",
+    ADS_ACCESS_TOKEN: "TOKEN-SECRET-ABC123",
     AIRTABLE_TRIALS_TABLE: "Leads",
     ...over,
   } as unknown as Env;
@@ -217,16 +217,17 @@ test("createCustomAudience / sendAudienceUsers: documented bodies, Bearer header
 
 // ---- config + the daily sync ----
 
-test("audienceConfig: ships OFF; the md-condesa map is complete; token precedence CAPI > ADS", () => {
+test("audienceConfig: ships OFF; the md-condesa map is complete; token precedence ADS > CAPI", () => {
   const cfg = audienceConfig(envWith(new Map()));
   assert.equal(cfg.enabled, false);
   assert.equal(cfg.reason, "feature_off");
   assert.deepEqual(cfg.columns, COLS);
   assert.deepEqual(cfg.names, CLIENT.metaAudiences);
   assert.equal(audienceToken({ ADS_ACCESS_TOKEN: "ads" } as unknown as Env), "ads");
-  assert.equal(audienceToken({ META_CAPI_TOKEN: "capi", ADS_ACCESS_TOKEN: "ads" } as unknown as Env), "capi");
+  assert.equal(audienceToken({ META_CAPI_TOKEN: "capi", ADS_ACCESS_TOKEN: "ads" } as unknown as Env), "ads");
+  assert.equal(audienceToken({ META_CAPI_TOKEN: "capi" } as unknown as Env), "capi");
   assert.equal(audienceToken({} as unknown as Env), null);
-  assert.equal(audienceConfig(envWith(new Map(), { META_CAPI_TOKEN: "", META_AD_ACCOUNT_ID: "" })).reason, "feature_off");
+  assert.equal(audienceConfig(envWith(new Map(), { ADS_ACCESS_TOKEN: "", META_AD_ACCOUNT_ID: "" })).reason, "feature_off");
 });
 
 test("sync: dry run computes the diff and touches nothing; live run creates, uploads, removes, snapshots", async () => {

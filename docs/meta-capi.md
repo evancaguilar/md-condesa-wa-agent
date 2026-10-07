@@ -128,12 +128,13 @@ invented one (a 0 would tell Meta the sale was worthless).
 
 1. **Token / permissions (first, everything else depends on it).** Posting to a
    business-messaging dataset needs `whatsapp_business_management` **and**
-   `whatsapp_business_manage_events`; the customer-list audiences
-   (docs/meta-audiences.md) need `ads_management` on the ad account. One token
-   covers both: Business Settings → System users → generate a token for the
-   app with `whatsapp_business_management`, `whatsapp_business_manage_events`,
-   `ads_management`, `business_management`, with the WABA (1717538906028335)
-   and the ad account (act_1334257084455191) assigned to that system user.
+   `whatsapp_business_manage_events`. Business Settings → System users →
+   the bot's system user (`waagentsystem`) → Generate new token → the
+   WhatsApp app → tick `whatsapp_business_manage_events`,
+   `whatsapp_business_management`, `whatsapp_business_messaging`. (The
+   generator only lists the app's own use-case permissions, so `ads_management`
+   does not appear there — the audiences use the separate ads token instead,
+   see docs/meta-audiences.md.)
    - set it as the Cloudflare secret **`META_CAPI_TOKEN`**
      (`npx wrangler secret put META_CAPI_TOKEN`, or the Cloudflare dashboard);
    - the worker falls back to `ADS_ACCESS_TOKEN` and then `WA_ACCESS_TOKEN` only

@@ -195,9 +195,13 @@ export function audiencePayloads(
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Customer lists need the ads scopes: the CAPI system-user token, else the ads one. */
+/**
+ * Customer lists need `ads_management`, which lives on the ADS token (the one
+ * the spend import uses) — the WhatsApp app's system-user token only carries
+ * the whatsapp_business_* scopes, so it is the fallback, not the default.
+ */
 export function audienceToken(env: Env): string | null {
-  return env.META_CAPI_TOKEN || env.ADS_ACCESS_TOKEN || null;
+  return env.ADS_ACCESS_TOKEN || env.META_CAPI_TOKEN || null;
 }
 
 export interface GraphResult<T> {

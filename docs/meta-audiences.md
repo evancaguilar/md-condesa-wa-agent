@@ -48,9 +48,10 @@ Both are `subtype: CUSTOM`, `customer_file_source: USER_PROVIDED_ONLY`.
 
 ## One-time setup (Evan)
 
-1. The same system-user token as the Conversions API (docs/meta-capi.md step 1)
-   with **`ads_management`** on `act_1334257084455191`, stored as the Cloudflare
-   secret `META_CAPI_TOKEN` (fallback: `ADS_ACCESS_TOKEN`).
+1. Token: the **ads** token the spend import already uses (`ADS_ACCESS_TOKEN`,
+   has `ads_management` on `act_1334257084455191`). The WhatsApp app's
+   system-user token (`META_CAPI_TOKEN`) is only a fallback — its generator
+   offers no ads scopes. Nothing new to mint for this part.
 2. Accept the **Custom Audience Terms** for the ad account once
    (Ads Manager → Audiences prompts for it; Graph returns an error naming the
    ToS URL otherwise).
