@@ -60,7 +60,7 @@ export const CLIENT: ClientConfig = {
     "safety": false,
     "marketingMetrics": true,
     "metaCapi": false,
-    "metaAudiences": false
+    "metaAudiences": true
   },
   "airtableLeads": {
     "phone": "# de Teléfono",

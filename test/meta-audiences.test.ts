@@ -217,17 +217,37 @@ test("createCustomAudience / sendAudienceUsers: documented bodies, Bearer header
 
 // ---- config + the daily sync ----
 
-test("audienceConfig: ships OFF; the md-condesa map is complete; token precedence ADS > CAPI", () => {
+/** Run `fn` with the client feature flag forced to `on` (restored after). */
+async function withFlag(on: boolean, fn: () => Promise<void> | void): Promise<void> {
+  const flags = CLIENT.features as { metaAudiences?: boolean };
+  const prev = flags.metaAudiences;
+  flags.metaAudiences = on;
+  try {
+    await fn();
+  } finally {
+    flags.metaAudiences = prev;
+  }
+}
+
+test("audienceConfig: honours the feature flag; the md-condesa map is complete; token precedence ADS > CAPI", async () => {
+  await withFlag(false, () => {
+    const off = audienceConfig(envWith(new Map()));
+    assert.equal(off.enabled, false);
+    assert.equal(off.reason, "feature_off");
+  });
+  await withFlag(true, () => {
+    const on = audienceConfig(envWith(new Map()));
+    assert.equal(on.enabled, true);
+    assert.equal(on.reason, null);
+    assert.equal(audienceConfig(envWith(new Map(), { ADS_ACCESS_TOKEN: "", META_CAPI_TOKEN: "" })).reason, "no_token");
+  });
   const cfg = audienceConfig(envWith(new Map()));
-  assert.equal(cfg.enabled, false);
-  assert.equal(cfg.reason, "feature_off");
   assert.deepEqual(cfg.columns, COLS);
   assert.deepEqual(cfg.names, CLIENT.metaAudiences);
   assert.equal(audienceToken({ ADS_ACCESS_TOKEN: "ads" } as unknown as Env), "ads");
   assert.equal(audienceToken({ META_CAPI_TOKEN: "capi", ADS_ACCESS_TOKEN: "ads" } as unknown as Env), "ads");
   assert.equal(audienceToken({ META_CAPI_TOKEN: "capi" } as unknown as Env), "capi");
   assert.equal(audienceToken({} as unknown as Env), null);
-  assert.equal(audienceConfig(envWith(new Map(), { ADS_ACCESS_TOKEN: "", META_AD_ACCOUNT_ID: "" })).reason, "feature_off");
 });
 
 test("sync: dry run computes the diff and touches nothing; live run creates, uploads, removes, snapshots", async () => {
@@ -246,8 +266,10 @@ test("sync: dry run computes the diff and touches nothing; live run creates, upl
   };
 
   // feature off and no force ⇒ skipped
-  const off = await runAudienceSync(env, NOW, { postNote: async () => {} }, { list, doFetch });
-  assert.equal(off.skipped, "feature_off");
+  await withFlag(false, async () => {
+    const off = await runAudienceSync(env, NOW, { postNote: async () => {} }, { list, doFetch });
+    assert.equal(off.skipped, "feature_off");
+  });
 
   // dry run (forced)
   const dry = await runAudienceSync(env, NOW, { postNote: async () => {} }, { list, doFetch, dryRun: true, force: true });
