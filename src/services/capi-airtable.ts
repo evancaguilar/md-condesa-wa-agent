@@ -21,6 +21,7 @@ import {
   asAmount,
   baseUrl,
   leadsMap,
+  parseAirtableError,
   updateRecord,
   type AirtableRecord,
 } from "./airtable.js";
@@ -167,21 +168,24 @@ export function capiEventsForLead(
 
 // ---- I/O ----
 
-/** GET one Leads record (selected fields). null on 404; throws otherwise. */
-export async function getLeadRecord(
-  env: Env,
-  recordId: string,
-  fields: string[],
-): Promise<AirtableRecord | null> {
-  const qs = new URLSearchParams();
-  for (const f of fields) qs.append("fields[]", f);
+/**
+ * GET one Leads record. null on 404; throws (with Airtable's own detail, which
+ * never contains the PAT) otherwise. The single-record endpoint takes NO
+ * `fields[]` filter — that is a list-endpoint parameter and the first version
+ * of this helper sent it, which failed every call — so the whole row comes back.
+ */
+export async function getLeadRecord(env: Env, recordId: string): Promise<AirtableRecord | null> {
   const res = await airtableFetch(
     env,
-    `${baseUrl(env, env.AIRTABLE_TRIALS_TABLE)}/${encodeURIComponent(recordId)}?${qs}`,
+    `${baseUrl(env, env.AIRTABLE_TRIALS_TABLE)}/${encodeURIComponent(recordId)}`,
     { method: "GET" },
   );
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`airtable get ${recordId} failed: HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as Parameters<typeof parseAirtableError>[1];
+    const err = parseAirtableError(res.status, data);
+    throw new Error(`airtable get ${recordId} failed: HTTP ${res.status} ${err.detail}`);
+  }
   const data = (await res.json()) as { id?: string; fields?: Record<string, unknown> };
   if (!data.id) return null;
   return { id: data.id, fields: data.fields ?? {} };
@@ -206,7 +210,7 @@ export async function markEventSentInAirtable(
   if (!col) return "skipped";
   const label = capiEventLabel(kind, map);
   try {
-    const rec = await getLeadRecord(env, recordId, [col]);
+    const rec = await getLeadRecord(env, recordId);
     if (!rec) return "skipped";
     const current = labels(rec.fields[col]);
     if (current.includes(label)) return "already";
@@ -233,6 +237,8 @@ export interface BackfillResult {
   alreadySet: number;
   missing: number;
   errors: number;
+  /** The first failure's message (token-free), so the owner can see WHY. */
+  firstError: string | null;
   /** True when the walk reached the end (cursor reset). */
   done: boolean;
   dryRun: boolean;
@@ -246,7 +252,7 @@ export interface BackfillResult {
  */
 export async function backfillCtwaClids(
   env: Env,
-  opts: { limit?: number; dryRun?: boolean } = {},
+  opts: { limit?: number; dryRun?: boolean; reset?: boolean } = {},
   map: AirtableLeadsMap = leadsMap(),
 ): Promise<BackfillResult> {
   const limit = Math.max(1, Math.min(opts.limit ?? CAPI_BACKFILL_MAX, CAPI_BACKFILL_MAX));
@@ -258,13 +264,16 @@ export async function backfillCtwaClids(
     alreadySet: 0,
     missing: 0,
     errors: 0,
+    firstError: null,
     done: false,
     dryRun,
     cursor: "",
   };
   if (!col) return { ...out, done: true };
 
-  const after = (await kvGet(env.DB, KV_CAPI_BACKFILL_CURSOR)) ?? "";
+  // `reset` restarts the walk from the first contact (e.g. after a run whose
+  // pages all errored and still advanced the cursor).
+  const after = opts.reset ? "" : ((await kvGet(env.DB, KV_CAPI_BACKFILL_CURSOR)) ?? "");
   const { results } = await env.DB.prepare(
     `SELECT phone, ad_ref, airtable_lead_id FROM contacts
      WHERE ad_ref LIKE '%"ctwaClid":"%' AND airtable_lead_id IS NOT NULL AND phone > ?1
@@ -280,7 +289,7 @@ export async function backfillCtwaClids(
     const clid = ctwaClidFromAdRef(row.ad_ref);
     if (!clid) continue;
     try {
-      const rec = await getLeadRecord(env, row.airtable_lead_id, [col]);
+      const rec = await getLeadRecord(env, row.airtable_lead_id);
       if (!rec) {
         out.missing++;
         continue;
@@ -294,11 +303,20 @@ export async function backfillCtwaClids(
       out.written++;
     } catch (err) {
       out.errors++;
-      console.warn(`[capi] backfill ${row.phone} failed: ${String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (out.firstError === null) out.firstError = msg;
+      console.warn(`[capi] backfill ${row.phone} failed: ${msg}`);
+      // A page where nothing works is a config/auth problem, not a bad row:
+      // stop early so the cursor does not race past hundreds of contacts.
+      if (out.errors >= 3 && out.written + out.alreadySet + out.missing === 0) break;
     }
   }
-  out.done = results.length < limit;
-  out.cursor = out.done ? "" : last;
+  const abortedEarly = out.scanned < results.length;
+  // A page that produced nothing but errors is never "progress": the cursor
+  // stays where it was and the walk is not done, so a retry revisits it.
+  const advance = out.written + out.alreadySet + out.missing > 0 || out.errors === 0;
+  out.done = advance && !abortedEarly && results.length < limit;
+  out.cursor = out.done ? "" : advance ? last : after;
   if (!dryRun) await kvSet(env.DB, KV_CAPI_BACKFILL_CURSOR, out.cursor);
   return out;
 }

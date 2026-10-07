@@ -574,8 +574,10 @@ export async function handleAdminApi(
     if (path === "/admin/api/capi/test" && method === "POST") return handleCapiTest(req, env);
     // One page of "contacts.ad_ref.ctwaClid → CTWA Click ID" (fill-if-empty).
     if (path === "/admin/api/capi/backfill-clids" && method === "POST") {
-      const body = await readJson<{ limit?: number; dryRun?: boolean }>(req);
-      return json(await backfillCtwaClids(env, { limit: body.limit, dryRun: body.dryRun }));
+      const body = await readJson<{ limit?: number; dryRun?: boolean; reset?: boolean }>(req);
+      return json(
+        await backfillCtwaClids(env, { limit: body.limit, dryRun: body.dryRun, reset: body.reset }),
+      );
     }
     // Run the Airtable funnel sweep now (same code the cron runs every 15 min).
     if (path === "/admin/api/capi/sweep" && method === "POST") {
