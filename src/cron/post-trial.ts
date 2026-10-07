@@ -111,6 +111,24 @@ export type FollowUpKindHere = PostTrialKind | typeof NO_SHOW_KIND;
 export interface PostTrialStep {
   kind: PostTrialKind;
   dueAt: number; // epoch seconds, inside 09:00–21:00 CDMX
+  /** Row note to arm with. d0 gets "ayer" when it lands on a later CDMX
+   *  calendar day than the class (copy/template switch to the "ayer" variant). */
+  note?: string;
+}
+
+/** Note on a d0 row that fires on a later CDMX day than the trial. */
+export const D0_AYER_NOTE = "ayer";
+
+/** True when a row note marks the d0 "ayer" variant (tolerates a trailing
+ *  "|attempts:N" appended by the send-retry bookkeeping). */
+export function isAyerNote(note: string | null | undefined): boolean {
+  return (note ?? "").startsWith(D0_AYER_NOTE);
+}
+
+function sameCdmxDate(a: number, b: number): boolean {
+  const pa = cdmxParts(a);
+  const pb = cdmxParts(b);
+  return pa.year === pb.year && pa.month === pb.month && pa.day === pb.day;
 }
 
 /** Past this age a trial is cold: nothing is armed at all. */
@@ -165,10 +183,13 @@ export function computePostTrialSequence(
 
   const steps: PostTrialStep[] = [];
   if (age <= POST_TRIAL_D0_MAX_AGE) {
-    steps.push({
-      kind: "post_trial_d0",
-      dueAt: placeInWindow(postTrialCardTime(trialEpoch) + D0_AFTER_CARD),
-    });
+    const dueAt = placeInWindow(postTrialCardTime(trialEpoch) + D0_AFTER_CARD);
+    steps.push(
+      // Marked late, a past dueAt fires on the next tick, i.e. ~now.
+      sameCdmxDate(Math.max(dueAt, now), trialEpoch)
+        ? { kind: "post_trial_d0", dueAt }
+        : { kind: "post_trial_d0", dueAt, note: D0_AYER_NOTE },
+    );
   }
   for (const [kind, days] of [
     ["post_trial_d2", 2],
@@ -214,15 +235,20 @@ export function postTrialCopy(
   contact: Contact | null,
   kind: PostTrialKind,
   campaignName: string | null = null,
+  ayer = false,
 ): string {
   const en = contact?.lang === "en";
   const who = nameSuffix(postTrialName(contact));
   const c = CLIENT.copy;
   const template =
     kind === "post_trial_d0"
-      ? en
-        ? c.postTrialD0En
-        : c.postTrialD0Es
+      ? ayer
+        ? en
+          ? c.postTrialD0AyerEn
+          : c.postTrialD0AyerEs
+        : en
+          ? c.postTrialD0En
+          : c.postTrialD0Es
       : kind === "post_trial_d2"
         ? en
           ? c.postTrialD2En
@@ -257,8 +283,10 @@ function nameSuffix(name: string): string {
 }
 
 /** Template base name for a kind (the sender appends _es / _en). */
-export function postTrialTemplateName(kind: FollowUpKindHere): string {
-  return kind === NO_SHOW_KIND ? "no_show_followup" : kind;
+export function postTrialTemplateName(kind: FollowUpKindHere, note: string | null = null): string {
+  if (kind === NO_SHOW_KIND) return "no_show_followup";
+  if (kind === "post_trial_d0" && isAyerNote(note)) return "post_trial_d0_ayer";
+  return kind;
 }
 
 // ---- "🙋 Yo le escribo" claim (Slack card on the attended lead) ----
@@ -413,7 +441,7 @@ export interface PostTrialDeps {
  */
 export async function processPostTrial(
   env: Env,
-  row: { phone: string; kind: FollowUpKindHere; created_at: number },
+  row: { phone: string; kind: FollowUpKindHere; created_at: number; note?: string | null },
   deps: PostTrialDeps,
   nowEpoch: number = Math.floor(Date.now() / 1000),
 ): Promise<PostTrialOutcome> {
@@ -445,7 +473,7 @@ export async function processPostTrial(
   const body =
     row.kind === NO_SHOW_KIND
       ? noShowD3Copy(contact, classifyProgram(contact, campaign), nowEpoch, campaign)
-      : postTrialCopy(contact, row.kind, campaign);
+      : postTrialCopy(contact, row.kind, campaign, row.kind === "post_trial_d0" && isAyerNote(row.note));
 
   try {
     await deps.sendText(env, row.phone, body);
@@ -455,7 +483,7 @@ export async function processPostTrial(
   }
 
   const lang = contact.lang === "en" ? "en" : "es";
-  const template = deps.templateName(postTrialTemplateName(row.kind), lang);
+  const template = deps.templateName(postTrialTemplateName(row.kind, row.note ?? null), lang);
   try {
     await deps.sendTemplate(env, row.phone, template, lang, [
       nameParam(postTrialName(contact), lang),

@@ -276,6 +276,12 @@ export default {
       "¡Hola{who}! Qué gusto verte hoy en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.",
     postTrialD0En:
       "Hi{who}! So good to have you at the academy today 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.",
+    // Same touch when d0 lands on a later CDMX day than the class (evening
+    // classes: d0 is pushed to 09:30 next morning) — "ayer", not "hoy".
+    postTrialD0AyerEs:
+      "¡Hola{who}! Qué gusto verte ayer en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.",
+    postTrialD0AyerEn:
+      "Hi{who}! So good to have you at the academy yesterday 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.",
     postTrialD2Es:
       "¡Hola{who}! ¿Cómo amaneció el cuerpo después de tu clase? 😄 Lo más difícil ya lo hiciste: venir la primera vez. ¿Qué te falta saber para decidirte? Te ayudamos a elegir horario y paquete.",
     postTrialD2En:

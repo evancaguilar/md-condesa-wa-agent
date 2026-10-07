@@ -1025,3 +1025,74 @@ test("post_trial_card is part of the cancellation surface and its note round-tri
   assert.equal(decodeCardNote(null), null);
   assert.equal(decodeCardNote("garbage"), null);
 });
+
+// ---- d0 "ayer" variant (2026-10-07) --------------------------------------
+
+test("computePostTrialSequence: 18:00 class → d0 next day 09:30 tagged ayer", () => {
+  const trial = cdmxToEpoch(2026, 10, 6, 18, 0, 0);
+  const d0 = computePostTrialSequence(trial, trial + 3600).find((s) => s.kind === "post_trial_d0")!;
+  assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 7, 9, 30, 0));
+  assert.equal(d0.note, "ayer");
+});
+
+test("computePostTrialSequence: 19:30 class → d0 next day 09:30 tagged ayer", () => {
+  const trial = cdmxToEpoch(2026, 10, 6, 19, 30, 0);
+  const d0 = computePostTrialSequence(trial, trial + 3600).find((s) => s.kind === "post_trial_d0")!;
+  assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 7, 9, 30, 0));
+  assert.equal(d0.note, "ayer");
+});
+
+test("computePostTrialSequence: 11:00 class → same-day 14:30 d0, no note; d2/d5 never noted", () => {
+  const trial = cdmxToEpoch(2026, 10, 6, 11, 0, 0);
+  const steps = computePostTrialSequence(trial, trial + 3600);
+  const d0 = steps.find((s) => s.kind === "post_trial_d0")!;
+  assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 6, 14, 30, 0));
+  assert.equal(d0.note, undefined);
+  for (const s of steps.filter((x) => x.kind !== "post_trial_d0")) assert.equal(s.note, undefined);
+});
+
+test("computePostTrialSequence: 11:00 class marked next morning → past d0 (fires next tick) tagged ayer", () => {
+  const trial = cdmxToEpoch(2026, 10, 6, 11, 0, 0);
+  const now = cdmxToEpoch(2026, 10, 7, 8, 0, 0);
+  const d0 = computePostTrialSequence(trial, now).find((s) => s.kind === "post_trial_d0")!;
+  assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 6, 14, 30, 0)); // unchanged: already due
+  assert.ok(d0.dueAt < now);
+  assert.equal(d0.note, "ayer");
+});
+
+test("post-trial copy: ayer flag swaps d0 to the 'ayer' body (both langs), not d2", () => {
+  const es = postTrialCopy(contact({ name: "Ana" }), "post_trial_d0", null, true);
+  assert.ok(es.startsWith("¡Hola Ana! Qué gusto verte ayer"), es);
+  const en = postTrialCopy(contact({ lang: "en", name: "Mike" }), "post_trial_d0", null, true);
+  assert.ok(en.includes("academy yesterday"), en);
+  assert.ok(postTrialCopy(contact({ name: "Ana" }), "post_trial_d0").includes("verte hoy"));
+  assert.equal(
+    postTrialCopy(contact({}), "post_trial_d2", null, true),
+    postTrialCopy(contact({}), "post_trial_d2"),
+  );
+});
+
+test("postTrialTemplateName: ayer note (even with |attempts suffix) → post_trial_d0_ayer", () => {
+  assert.equal(postTrialTemplateName("post_trial_d0", "ayer"), "post_trial_d0_ayer");
+  assert.equal(postTrialTemplateName("post_trial_d0", "ayer|attempts:2"), "post_trial_d0_ayer");
+  assert.equal(postTrialTemplateName("post_trial_d0", "attempts:1"), "post_trial_d0");
+  assert.equal(postTrialTemplateName("post_trial_d0", null), "post_trial_d0");
+  assert.equal(postTrialTemplateName("post_trial_d2", "ayer"), "post_trial_d2");
+});
+
+test("processPostTrial: ayer note → ayer free-form body", async () => {
+  const { sent, deps } = sendDeps([]);
+  const { db } = contactDb(contact({}));
+  await processPostTrial(envWith(db), { ...ROW, note: "ayer" }, deps, WED_TRIAL);
+  assert.ok(sent[0]!.includes("verte ayer"), sent[0]);
+});
+
+test("processPostTrial: ayer note + closed window → post_trial_d0_ayer_es template", async () => {
+  const { sent, deps } = sendDeps([], { windowClosed: true });
+  const { db } = contactDb(contact({}));
+  await processPostTrial(envWith(db), { ...ROW, note: "ayer|attempts:1" }, deps, WED_TRIAL);
+  assert.deepEqual(sent, ["[template:post_trial_d0_ayer_es]"]);
+  const plain = sendDeps([], { windowClosed: true });
+  await processPostTrial(envWith(contactDb(contact({})).db), ROW, plain.deps, WED_TRIAL);
+  assert.deepEqual(plain.sent, ["[template:post_trial_d0_es]"]);
+});

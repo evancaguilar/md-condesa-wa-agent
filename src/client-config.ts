@@ -67,6 +67,9 @@ export interface ClientCopy {
    */
   postTrialD0Es: string;
   postTrialD0En: string;
+  /** d0 variant when it lands the day AFTER the class ("verte ayer"). */
+  postTrialD0AyerEs: string;
+  postTrialD0AyerEn: string;
   postTrialD2Es: string;
   postTrialD2En: string;
   postTrialD5Es: string;

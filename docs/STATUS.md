@@ -4,6 +4,12 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### Post-trial d0 "ayer" variant (2026-10-07) — SHIPPED (on branch, unpushed)
+
+d0 fires 30 min after the attended card and spills to 09:30 the next day for every class from ~17:30 on, so leads got "verte **hoy**" the morning after (real case: class Tue 6 Oct 18:00 → d0 Wed 7 Oct 09:32). `computePostTrialSequence` now tags d0 with note `ayer` when its effective send moment (max(dueAt, now)) is on a later CDMX date than the class; send time picks `copy.postTrialD0AyerEs/En` and, window closed, template `post_trial_d0_ayer_es/_en` (docs/templates.md §7b). Rows armed before this deploy have no note and keep the "hoy" copy.
+
+- [ ] **Evan:** submit `post_trial_d0_ayer_es` / `_en` to Meta. Until approved, the closed-window path returns `template_missing` and posts the existing once-a-day Slack note (free-form in-window sends are unaffected).
+
 ### Meta CAPI: Airtable-driven funnel sweep + CRM columns, dataset get-or-create, customer-list audiences (2026-10-07) — ON BRANCH `claude/happy-pascal-0z28dv`, INERT
 
 Goal: let click-to-WhatsApp campaigns optimize for bookings/purchases, and keep two customer-list audiences in sync. Docs: **docs/meta-capi.md** (updated) and **docs/meta-audiences.md** (new). Verified against Meta's guide this session: token scopes `whatsapp_business_management` + `whatsapp_business_manage_events`; `POST /<WABA_ID>/dataset` = get-or-create; `QualifiedLead` is accepted for business messaging (so no custom "TrialAttended"); no API links an existing web pixel to a WABA.

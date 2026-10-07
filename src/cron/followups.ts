@@ -440,7 +440,7 @@ async function processOne(
       }
       const res = await processPostTrial(
         env,
-        { phone: f.phone, kind: f.kind as FollowUpKindHere, created_at: f.created_at },
+        { phone: f.phone, kind: f.kind as FollowUpKindHere, created_at: f.created_at, note: f.note },
         {
           sendText,
           sendTemplate,
@@ -1078,7 +1078,7 @@ async function processResult(
         kind: step.kind,
         dueAt: step.dueAt,
         airtableRecordId: recordId, // UNIQUE(phone,kind,record) ⇒ idempotent
-        note: null,
+        note: step.note ?? null, // d0 "ayer" variant marker
       });
     }
     if (sendReaction) {

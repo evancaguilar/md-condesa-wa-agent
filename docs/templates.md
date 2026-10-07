@@ -244,7 +244,12 @@ the send is SKIPPED and one Slack note goes out per day (kv `tmpl_missing_note`)
 
 ## 7. post_trial_d0 — Marketing (BAJA opt-out footer required)
 
-Sent ~3h after the class starts (past 21:00 CDMX → 09:30 the next morning).
+Sent 30 min after the attended card (card = class start + 3h; 19:00+ classes →
+09:00 next day; anything at/after 21:00 → 09:30 the next morning).
+**`post_trial_d0` fires only when d0 lands on the SAME CDMX calendar day as the
+class.** When it lands on a later day (every class from ~17:30 on, or a result
+marked late the next morning) the row is armed with note `ayer` and uses
+`post_trial_d0_ayer_es` / `_en` below instead (free-form: `copy.postTrialD0Ayer*`).
 
 **ES (`post_trial_d0_es`)**
 > ¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si te quedó alguna duda de horarios o paquetes, aquí estamos. ¿Te apartamos tu lugar para tu siguiente clase?
@@ -253,6 +258,23 @@ Sent ~3h after the class starts (past 21:00 CDMX → 09:30 the next morning).
 
 **EN (`post_trial_d0_en`)**
 > Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you have any questions about schedules or packages, we're right here. Want us to save you a spot for your next class?
+>
+> _Reply BAJA to stop receiving messages._
+
+Variables: {{1}} name. Footer text must be the template FOOTER component.
+
+### 7b. post_trial_d0_ayer — Marketing (BAJA opt-out footer required)
+
+Same shape as post_trial_d0; used when d0 goes out the day AFTER the class.
+Added 2026-10-07 — **pending submission/approval**.
+
+**ES (`post_trial_d0_ayer_es`)**
+> ¡Hola {{1}}! Qué gusto verte ayer en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**EN (`post_trial_d0_ayer_en`)**
+> Hi {{1}}! So good to have you at the academy yesterday 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.
 >
 > _Reply BAJA to stop receiving messages._
 
