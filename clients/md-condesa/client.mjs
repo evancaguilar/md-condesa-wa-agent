@@ -77,8 +77,9 @@ export default {
     // creates the dataset and sets META_CAPI_DATASET_ID — flip only with his OK.
     metaCapi: false,
     // Customer-list audiences (paid / active students) synced daily to the ad
-    // account (docs/meta-audiences.md). OFF until the first dry run is reviewed.
-    metaAudiences: false,
+    // account (docs/meta-audiences.md). ON since 2026-10-07: first upload done
+    // by Evan (860 + 211 rows), both audiences ACTIVE on Meta.
+    metaAudiences: true,
   },
   // Real Leads-table columns (base appcX38TBVltyxHR6). The CRM predates the
   // bot and its automations depend on these Spanish names — never rename them.
