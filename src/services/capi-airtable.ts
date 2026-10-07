@@ -184,6 +184,10 @@ export async function getLeadRecord(env: Env, recordId: string): Promise<Airtabl
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as Parameters<typeof parseAirtableError>[1];
     const err = parseAirtableError(res.status, data);
+    // A deleted/merged lead whose id is still in contacts.airtable_lead_id:
+    // Airtable answers 403 "…the requested model was not found" — a missing
+    // row, not a permission problem. Same contract as the 404.
+    if (res.status === 403 && /not found/i.test(err.detail)) return null;
     throw new Error(`airtable get ${recordId} failed: HTTP ${res.status} ${err.detail}`);
   }
   const data = (await res.json()) as { id?: string; fields?: Record<string, unknown> };
