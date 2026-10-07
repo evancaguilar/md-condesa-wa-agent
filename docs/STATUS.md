@@ -1,8 +1,23 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-06**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-07**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### Meta CAPI: Airtable-driven funnel sweep + CRM columns, dataset get-or-create, customer-list audiences (2026-10-07) — ON BRANCH `claude/happy-pascal-0z28dv`, INERT
+
+Goal: let click-to-WhatsApp campaigns optimize for bookings/purchases, and keep two customer-list audiences in sync. Docs: **docs/meta-capi.md** (updated) and **docs/meta-audiences.md** (new). Verified against Meta's guide this session: token scopes `whatsapp_business_management` + `whatsapp_business_manage_events`; `POST /<WABA_ID>/dataset` = get-or-create; `QualifiedLead` is accepted for business messaging (so no custom "TrialAttended"); no API links an existing web pixel to a WABA.
+
+- **CTWA Click ID → CRM.** Lead-sync writes `contacts.ad_ref.ctwaClid` into the Leads column `CTWA Click ID` fill-if-empty (never overwrites). `POST /admin/api/capi/backfill-clids {limit?, dryRun?}` pages older leads in (≤15 per call, kv cursor).
+- **Airtable-driven sweep** (`src/cron/capi-sweep.ts`, metrics ticks, after the student-link sweep): leads with a click id, modified in the last 7 days, where `{Agendó}`/`{Asistió}`/`{Cerró}` = 1 and the label is not in **`Eventos Meta Enviados`** → enqueued through the same claim as the live hooks (no double counting). Purchase value = **`Ingresos Lead`** (hook path falls back to `Pago Inicial`). `event_id` = `<recordId>-<EventName>`. The DRAIN marks `Eventos Meta Enviados` only after Meta's 2xx; after 3 failed attempts it drops the row AND releases the claim so the sweep can retry later.
+- **Dataset:** `POST /admin/api/capi/dataset` (owner) = get-or-create on the WABA. `POST /admin/api/capi/sweep` runs one sweep now.
+- **Audiences** (`src/services/meta-audiences.ts`, `src/cron/audiences.ts`, daily 10:00 block): "MD Condesa - Alumnos que han pagado (Airtable)" (Total Pagado > 0 minus Profesor/Seminario/Visitantes de Pago) and "MD Condesa - Alumnos activos" (Vigencia por Fecha Activa = 1). Email/phone normalized per the spec, SHA-256, multi-key `EMAIL+PHONE` upload, **diff sync** (adds + removes) against a kv hash snapshot — not `usersreplace`. `GET /admin/api/audiences/probe`, `POST /admin/api/audiences/sync {dryRun?}` (bypasses the flag for the first run). Flag `features.metaAudiences` ships **false**.
+- Config: `airtableLeads.{ctwaClid, booked, attended, closed, metaEventsSent, leadIncome}`, `airtableMetrics.students.{email, status, activeFlag, excludedStatuses}`, `metaAudiences.{paid, active}` in client.mjs. No D1 migration. Tests 966 → **987**.
+- ⚠️ `client.gen.ts` was re-rendered with the compiler's own renderer against the committed KB version (this session has no site checkout and the remote fetch is 403'd); `kb.md` untouched. CI's `npm run build` regenerates it identically.
+
+**Pendiente Evan (in order):** (1) system-user token (WhatsApp app) with `whatsapp_business_management` + `whatsapp_business_manage_events` (+ messaging) → secret `META_CAPI_TOKEN`; the audiences use the existing `ADS_ACCESS_TOKEN` (`audienceToken` prefers it); (2) ~~accept the Custom Audience ToS~~ done 2026-10-07; (3) `POST /admin/api/capi/dataset` → paste the id into `META_CAPI_DATASET_ID` (wrangler.jsonc) → push; (4) `POST /admin/api/capi/test {"phone":…,"send":true,"testEventCode":"TEST…"}` and confirm in Events Manager → Test events; (5) flip `features.metaCapi`, build, push; run `backfill-clids` until done; (6) `POST /admin/api/audiences/sync {"dryRun":true}`, review counts, then `{}`; verify in Ads Manager → Audiences; flip `features.metaAudiences`. No campaign settings are changed by any of this.
+
+- [ ] Side finding, not fixed here: `listStudents` (src/services/airtable.ts) reads a table named `Students` with `Phone E164`; the real table is `Alumnos`/`Teléfono`, so the daily `syncStudents` student-gate is probably a no-op.
 
 ### Slack channels: #wa-leads = tasks, #bot-ops = everything else, scoreboard (2026-10-06) — SHIPPED
 
@@ -131,7 +146,7 @@ Goal and plan: 3–5x ROAS on the owner's definition (new sign-ups from ad leads
 - **Templates: 24 submitted to Meta (PENDING)** through `/admin/api/blast/templates/create`: 6 base (`trial_confirm_es`, `trial_reminder_day_before_es`, `trial_reminder_same_day_es`, `no_show_followup_es`, `human_followup_es`, `reengage_lead_es`), 12 `nudge_d{2-5}_{adults,kids,baby}_es`, 6 `post_trial_d{0,2,5}_{es,en}`. Before today the live catalog held ONLY 10 blast templates — no trial reminder had ever been delivered on this WABA. **Next check: all 24 APPROVED; then watch for the first `day_before` / `same_day` sends.**
 - **Meta ads (Graph API, total unchanged at $1,500/day).** Budgets live on the ad SET (adults: campaign budget), not the ad. Paused: mujeres debiles, hombres debiles, 5000 premio bjj gi, mananas-999 bjj grupos chicos, bfc movie poster girl, bfc video 3, pic of kids class, mt bjj kids carousel, pequeños heroes 2 - no cta. Budgets: Adults Evergreen 750→650, babies ad set 375→290, kids ad set 375→560. KPI to judge ads: **cost per SHOW**, not CPL. Open: give mañanas its own ad set (new ad ids must be appended in /admin → Campañas).
 - **Airtable:** Leads gained `Cerrado por` (Evan/Fer/Karime/Carlos/Vale/Otro) and `Paquete vendido` — fill both when marking "Se inscribió".
-- **Meta CAPI is deployed but OFF.** `GET /admin/api/capi/dataset` answers `(#200) permission` — the worker's tokens lack the WhatsApp events scope. **Pendiente Evan:** system-user token with `whatsapp_business_management` + `whatsapp_business_manage_events` → Cloudflare secret `META_CAPI_TOKEN`; then dataset id → `META_CAPI_DATASET_ID`, test event, flip `features.metaCapi` (docs/meta-capi.md).
+- **Meta CAPI is deployed but OFF.** `GET /admin/api/capi/dataset` answers `(#200) permission` — the worker's tokens lack the WhatsApp events scope. **Pendiente Evan:** see the 2026-10-07 entry at the top (token → dataset → test → flip).
 
 ### ⚠️ The KB build was silently shipping a TRUNCATED KB (2026-09-21)
 
