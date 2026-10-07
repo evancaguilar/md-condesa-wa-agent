@@ -93,6 +93,9 @@ export interface ClientFeatures {
    *  attended / purchase) sent back to Meta for ctwa_clid leads
    *  (docs/meta-capi.md). Also requires env.META_CAPI_DATASET_ID. Absent = off. */
   metaCapi?: boolean;
+  /** Customer-list custom audiences (paid / active students from Airtable)
+   *  synced daily to the ad account (docs/meta-audiences.md). Absent = off. */
+  metaAudiences?: boolean;
 }
 
 /**
@@ -135,6 +138,23 @@ export interface AirtableLeadsMap {
    *  the worker never writes it. Used as the Purchase value sent to Meta
    *  (docs/meta-capi.md). Absent/blank column ⇒ Purchase without value. */
   initialPayment?: string;
+  /** Click-to-WhatsApp click id column, e.g. "CTWA Click ID". Written
+   *  fill-if-empty from contacts.ad_ref (docs/meta-capi.md). Absent = not synced. */
+  ctwaClid?: string;
+  /** Lifetime revenue of the lead (rollup of the linked student's payments),
+   *  e.g. "Ingresos Lead". Read-only: the Purchase value sent to Meta. */
+  leadIncome?: string;
+  /** Multi-select the CAPI drain marks after Meta accepts an event, e.g.
+   *  "Eventos Meta Enviados" with options Agendó / Asistió / Compró. */
+  metaEventsSent?: string;
+  /** Option names inside `metaEventsSent` per funnel step. Defaults to
+   *  Agendó / Asistió / Compró. */
+  metaEventsSentValues?: { booked: string; attended: string; purchase: string };
+  /** 0/1 formula columns the CAPI sweep reads: booked ("Agendó"), attended
+   *  ("Asistió"), closed ("Cerró"). All three required for the sweep to run. */
+  booked?: string;
+  attended?: string;
+  closed?: string;
   /** Sales-conversation recordings (src/cron/sales-audio.ts). Absent = feature off. */
   salesAudio?: {
     /** Attachment column staff upload the recording to. */
@@ -210,6 +230,14 @@ export interface AirtableMetricsMap {
     created: string;
     totalPaid: string;
     eligibleIncome: string;
+    /** Audience sync (docs/meta-audiences.md): email column, Status single
+     *  select, the 0/1 "currently active" formula and the statuses that are
+     *  not customers (staff, seminar-only, paid visitors). Optional: absent ⇒
+     *  the audience sync refuses to run. */
+    email?: string;
+    status?: string;
+    activeFlag?: string;
+    excludedStatuses?: string[];
   };
   /** Movimientos columns for the exceptions counts. */
   movements: {
@@ -345,7 +373,18 @@ export interface ClientConfig {
   /** Meta's per-message rate card for this client's market (blast cost estimates).
    *  Absent ⇒ the dashboard shows message counts but no money. */
   whatsappPricing?: WhatsAppPricing;
+  /** Names of the customer-list audiences the daily sync maintains
+   *  (docs/meta-audiences.md). Required when features.metaAudiences. */
+  metaAudiences?: MetaAudiencesConfig;
   copy: ClientCopy;
+}
+
+/** Custom-audience names on the client's ad account (created when missing). */
+export interface MetaAudiencesConfig {
+  /** Everyone who ever paid (Total Pagado > 0, minus excluded statuses). */
+  paid: string;
+  /** Currently active members (activeFlag = 1), for exclusion targeting. */
+  active: string;
 }
 
 /** Interpolate {who}/{address}/{link}/{cta} placeholders in copy strings. */

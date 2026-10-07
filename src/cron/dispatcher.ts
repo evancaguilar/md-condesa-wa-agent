@@ -30,6 +30,8 @@ import { runMetricsBrief } from "./metrics-brief.js";
 import { runBlastBatch } from "./blasts.js";
 import { runSalesAudio } from "./sales-audio.js";
 import { runCapiDrain } from "./capi.js";
+import { runCapiFunnelSweep } from "./capi-sweep.js";
+import { runAudienceSync } from "./audiences.js";
 import { syncPostTrialD0Templates } from "./template-sync.js";
 import { seedCampaigns } from "./seed-campaigns.js";
 import { runRedrive } from "./redrive.js";
@@ -181,6 +183,13 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     }
   }
 
+  // Conversions API funnel sweep (docs/meta-capi.md): ONE Airtable list per
+  // 15 min on the metrics-slot ticks, after the student-link sweep above so a
+  // fresh Alumno link already shows as {Cerró}=1. No-op while the feature is off.
+  if (CLIENT.features.airtableSync && p.minute % 15 >= 5) {
+    await safe("capiSweep", () => runCapiFunnelSweep(env, nowEpoch, { postNote: metricsNote }));
+  }
+
   // Meta Conversions API drain (docs/meta-capi.md): ≤5 events = ≤5 subrequests,
   // and zero D1 reads while the feature is off or the queue is empty. Runs
   // every tick so a booking reaches Meta within minutes, as the docs ask.
@@ -232,6 +241,9 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       if (CLIENT.features.airtableSync) {
         await safe("syncStudents", () => syncStudents(env));
       }
+      // Customer-list audiences (docs/meta-audiences.md): one Airtable walk +
+      // a handful of Graph calls, once a day. No-op while the feature is off.
+      await safe("audienceSync", () => runAudienceSync(env, nowEpoch, { postNote: metricsNote }));
       await safe("budgetReport", () => runBudgetReport(env, cronDeps, nowEpoch));
       await safe("ensureControlPanel", () => cronDeps.ensureControlPanel(env));
       // Edit tuner: self-gated to ~weekly + ≥5 new edits since its watermark.

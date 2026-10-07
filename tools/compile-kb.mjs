@@ -237,11 +237,13 @@ function renderClientTs(cfg, persona, version) {
       safety: !!cfg.features?.safety,
       marketingMetrics: !!cfg.features?.marketingMetrics,
       metaCapi: !!cfg.features?.metaCapi,
+      metaAudiences: !!cfg.features?.metaAudiences,
     },
     ...(cfg.safety ? { safety: cfg.safety } : {}),
     ...(cfg.airtableLeads ? { airtableLeads: cfg.airtableLeads } : {}),
     ...(cfg.airtableMetrics ? { airtableMetrics: cfg.airtableMetrics } : {}),
     ...(cfg.whatsappPricing ? { whatsappPricing: cfg.whatsappPricing } : {}),
+    ...(cfg.metaAudiences ? { metaAudiences: cfg.metaAudiences } : {}),
     copy: cfg.copy,
   };
   return (

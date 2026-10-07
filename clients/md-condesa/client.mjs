@@ -76,6 +76,9 @@ export default {
     // Attended / Purchase back to Meta for ctwa_clid leads. OFF until Evan
     // creates the dataset and sets META_CAPI_DATASET_ID — flip only with his OK.
     metaCapi: false,
+    // Customer-list audiences (paid / active students) synced daily to the ad
+    // account (docs/meta-audiences.md). OFF until the first dry run is reviewed.
+    metaAudiences: false,
   },
   // Real Leads-table columns (base appcX38TBVltyxHR6). The CRM predates the
   // bot and its automations depend on these Spanish names — never rename them.
@@ -115,6 +118,16 @@ export default {
     // Read-only: enrolment amount (MXN), used as the Purchase value sent to
     // Meta's Conversions API (docs/meta-capi.md). The worker never writes it.
     initialPayment: "Pago Inicial",
+    // Conversions API columns (docs/meta-capi.md). The click id is written
+    // fill-if-empty; the three 0/1 formulas are read by the 15-min sweep; the
+    // multi-select is marked by the drain ONLY after Meta answers 2xx; the
+    // rollup is the Purchase value (never written).
+    ctwaClid: "CTWA Click ID",
+    booked: "Agendó",
+    attended: "Asistió",
+    closed: "Cerró",
+    metaEventsSent: "Eventos Meta Enviados",
+    leadIncome: "Ingresos Lead",
     // Sales-conversation recordings → transcript + AI summary (2026-09-18).
     salesAudio: {
       audio: "Audio venta",
@@ -178,6 +191,11 @@ export default {
       created: "Fecha de creación",
       totalPaid: "Total Pagado",
       eligibleIncome: "Ingresos Elegibles",
+      // Audience sync (docs/meta-audiences.md).
+      email: "Email",
+      status: "Status",
+      activeFlag: "Vigencia por Fecha Activa",
+      excludedStatuses: ["Profesor", "Seminario", "Visitantes de Pago"],
     },
     movements: {
       date: "Fecha de Pago",
@@ -215,6 +233,11 @@ export default {
       roas90: "ROAS 90d",
       provisional: "Provisional",
     },
+  },
+  // Customer-list audiences on act_1334257084455191 (docs/meta-audiences.md).
+  metaAudiences: {
+    paid: "MD Condesa - Alumnos que han pagado (Airtable)",
+    active: "MD Condesa - Alumnos activos",
   },
   copy: {
     confirmEs:

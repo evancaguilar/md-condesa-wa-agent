@@ -922,7 +922,9 @@ export async function syncBookings(
         rec.result,
         rec.name ?? null,
         rec.trialDateTimeIso,
-        rec.initialPayment ?? null,
+        // Purchase value: the lead's real revenue (Ingresos Lead) when known,
+        // else the enrolment amount staff typed (Pago Inicial).
+        rec.leadIncome ?? rec.initialPayment ?? null,
       );
     }
   }

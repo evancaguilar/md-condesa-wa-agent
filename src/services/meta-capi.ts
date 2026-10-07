@@ -274,9 +274,16 @@ export function shortHash(input: string): string {
 /**
  * Pure. Deterministic dedup id: same contact + same funnel step ⇒ same id, so a
  * retry (or a second queue row) is collapsed by Meta instead of double-counted.
+ *
+ * With an Airtable record id the id is simply `<recordId>-<EventName>`
+ * (e.g. `recAbc123-Purchase`), so a row in Events Manager can be traced back to
+ * its lead by eye. Without one (or for a `test:` probe) it falls back to a
+ * phone-free hash.
  */
 export function capiEventId(kind: CapiEventKind, phone: string, recordId?: string | null): string {
-  return `${CLIENT.clientId}-${kind}-${shortHash(`${kind}:${phone}:${recordId ?? ""}`)}`;
+  const rec = (recordId ?? "").trim();
+  if (rec && !rec.startsWith("test:")) return `${rec}-${CAPI_EVENT_NAMES[kind]}`;
+  return `${CLIENT.clientId}-${kind}-${shortHash(`${kind}:${phone}:${rec}`)}`;
 }
 
 /** The at-most-once claim key for a contact + funnel step. */
@@ -683,6 +690,57 @@ export async function lookupDataset(
     out.datasetIds = [...new Set(ids)];
     out.ok = true;
   } catch (err) {
+    out.error = redactToken(err instanceof Error ? err.message : String(err), cfg.token);
+  }
+  return out;
+}
+
+export interface DatasetEnsure extends DatasetLookup {
+  /** True when this call created the dataset (Meta returned a new id). */
+  created: boolean;
+}
+
+/**
+ * POST {GRAPH}/<WABA_ID>/dataset — Meta's documented way to get the dataset for
+ * a WhatsApp Business Account: returns the one already linked, or creates it.
+ * Idempotent, so an owner can call it twice without harm. Never throws; never
+ * leaks the token. Result goes into wrangler.jsonc META_CAPI_DATASET_ID (a
+ * non-secret id) by hand — this function does not write config.
+ */
+export async function ensureDataset(
+  env: Env,
+  doFetch: FetchLike = (url, init) => fetch(url, init),
+): Promise<DatasetEnsure> {
+  const before = await lookupDataset(env, doFetch);
+  const out: DatasetEnsure = { ...before, created: false };
+  if (!before.ok) {
+    // A permission/token problem on the read will fail the write the same way.
+    if (!before.error || /unset/.test(before.error)) return out;
+  }
+  if (before.ok && before.datasetIds.length > 0) return out;
+  const cfg = capiConfig(env);
+  try {
+    const res = await doFetch(`${GRAPH}/${cfg.wabaId}/dataset`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      id?: string;
+      error?: { message?: string; code?: number };
+    };
+    if (!res.ok || !json.id) {
+      const code = json.error?.code !== undefined ? ` (code ${json.error.code})` : "";
+      out.ok = false;
+      out.error = redactToken(`${json.error?.message ?? `HTTP ${res.status}`}${code}`, cfg.token);
+      return out;
+    }
+    out.ok = true;
+    out.error = null;
+    out.datasetIds = [json.id];
+    out.created = true;
+  } catch (err) {
+    out.ok = false;
     out.error = redactToken(err instanceof Error ? err.message : String(err), cfg.token);
   }
   return out;

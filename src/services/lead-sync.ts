@@ -19,6 +19,7 @@ import {
   upsertLead,
 } from "./airtable.js";
 import { parseRule, ruleMatches } from "./airtable-rules.js";
+import { ctwaClidFromAdRef } from "./meta-capi.js";
 import { classifyProgram } from "../cron/nudge-copy.js";
 import { postNote } from "./slack.js";
 import { cdmxDateStr } from "../cron/time.js";
@@ -92,6 +93,7 @@ export async function syncLead(
       replaceName: opts.replaceName ?? null,
       campaignName,
       ad,
+      ctwaClid: ctwaClidFromAdRef(contact.ad_ref),
     });
     const res = await upsertLead(env, phone, baseFields, baseFields, current);
     if (contact.airtable_lead_id !== res.id) {

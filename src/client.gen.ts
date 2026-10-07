@@ -59,7 +59,8 @@ export const CLIENT: ClientConfig = {
     "airtableSync": true,
     "safety": false,
     "marketingMetrics": true,
-    "metaCapi": false
+    "metaCapi": false,
+    "metaAudiences": false
   },
   "airtableLeads": {
     "phone": "# de Teléfono",
@@ -93,6 +94,12 @@ export const CLIENT: ClientConfig = {
     "optOutTag": "Baja",
     "childName": "Nombre Del Niñ@",
     "initialPayment": "Pago Inicial",
+    "ctwaClid": "CTWA Click ID",
+    "booked": "Agendó",
+    "attended": "Asistió",
+    "closed": "Cerró",
+    "metaEventsSent": "Eventos Meta Enviados",
+    "leadIncome": "Ingresos Lead",
     "salesAudio": {
       "audio": "Audio venta",
       "transcript": "Transcripción venta",
@@ -160,7 +167,15 @@ export const CLIENT: ClientConfig = {
       "leadLink": "Lead Original",
       "created": "Fecha de creación",
       "totalPaid": "Total Pagado",
-      "eligibleIncome": "Ingresos Elegibles"
+      "eligibleIncome": "Ingresos Elegibles",
+      "email": "Email",
+      "status": "Status",
+      "activeFlag": "Vigencia por Fecha Activa",
+      "excludedStatuses": [
+        "Profesor",
+        "Seminario",
+        "Visitantes de Pago"
+      ]
     },
     "movements": {
       "date": "Fecha de Pago",
@@ -205,6 +220,10 @@ export const CLIENT: ClientConfig = {
     "utility": 0.0085,
     "asOf": "2026-07",
     "source": "https://developers.facebook.com/docs/whatsapp/pricing/"
+  },
+  "metaAudiences": {
+    "paid": "MD Condesa - Alumnos que han pagado (Airtable)",
+    "active": "MD Condesa - Alumnos activos"
   },
   "copy": {
     "confirmEs": "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda y una botella de agua — no necesitas equipo, nosotros te lo prestamos. ¡Nos vemos!",

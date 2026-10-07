@@ -1,9 +1,12 @@
 # Conversions API for Business Messaging (Meta) — downstream funnel signals
 
-**Status: shipped INERT (2026-09-21).** Nothing is sent to Meta until Evan does the
-one-time setup below. Code: `src/services/meta-capi.ts` (pure builders + sender +
-queue), `src/cron/capi.ts` (drain), hooks in `src/services/booking-core.ts` and
-`src/cron/followups.ts`, owner routes in `src/routes/admin-api.ts`.
+**Status: shipped INERT (2026-09-21; Airtable-driven sweep + CRM columns added
+2026-10-07).** Nothing is sent to Meta until Evan does the one-time setup below.
+Code: `src/services/meta-capi.ts` (pure builders + sender + queue + dataset),
+`src/services/capi-airtable.ts` (sweep formula, row → events, CRM marking,
+click-id backfill), `src/cron/capi-sweep.ts` (15-min sweep), `src/cron/capi.ts`
+(drain), hooks in `src/services/booking-core.ts` and `src/cron/followups.ts`,
+owner routes in `src/routes/admin-api.ts`.
 
 ## Why
 
@@ -15,11 +18,31 @@ it never learns what happened after the chat started.
 The Conversions API for Business Messaging closes that loop: for every lead that
 arrived through an ad, we send back the three things that matter —
 
-| Funnel step | When we send it | Meta event name |
-|---|---|---|
-| Booked a trial | a trial record exists (chat, staff, or web form) | `LeadSubmitted` |
-| Attended the trial | `Resultado Clase Prueba` contains "Asistió" or "Se inscribió" | `QualifiedLead` |
-| Enrolled (paid) | `Resultado Clase Prueba` contains "Se inscribió" | `Purchase` (value = `Pago Inicial`, MXN) |
+| Funnel step | Airtable truth (Leads) | Meta event name | `event_time` |
+|---|---|---|---|
+| Booked a trial | `{Agendó}` = 1 (a `Fecha Clase Prueba` exists) | `LeadSubmitted` | when the sweep first sees it (≤15 min late) |
+| Attended the trial | `{Asistió}` = 1 (result holds "Asistió" / "Se inscribió") | `QualifiedLead` | the trial datetime (now, if unknown/future) |
+| Enrolled (paid) | `{Cerró}` = 1 (`Ingresos Lead` > 0, i.e. a linked Alumno paid) | `Purchase` (value = `Ingresos Lead`, MXN) | when the sweep first sees it |
+
+Two sources feed the same queue and the same at-most-once claim:
+
+- **Live hooks** (fast, exact time): `finalizeBooking` / `syncBookings` enqueue
+  *booked*; the result watcher enqueues *attended* (+ *purchase* on
+  "Se inscribió", value = `Ingresos Lead` when known, else `Pago Inicial`).
+- **The Airtable sweep** (`src/cron/capi-sweep.ts`, every 15 min on the metrics
+  ticks, right after the student-link sweep): ONE list of Leads with a click id,
+  modified in the last 7 days, where a flag is 1 and its label is not yet in
+  **`Eventos Meta Enviados`**. It catches everything the hooks cannot see — a
+  purchase that only exists as a linked Alumno's payments, a booking staff typed
+  by hand, a result marked while the worker was down. Whichever source
+  enqueues first wins; the other is a "duplicate" no-op.
+
+**`Eventos Meta Enviados`** (multi-select Agendó / Asistió / Compró) is written by
+the DRAIN only after Meta answers 2xx — never before — so the column is a
+truthful record of what Meta accepted. `event_id` is `<leadRecordId>-<EventName>`
+(e.g. `recAbc123-Purchase`), so a row in Events Manager can be traced to its
+lead by eye. All column names come from `airtableLeads` in client.mjs
+(`ctwaClid`, `booked`, `attended`, `closed`, `metaEventsSent`, `leadIncome`).
 
 Once those land, a campaign can optimize for **purchases through messaging**
 instead of conversations (see "Then: the campaign change" at the end — that is
@@ -46,6 +69,11 @@ lead proved itself qualified by showing up). The mapping lives in
   sourceUrl, ctwaClid}`). No click id ⇒ the lead is skipped silently — organic
   leads, old rows, and WhatsApp-Status ads (Meta omits `ctwa_clid` there) simply
   produce no events.
+- **The click id also lands in the CRM.** Lead-sync writes it to the Leads column
+  **`CTWA Click ID`** fill-if-empty (never overwrites a value already there).
+  Leads synced before the column existed: `POST /admin/api/capi/backfill-clids
+  {limit?, dryRun?}` copies the stored ids one page (≤15 contacts) at a time;
+  call it until `done: true`.
 - **Hooks only enqueue.** Each funnel hook writes a kv row (`capi_q:<eventId>`) —
   a D1 write, no network — so a Meta outage can never slow a reply or block a
   booking. Every hook is wrapped so it cannot throw into its caller.
@@ -64,8 +92,11 @@ lead proved itself qualified by showing up). The mapping lives in
   time). A late-marked result reports the **trial datetime**, not the day the
   front desk typed it.
 - **Failures are quiet and bounded:** the row is retried up to 3 drains, then
-  dropped; `capi_last_error` / `capi_last_ok` hold the state and at most **one
-  Slack note per CDMX day** is posted.
+  dropped **and its claim released** (Airtable stays unmarked, so the sweep can
+  queue it again once the cause — usually the token — is fixed);
+  `capi_last_error` / `capi_last_ok` hold the state and at most **one Slack note
+  per CDMX day** is posted. The sweep has its own `capi_sweep_last_ok` /
+  `capi_sweep_error` and notes a missing Airtable column once a day.
 - **No PII leaves the worker.** The payload carries only `ctwa_clid` +
   `whatsapp_business_account_id` (both documented as sent in the clear, never
   hashed) and, for a purchase, `value` + `currency`. No phone, no name, no email
@@ -95,32 +126,36 @@ invented one (a 0 would tell Meta the sale was worthless).
 
 ## One-time setup (Evan)
 
-1. **Create / find the dataset linked to the WABA** (`1717538906028335`).
-   Meta's documented route is the Graph edge on the WABA itself:
-   - read: `GET https://graph.facebook.com/v23.0/1717538906028335/dataset`
-   - create: `POST https://graph.facebook.com/v23.0/1717538906028335/dataset`
-     (returns the `dataset_id`; one dataset per asset)
-
-   The worker's token is a Cloudflare secret, so the dashboard does the read for
-   you: **`GET /admin/api/capi/dataset`** (owner-only) returns the dataset id(s)
-   already linked. If it returns none, create one — either with the POST above
-   from the Graph API Explorer using your own user token, or in **Events Manager
-   → Data sources → Connect data source → Business messaging** and link it to
-   the WhatsApp Business Account. (Meta's Help Center pages for that UI path
-   could not be verified from the docs — the Graph edge above is the verified
-   route; if the UI wording differs, trust the Graph call.)
-
-2. **Token / permissions.** Posting to a business-messaging dataset needs
-   `whatsapp_business_management` **and** `whatsapp_business_manage_events`
-   (advanced access), plus the app's Marketing API access tier — *not* the ads
-   permissions the spend import uses. So:
-   - preferred: mint a system-user token with those scopes and set it as the
-     Cloudflare secret **`META_CAPI_TOKEN`**
+1. **Token / permissions (first, everything else depends on it).** Posting to a
+   business-messaging dataset needs `whatsapp_business_management` **and**
+   `whatsapp_business_manage_events`; the customer-list audiences
+   (docs/meta-audiences.md) need `ads_management` on the ad account. One token
+   covers both: Business Settings → System users → generate a token for the
+   app with `whatsapp_business_management`, `whatsapp_business_manage_events`,
+   `ads_management`, `business_management`, with the WABA (1717538906028335)
+   and the ad account (act_1334257084455191) assigned to that system user.
+   - set it as the Cloudflare secret **`META_CAPI_TOKEN`**
      (`npx wrangler secret put META_CAPI_TOKEN`, or the Cloudflare dashboard);
-   - if the existing system user already holds them, the worker falls back to
-     `ADS_ACCESS_TOKEN` and then `WA_ACCESS_TOKEN` — `/admin/api/capi/probe`
-     reports which one is in play under `tokenSource`.
+   - the worker falls back to `ADS_ACCESS_TOKEN` and then `WA_ACCESS_TOKEN` only
+     if they happen to hold the scopes — `/admin/api/capi/probe` reports which
+     one is in play under `tokenSource`. Today both lack the events scope
+     (`(#200)` on the dataset read).
    - Never put a token in wrangler.jsonc or any file.
+
+2. **Create / find the dataset linked to the WABA** (`1717538906028335`).
+   Meta's documented route is the Graph edge on the WABA itself — `POST
+   /<WABA_ID>/dataset` returns the dataset already linked, or creates one. The
+   worker's token is a secret, so the dashboard does it for you (owner-only):
+   - **`GET /admin/api/capi/dataset`** — read what is linked;
+   - **`POST /admin/api/capi/dataset`** — get-or-create (idempotent; `created:
+     true` the first time).
+
+   About the existing web pixel (`1807162526929462`, "MD Condesa site 6/2026"):
+   there is **no API to link a pixel to a WABA**. If Evan prefers one dataset
+   for site + chat, link it first in Events Manager (Connect data sources →
+   Messaging → "log with existing data") and the POST above will simply return
+   that id. Otherwise the WABA gets its own dataset, which is what Meta's guide
+   describes — both work for optimization.
 
 3. **Set the dataset id.** Uncomment `META_CAPI_DATASET_ID` in `wrangler.jsonc`
    (it is a non-secret id, same as `META_AD_ACCOUNT_ID`), paste the id, push.
@@ -137,7 +172,10 @@ invented one (a 0 would tell Meta the sale was worthless).
 5. **Arm it.** Flip `features.metaCapi` to `true` in
    `clients/md-condesa/client.mjs`, run `npm run build`, commit both the source
    and the compiled output, push. From then on every new booking/attendance/
-   enrolment of an ad lead is reported within ~5 minutes.
+   enrolment of an ad lead is reported within ~5 minutes (hooks) or ~15 minutes
+   (sweep). The first sweep also picks up anything flagged in the last 7 days.
+   `POST /admin/api/capi/sweep` runs one sweep on demand and returns the counts;
+   `POST /admin/api/capi/backfill-clids` fills `CTWA Click ID` for older leads.
 
 6. **Verify.** `GET /admin/api/capi/probe` →
    `{enabled, datasetIdSet, tokenSource, lastOk, lastError, countToday, queued}`.
@@ -171,10 +209,16 @@ not cost per chat. Give the events 2–3 weeks to accumulate before judging.
 - kv keys: `capi_q:<eventId>` (queue), `capi:<step>:<phone>` (claim),
   `capi_pending` (idle gate), `capi_last_ok`, `capi_last_error`,
   `capi_count:<YYYY-MM-DD>`, `capi_note:<YYYY-MM-DD>`.
-- Purchase value comes from the Leads column **`Pago Inicial`**
-  (`airtableLeads.initialPayment` in client.mjs — never hardcoded in `src/`).
-  The worker only ever reads it.
-- No D1 migration: everything lives in the existing `kv` table.
+- Purchase value is the Leads rollup **`Ingresos Lead`** (`airtableLeads.
+  leadIncome`), falling back to **`Pago Inicial`** (`initialPayment`) on the
+  result-hook path when the rollup is still 0. The worker only ever reads them.
+  The value is sent once, as it stands when the event goes out.
+- The sweep only looks at leads modified in the last 7 days (`LAST_MODIFIED_TIME()`),
+  which is also Meta's `event_time` limit. A payment added to an Alumno that
+  was linked more than a week ago does not bump the Lead's modified time — that
+  purchase is reported only if the Lead row is touched again.
+- No D1 migration: everything lives in the existing `kv` table (`capi_sweep_*`,
+  `capi_backfill_cursor` added).
 
 ## Verified against Meta's docs (2026-09-21)
 

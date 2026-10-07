@@ -31,6 +31,11 @@ export interface BookingRecord {
    * Optional so existing fakes/consumers need not know about it.
    */
   initialPayment?: number | null;
+  /**
+   * Lifetime revenue of the lead (`leadIncome` rollup, MXN) when > 0. Preferred
+   * over initialPayment as the Purchase value (docs/meta-capi.md).
+   */
+  leadIncome?: number | null;
 }
 
 /** Default name of the Airtable trial-outcome field (env-overridable). */
@@ -538,6 +543,8 @@ export interface LeadFieldsInput {
   replaceName?: string | null;
   campaignName?: string | null;
   ad?: string | null; // "headline (id)" attribution label
+  /** Click-to-WhatsApp click id (contacts.ad_ref.ctwaClid); fill-if-empty. */
+  ctwaClid?: string | null;
 }
 
 /** Case/space-insensitive name equality for the replace rule. */
@@ -587,6 +594,10 @@ export function buildLeadFields(
   if (ad && isEmpty(current?.[map.ad])) f[map.ad] = ad;
   const camp = (input.campaignName ?? "").trim();
   if (camp) f[map.campaign] = camp;
+  // The click id is immutable for a lead: written once, never overwritten
+  // (a human-pasted or earlier value wins), and only when the map names a column.
+  const clid = (input.ctwaClid ?? "").trim();
+  if (clid && map.ctwaClid && isEmpty(current?.[map.ctwaClid])) f[map.ctwaClid] = clid;
   return f;
 }
 
@@ -779,6 +790,7 @@ function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord 
     // multipleSelects result columns come back as arrays — join for classify.
     result: asResultString(f[resultField]),
     initialPayment: m.initialPayment ? asAmount(f[m.initialPayment]) : null,
+    leadIncome: m.leadIncome ? asAmount(f[m.leadIncome]) : null,
   };
 }
 

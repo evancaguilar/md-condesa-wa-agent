@@ -66,6 +66,10 @@
     "src/cron/metrics-link.ts",
     "src/cron/metrics-brief.ts",
     "src/services/meta-capi.ts",
-    "src/cron/capi.ts"
+    "src/cron/capi.ts",
+    "src/services/capi-airtable.ts",
+    "src/cron/capi-sweep.ts",
+    "src/services/meta-audiences.ts",
+    "src/cron/audiences.ts"
   ]
 }

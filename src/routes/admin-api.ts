@@ -58,10 +58,14 @@ import {
   capiEventId,
   capiProbe,
   ctwaClidFromAdRef,
+  ensureDataset,
   lookupDataset,
   sendMessagingEvents,
   type CapiEventKind,
 } from "../services/meta-capi.js";
+import { backfillCtwaClids } from "../services/capi-airtable.js";
+import { runCapiFunnelSweep } from "../cron/capi-sweep.js";
+import { audienceProbe, runAudienceSync } from "../cron/audiences.js";
 import {
   authenticateLogin,
   buildSetCookie,
@@ -562,7 +566,44 @@ export async function handleAdminApi(
     if (path === "/admin/api/capi/dataset" && method === "GET") {
       return json(await lookupDataset(env));
     }
+    // Get-or-create the dataset linked to the WABA (idempotent on Meta's side).
+    if (path === "/admin/api/capi/dataset" && method === "POST") {
+      const res = await ensureDataset(env);
+      return json(res, res.ok ? 200 : 502);
+    }
     if (path === "/admin/api/capi/test" && method === "POST") return handleCapiTest(req, env);
+    // One page of "contacts.ad_ref.ctwaClid → CTWA Click ID" (fill-if-empty).
+    if (path === "/admin/api/capi/backfill-clids" && method === "POST") {
+      const body = await readJson<{ limit?: number; dryRun?: boolean }>(req);
+      return json(await backfillCtwaClids(env, { limit: body.limit, dryRun: body.dryRun }));
+    }
+    // Run the Airtable funnel sweep now (same code the cron runs every 15 min).
+    if (path === "/admin/api/capi/sweep" && method === "POST") {
+      return json(
+        await runCapiFunnelSweep(env, nowSec(), { postNote: (t) => ports.slack.postNote(t) }),
+      );
+    }
+    return json({ error: "not_found" }, 404);
+  }
+
+  // ---- customer-list audiences (owner-only; docs/meta-audiences.md) ----
+  if (path.startsWith("/admin/api/audiences/")) {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    if (path === "/admin/api/audiences/probe" && method === "GET") {
+      return json(await audienceProbe(env));
+    }
+    // {dryRun?: boolean} — dryRun computes the diff and touches nothing.
+    // `force` lets the owner run it before the feature flag is flipped.
+    if (path === "/admin/api/audiences/sync" && method === "POST") {
+      const body = await readJson<{ dryRun?: boolean }>(req);
+      const res = await runAudienceSync(
+        env,
+        nowSec(),
+        { postNote: (t) => ports.slack.postNote(t) },
+        { dryRun: body.dryRun === true, force: true },
+      );
+      return json(res, res.error ? 502 : 200);
+    }
     return json({ error: "not_found" }, 404);
   }
 

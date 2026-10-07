@@ -53,4 +53,4 @@ curl -s https://md-condesa-wa-agent.evancaguilar.workers.dev/health
 
 ## Where things stand
 
-Current status, pending setup steps, and known bugs: **docs/STATUS.md** (keep it updated when shipping). Specs for each subsystem are in docs/ (architecture, dashboard-plan, followups-pack-plan, sequences-v2-plan, airtable-rules-plan, manychat-flows, templates, cutover-runbook, phase0-checklist).
+Current status, pending setup steps, and known bugs: **docs/STATUS.md** (keep it updated when shipping). Specs for each subsystem are in docs/ (architecture, dashboard-plan, followups-pack-plan, sequences-v2-plan, airtable-rules-plan, manychat-flows, templates, cutover-runbook, phase0-checklist, meta-capi, meta-audiences).

@@ -16,8 +16,10 @@
 import type { Env } from "../types.js";
 import { kvDelete, kvGet, kvSet } from "../db/queries.js";
 import { cdmxDateStr } from "./time.js";
+import { markEventSentInAirtable } from "../services/capi-airtable.js";
 import {
   CAPI_MAX_ATTEMPTS,
+  capiClaimKey,
   CAPI_MAX_PER_TICK,
   KV_CAPI_COUNT_PREFIX,
   KV_CAPI_LAST_ERROR,
@@ -36,6 +38,8 @@ import {
 
 export interface CapiDrainResult {
   sent: number;
+  /** Rows whose Airtable `Eventos Meta Enviados` got the label after the 2xx. */
+  marked: number;
   /** Rows dropped because they aged out of Meta's window or were malformed. */
   dropped: number;
   failed: number;
@@ -55,10 +59,22 @@ interface QueueRow {
 export async function runCapiDrain(
   env: Env,
   nowSec: number,
-  deps: { postNote: (text: string) => Promise<void> },
+  deps: {
+    postNote: (text: string) => Promise<void>;
+    /** Airtable marker (injectable for tests); default writes the real column. */
+    markSent?: typeof markEventSentInAirtable;
+  },
   send: typeof sendMessagingEvents = sendMessagingEvents,
 ): Promise<CapiDrainResult> {
-  const empty: CapiDrainResult = { sent: 0, dropped: 0, failed: 0, skipped: null, error: null };
+  const empty: CapiDrainResult = {
+    sent: 0,
+    marked: 0,
+    dropped: 0,
+    failed: 0,
+    skipped: null,
+    error: null,
+  };
+  const markSent = deps.markSent ?? markEventSentInAirtable;
   const cfg = capiConfig(env);
   if (!cfg.enabled || !cfg.wabaId) return { ...empty, skipped: "disabled" };
 
@@ -99,6 +115,7 @@ export async function runCapiDrain(
   }
 
   let sent = 0;
+  let marked = 0;
   let failed = 0;
   let error: string | null = null;
   for (const q of live) {
@@ -107,12 +124,21 @@ export async function runCapiDrain(
     if (res.ok) {
       await kvDelete(env.DB, q.key);
       sent++;
+      // Only now — after Meta's 2xx — does the CRM learn the event went out.
+      if (q.row.recordId) {
+        const m = await markSent(env, q.row.recordId, q.row.kind);
+        if (m === "marked") marked++;
+      }
       continue;
     }
     error = res.error ?? res.skipped ?? "unknown error";
     const attempts = (q.row.attempts ?? 0) + 1;
     if (attempts >= CAPI_MAX_ATTEMPTS) {
       await kvDelete(env.DB, q.key);
+      // Release the at-most-once claim: the Airtable column stays unmarked, so
+      // the sweep may queue this event again later (e.g. once the token is
+      // fixed) instead of it being lost for good.
+      await kvDelete(env.DB, capiClaimKey(q.row.kind, q.row.phone));
       dropped++;
     } else {
       await kvSet(env.DB, q.key, JSON.stringify({ ...q.row, attempts }));
@@ -140,7 +166,7 @@ export async function runCapiDrain(
   if (failed > 0 || results.length >= CAPI_MAX_PER_TICK) {
     await kvSet(env.DB, KV_CAPI_PENDING, "1");
   }
-  return { sent, dropped, failed, skipped: null, error };
+  return { sent, marked, dropped, failed, skipped: null, error };
 }
 
 async function bumpDailyCount(env: Env, day: string, n: number): Promise<void> {

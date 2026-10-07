@@ -219,13 +219,21 @@ test("capiEventsForResult maps the real Airtable values", () => {
   assert.deepEqual(capiEventsForResult(null), []);
 });
 
-test("capiEventId is deterministic and carries no phone number", () => {
+test("capiEventId: <recordId>-<EventName> when the lead is known, phone-free hash otherwise", () => {
+  // With an Airtable record: readable in Events Manager, traceable to the lead.
   const a = capiEventId("booked", "5215512345678", "recA");
-  assert.equal(a, capiEventId("booked", "5215512345678", "recA"));
-  assert.notEqual(a, capiEventId("attended", "5215512345678", "recA"));
-  assert.notEqual(a, capiEventId("booked", "5215599999999", "recA"));
-  assert.ok(!a.includes("5215512345678"));
-  assert.ok(a.startsWith(`${CLIENT.clientId}-booked-`));
+  assert.equal(a, "recA-LeadSubmitted");
+  assert.equal(capiEventId("attended", "5215512345678", "recA"), "recA-QualifiedLead");
+  assert.equal(capiEventId("purchase", "5215512345678", "recA"), "recA-Purchase");
+  // Without one (or for a test probe): deterministic and never carries the phone.
+  const b = capiEventId("booked", "5215512345678");
+  assert.equal(b, capiEventId("booked", "5215512345678", null));
+  assert.notEqual(b, capiEventId("attended", "5215512345678"));
+  assert.notEqual(b, capiEventId("booked", "5215599999999"));
+  assert.ok(!b.includes("5215512345678"));
+  assert.ok(b.startsWith(`${CLIENT.clientId}-booked-`));
+  const t = capiEventId("booked", "5215512345678", "test:123");
+  assert.ok(!t.includes("5215512345678") && t.startsWith(`${CLIENT.clientId}-booked-`));
 });
 
 // ---- age gate ----
