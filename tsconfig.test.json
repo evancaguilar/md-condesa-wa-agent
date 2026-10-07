@@ -26,6 +26,7 @@
     "src/services/slack-timeouts.ts",
     "src/services/slack.ts",
     "src/services/status-line.ts",
+    "src/services/d1-copy.ts",
     "src/services/infra-alert.ts",
     "src/services/staff-send.ts",
     "src/services/edit-tuner-core.ts",

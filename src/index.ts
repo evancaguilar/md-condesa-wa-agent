@@ -2,7 +2,7 @@ import type { Env, Ports } from "./types.js";
 import { handleVerify, handleWebhook } from "./routes/whatsapp.js";
 import { handleHealth } from "./routes/admin.js";
 import { handleSlackInteractive } from "./routes/slack.js";
-import { handleAdminUi } from "./routes/admin-ui.js";
+import { handleAdminUi, handleMigrateUi } from "./routes/admin-ui.js";
 import { handleAdminApi } from "./routes/admin-api.js";
 import { runCron, setCronDeps } from "./cron/dispatcher.js";
 import { runBrainTurn } from "./pipeline/inbound.js";
@@ -137,6 +137,7 @@ export default {
     if (pathname === "/admin" && req.method === "GET") {
       return handleAdminUi(req, env, ctx);
     }
+    if (pathname === "/admin/migrate" && req.method === "GET") return handleMigrateUi();
     if (pathname.startsWith("/admin/api/")) {
       return withInfraAlert(env, ctx, "admin", () => handleAdminApi(req, env, ctx, makePorts(env)));
     }

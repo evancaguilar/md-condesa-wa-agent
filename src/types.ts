@@ -14,6 +14,9 @@ export interface Ai {
 export interface Env {
   // Bindings
   DB: D1Database;
+  /** Second D1 binding for the in-worker database copy (/admin/migrate,
+   *  services/d1-copy.ts). Only present while a migration is in flight. */
+  DB_TARGET?: D1Database;
   /** Workers AI (Whisper transcription). Optional so local/sandbox runs skip it. */
   AI?: Ai;
 

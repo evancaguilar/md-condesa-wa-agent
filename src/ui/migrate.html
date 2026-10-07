@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Migración D1</title>
+<style>
+  body{font:15px/1.45 -apple-system,system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:24px;max-width:860px}
+  h1{font-size:22px;margin:0 0 6px} .muted{color:#9a9a9a}
+  .card{background:#1b1b1b;border:1px solid #2a2a2a;border-radius:10px;padding:16px;margin:14px 0}
+  button{background:#e6b422;color:#111;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer;margin:4px 6px 4px 0}
+  button.sec{background:#2d2d2d;color:#eee} button:disabled{opacity:.4;cursor:default}
+  table{border-collapse:collapse;width:100%} td,th{padding:6px 8px;border-bottom:1px solid #2a2a2a;text-align:left;font-variant-numeric:tabular-nums}
+  .ok{color:#6fcf7a} .bad{color:#ff6b6b} pre{white-space:pre-wrap;background:#0d0d0d;padding:10px;border-radius:8px;max-height:260px;overflow:auto;font-size:12px}
+  select{background:#2d2d2d;color:#eee;border:0;border-radius:6px;padding:8px}
+</style>
+</head>
+<body>
+<h1>Migración D1 → base nueva</h1>
+<div class="muted">Copia la base de datos del bot a otra base D1 desde el propio worker. Solo owner. Cada paso es idempotente: se puede repetir sin duplicar nada.</div>
+
+<div class="card">
+  <b>Estado</b> <span id="bound" class="muted"></span>
+  <div style="margin-top:8px">
+    Dirección:
+    <select id="dir">
+      <option value="to_target">DB (actual) → DB_TARGET (nueva)</option>
+      <option value="from_target">DB_TARGET (vieja) → DB (actual) — delta después del cambio</option>
+    </select>
+  </div>
+</div>
+
+<div class="card">
+  <button id="bSchema">1 · Copiar esquema</button>
+  <button id="bCopy">2 · Copiar datos</button>
+  <button id="bStop" class="sec" disabled>Detener</button>
+  <button id="bCounts" class="sec">3 · Comparar conteos</button>
+  <div id="progress" class="muted" style="margin-top:10px"></div>
+</div>
+
+<div class="card">
+  <table id="counts"><thead><tr><th>Tabla</th><th>Origen</th><th>Destino</th><th></th></tr></thead><tbody></tbody></table>
+</div>
+
+<div class="card"><b>Log</b><pre id="log"></pre></div>
+
+<script>
+var logEl=document.getElementById("log"), prog=document.getElementById("progress");
+var stop=false;
+function log(s){ logEl.textContent += new Date().toLocaleTimeString()+"  "+s+"\n"; logEl.scrollTop=logEl.scrollHeight; }
+function dir(){ return document.getElementById("dir").value; }
+async function api(path, body){
+  var r=await fetch("/admin/api/migrate/"+path,{method:body?"POST":"GET",headers:{"content-type":"application/json"},body:body?JSON.stringify(body):undefined});
+  var j=await r.json().catch(function(){return {error:"respuesta inválida"};});
+  if(!r.ok) throw new Error(j.error||("HTTP "+r.status));
+  return j;
+}
+async function status(){
+  try{ var s=await api("status"); document.getElementById("bound").textContent = s.targetBound ? "· DB_TARGET conectada ✅" : "· DB_TARGET NO está en wrangler.jsonc ❌"; }
+  catch(e){ document.getElementById("bound").textContent="· "+e.message; }
+}
+document.getElementById("bSchema").onclick=async function(){
+  try{ log("Copiando esquema…"); var r=await api("schema",{dir:dir()}); log("Esquema: "+r.ran.length+" objetos → "+r.ran.join(", ")); }
+  catch(e){ log("ERROR esquema: "+e.message); }
+};
+document.getElementById("bCopy").onclick=async function(){
+  stop=false; document.getElementById("bStop").disabled=false; document.getElementById("bCopy").disabled=true;
+  var cursor=null, fails=0;
+  log("Copiando datos ("+dir()+")…");
+  while(!stop){
+    try{
+      var r=await api("copy",{dir:dir(),cursor:cursor});
+      cursor=r.cursor; fails=0;
+      prog.textContent="Copiadas "+cursor.copied+" filas · tabla "+(r.current||"—")+" · "+(r.done?"LISTO ✅":"en curso…");
+      if(r.done){ log("Copia terminada: "+cursor.copied+" filas."); break; }
+    }catch(e){
+      fails++; log("Error (reintento "+fails+"/20): "+e.message);
+      if(fails>=20){ log("Demasiados errores; detenido. Vuelve a pulsar 2 para continuar — no se pierde nada."); break; }
+      await new Promise(function(r){setTimeout(r,3000);});
+    }
+  }
+  document.getElementById("bStop").disabled=true; document.getElementById("bCopy").disabled=false;
+};
+document.getElementById("bStop").onclick=function(){ stop=true; log("Deteniendo tras el paso actual…"); };
+document.getElementById("bCounts").onclick=async function(){
+  try{
+    var r=await api("counts",{dir:dir()}); var tb=document.querySelector("#counts tbody"); tb.innerHTML="";
+    r.counts.forEach(function(c){
+      var ok=c.src!==null&&c.dst!==null&&c.dst>=c.src;
+      tb.insertAdjacentHTML("beforeend","<tr><td>"+c.table+"</td><td>"+(c.src==null?"?":c.src)+"</td><td>"+(c.dst==null?"?":c.dst)+"</td><td class='"+(ok?"ok":"bad")+"'>"+(ok?"✓":"✗")+"</td></tr>");
+    });
+    log("Conteos comparados.");
+  }catch(e){ log("ERROR conteos: "+e.message); }
+};
+status();
+</script>
+</body>
+</html>

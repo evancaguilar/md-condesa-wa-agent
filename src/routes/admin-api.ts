@@ -6,6 +6,7 @@
 // the Ports bundle so the sandbox route can build a per-request brain that reuses
 // the same overlay loader + real usage accrual as production.
 
+import { copySchema, copyStep, startCursor, tableCounts, type CopyCursor } from "../services/d1-copy.js";
 import { scheduleTrialSequence } from "../cron/followups.js";
 import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
 import { setQualification } from "../db/queries.js";
@@ -386,6 +387,31 @@ export async function handleAdminApi(
         }
       }),
     });
+  }
+
+  // ---- D1 copy (owner-only; services/d1-copy.ts, page /admin/migrate) ----
+  if (path.startsWith("/admin/api/migrate/")) {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    if (path === "/admin/api/migrate/status" && method === "GET") {
+      return json({ targetBound: !!env.DB_TARGET });
+    }
+    if (!env.DB_TARGET) return json({ error: "DB_TARGET no está configurada en wrangler.jsonc" }, 409);
+    const body = (await req.json().catch(() => ({}))) as { dir?: string; cursor?: CopyCursor | null };
+    const fromTarget = body.dir === "from_target";
+    const src = fromTarget ? env.DB_TARGET : env.DB;
+    const dst = fromTarget ? env.DB : env.DB_TARGET;
+    if (path === "/admin/api/migrate/schema" && method === "POST") {
+      return json({ ran: await copySchema(src, dst) });
+    }
+    if (path === "/admin/api/migrate/copy" && method === "POST") {
+      const cursor = body.cursor ?? (await startCursor(src));
+      const r = await copyStep(src, dst, cursor, 20_000);
+      return json(r);
+    }
+    if (path === "/admin/api/migrate/counts" && method === "POST") {
+      return json({ counts: await tableCounts(src, dst) });
+    }
+    return json({ error: "not found" }, 404);
   }
 
   // ---- template blasts (owner-only; docs/blasts.md, services/blast.ts) ----
