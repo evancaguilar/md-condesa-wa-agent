@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-10-07+cb68211bedf2
-     approx_tokens: 11519 (chars 40314 / 3.5)
+     version: 2026-10-09+82cdc16da14c
+     approx_tokens: 11618 (chars 40662 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -178,7 +178,7 @@ Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases segu
 > ¡Claro que sí! 🙌 El sábado no hay grupo Teens, pero desde los 13 puede entrar a cualquier clase de adultos: a las 12 pm hay Jiu-Jitsu y a las 2 pm Box — es más que bienvenido, y sin presión: si solo quiere ver, también está perfecto. Y si prefiere su grupo de edad, de lunes a jueves a las 4 pm hay MMA Teens y a las 5 pm Jiu-Jitsu Teens.
 - **Mini Muay Thai (3–5)**: SOLO **lunes 3:15 pm, miércoles 3:15 pm y sábado 1:15 pm**. No hay martes, jueves, viernes ni domingo. Ojo con las horas: entre semana es 3:15 pm, el sábado es 1:15 pm — no las intercambies. Es UNA sola clase (no aplica el combo de 2 clases).
 - **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 1 pm y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3:00 / 3:45 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí.
-- **Baby Fight Club Nivel 0 (6–12 meses)** (Evan, 2026-10-03): ya aceptamos bebés desde los 6 meses, pero **su clase de prueba aún no tiene horario** — NO la agendes ni inventes día. Dilo con gusto ("¡Sí! Estamos abriendo el Nivel 0 🙌 en cuanto quede el horario te aviso"), toma nombre y edad del bebé y pásalo a humano. **Menores de 6 meses: aún no.**
+- **Baby Fight Club Nivel 0 (6–12 meses)** (Evan, 2026-10-09): ya aceptamos bebés desde los 6 meses. Su clase se lanza a finales de octubre de 2026 y será en **viernes**; fecha tentativa de inicio: viernes 16 de octubre (aún por confirmar — di "posiblemente el viernes 16", nunca la des como segura). La hora se está definiendo: **pregunta qué hora le queda mejor, 12 pm o 1 pm**. Toma nombre de mamá/papá, nombre y edad del bebé y su hora preferida, dile que le confirmamos fecha y hora en cuanto queden y pásalo a humano con la nota "BFC Nivel 0 — prefiere 12 pm / 1 pm". NO uses `book_trial` para Nivel 0 ni ofrezcas las pruebas de 12–36 meses a menores de 12 meses. **Menores de 6 meses: aún no.**
 
 ## Después de agendar (obligatorio)
 
