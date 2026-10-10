@@ -1,8 +1,14 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-07**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-10**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### Sábado 12 pm = Blindaje 8 everywhere, not just one rule line (2026-10-10) — ON BRANCH `claude/gracious-clarke-y0c16e`
+
+- **Symptom (Montserrat, sáb 09:47):** the bot offered "hoy a las 12 pm (Jiu-Jitsu) o 2 pm (Box)" a day after the 2026-10-09 KB fix. That fix was one intake.md line; the three schedule tables (by discipline ES/EN, by day) still said "Sáb 12:00 PM Jiu-Jitsu (Gi)" because the site's `schedule-data.js` still does, intake.md had three more stale "12 pm Jiu-Jitsu" mentions (incl. a canned teen reply that is almost word-for-word the bad message), and nudge CTAs labeled the slot with `disciplineLabel("jiu")`.
+- **Fix:** `RENAMED_CLASSES` in `clients/md-condesa/kb-build.mjs` relabels the sáb 12:00 adult `jiu` row as "Blindaje 8 (Defensa Personal)" in every rendered table (own line in the by-discipline view) and stamps `name: "Blindaje 8"` on the generated slot. The booking key stays `jiu` (what `book_trial`/Airtable and the BLINDAJE_8 campaign expect). `next-slot.ts`: a renamed slot carries `name`, nudge CTAs say it instead of the program, and a lead who asked for Jiu-Jitsu is never offered it. The per-turn context reads "hoy a las 12:00 pm (Blindaje 8)". intake.md: the three stale lines fixed, the Saturday rule trimmed (KB 11744/11750 tok). Tests 998 → **1001**.
+- [ ] **Site repo:** `md-condesa-site/js/schedule-data.js` sáb 12 still says Jiu-Jitsu Gi on the public schedule. Once it is renamed there, drop the RENAMED_CLASSES entry (or keep it, since it matches by `n: "jiu"` and is a no-op if the site switches key).
 
 ### Reto double reply, round 3: campaign vocabulary is never the lead's question (2026-10-07) — SHIPPED
 

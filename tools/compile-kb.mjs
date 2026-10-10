@@ -147,7 +147,7 @@ function renderSlotsTs(slots, version) {
   const rows = slots
     .map(
       (s) =>
-        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)}${s.trial === false ? ", trial: false" : ""}${s.pp ? ", pp: true" : ""} },`,
+        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)}${s.trial === false ? ", trial: false" : ""}${s.pp ? ", pp: true" : ""}${s.name ? `, name: ${JSON.stringify(s.name)}` : ""} },`,
     )
     .join("\n");
   return (
@@ -163,6 +163,9 @@ function renderSlotsTs(slots, version) {
     `  /** true = parent-participation class (baby/mini): bookable for either\n` +
     `   *  audience, but never PROPOSED to a generic lead (see next-slot.ts). */\n` +
     `  pp?: boolean;\n` +
+    `  /** Client-facing class name when it differs from the program's (e.g. a\n` +
+    `   *  renamed course booked under \`jiu\`). Never offered as \`discipline\`. */\n` +
+    `  name?: string;\n` +
     `}\n\n` +
     `export const SLOTS: readonly Slot[] = [\n${rows}\n];\n`
   );
