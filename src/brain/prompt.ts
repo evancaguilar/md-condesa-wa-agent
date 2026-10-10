@@ -159,7 +159,7 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
     program === "adults" ? "adultos" : program === "kids" ? "niños" : "Baby Fight Club";
   const lines = [
     `próximos horarios válidos para ${group} (más próximo primero, ya con el buffer de 1h): ${slots
-      .map((s) => s.label)
+      .map((s) => (s.name ? `${s.label} (${s.name})` : s.label))
       .join(" · ")}`,
   ];
   // A kids lead may be a 3–5-year-old (Mini Muay Thai, parent-participation

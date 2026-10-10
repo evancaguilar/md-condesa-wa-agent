@@ -145,6 +145,7 @@ function hhmm(slot) {
 
 /** Human label for one class within a slot, in the given language. */
 function classLabel(cls, i18n, lang) {
+  if (cls.rename) return cls.rename[lang];
   const t = i18n[lang];
   let name = t.progName[cls.n] || cls.n;
   const bits = [];
@@ -153,6 +154,48 @@ function classLabel(cls, i18n, lang) {
   if (cls.l) bits.push(cls.l);
   if (cls.s) bits.push(t.sparring);
   return bits.length ? `${name} (${bits.join(", ")})` : name;
+}
+
+/**
+ * Classes the site grid still lists under an old program, renamed by the owner.
+ * The site's schedule-data.js is the source of truth for hours, but a rename
+ * there lags (or the site keeps the old program key for styling), and one
+ * contrary rule line in intake.md loses to three schedule tables that all say
+ * the old name — the brain kept offering "sábado 12 pm (Jiu-Jitsu)" a day
+ * after the change (2026-10-10). So the rename is applied HERE, to every
+ * rendered view and to the generated slot (`name`), while the booking key
+ * (`n`) stays what book_trial / Airtable expect.
+ *
+ * Matches an adult class (no `a:`) by day, "HH:mm" and program.
+ */
+const RENAMED_CLASSES = [
+  // Owner, 2026-10-09: sábado 12 pm ya no es Jiu-Jitsu Gi. Se agenda como `jiu`
+  // (src/cron/seed-campaigns.ts, BLINDAJE_8) — es la fila del grid donde se da.
+  {
+    day: "sab",
+    time: "12:00",
+    n: "jiu",
+    es: "Blindaje 8 (Defensa Personal)",
+    en: "Blindaje 8 (Self-Defense)",
+    short: "Blindaje 8",
+  },
+];
+
+/** A copy of the schedule with RENAMED_CLASSES tagged (`cls.rename`). Pure. */
+function applyRenames(schedule) {
+  const days = {};
+  for (const day of schedule.order) {
+    days[day] = (schedule.days[day] || []).map((slot) => ({
+      ...slot,
+      c: slot.c.map((cls) => {
+        const r = RENAMED_CLASSES.find(
+          (x) => x.day === day && x.time === hhmm(slot) && x.n === cls.n && !cls.a,
+        );
+        return r ? { ...cls, rename: r } : cls;
+      }),
+    }));
+  }
+  return { ...schedule, days };
 }
 
 /**
@@ -167,9 +210,18 @@ function renderSchedule(schedule, i18n, lang) {
   // --- by discipline ---
   // program → day → [time labels]
   const byProg = {};
+  // Renamed classes (RENAMED_CLASSES) are listed under their own name, never
+  // under the program they borrow their booking key from.
+  const renamed = new Map(); // display name → [`Sáb 12:00 PM`, …]
   for (const day of order) {
     for (const slot of days[day] || []) {
       for (const cls of slot.c) {
+        if (cls.rename) {
+          const name = cls.rename[lang];
+          if (!renamed.has(name)) renamed.set(name, []);
+          renamed.get(name).push(`${t.dayShort[day]} ${fmtTime(slot)}`);
+          continue;
+        }
         (byProg[cls.n] ||= {});
         (byProg[cls.n][day] ||= []).push({ time: fmtTime(slot), cls });
       }
@@ -195,6 +247,7 @@ function renderSchedule(schedule, i18n, lang) {
     }
     progLines.push(`- **${t.progName[p]}**: ${dayParts.join(" · ")}`);
   }
+  for (const [name, when] of renamed) progLines.push(`- **${name}**: ${when.join(" · ")}`);
 
   // --- by day ---
   const dayLines = [];
@@ -290,6 +343,7 @@ function buildSlots(schedule) {
           discipline: cls.n, // jiu|muay|mma|box|baby
           audience, // 'adult'|'kid'
         };
+        if (cls.rename) out.name = cls.rename.short;
         // Sparring hours take trials (owner, 2026-08-25 — see the header
         // note) EXCEPT the two in NO_TRIAL_SPARRING (owner, 2026-10-03).
         if (cls.s && NO_TRIAL_SPARRING.has(`${idx}|${time}|${cls.n}`)) out.trial = false;
@@ -536,7 +590,8 @@ export async function buildKb({ intake, cfg }) {
   }
 
   const scheduleCode = await loadSource("js/schedule-data.js", "/js/schedule-data.js");
-  const { schedule, i18n } = evalSchedule(scheduleCode);
+  const { schedule: rawSchedule, i18n } = evalSchedule(scheduleCode);
+  const schedule = applyRenames(rawSchedule);
 
   const siteCode = await loadSource("content/site.js", "/content/site.js");
   const site = evalCjs(siteCode);

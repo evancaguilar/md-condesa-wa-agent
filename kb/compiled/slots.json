@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-09+acb2c2ef1884",
+  "version": "2026-10-10+b4b2ad0b332d",
   "slots": [
     {
       "weekday": 0,
@@ -525,7 +525,8 @@
       "weekday": 5,
       "time": "12:00",
       "discipline": "jiu",
-      "audience": "adult"
+      "audience": "adult",
+      "name": "Blindaje 8"
     },
     {
       "weekday": 5,

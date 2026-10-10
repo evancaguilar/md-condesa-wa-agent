@@ -330,3 +330,13 @@ test("context: <respuesta_tardia> only on a redriven turn", () => {
   assert.match(late, /<sin_respuesta>/);
   assert.match(late, /<\/respuesta_tardia>/);
 });
+
+test("context block names the renamed sáb 12:00 class (Blindaje 8), 2026-10-10", () => {
+  // Saturday 2026-10-10 09:47 (the incident): the hint used to read a bare
+  // "hoy a las 12:00 pm" and the model filled in "Jiu-Jitsu" from the grid.
+  const block = buildContextBlock(
+    ctx({ nowCdmx: "2026-10-10T09:47:00-06:00", weekday: "sábado" }),
+  );
+  const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
+  assert.ok(line.includes("hoy a las 12:00 pm (Blindaje 8)"), line);
+});

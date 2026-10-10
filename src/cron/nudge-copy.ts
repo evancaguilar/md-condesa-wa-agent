@@ -175,7 +175,7 @@ export function slotCta(
       ? `Pueden apartar su clase gratis aquí: ${link}`
       : `Puedes agendar tu día gratuito aquí: ${link}`;
   }
-  const what = disciplineLabel(slot.discipline);
+  const what = slot.name ?? disciplineLabel(slot.discipline);
   const when = formatSlotLabel(slot, nowEpoch, lang === "en" ? "en" : "es");
   if (lang === "en") {
     return plural

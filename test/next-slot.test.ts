@@ -341,3 +341,28 @@ test("upcomingTrialSlots ppOnly: only the Mini Muay Thai (pp) kid rows, soonest 
   const generic = upcomingTrialSlots(null, "kid", MON(10), 3, undefined, [], 3600);
   assert.ok(generic.every((s) => s.time !== "15:15" && s.time !== "13:15"));
 });
+
+// ---- renamed classes (Blindaje 8 on the sáb 12:00 `jiu` row) ----
+
+const SAT = (h: number, m = 0): number => cdmxToEpoch(2026, 8, 29, h, m, 0);
+
+test("nextTrialSlot: sáb 12:00 carries its own name, never 'Jiu-Jitsu' (2026-10-10)", async () => {
+  const { slotCta } = await import("../src/cron/nudge-copy.js");
+  // 9:30 + 2h lead → 11:00 is sparring (no trial), so the 12:00 row is next.
+  const slot = nextTrialSlot(null, "adult", SAT(9, 30));
+  assert.equal(slot?.time, "12:00");
+  assert.equal(slot?.discipline, "jiu"); // booking key book_trial/Airtable expect
+  assert.equal(slot?.name, "Blindaje 8");
+  const cta = slotCta("adults", "es", slot, "https://x", SAT(9, 30));
+  assert.match(cta, /lugar en Blindaje 8 hoy a las 12:00 pm/);
+  assert.doesNotMatch(cta, /Jiu-Jitsu/);
+});
+
+test("nextTrialSlot: a Jiu-Jitsu lead is never offered the renamed sáb 12:00 class", () => {
+  const slot = nextTrialSlot("jiu", "adult", SAT(9, 30));
+  assert.ok(slot);
+  assert.equal(slot!.name, undefined);
+  assert.notEqual(`${slot!.weekday}|${slot!.time}`, "5|12:00");
+  const many = upcomingTrialSlots("jiu", "adult", SAT(6), 10);
+  assert.ok(many.every((s) => s.name === undefined));
+});

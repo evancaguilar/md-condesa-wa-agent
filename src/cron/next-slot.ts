@@ -31,6 +31,9 @@ export interface NextSlot {
   time: string;
   /** Service key ("muay", "jiu", "baby", …). */
   discipline: string;
+  /** The class's own name when it isn't the program's ("Blindaje 8", booked
+   *  as `jiu`). Copy must say THIS, never disciplineLabel(discipline). */
+  name?: string;
   /** Human phrasing the copy splices in: "hoy a las 6:00 pm". */
   label: string;
 }
@@ -222,7 +225,9 @@ function collectSlots(
           (opts.ppOnly
             ? s.pp === true && s.discipline !== "baby" // Mini MT, not the BFC mirror
             : (s.pp !== true || wantKey === "baby") &&
-              (wantKey === null || s.discipline === wantKey)),
+              // A renamed class (Blindaje 8 on the sáb 12:00 `jiu` row) is
+              // not what a lead who asked for that program wants.
+              (wantKey === null || (s.discipline === wantKey && !s.name))),
       )
       .slice()
       .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
@@ -230,7 +235,13 @@ function collectSlots(
     for (const s of candidates) {
       const at = slotEpoch(dp.year, dp.month, dp.day, s.time);
       if (at === null || at < earliest) continue;
-      const base = { weekday: wd, date, time: s.time, discipline: s.discipline };
+      const base = {
+        weekday: wd,
+        date,
+        time: s.time,
+        discipline: s.discipline,
+        ...(s.name ? { name: s.name } : {}),
+      };
       out.push({ slot: { ...base, label: formatSlotLabel(base, nowEpoch, "es") }, at });
       if (out.length >= opts.limit) return out;
     }
