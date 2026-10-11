@@ -20,7 +20,7 @@
 // still decode (p2 → 2-param body) so an old run can drain or be cancelled.
 
 import type { Contact, Env } from "../types.js";
-import { classifyProgram, type Program } from "../cron/nudge-copy.js";
+import { classifyProgram, legacyProgram, type LegacyProgram as Program } from "../cron/nudge-copy.js";
 import { greetingName } from "../cron/display-name.js";
 import { kvGet, kvSet, kvSetIfAbsent, scheduleFollowup } from "../db/queries.js";
 import { normalizeMxPhone } from "./airtable.js";
@@ -304,7 +304,8 @@ export function planBlastAudience(
       out.excluded.recentBlast++;
       continue;
     }
-    const program = classifyProgram(c, c.campaign_name ?? null);
+    // Blast buckets are the 3 legacy families: mini + teens ride the kids bucket.
+    const program = legacyProgram(classifyProgram(c, c.campaign_name ?? null));
     const cand: BlastCandidate = { phone: c.phone, name: c.name, program };
     const windowOpen = (c.last_inbound_at ?? 0) > nowEpoch - 24 * 3600;
     const bucket = windowOpen ? out.inWindow : out;

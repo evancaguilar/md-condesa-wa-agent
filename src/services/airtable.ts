@@ -8,6 +8,7 @@ import { CLIENT } from "../client.gen.js";
 import { cdmxIso } from "../cron/time.js";
 import { kvGet, kvSet } from "../db/queries.js";
 import { channelOf } from "./channel.js";
+import { bandAirtableKey } from "./age-band.js";
 
 const API = "https://api.airtable.com/v0";
 const MAX_429_RETRIES = 4;
@@ -246,7 +247,13 @@ export async function bookTrial(
     (input.audience === "kid" ? m.disciplineValues[`${discKey}:kid`] : undefined) ??
     m.disciplineValues[discKey] ??
     input.discipline;
-  const audKey = discKey === "baby" ? "baby" : input.audience;
+  // Programa from the AGE BAND when the booking carries one (mini → "Mini Muay
+  // Thai", teens → "Teens"); legacy fallback: baby discipline → BFC, else audience.
+  const audKey = input.program
+    ? bandAirtableKey(input.program)
+    : discKey === "baby"
+      ? "baby"
+      : input.audience;
   const audOpt = m.audienceValues[audKey] ?? input.audience;
 
   const fields: Record<string, unknown> = {

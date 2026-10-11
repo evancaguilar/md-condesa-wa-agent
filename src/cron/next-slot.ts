@@ -21,6 +21,7 @@ import { CLIENT } from "../client.gen.js";
 import type { PreferredBlock } from "../client-config.js";
 import { isKnownDiscipline, normalizeDiscipline, weekdayIndex } from "../brain/tools.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "./time.js";
+import { slotMatchesBand, type ProgramBand } from "../services/age-band.js";
 
 export interface NextSlot {
   /** 0=Mon … 6=Sun (the SLOTS convention). */
@@ -154,6 +155,112 @@ export function upcomingTrialSlots(
   return out;
 }
 
+// ---- age-band aware listing (2026-10-11) ----
+//
+// The age band (src/services/age-band.ts) decides which ROWS a lead may be
+// offered: a 4-year-old only ever sees Mini Muay Thai, a 14-year-old only
+// Teens, whatever campaign brought the parent in. These are the band twins of
+// nextTrialSlot / upcomingTrialSlots; the audience-based ones stay for callers
+// that have no band.
+
+export interface BandSlotOpts {
+  schedule?: readonly Slot[];
+  closedDates?: readonly { date: string }[];
+  /** Minimum distance from now (default SLOT_LEAD_SECONDS). */
+  leadSeconds?: number;
+  /** Weekdays (0=Mon … 6=Sun) the lead declined — never listed. */
+  excludeWeekdays?: ReadonlySet<number>;
+}
+
+/**
+ * Soonest-first band slots, one entry per (date, time, discipline). With a
+ * `discipline` the list is that discipline's rows of the band; when the band
+ * has none of it (a kids lead who "wants Box") it falls back to every row of
+ * the band rather than returning nothing. Pure.
+ */
+export function upcomingBandSlots(
+  band: ProgramBand,
+  discipline: string | null,
+  nowEpoch: number,
+  limit: number,
+  opts: BandSlotOpts = {},
+): NextSlot[] {
+  const run = (disc: string | null): NextSlot[] => {
+    const seen = new Set<string>();
+    const out: NextSlot[] = [];
+    for (const c of collectSlots(disc, "adult", nowEpoch, {
+      ...(opts.schedule ? { schedule: opts.schedule } : {}),
+      ...(opts.closedDates ? { closedDates: opts.closedDates } : {}),
+      ...(opts.leadSeconds !== undefined ? { leadSeconds: opts.leadSeconds } : {}),
+      ...(opts.excludeWeekdays ? { excludeWeekdays: opts.excludeWeekdays } : {}),
+      band,
+      limit: Math.max(limit, 1) * 6,
+    })) {
+      const key = `${c.slot.date} ${c.slot.time} ${c.slot.discipline}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(c.slot);
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+  const first = run(discipline);
+  if (first.length > 0 || discipline === null) return first;
+  return run(null);
+}
+
+/** The single soonest band slot (nudges propose exactly one). */
+export function nextBandSlot(
+  band: ProgramBand,
+  discipline: string | null,
+  nowEpoch: number,
+  opts: BandSlotOpts = {},
+): NextSlot | null {
+  return upcomingBandSlots(band, discipline, nowEpoch, 1, opts)[0] ?? null;
+}
+
+export interface BandDay {
+  date: string;
+  weekday: number;
+  /** "hoy sábado" / "mañana sábado" / "lunes". */
+  label: string;
+  slots: NextSlot[];
+}
+
+/**
+ * EVERY trial option of the band on the next `days` days that have at least
+ * one (day-complete, so a lead who says "a las 9 no puedo" has the rest of
+ * that day to fall back on), in clock order. Pure.
+ */
+export function bandDayOptions(
+  band: ProgramBand,
+  nowEpoch: number,
+  days = 2,
+  opts: BandSlotOpts = {},
+): BandDay[] {
+  const all = upcomingBandSlots(band, null, nowEpoch, 80, opts);
+  const out: BandDay[] = [];
+  for (const s of all) {
+    let day = out.find((d) => d.date === s.date);
+    if (!day) {
+      if (out.length >= days) break;
+      day = { date: s.date, weekday: s.weekday, label: dayLabel(s, nowEpoch), slots: [] };
+      out.push(day);
+    }
+    day.slots.push(s);
+  }
+  return out;
+}
+
+/** "hoy sábado" / "mañana sábado" / "lunes" — the day part of formatSlotLabel. */
+export function dayLabel(slot: { weekday: number; date: string }, nowEpoch: number): string {
+  const days = daysAhead(slot.date, nowEpoch);
+  const name = WEEKDAY_ES[slot.weekday] ?? "";
+  if (days <= 0) return `hoy ${name}`;
+  if (days === 1) return `mañana ${name}`;
+  return name;
+}
+
 /**
  * True when a slot starts inside one of the configured preferred blocks.
  * `from`/`to` are INCLUSIVE class start times, so 09:00–13:00 covers the 13:00
@@ -192,6 +299,11 @@ function collectSlots(
     leadSeconds?: number;
     /** Only parent-participation rows (see upcomingTrialSlots). */
     ppOnly?: boolean;
+    /** Age band (2026-10-11): when set it REPLACES the audience/pp filter —
+     *  only rows whose `group` is this band (slotMatchesBand). */
+    band?: ProgramBand;
+    /** 0=Mon … 6=Sun weekdays the lead said don't work: never proposed. */
+    excludeWeekdays?: ReadonlySet<number>;
     limit: number;
   },
 ): DatedSlot[] {
@@ -210,10 +322,17 @@ function collectSlots(
     const wd = weekdayIndex(date);
     if (wd === null) continue;
     if (closed.has(date)) continue; // holiday / closure: never propose that day
+    if (opts.excludeWeekdays?.has(wd)) continue; // the lead said this day doesn't work
 
+    const band = opts.band;
     const candidates = schedule
-      .filter(
-        (s) =>
+      .filter((s) =>
+        band !== undefined
+          ? s.weekday === wd &&
+            s.trial !== false &&
+            slotMatchesBand(s, band) &&
+            (wantKey === null || (s.discipline === wantKey && !s.name))
+          :
           s.weekday === wd &&
           s.audience === audience &&
           s.trial !== false &&

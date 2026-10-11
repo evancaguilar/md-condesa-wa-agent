@@ -13,11 +13,22 @@
 //
 // Pure module (no I/O) — unit-tested.
 
-import type { ConvoContext } from "../types.js";
+import type { ConvoContext, Qualification } from "../types.js";
 import { CLIENT } from "../client.gen.js";
 import type { ClosedDate } from "../client-config.js";
-import { classifyProgram, programAudience } from "../cron/nudge-copy.js";
-import { TODAY_BUFFER_SECONDS, upcomingTrialSlots } from "../cron/next-slot.js";
+import { classifyProgram, weekdaySet } from "../cron/nudge-copy.js";
+import {
+  TODAY_BUFFER_SECONDS,
+  bandDayOptions,
+  disciplineLabel,
+  time12h,
+  upcomingBandSlots,
+  type BandDay,
+  type NextSlot,
+} from "../cron/next-slot.js";
+import { bandLabel, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
+import { SLOTS } from "./slots.gen.js";
+import { isKnownDiscipline, normalizeDiscipline } from "./tools.js";
 import { cdmxToEpoch } from "../cron/time.js";
 
 /**
@@ -129,65 +140,170 @@ export function closureLines(
 /** How many upcoming hours the context hands the model (persona caps offers at 3). */
 const CONTEXT_SLOT_COUNT = 3;
 
+/** Class days the day-complete line covers. */
+const CONTEXT_DAY_COUNT = 2;
+
+/** An add-on class must start within this many minutes of the arrival class. */
+const COMBO_GAP_MIN = 60;
+
+/** Lead discipline (free text) → a service key the band actually has, or null. */
+function bandDiscipline(raw: string | undefined, band: ProgramBand): string | null {
+  if (band === "baby" || band === "mini") return null; // one program per band
+  const key = normalizeDiscipline(raw ?? "");
+  if (!isKnownDiscipline(key)) return null;
+  return SLOTS.some((s) => s.discipline === key && !s.name && slotMatchesBand(s, band)) ? key : null;
+}
+
+function minutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":");
+  return Number(h) * 60 + Number(m);
+}
+
+function slotWhat(s: NextSlot, band: ProgramBand = "adults"): string {
+  if (band === "mini") return "Mini Muay Thai";
+  if (band === "baby") return "Baby Fight Club";
+  if (band === "kids" || band === "teens") return `${disciplineLabel(s.discipline)} ${band === "kids" ? "Kids" : "Teens"}`;
+  return s.name ?? disciplineLabel(s.discipline);
+}
+
 /**
- * Soonest-first hours for THIS lead's program, pre-computed so the model never
- * has to do calendar math to obey the "first option = soonest valid class" rule
- * (persona.md, "Flujo de agendado"). Uses the persona's own 1h buffer, so an
- * hour listed here is always one it is allowed to offer.
+ * Pure. The discipline-first combo line: the lead came for `disc`, so the
+ * ARRIVAL is that class; a class of another discipline starting within an
+ * hour before/after it is an optional add-on ("de pilón"), never the arrival
+ * (2026-10-09, Jess: a Muay Thai lead was told to arrive at 9 am Jiu-Jitsu).
+ * Looks at the first day in `days` that has such a pair. null when none.
+ */
+export function comboLine(days: readonly BandDay[], disc: string): string | null {
+  for (const d of days) {
+    const arrival = d.slots.find((s) => s.discipline === disc && !s.name);
+    if (!arrival) continue;
+    const t = minutes(arrival.time);
+    const addOn = d.slots.find(
+      (s) =>
+        s.discipline !== disc &&
+        s.time !== arrival.time &&
+        Math.abs(minutes(s.time) - t) <= COMBO_GAP_MIN,
+    );
+    if (!addOn) continue;
+    const when = minutes(addOn.time) < t ? "antes" : "después";
+    return `combo (llegó por ${disciplineLabel(disc)}): su hora de llegada es ${disciplineLabel(disc)} ${d.label} ${time12h(arrival.time)}; ${slotWhat(addOn)} ${time12h(addOn.time)} (justo ${when}) es OPCIONAL de pilón — una línea: "si quieres, ${time12h(addOn.time)} ${slotWhat(addOn)} de pilón y pruebas dos clases en una visita". Nunca propongas el pilón como hora de llegada.`;
+  }
+  return null;
+}
+
+/**
+ * Soonest-first hours for THIS lead's AGE BAND, pre-computed so the model never
+ * has to do calendar math (persona.md, "Flujo de agendado"). Three compact
+ * lines, all within the band (never a row of another age group):
+ *  1. "programa por edad: …" + the next 3 valid hours, the lead's discipline
+ *     first when known (1h buffer = the persona's own "hoy" rule);
+ *  2. EVERY trial option of the band on the next two class days, so "a las 9
+ *     no puedo" has the rest of the day to fall back on;
+ *  3. the discipline-first combo (arrival = the lead's discipline).
+ * Declined days are never listed.
  *
  * VOLATILE — belongs in the per-turn block, never in a cached system block.
- * Returns [] when the clock can't be parsed or the grid yields nothing, so the
- * context degrades to exactly its previous shape.
+ * Returns [] when the clock can't be parsed.
  */
 export function upcomingSlotLines(ctx: ConvoContext): string[] {
   const now = cdmxIsoToEpoch(ctx.nowCdmx);
   if (now === null) return [];
-  const program = classifyProgram(ctx.contact, ctx.campaign?.name ?? null);
+  const band = classifyProgram(ctx.contact, ctx.campaign?.name ?? null);
   const q = parseQualification(ctx.contact.qualification);
-  const discipline = program === "baby" ? "baby" : (q.discipline ?? null);
-  const slots = upcomingTrialSlots(
-    discipline,
-    programAudience(program),
-    now,
-    CONTEXT_SLOT_COUNT,
-    undefined,
-    undefined,
-    TODAY_BUFFER_SECONDS,
-  );
-  if (slots.length === 0) return [];
-  const group =
-    program === "adults" ? "adultos" : program === "kids" ? "niños" : "Baby Fight Club";
-  const lines = [
-    `próximos horarios válidos para ${group} (más próximo primero, ya con el buffer de 1h): ${slots
-      .map((s) => (s.name ? `${s.label} (${s.name})` : s.label))
-      .join(" · ")}`,
-  ];
-  // A kids lead may be a 3–5-year-old (Mini Muay Thai, parent-participation
-  // rows the list above deliberately excludes). Hand the model those hours
-  // too, soonest first, so "hoy" is computed for them and never guessed.
-  if (program === "kids") {
-    const mini = upcomingTrialSlots(
-      null,
-      "kid",
-      now,
-      CONTEXT_SLOT_COUNT,
-      undefined,
-      undefined,
-      TODAY_BUFFER_SECONDS,
-      true,
-    );
-    if (mini.length > 0) {
-      lines.push(
-        `si el peque tiene 3–5 años su clase es Mini Muay Thai (no Kids); sus próximos horarios (más próximo primero, con el buffer de 1h): ${mini
-          .map((s) => s.label)
-          .join(" · ")}`,
-      );
+  const disc = bandDiscipline(q.discipline, band);
+  const excludeWeekdays = weekdaySet(q.declined_days);
+  const opts = {
+    leadSeconds: TODAY_BUFFER_SECONDS,
+    ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
+  };
+  const ageKnown = typeof q.child_age_months === "number" || q.program !== undefined;
+
+  const lines: string[] = [];
+  const bandWords =
+    band === "adults" ? "adultos" : `${bandLabel(band)}${ageKnown ? "" : " — edad aún no confirmada: pregúntala antes de agendar"}`;
+  lines.push(`programa por edad: ${bandWords}`);
+
+  // One entry per hour (two disciplines at 7 am are ONE option to the lead).
+  const soon: { label: string; whats: string[] }[] = [];
+  for (const s of upcomingBandSlots(band, disc, now, CONTEXT_SLOT_COUNT * 4, opts)) {
+    const hit = soon.find((x) => x.label === s.label);
+    if (hit) {
+      if (!hit.whats.includes(slotWhat(s, band))) hit.whats.push(slotWhat(s, band));
+    } else if (soon.length < CONTEXT_SLOT_COUNT) {
+      soon.push({ label: s.label, whats: [slotWhat(s, band)] });
     }
   }
+  if (soon.length > 0) {
+    lines.push(
+      `próximos horarios válidos${disc ? ` de ${disciplineLabel(disc)}` : ""} (más próximo primero, con buffer de 1h): ${soon
+        .map((s) => `${s.label} (${s.whats.join(" / ")})`)
+        .join(" · ")}`,
+    );
+  }
+
+  const days = bandDayOptions(band, now, CONTEXT_DAY_COUNT, opts);
+  if (days.length > 0) {
+    lines.push(
+      `todas las opciones de prueba de su grupo, próximos ${days.length} días con clase: ${days
+        .map((d) => {
+          // The lead's discipline leads each day; the rest keep clock order.
+          const mine = disc ? d.slots.filter((s) => s.discipline === disc && !s.name) : [];
+          const rest = d.slots.filter((s) => !mine.includes(s));
+          return `${d.label} ${d.date}: ${[...mine, ...rest]
+            .map((s) => `${time12h(s.time)} ${slotWhat(s, band)}`)
+            .join(", ")}`;
+        })
+        .join(" | ")}`,
+    );
+    const combo = band === "adults" && disc ? comboLine(days, disc) : null;
+    if (combo) lines.push(combo);
+  }
+
+  // A kids/baby band guessed from the CAMPAIGN (no stated age) may really be a
+  // 3–5-year-old: say so, without listing another group's hours.
+  if (!ageKnown && (band === "kids" || band === "baby")) {
+    lines.push("si el peque tiene 3–5 años su programa es Mini Muay Thai (no Kids ni BFC): pregunta la edad antes de proponer hora.");
+  }
   lines.push(
-    "Ofrece el PRIMERO de la lista que corresponda a su edad antes que cualquier otro, salvo que el lead haya pedido otro día. Antes de nombrar una hora confirma en el horario del KB que esa fila existe para su disciplina y su grupo de edad.",
+    "Ofrece SOLO filas de su grupo de edad, la más próxima primero, salvo que el lead haya pedido otro día.",
   );
   return lines;
+}
+
+const DAY_WORDS: Record<string, string> = {
+  lun: "lun", mar: "mar", mie: "mié", jue: "jue", vie: "vie", sab: "sáb", dom: "dom",
+};
+const WEEKDAY_KEYS = ["lun", "mar", "mie", "jue", "vie"];
+
+/** "entre semana NO" when all five weekdays are declined, else "lun, mar NO". */
+function daysPhrase(days: readonly string[]): string {
+  if (WEEKDAY_KEYS.every((d) => days.includes(d))) {
+    const rest = days.filter((d) => !WEEKDAY_KEYS.includes(d));
+    return ["entre semana", ...rest.map((d) => DAY_WORDS[d] ?? d)].join(", ");
+  }
+  return days.map((d) => DAY_WORDS[d] ?? d).join(", ");
+}
+
+/** "4 años" / "4 años 10 meses" / "18 meses". */
+function ageWords(months: number): string {
+  if (months < 36) return `${months} meses`;
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return m ? `${y} años ${m} meses` : `${y} años`;
+}
+
+/**
+ * Pure. What the lead already told us about the child and their days — a
+ * compact line, or null. "el lead ya dijo: entre semana NO" is what stops the
+ * bot from re-offering a day the lead already turned down.
+ */
+export function knownFactsLine(q: Qualification): string | null {
+  const parts: string[] = [];
+  if (q.child_name) parts.push(`peque: ${q.child_name}`);
+  if (typeof q.child_age_months === "number") parts.push(`edad: ${ageWords(q.child_age_months)}`);
+  if (q.declined_days?.length) parts.push(`${daysPhrase(q.declined_days)} NO (nunca lo vuelvas a ofrecer)`);
+  if (q.preferred_days?.length) parts.push(`prefiere ${daysPhrase(q.preferred_days)}`);
+  return parts.length ? `el lead ya dijo: ${parts.join("; ")}` : null;
 }
 
 /** "2026-09-21T14:30" (CDMX, no offset) → epoch seconds. null if unparseable. */
@@ -220,6 +336,7 @@ export function buildContextBlock(ctx: ConvoContext): string {
   if (q.discipline) known.push(`qual.discipline: ${q.discipline}`);
   if (q.audience) known.push(`qual.audience: ${q.audience}`);
   if (q.goal) known.push(`qual.goal: ${q.goal}`);
+  const facts = knownFactsLine(q);
 
   const windowLine = ctx.windowOpen
     ? "24h window OPEN (free-form replies allowed)"
@@ -238,6 +355,7 @@ export function buildContextBlock(ctx: ConvoContext): string {
     `weekday: ${ctx.weekday}`,
     `local time (12h): ${to12h(ctx.nowCdmx)}`,
     `contact: { ${known.join(", ")} }`,
+    ...(facts ? [facts] : []),
     ...(channelLine ? [channelLine] : []),
     windowLine,
     ...closureLines(ctx.nowCdmx),
@@ -343,13 +461,6 @@ function to12h(iso: string): string {
   const h24 = Number(m[1]);
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   return `${h12}:${m[2]} ${h24 < 12 ? "AM" : "PM"}`;
-}
-
-interface Qualification {
-  name?: string;
-  discipline?: string;
-  audience?: string;
-  goal?: string;
 }
 
 function parseQualification(json: string | null): Qualification {

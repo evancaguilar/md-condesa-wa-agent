@@ -120,7 +120,7 @@ import {
 } from "../services/booking-core.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import { parseQualification } from "../cron/nudge-copy.js";
-import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
+import { mergeQualUpdate, programSignalUpdate } from "../services/program-signal.js";
 import { setQualification } from "../db/queries.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
@@ -131,7 +131,9 @@ const SAFETY_PATTERNS =
     : [];
 const DEBOUNCE_MS = 8000;
 const HISTORY_LIMIT = 20;
-const HISTORY_WINDOW_SECONDS = 48 * 3600;
+// 7 days (was 48h, 2026-10-11): the brain trims to 48h itself unless the lead
+// has a child qualification or a live booking (claude.ts trimHistory).
+const HISTORY_WINDOW_SECONDS = 7 * 24 * 3600;
 const WINDOW_SECONDS = 24 * 3600;
 
 export interface InboundMessage {
@@ -381,9 +383,26 @@ export async function processInbound(
   // Program signal (2026-09-30): "2 años", "mi hija", "18 meses" → store
   // audience/discipline now, not only at booking, so nudges and blast
   // audiences stop filing unbooked parents as adults. Side effect only — not
-  // a gate; fail-soft.
+  // a gate; fail-soft. 2026-10-11: also the child's AGE (a bare "5" counts
+  // when our previous message asked for it) → child_age_months + program, and
+  // the discipline of the ad they tapped when none is stored yet.
   try {
-    const merged = mergeProgramSignal(parseQualification(contact), programSignalFromText(body));
+    const prior = await recentMessages(env.DB, msg.phone, 6);
+    const lastOut = [...prior].reverse().find((m) => m.direction !== "in");
+    let adText = matchedCampaign?.ad_keywords ?? "";
+    if (contact.ad_ref) {
+      try {
+        const r = JSON.parse(contact.ad_ref) as { headline?: string | null; body?: string | null };
+        adText = `${r.headline ?? ""} ${r.body ?? ""} ${adText}`;
+      } catch {
+        // malformed ad_ref: campaign keywords only
+      }
+    }
+    const merged = programSignalUpdate(parseQualification(contact), {
+      body,
+      lastOutboundBody: lastOut?.body ?? null,
+      adText,
+    });
     if (merged) {
       const q = JSON.stringify(merged);
       await setQualification(env.DB, msg.phone, q);
@@ -1011,6 +1030,17 @@ async function routeResult(
         await syncLead(env, phone, "name_updated", { replaceName: ctx.contact.name });
       } catch (err) {
         console.error("[routeResult] lead name update failed", phone, err);
+      }
+    }
+    // send_reply child_name / child_age_years / preferred / declined days →
+    // qualification (merge; a missing age never erases a stated one).
+    if (result.qualUpdate) {
+      try {
+        const fresh = await getContact(env.DB, phone);
+        const merged = mergeQualUpdate(parseQualification(fresh ?? ctx.contact), result.qualUpdate);
+        if (merged) await setQualification(env.DB, phone, JSON.stringify(merged));
+      } catch (err) {
+        console.error("[routeResult] qualification update failed", phone, err);
       }
     }
   }

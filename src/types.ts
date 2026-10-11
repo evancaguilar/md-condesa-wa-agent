@@ -96,6 +96,14 @@ export interface Qualification {
 /** Age/program band a lead books into. "adults" also covers unknown ages. */
 export type ProgramBand = "baby" | "mini" | "kids" | "teens" | "adults";
 
+/** Facts the model reports in send_reply (merged into Qualification). */
+export interface QualUpdate {
+  child_name?: string;
+  child_age_months?: number;
+  preferred_days?: string[];
+  declined_days?: string[];
+}
+
 /** Row of the `contacts` table. Epoch fields are seconds. */
 export interface Contact {
   phone: string; // digits only, e.g. 5215512345678
@@ -374,6 +382,10 @@ export interface BookTrialInput {
    * human typed in Airtable never matches and is kept. Absent ⇒ fill-if-empty.
    */
   replaceName?: string | null;
+  /** Age band of the person booked (book_trial child_age / stored qualification). Drives Airtable Programa. */
+  program?: ProgramBand;
+  /** Child age in months when known (persisted into qualification at booking). */
+  childAgeMonths?: number;
 }
 
 /**
@@ -431,6 +443,8 @@ export type BrainResult =
       awaitingReply?: boolean;
       /** send_reply.lead_name: the real name the lead gave this turn (no booking). */
       leadName?: string;
+      /** send_reply child_name / child_age_years / preferred_days / declined_days (WP1). */
+      qualUpdate?: QualUpdate;
     }
   | {
       action: "draft";
@@ -445,6 +459,8 @@ export type BrainResult =
       awaitingReply?: boolean;
       /** send_reply.lead_name: the real name the lead gave this turn (no booking). */
       leadName?: string;
+      /** See the send member. */
+      qualUpdate?: QualUpdate;
     }
   | { action: "escalate"; reason: string; summary: string }
   | ({

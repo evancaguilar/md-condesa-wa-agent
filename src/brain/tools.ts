@@ -5,6 +5,7 @@
 import { SLOTS, type Slot } from "./slots.gen.js";
 import { CLIENT } from "../client.gen.js";
 import type { ClosedDate } from "../client-config.js";
+import { bandLabel, slotGroup, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
 
 export interface AnthropicTool {
   name: string;
@@ -60,6 +61,26 @@ const sendReply: AnthropicTool = {
         description:
           "ONLY when the lead TOLD you their name in this conversation ('soy Luis', 'me llamo Ana', 'mi nombre es…') and it differs from — or is missing in — the <context> name: their name as they gave it (first name is fine). This corrects the CRM, which otherwise keeps their WhatsApp profile name. Omit in every other case; never guess it from the profile name.",
       },
+      child_name: {
+        type: "string",
+        description: "ONLY when the lead told you the child's name in this conversation. Omit otherwise.",
+      },
+      child_age_years: {
+        type: "number",
+        description:
+          "ONLY when the lead told you the child's age: years, fractional allowed (18 meses = 1.5, 'casi 5' = 4.9). It decides the program. Omit otherwise — never guess.",
+      },
+      preferred_days: {
+        type: "array",
+        items: { type: "string", enum: ["lun", "mar", "mie", "jue", "vie", "sab", "dom"] },
+        description: "Days the lead SAID work for them ('solo sábados' → [\"sab\"]). Omit if they said nothing.",
+      },
+      declined_days: {
+        type: "array",
+        items: { type: "string", enum: ["lun", "mar", "mie", "jue", "vie", "sab", "dom"] },
+        description:
+          "Days the lead SAID don't work ('entre semana no' → [\"lun\",\"mar\",\"mie\",\"jue\",\"vie\"]). Never offer them again. Omit if they said nothing.",
+      },
     },
     required: ["message", "language", "sureness", "confidence", "awaiting_reply"],
     additionalProperties: false,
@@ -78,6 +99,11 @@ const bookTrial: AnthropicTool = {
         type: "string",
         description:
           "REQUIRED for kid/baby bookings: the child's name. Ask for both the parent's and the child's name before booking a minor.",
+      },
+      child_age: {
+        type: "number",
+        description:
+          "Kid/baby bookings: the child's age in YEARS as the lead stated it (fractional ok: 18 meses = 1.5). The executor checks the class belongs to that age group (Baby Fight Club <3, Mini Muay Thai 3–5, Kids 6–12, Teens 13–17).",
       },
       discipline: {
         type: "string",
@@ -336,5 +362,74 @@ export function validateSlot(
     ok: false,
     reason: `No ${disc} (${aud}) class at ${time} on ${trialDate}. Same-day options: ${alternatives.join(", ")} CDMX.`,
     alternatives,
+  };
+}
+
+// ---- age-band validation (2026-10-11) -------------------------------------
+
+const DAY_SHORT_ES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"] as const;
+
+function groupLabel(g: NonNullable<Slot["group"]>): string {
+  return g === "adult" ? "adultos" : bandLabel(g);
+}
+
+/**
+ * Every trial row of a band across the week, as "lun 15:15 muay" strings in
+ * weekday/clock order (deduped over the dual-audience pp mirrors). Pure.
+ */
+export function bandWeekOptions(band: ProgramBand, schedule: readonly Slot[] = SLOTS): string[] {
+  const rows = schedule
+    .filter((s) => s.trial !== false && slotMatchesBand(s, band))
+    .slice()
+    .sort((a, b) => a.weekday - b.weekday || (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+  const out: string[] = [];
+  for (const s of rows) {
+    const label = `${DAY_SHORT_ES[s.weekday]} ${s.time} ${s.name ?? s.discipline}`;
+    if (!out.includes(label)) out.push(label);
+  }
+  return out;
+}
+
+/**
+ * Does the booked class belong to the child's AGE BAND? validateSlot only
+ * knows "adult" vs "kid", so a 3-year-old booked into the 4 pm Kids class (or a
+ * 4-year-old into Baby Fight Club) sailed through (Liliana / Joss, 2026-09/10).
+ * Rows that don't exist at all are validateSlot's job — they pass here.
+ * On a mismatch the reason names the band's REAL options (same day first,
+ * then the whole week) so the model can re-propose in one go. Pure.
+ */
+export function validateSlotBand(
+  trialDate: string,
+  trialTime: string,
+  discipline: string,
+  band: ProgramBand,
+  schedule: readonly Slot[] = SLOTS,
+): ValidateResult {
+  const wd = weekdayIndex(trialDate);
+  if (wd === null) return { ok: true };
+  const disc = normalizeDiscipline(discipline);
+  const time = trialTime.trim();
+  const rows = schedule.filter(
+    (s) => s.weekday === wd && s.time === time && s.discipline === disc && s.trial !== false,
+  );
+  if (rows.length === 0) return { ok: true };
+  if (rows.some((s) => slotMatchesBand(s, band))) return { ok: true };
+
+  const booked = groupLabel(slotGroup(rows[0]!));
+  const sameDay = [
+    ...new Set(
+      schedule
+        .filter((s) => s.weekday === wd && s.trial !== false && slotMatchesBand(s, band))
+        .map((s) => s.time),
+    ),
+  ].sort();
+  const week = bandWeekOptions(band, schedule);
+  const tail = sameDay.length
+    ? ` Same-day ${bandLabel(band)} options: ${sameDay.join(", ")} CDMX.`
+    : "";
+  return {
+    ok: false,
+    reason: `The ${disc} ${time} class on ${trialDate} is for ${booked}, but this child is ${bandLabel(band)} — never book a group outside the child's age.${tail} ${bandLabel(band)} trial classes: ${week.length ? week.join(" · ") : "none on the grid (share the booking link)"}.`,
+    ...(sameDay.length ? { alternatives: sameDay } : {}),
   };
 }

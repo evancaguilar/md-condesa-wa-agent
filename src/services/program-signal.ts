@@ -13,7 +13,8 @@
 // or an age next to a child word). "Tengo 25 años" and "entreno hace 2 años"
 // never fire.
 
-import type { Qualification } from "../types.js";
+import type { Qualification, QualUpdate } from "../types.js";
+import { bandFromAgeMonths, bandFromQualification, childAgeMonthsFromText } from "./age-band.js";
 
 export type ProgramSignal = "baby" | "kids";
 
@@ -90,4 +91,130 @@ export function mergeProgramSignal(
   return signal === "baby"
     ? { ...current, audience: "kid", discipline: "baby" }
     : { ...current, audience: "kid" };
+}
+
+// ---- age + discipline signal (2026-10-11, WP1) ----
+//
+// The routing now trusts AGE (age-band.ts), so every inbound also tries to read
+// the child's age and stores it as child_age_months + program. A new stated
+// age overrides an older one ("tiene 3" → "perdón, ya cumplió 4"); a message
+// with no age never erases one. The discipline the lead came for (the ad they
+// tapped) fills qualification.discipline when it is still empty, so the
+// <context> can put that discipline's class first.
+
+/** Did our last message ask for the child's age? Then a bare "5" is an age. */
+const ASKS_AGE_RE = /\bedad(es)?\b|a[ñn]os\s+tiene|cu[aá]ntos\s+a[ñn]os|how\s+old/i;
+
+export function botAskedAge(lastBotBody: string | null | undefined): boolean {
+  return ASKS_AGE_RE.test(lastBotBody ?? "");
+}
+
+const DISCIPLINE_PATTERNS: readonly [string, RegExp][] = [
+  ["muay", /muay/i],
+  ["jiu", /\bjiu|\bbjj\b|jitsu/i],
+  ["mma", /\bmma\b|artes\s+marciales\s+mixtas/i],
+  ["box", /\bbox(eo)?\b|\bboxing\b/i],
+];
+
+/**
+ * The ONE discipline an ad (headline + body + campaign ad_keywords) is about,
+ * or null when it names none or several (a "4 disciplinas" creative says
+ * nothing about what this lead wants). Pure.
+ */
+export function disciplineFromAdText(text: string | null | undefined): string | null {
+  const t = text ?? "";
+  if (!t.trim()) return null;
+  if (/baby\s*fight|\bbfc\b/i.test(t)) return null;
+  const hits = DISCIPLINE_PATTERNS.filter(([, re]) => re.test(t)).map(([k]) => k);
+  return hits.length === 1 ? hits[0]! : null;
+}
+
+export interface SignalInput {
+  /** The inbound text. */
+  body: string;
+  /** Our previous outbound message (bot or human), for expectingAge. */
+  lastOutboundBody?: string | null;
+  /** Ad headline + body + matched campaign ad_keywords, when known. */
+  adText?: string | null;
+}
+
+/**
+ * Pure. The qualification to store after one inbound, or null when nothing
+ * changes. Layers: the legacy audience/discipline signal (mergeProgramSignal),
+ * then the child's age (overrides any earlier age; never erased), then the
+ * ad's discipline when none is stored yet.
+ */
+export function programSignalUpdate(current: Qualification, input: SignalInput): Qualification | null {
+  let next: Qualification = mergeProgramSignal(current, programSignalFromText(input.body)) ?? { ...current };
+
+  const months = childAgeMonthsFromText(input.body, { expectingAge: botAskedAge(input.lastOutboundBody) });
+  if (months !== null && months !== current.child_age_months) {
+    const band = bandFromAgeMonths(months);
+    next = { ...next, child_age_months: months, program: band, audience: band === "adults" ? next.audience : "kid" };
+    // A legacy "baby" discipline stamped by the campaign/BFC words must not
+    // outlive an age that says otherwise.
+    if (band !== "baby" && (next.discipline ?? "").toLowerCase().includes("baby")) delete next.discipline;
+  }
+
+  if (!next.discipline) {
+    const band = bandFromQualification(next);
+    const disc = disciplineFromAdText(input.adText);
+    if (disc && band !== "baby" && band !== "mini") next = { ...next, discipline: disc };
+  }
+
+  return JSON.stringify(next) === JSON.stringify(current) ? null : next;
+}
+
+const DAY_RE: readonly [string, RegExp][] = [
+  ["lun", /^lun/],
+  ["mar", /^mar/],
+  ["mie", /^mi[eé]/],
+  ["jue", /^jue/],
+  ["vie", /^vie/],
+  ["sab", /^s[aá]b/],
+  ["dom", /^dom/],
+];
+
+/** Model-supplied day list → canonical keys (lun|mar|mie|jue|vie|sab|dom), deduped. */
+export function cleanDayKeys(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const raw of v) {
+    if (typeof raw !== "string") continue;
+    const s = raw.trim().toLowerCase();
+    const hit = DAY_RE.find(([, re]) => re.test(s));
+    if (hit && !out.includes(hit[0])) out.push(hit[0]);
+  }
+  return out;
+}
+
+/** What send_reply / book_trial may teach us about the lead this turn (types.ts). */
+export type { QualUpdate } from "../types.js";
+
+/**
+ * Pure. Merge a model-reported update into the stored qualification, or null
+ * when nothing changes. A stated age replaces the old one (and re-derives the
+ * band); absence never erases. A day the lead now prefers leaves the declined
+ * list and vice versa.
+ */
+export function mergeQualUpdate(current: Qualification, u: QualUpdate | undefined): Qualification | null {
+  if (!u) return null;
+  const next: Qualification = { ...current };
+  if (u.child_name && u.child_name.trim()) next.child_name = u.child_name.trim();
+  if (typeof u.child_age_months === "number" && Number.isFinite(u.child_age_months) && u.child_age_months >= 0) {
+    next.child_age_months = Math.round(u.child_age_months);
+    next.program = bandFromAgeMonths(next.child_age_months);
+    if (next.program !== "adults") next.audience = "kid";
+  }
+  if (u.preferred_days?.length) {
+    next.preferred_days = [...new Set([...(next.preferred_days ?? []), ...u.preferred_days])];
+    next.declined_days = (next.declined_days ?? []).filter((d) => !u.preferred_days!.includes(d));
+    if (next.declined_days.length === 0) delete next.declined_days;
+  }
+  if (u.declined_days?.length) {
+    next.declined_days = [...new Set([...(next.declined_days ?? []), ...u.declined_days])];
+    next.preferred_days = (next.preferred_days ?? []).filter((d) => !u.declined_days!.includes(d));
+    if (next.preferred_days.length === 0) delete next.preferred_days;
+  }
+  return JSON.stringify(next) === JSON.stringify(current) ? null : next;
 }

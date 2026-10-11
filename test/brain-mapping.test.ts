@@ -1069,7 +1069,8 @@ test("guard does not cross-pair two offers naming DIFFERENT disciplines", () => 
   // ("miércoles 21:00 Box") would look wrong, and that slot was never offered.
   const r = guardUnverifiedSlotClaim(
     sendRes("Hoy tenemos Box a las 9 pm, o Muay Thai mañana a las 7 am 🙌"),
-    MON,
+    // A Tuesday clock: Box runs Tue/Thu 9 pm + Sat 2 pm only (grid 2026-10).
+    { nowCdmx: "2026-08-25T10:00" },
   );
   assert.equal(r.action, "send");
 });
