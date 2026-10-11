@@ -142,7 +142,7 @@ Mensaje sugerido (niños — primero preguntar edad):
 
 - **Adultos**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Guantes y vendas propios si los tienen; si no, prestamos.
 - **Niños / Teens**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Guantes y vendas propios si los tiene; si no, prestamos.
-- **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el peque Y para papá/mamá (en Baby participan toda la clase; en Mini ayudan en partes), sandalias/chanclas, botella de agua, llegar 10 minutos antes.
+- **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el peque y para papá/mamá (en Baby participan toda la clase; en Mini ayudan en partes), chanclas, agua, llegar 10 min antes.
 
 ## Cómo describir el horario (adultos)
 
