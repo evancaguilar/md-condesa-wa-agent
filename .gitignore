@@ -3,3 +3,6 @@ node_modules/
 .dev.vars
 dist-test/
 .chatdist/
+
+# agent worktrees (session-local)
+.claude/worktrees/
