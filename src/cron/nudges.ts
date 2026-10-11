@@ -25,7 +25,7 @@ import {
 import { bookingRecordedKey, parseBookingRecordedMarker } from "../services/booking-core.js";
 import { bandFromQualification, slotMatchesBand } from "../services/age-band.js";
 import { SLOTS, type Slot } from "../brain/slots.gen.js";
-import type { NextSlot } from "./next-slot.js";
+import { nextBandSlot, type NextSlot } from "./next-slot.js";
 import { ageConflictsWithProgram, hasBuyIntent, isDuplicateSend } from "./nudge-signals.js";
 import {
   cancelFollowupsByKinds,
@@ -49,7 +49,6 @@ import {
   extendedCopy,
   extendedTemplateName,
   noShowCopy,
-  nudgeSlot,
   parseQualification,
   programLink,
   slotCta,
@@ -57,6 +56,7 @@ import {
   type ExtendedKind,
   type Program,
 } from "./nudge-copy.js";
+import { weekdaySet } from "./nudge-copy.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -191,8 +191,20 @@ export function bandSlot(
   nowEpoch: number,
   schedule: readonly Slot[] = SLOTS,
 ): NextSlot | null {
-  const c = copyInputsForBand(contact, campaignName, band, schedule);
-  return nudgeSlot(c.contact, c.program, nowEpoch, c.schedule);
+  // The copy program is the LEGACY bucket (mini/teens → kids) and the band
+  // schedule keeps each slot's `group`, so the slot must be picked by the real
+  // band — through copyInputsForBand a Mini lead asked nextBandSlot for a
+  // "kids" row and got nothing (post-merge regression, 2026-10-11).
+  const q = parseQualification(contact);
+  const discipline =
+    band === "baby" ? "baby" : band === "mini" ? "muay" : (q.discipline ?? null);
+  const excludeWeekdays = weekdaySet(q.declined_days);
+  const slot = nextBandSlot(band, discipline, nowEpoch, {
+    schedule: bandSchedule(band, schedule),
+    ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
+  });
+  void campaignName;
+  return slot;
 }
 
 // ---- booking marker / one-nudge-a-day guards (pure) ----
