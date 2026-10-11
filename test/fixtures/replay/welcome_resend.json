@@ -1,0 +1,44 @@
+{
+ "case": "welcome_resend",
+ "phone": "5215550000012",
+ "campaign": "Reto Gladiador",
+ "contact": {
+  "name": "PamelaRico",
+  "lang": "es",
+  "status": "lead",
+  "qualification": null,
+  "campaign_id": 4
+ },
+ "messages": [
+  {
+   "direction": "in",
+   "ts": 1791343730,
+   "body": "Puedo agendar un día gratis de clases matutinas para conocerlos primero?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791343745,
+   "body": "¡Va! 🙌 Mañana miércoles tenemos Jiu-Jitsu y Muay Thai a las 7 y 8 am — llegando a una puedes probar ambas clases seguidas. ¿Te late 7 u 8 am?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791344144,
+   "body": "Podria se otro día? igual que me compartan su ubicación. Solo me salio una publicidad pero no tengo mucho cotexto"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791344159,
+   "body": "¡Claro! 📍 Estamos en Av. México 49, 1er piso, Condesa (arriba de Santas Conchas, junto al Parque México).\n\nY para otro día: ¿qué tal jueves a las 7 u 8 am? Mismo combo de Jiu-Jitsu y Muay Thai 🙌"
+  },
+  {
+   "direction": "in",
+   "ts": 1791344959,
+   "body": "Jueves está bien ☺️7:00am"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791344961,
+   "body": "¡Hola! 💪 Qué gusto que te interese el Reto Gladiador. Estamos en Av. México 49, 1er piso, Condesa.\n\nEmpieza con un día de prueba GRATIS, sin experiencia ni equipo.\n\nDime qué día te gustaría venir y te lo agendo aquí mismo, o si prefieres hazlo tú: https://mdcondesa.com/clase-prueba-adultos/?utm_source=whatsapp&utm_content=120249703092300518&utm_campaign=Reto+Gladiador"
+  }
+ ]
+}

@@ -112,6 +112,8 @@ export default {
       adult: "Adultos",
       kid: "Kids",
       baby: "Baby Fight Club (BFC)",
+      mini: "Mini Muay Thai", // 3–5 años (option renamed from "Peques", 2026-10-11)
+      teens: "Teens", // 13–17
     },
     tags: "Tags",
     optOutTag: "Baja",

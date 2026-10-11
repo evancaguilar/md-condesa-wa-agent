@@ -1,0 +1,119 @@
+{
+ "case": "two_kids_tdah",
+ "phone": "5215550000011",
+ "campaign": "Kids",
+ "contact": {
+  "name": "Melisa",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"discipline\":\"muay\",\"audience\":\"kid\",\"name\":\"Melisa Martinez\"}",
+  "campaign_id": 3
+ },
+ "messages": [
+  {
+   "direction": "in",
+   "ts": 1791433384,
+   "body": "Hola, quisiera información por favor y después. reservar el día gratuito para mi hijo. ¿Qué horarios tienen?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433388,
+   "body": "¡Hola! 🙌 Gracias por tu interés en nuestras clases para niños: Jiu-Jitsu Kids y Muay Thai Kids (6–12 años) y grupos Teens (13+) — clases seguras y estructuradas donde desarrollan confianza, disciplina, coordinación y defensa personal.\n\nEl primer día es GRATIS: entre semana llegan a las 4 pm (Muay Thai + Jiu-Jitsu seguidas) o el sábado a las 11 am. ¿Cuál les queda mejor? ¿Y qué edad tiene tu peque? 😄"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433415,
+   "body": "3 años"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433430,
+   "body": "¡Perfecto! A los 3 años le toca nuestro grupo de Mini Muay Thai 🥋 Es una clase pensada para su edad: coordinación, equilibrio, juego y ya con técnica real, y ustedes participan en algunos momentos.\n\nLa próxima es el sábado a la 1:15 pm — ¿les queda bien? 😊"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433465,
+   "body": "Tengo una nena de 2 años\nIgual puede tomarla?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433481,
+   "body": "¡Claro que sí! 🙌 A los 2 años le toca Baby Fight Club — es una clase de movimiento y juego donde tú participas activamente con ella, nada de pelea real.\n\nLa próxima clase de prueba es el sábado a las 2 pm — ¿les queda bien? 😊"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433559,
+   "body": "Si"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433574,
+   "body": "¡Excelente! 🙌 Les apunto el sábado a las 2 pm para Baby Fight Club. ¿Me confirmas tu nombre y el de tu nena?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433586,
+   "body": "Entiendo que entonces \nNo hay tiempos muertos?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433599,
+   "body": "Mi peque de 3años tiene prediagnóstico de TDAH"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433601,
+   "body": "Para Baby Fight Club es solo una clase (no hay 2 seguidas como en los programas más grandes) — dura unos 40 minutos y es justo la medida perfecta para su edad, sin tiempos muertos 😊 ¿Me confirmas tu nombre y el de tu nena para apartarles el lugar?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433632,
+   "body": "Mi nombre es Melisa Martinez \nEl de mis hijos son\nDante y Minerva Garcia"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433654,
+   "body": "¡Perfecto Melisa! Ya quedaron agendados 🙌 El sábado: Dante a la 1:15 pm (Mini Muay Thai) y Minerva a las 2 pm (Baby Fight Club).\n\nInfo de su primera clase:\n👉 Niños: mdcondesa.com/tu-primera-clase-ninos/\n👉 Bebés: mdcondesa.com/tu-primera-clase-bebes/\n\nSi quieres invitar a algún amigo o familiar, estaría genial 💪 Cualquier duda aquí estoy 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433655,
+   "body": "[video]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433687,
+   "body": "Costos....🫣"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433701,
+   "body": "Con gusto 🙌 Tenemos varias opciones de planes y promos según el programa, así que preferimos platicarlo bien en su día de prueba del sábado y ahí les armamos la que mejor les convenga. ¿Les parece?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433714,
+   "body": "Perfecto"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433727,
+   "body": "¡Genial! Nos vemos el sábado entonces 🙌 Cualquier otra duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433776,
+   "body": "Muchas gracias"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791433788,
+   "body": "¡Con gusto, Melisa! Nos vemos el sábado 🙌"
+  },
+  {
+   "direction": "in",
+   "ts": 1791433889,
+   "body": "[reaccionó ✨]"
+  }
+ ]
+}

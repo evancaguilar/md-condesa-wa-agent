@@ -1,0 +1,79 @@
+{
+ "case": "kids_saturday_false",
+ "phone": "5215550000005",
+ "campaign": null,
+ "contact": {
+  "name": "Mina",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"audience\":\"kid\"}",
+  "campaign_id": null
+ },
+ "messages": [
+  {
+   "direction": "in",
+   "ts": 1791254187,
+   "body": "Buenas noches!"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791254201,
+   "body": "¡Buenas noches, Mina! 🙌 Con gusto te cuento: tenemos Jiu-Jitsu, Muay Thai, MMA y Box para adultos, sin necesidad de experiencia previa.\n\n¿Te late venir mañana martes a las 7 am u 8 am a probar tu clase gratis?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791254258,
+   "body": "Ya revisé la ubicación y me queda muy lejos.  De cualquier forma a le agradezco"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791254272,
+   "body": "Entiendo, gracias por avisarme 🙏 Muchos vienen de otras zonas y prefieren venir sábado porque hay menos tráfico — ¿te late que te comparta un horario de sábado por si se te facilita más?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791254321,
+   "body": "De hecho buscó clases para niños"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791254334,
+   "body": "¡Ah va, perfecto! 🙌 ¿Qué edad tiene tu peque? Así te digo el grupo y horario que le toca."
+  },
+  {
+   "direction": "in",
+   "ts": 1791254350,
+   "body": "9 años"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791254365,
+   "body": "¡Perfecto! A los 9 años le toca Jiu-Jitsu y Muay Thai Kids 🙌 Mañana martes puede llegar a las 4 pm, prueba Muay Thai y sigue con Jiu-Jitsu a las 5 pm. ¿Les queda bien?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791254468,
+   "body": "No, vivimos en el estado de México,  quizás el sábado podría haber sido una opción"
+  },
+  {
+   "direction": "in",
+   "ts": 1791254483,
+   "body": "De cualquier forma, gracias"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791254484,
+   "body": "No hay Kids el sábado, pero a esa edad desde los 13 entrarían a clases de adultos — 9 años aún no. Entre semana es cuando sí tenemos su grupo: ¿les quedaría bien el miércoles a las 4 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791254501,
+   "body": "Comprendo,  gracias"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791254514,
+   "body": "Con gusto, aquí seguimos 🙏 Cualquier cosa me avisas."
+  }
+ ]
+}

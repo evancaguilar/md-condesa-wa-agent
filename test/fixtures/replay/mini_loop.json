@@ -1,0 +1,144 @@
+{
+ "case": "mini_loop",
+ "phone": "5215550000008",
+ "campaign": "Kids",
+ "contact": {
+  "name": "bibelot",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"discipline\":\"muay\",\"audience\":\"kid\",\"name\":\"Bibelot Mansur\"}",
+  "campaign_id": 3
+ },
+ "messages": [
+  {
+   "direction": "out_bot",
+   "ts": 1790985645,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Bibelot! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "in",
+   "ts": 1790985725,
+   "body": "Hola"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790985738,
+   "body": "Hola Bibelot 🙌 Solo para confirmar: mañana sábado los esperamos a la 1:15 pm para su clase de prueba. ¡Nos vemos!"
+  },
+  {
+   "direction": "in",
+   "ts": 1790985845,
+   "body": "Querido una disculpa tengo cita manana con el otorrino a la 1 me la. Avaba de far por eue traigo mucha tos me podroas reagendarcpor fa"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790985858,
+   "body": "Claro que sí, sin bronca 🙏 Te propongo mejor el lunes a la 1:15 pm para su clase de prueba, ¿les queda bien?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790985981,
+   "body": "Cuanto dura?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790985994,
+   "body": "Dura aprox. 40 minutos 🙌 ¿Les queda bien el lunes a la 1:15 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790986018,
+   "body": "Antes se puede?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790986023,
+   "body": "Si no esta bien"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790986041,
+   "body": "¡Va! Igual el sábado te quedaría muy pegado con la cita del otorrino, así que lo más próximo sería el lunes a las 3:15 pm 🙌 ¿Les queda bien?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790986106,
+   "body": "Eata bien lunes"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790986922,
+   "body": "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí."
+  },
+  {
+   "direction": "in",
+   "ts": 1790987158,
+   "body": "Esta muy bien"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790991034,
+   "body": "¡Genial! 🙌 Les reagendo para el lunes a las 3:15 pm. Solo para actualizar el registro, ¿me recuerdas el nombre de tu peque?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790991369,
+   "body": "Noo pemse. Era 1:15"
+  },
+  {
+   "direction": "in",
+   "ts": 1790991379,
+   "body": "A las 3:15 no puedo trabajo"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790992231,
+   "body": "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí."
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790995229,
+   "body": "¡Va, sin bronca! 🙌 Como entre semana el horario de Mini Muay Thai es a las 3:15 pm, te propongo mejor el sábado 10 a la 1:15 pm (esa sí es la hora que buscabas, y ya sin cruce con la cita). ¿Les queda bien?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791040565,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Bibelot! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791040573,
+   "body": "Necesito reagendar"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791040587,
+   "body": "Va, sin problema 🙏 ¿Te late mejor hoy a la 1:15 pm o el lunes 3:15 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791040601,
+   "body": "El prox sábado"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791040616,
+   "body": "Próximo sábado sería el 10, ¿te late a la 1:15 pm igual? 🙌"
+  },
+  {
+   "direction": "in",
+   "ts": 1791040831,
+   "body": "Si gracias"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791040854,
+   "body": "¡Perfecto! Quedó reagendado para el sábado 10 a la 1:15 pm 🙌 Aquí toda la info de su primera clase: mdcondesa.com/tu-primera-clase-ninos/ Si quieres invitar a un amigo o pariente, estaría súper 💪 Cualquier duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791040855,
+   "body": "[video]"
+  }
+ ]
+}

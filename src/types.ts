@@ -82,7 +82,19 @@ export interface Qualification {
   discipline?: string;
   audience?: Audience;
   goal?: string;
+  /** Child's name (kid/baby leads) — the lead told us, or book_trial wrote it. */
+  child_name?: string;
+  /** Child's age in months — the ONLY thing the age→program routing trusts. */
+  child_age_months?: number;
+  /** Program band derived from age (or stated outright): see age-band.ts. */
+  program?: ProgramBand;
+  /** Weekday keys (lun|mar|mie|jue|vie|sab|dom) the lead said work / don't. */
+  preferred_days?: string[];
+  declined_days?: string[];
 }
+
+/** Age/program band a lead books into. "adults" also covers unknown ages. */
+export type ProgramBand = "baby" | "mini" | "kids" | "teens" | "adults";
 
 /** Row of the `contacts` table. Epoch fields are seconds. */
 export interface Contact {

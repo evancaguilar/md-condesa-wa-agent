@@ -1,0 +1,34 @@
+{
+ "case": "jess_muay_9am",
+ "phone": "5215550000002",
+ "campaign": null,
+ "contact": {
+  "name": "Jess",
+  "lang": "es",
+  "status": "lead",
+  "qualification": null,
+  "campaign_id": null
+ },
+ "messages": [
+  {
+   "direction": "in",
+   "ts": 1791584350,
+   "body": "¡Hola! Quiero más información"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791584366,
+   "body": "¡Hola Jess! 🙌 Qué bien que te interesó el Muay Thai. Tu primera clase es gratis y no necesitas experiencia previa.\n\nMañana sábado puedes venir a las 9 am (Jiu-Jitsu) y seguido a las 10 am pruebas Muay Thai. ¿Te late?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791585150,
+   "body": "Que precio tiene el muay Thai?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791585165,
+   "body": "Con gusto 🙌 Tenemos varias opciones de planes y promos según cuántas veces entrenes a la semana — por eso preferimos platicarlo un poco en tu día de prueba y ahí te recomendamos la que mejor te acomode.\n\n¿Te late venir mañana sábado 9 am y de una vez pruebas Muay Thai a las 10?"
+  }
+ ]
+}

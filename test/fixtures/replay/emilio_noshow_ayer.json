@@ -1,0 +1,64 @@
+{
+ "case": "emilio_noshow_ayer",
+ "phone": "5215550000001",
+ "campaign": null,
+ "contact": {
+  "name": "Emilio",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"discipline\":\"jiu\",\"audience\":\"adult\",\"name\":\"Emilio Villa Sanchez\"}",
+  "campaign_id": null
+ },
+ "messages": [
+  {
+   "direction": "out_bot",
+   "ts": 1791201682,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Emilio! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791211810,
+   "body": "Necesito reagendar"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791211824,
+   "body": "Claro, sin bronca 🙌 ¿Te late reagendar hoy mismo a las 10 am u 11 am, o prefieres otro día?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791212962,
+   "body": "Podría ser mañana a las 7:00 a.m?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791212983,
+   "body": "¡Va, Emilio! 🙌 Te reagendo para mañana martes a las 7 am — alcanzas a probar Jiu-Jitsu y Muay Thai seguidas. Aquí toda la info de tu clase: mdcondesa.com/tu-primera-clase/ 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791212984,
+   "body": "[video]"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791244899,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Emilio! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791288096,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Emilio! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791299790,
+   "body": "📋 Plantilla · no_show_followup_es\n\n¡Hola Emilio! Te extrañamos ayer en MD Condesa. Sabemos que la vida se atraviesa 🙂 ¿Te reagendamos tu clase de prueba? Solo dinos qué día te queda bien."
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791565328,
+   "body": "📋 Plantilla · no_show_followup_es\n\n¡Hola Emilio! Te extrañamos ayer en MD Condesa. Sabemos que la vida se atraviesa 🙂 ¿Te reagendamos tu clase de prueba? Solo dinos qué día te queda bien."
+  }
+ ]
+}
