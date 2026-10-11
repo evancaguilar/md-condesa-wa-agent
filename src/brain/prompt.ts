@@ -319,6 +319,15 @@ export function buildContextBlock(ctx: ConvoContext): string {
     );
   }
 
+  // Reminder button "Necesito reagendar" (pipeline/inbound, WP3).
+  if (ctx.reschedule) {
+    lines.push(
+      "<reschedule>",
+      "El lead pidió reagendar su clase de prueba (respondió al recordatorio). Ofrece las 2 próximas opciones reales de SU programa y, cuando elija, agenda con book_trial.",
+      "</reschedule>",
+    );
+  }
+
   return lines.join("\n");
 }
 

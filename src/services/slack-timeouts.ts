@@ -256,7 +256,108 @@ export interface TimeoutApprovalView {
    * grid. Hard exclusion from best-bet — a human fixes it or it expires.
    */
   guarded?: boolean;
+  /**
+   * classifyEscalation() of the draft's escalation reason (kv
+   * `reason_kind:<id>`). opt_out / complaint / price never best-bet;
+   * opt_out / complaint never get the holding line either.
+   */
+  reasonKind?: EscalationKind | null;
 }
+
+// ---- escalation reason classification (pure) ----
+
+/**
+ * Buckets the brain's free-text escalation reason (send_reply.escalation_reason
+ * or escalate_to_human.reason). The model is told to use the literal tokens
+ * `opt_out` / `complaint` (src/brain/tools.ts); the keyword fallbacks catch
+ * older/looser phrasings.
+ */
+export type EscalationKind =
+  | "opt_out"
+  | "complaint"
+  | "price"
+  | "nivel0"
+  | "special_needs"
+  | "visitor";
+
+function foldReason(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
+export function classifyEscalation(reason: string | null | undefined): EscalationKind | null {
+  if (!reason) return null;
+  const r = foldReason(reason);
+  // opt_out ONLY on the explicit token: a keyword guess ("baja" de peso) must
+  // never silently end a lead.
+  if (/\bopt[_ -]?out\b/.test(r)) return "opt_out";
+  if (/\bcomplaint\b|\bqueja\b|enojad|molest[oa]|reclam|publicidad enganosa|enganos|\babuso\b|inconform/.test(r)) return "complaint";
+  if (/\bnivel ?0\b|\bnivel cero\b|menor(?:es)? de (?:1|un) ano|under 12 months|\bbebe de \d{1,2} mes/.test(r)) return "nivel0";
+  if (/\btdah\b|\badhd\b|autis|asperger|discapacidad|necesidades especiales|special needs|\bcondicion\b|diagnost|neurodiverg|\btea\b/.test(r)) return "special_needs";
+  if (/visitante|visitor|drop[- ]?in|pase (?:de|por) (?:dia|clase)|clase suelta|paquete de visita|turista/.test(r)) return "visitor";
+  if (/price negotiation|negocia|regate|descuento|rebaja|discount/.test(r)) return "price";
+  return null;
+}
+
+/** Kinds that always become a human task (never a bot promise of "te aviso"). */
+export function escalationNeedsTask(kind: EscalationKind | null): boolean {
+  return kind === "complaint" || kind === "nivel0" || kind === "special_needs" || kind === "visitor";
+}
+
+// ---- escalation SLA (one open task per phone, re-pings) ----
+
+/** Unanswered escalation re-ping cadence. */
+export const ESCALATION_REPING_SEC = 45 * 60;
+
+/** The open-task record kept per phone (kv `esc_task:<phone>`). */
+export interface EscalationTaskState {
+  /** Slack ts of the task message (updated in place for later escalations). */
+  ts: string;
+  /** Approval row the task tracks (closed once it is no longer pending). */
+  approvalId: number;
+  /** When the task was first posted (epoch s) — the SLA clock. */
+  createdAt: number;
+  /** Re-pings already sent: 0, 1 (thread <!here>), 2 (owner DM). */
+  pings: number;
+}
+
+export function escalationTaskKey(phone: string): string {
+  return `esc_task:${phone}`;
+}
+
+export function parseEscalationTask(raw: string | null): EscalationTaskState | null {
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as Partial<EscalationTaskState>;
+    if (typeof o.ts !== "string" || typeof o.approvalId !== "number" || typeof o.createdAt !== "number") return null;
+    return { ts: o.ts, approvalId: o.approvalId, createdAt: o.createdAt, pings: typeof o.pings === "number" ? o.pings : 0 };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pure. Next SLA step for a still-open escalation task: "reping" (thread
+ * <!here>) at 45 min, "dm_owner" at 90 min — only 09:00–21:00 CDMX, at most
+ * one step per call, never more than two.
+ */
+export function decideEscalationPing(
+  t: Pick<EscalationTaskState, "createdAt" | "pings">,
+  now: number,
+): "none" | "reping" | "dm_owner" {
+  if (!isBusinessHours(now)) return "none";
+  const age = now - t.createdAt;
+  if (t.pings <= 0 && age >= ESCALATION_REPING_SEC) return "reping";
+  if (t.pings === 1 && age >= 2 * ESCALATION_REPING_SEC) return "dm_owner";
+  return "none";
+}
+
+/** Holding line floor: a draft the model is < 50 % sure of gets no "ya te respondemos". */
+export const HOLDING_SURENESS_MIN = 50;
+/** The lead's last message older than this ⇒ a holding line reads absurd. */
+export const HOLDING_MAX_LEAD_SILENCE_SEC = 2 * 3600;
 
 export type TimeoutAction =
   | { kind: "hold"; id: number; phone: string } // send holding line + re-ping
@@ -291,10 +392,13 @@ export function decideTimeout(a: TimeoutApprovalView, now: number): TimeoutActio
   const age = now - a.createdAt;
   const windowOpen = a.lastInboundAt !== null && now - a.lastInboundAt < WINDOW_SECONDS;
 
+  const kind = a.reasonKind ?? null;
+  const noBestBet = kind === "opt_out" || kind === "complaint" || kind === "price";
   if (
     age > BESTBET_THRESHOLD_SEC &&
     windowOpen &&
     !a.guarded &&
+    !noBestBet &&
     a.sureness !== undefined &&
     a.sureness >= BESTBET_SURENESS_MIN
   ) {
@@ -309,7 +413,17 @@ export function decideTimeout(a: TimeoutApprovalView, now: number): TimeoutActio
     !a.holdingSent &&
     windowOpen &&
     isBusinessHours(now) &&
-    a.awaitingReply !== false
+    a.awaitingReply !== false &&
+    // 2026-10-11 (…4595): the 09:00 holding line went to a lead who had
+    // complained and asked us to stop at 21:38 the night before. Never for an
+    // opt-out/complaint, never for a shaky draft (< 50 %, or a guarded one
+    // whose sureness was stripped), never when the lead went quiet > 2 h ago.
+    kind !== "opt_out" &&
+    kind !== "complaint" &&
+    !(a.sureness !== undefined && a.sureness < HOLDING_SURENESS_MIN) &&
+    !(a.guarded && a.sureness === undefined) &&
+    a.lastInboundAt !== null &&
+    now - a.lastInboundAt <= HOLDING_MAX_LEAD_SILENCE_SEC
   ) {
     return { kind: "hold", id: a.id, phone: a.phone };
   }

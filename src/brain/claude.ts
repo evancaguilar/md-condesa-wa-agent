@@ -641,7 +641,9 @@ export function sendResult(
   const fu = followup ?? undefined;
   // Anything not an explicit false counts as waiting — the safe default.
   const awaitingReply = input.awaiting_reply !== false;
-  if (confidence === "high") {
+  // An opt_out / complaint reason is never a plain send, whatever the sureness
+  // (pipeline/inbound routeResult handles both — WP3).
+  if (confidence === "high" && !/^\s*(?:opt[_ -]?out|complaint)\b/i.test(input.escalation_reason ?? "")) {
     return {
       action: "send",
       message,

@@ -48,7 +48,7 @@ const sendReply: AnthropicTool = {
       escalation_reason: {
         type: "string",
         description:
-          "Optional short note for the human reviewer when confidence is 'low'.",
+          "Optional short note for the human reviewer when confidence is 'low'. Start it with the literal token `opt_out` when the lead asks to stop receiving messages (nothing is sent; the baja is applied), or `complaint` when the lead complains / is upset (a human takes it; never sent automatically).",
       },
       awaiting_reply: {
         type: "boolean",

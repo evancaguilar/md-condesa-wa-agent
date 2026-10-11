@@ -45,11 +45,17 @@ import {
   decideTimeout,
   HOLDING_LINE,
   windowHoursLeft,
+  decideEscalationPing,
+  escalationTaskKey,
+  parseEscalationTask,
+  type EscalationTaskState,
+  type EscalationKind,
   type TimeoutApprovalView,
 } from "./slack-timeouts.js";
 import {
   awaitingReplyKey,
   guardedApprovalKey,
+  reasonKindKey,
   runPostSendEffects,
   surenessKey,
 } from "./approvals.js";
@@ -352,6 +358,63 @@ export async function postNote(env: Env, text: string): Promise<void> {
 /** A human must act → task channel (#wa-leads). */
 export async function postTaskNote(env: Env, text: string): Promise<void> {
   await postMessage(env, [section(text)], text, undefined, "task");
+}
+
+/**
+ * Escalation task with SLA (audit 2026-10: hot leads waited 3–8 h; the same
+ * lead got a fresh <!here> per message). ONE open task per phone: while the
+ * approval it tracks is still pending, a new escalation for that phone EDITS
+ * the existing message (no new @here); otherwise a fresh <!here> task is
+ * posted and tracked. Re-pings are driven by runApprovalTimeouts.
+ */
+export async function postEscalationTask(
+  env: Env,
+  phone: string,
+  approvalId: number,
+  text: string,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): Promise<void> {
+  const key = escalationTaskKey(phone);
+  const open = parseEscalationTask(await kvGet(env.DB, key));
+  if (open && (await getApprovalStatus(env.DB, open.approvalId)) === "pending") {
+    const body = text.replace(/<!here>\s*/g, "");
+    try {
+      await updateMessage(env, open.ts, [section(body)], body);
+      await kvSet(env.DB, key, JSON.stringify({ ...open, approvalId }));
+      return;
+    } catch (err) {
+      console.error("[slack] escalation task update failed; reposting", phone, err);
+    }
+  }
+  const ts = await postMessage(env, [section(text)], text, undefined, "task");
+  const state: EscalationTaskState = { ts, approvalId, createdAt: nowSec, pings: 0 };
+  await kvSet(env.DB, key, JSON.stringify(state));
+}
+
+/** One SLA step for a pending row whose phone has an open escalation task. */
+async function escalationSlaStep(env: Env, a: PendingApproval, now: number): Promise<void> {
+  const key = escalationTaskKey(a.phone);
+  const open = parseEscalationTask(await kvGet(env.DB, key));
+  if (!open || open.approvalId !== a.id) return;
+  const step = decideEscalationPing(open, now);
+  if (step === "none") return;
+  // Claim the step first (kv write) so two overlapping cron passes don't both ping.
+  await kvSet(env.DB, key, JSON.stringify({ ...open, pings: open.pings + 1 }));
+  const mins = Math.round((now - open.createdAt) / 60);
+  if (step === "reping") {
+    await postMessage(
+      env,
+      [section(`<!here> ⏰ ${a.phone} lleva ${mins} min esperando respuesta humana.`)],
+      `${a.phone} lleva ${mins} min esperando`,
+      { thread_ts: open.ts, reply_broadcast: true },
+      "task",
+    );
+    return;
+  }
+  const owner = (env as unknown as Record<string, string | undefined>).SLACK_OWNER_USER_ID;
+  if (!owner) return; // no owner id configured ⇒ skip the DM
+  const text = `⏰ ${a.phone} lleva ${mins} min sin respuesta humana en #wa-leads (escalación).`;
+  await slackCall(env, "chat.postMessage", { channel: owner, text, blocks: [section(text)] });
 }
 
 /** FYI card posted when the model's book_trial tool fires. */
@@ -900,6 +963,7 @@ export async function runApprovalTimeouts(
     // kvGet each is cheaper than the schema change it avoids.
     const surenessRaw = await kvGet(env.DB, surenessKey(a.id));
     const guardedRaw = await kvGet(env.DB, guardedApprovalKey(a.id));
+    const kindRaw = await kvGet(env.DB, reasonKindKey(a.id));
     const surenessNum = Number(surenessRaw);
     const view: TimeoutApprovalView = {
       id: a.id,
@@ -911,8 +975,16 @@ export async function runApprovalTimeouts(
       sureness:
         surenessRaw !== null && Number.isFinite(surenessNum) ? surenessNum : undefined,
       guarded: guardedRaw === "1",
+      reasonKind: (kindRaw as EscalationKind | null) ?? null,
     };
     const decision = decideTimeout(view, now);
+
+    // Escalation SLA: 45-min re-ping, then the owner DM (business hours only).
+    try {
+      await escalationSlaStep(env, a, now);
+    } catch (err) {
+      console.error("[timeouts] escalation SLA step failed", a.id, err);
+    }
 
     // TEMP diagnostic (2026-08-27): best-bet has never fired in prod while
     // rows sat 2h+. The first time a row crosses 75 min still pending without
@@ -1040,6 +1112,7 @@ export function makeSlackPort(env: Env): SlackPort {
     postDraft: (a) => postDraft(env, a),
     postNote: (text) => postNote(env, text),
     postTaskNote: (text) => postTaskNote(env, text),
+    postEscalationTask: (phone, approvalId, text) => postEscalationTask(env, phone, approvalId, text),
     postBookingFyi: (booking) => postBookingFyi(env, booking),
     postAutoSentFyi: (fyi) => postAutoSentFyi(env, fyi),
     markSuperseded: (a, newId) => markSupersededCard(env, a, newId),

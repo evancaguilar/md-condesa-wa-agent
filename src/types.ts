@@ -351,6 +351,8 @@ export interface ConvoContext {
    * the day after they WROTE) and no booking without re-confirming the slot.
    */
   staleReply?: { waitedHours: number; lastInboundCdmx: string };
+  /** The lead tapped/wrote "Necesito reagendar" after a trial reminder (WP3). */
+  reschedule?: boolean;
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */
@@ -488,6 +490,8 @@ export interface SlackPort {
   /** Plain note to the TASK channel (#wa-leads): a human must do something.
    *  Optional so one-line test fakes stay one-liners; callers fall back to postNote. */
   postTaskNote?(text: string): Promise<void>;
+  /** One open escalation task per phone (updates instead of a new <!here>); optional, falls back to postTaskNote. */
+  postEscalationTask?(phone: string, approvalId: number, text: string): Promise<void>;
   /** FYI card posted whenever book_trial fires (spec: always ALSO to Slack). */
   postBookingFyi(booking: BookTrialInput): Promise<void>;
   /** FYI card for a reply the gated auto-send lane sent without approval. */
