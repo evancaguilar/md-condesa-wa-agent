@@ -11,8 +11,11 @@ Template name mapping (base → sent name):
 - `trial_confirm` → `trial_confirm_es` / `trial_confirm_en`
 - `trial_reminder_day_before` → `trial_reminder_day_before_es` / `_en`
 - `trial_reminder_same_day` → `trial_reminder_same_day_es` / `_en`
-- `no_show_followup` → `no_show_followup_es` / `_en`  (BOTH no-show touches:
-  the immediate one and `no_show_d3` three days later)
+- `no_show_followup` → `no_show_followup_es` / `_en`  (**retired 2026-10-11**:
+  replaced by `no_show_hoy` / `no_show_d2` / `no_show_d7`, §11–§13)
+- 2026-10-11 v2 chain drafts (§11–§16, pending owner review): `no_show_hoy`,
+  `no_show_d2`, `no_show_d7`, `post_trial_d3`, `post_trial_d6` (each with a
+  `_fam` plural twin for parents) and `reschedule_offer`
 - `reengage_lead` → `reengage_lead_es` / `_en`
 - `human_followup` → `human_followup_es` / `_en`  (owned/sent by C's late-approval
   path; copy included here for convenience)
@@ -316,9 +319,8 @@ The goodbye, 11:00 CDMX five days after the trial.
 
 Variables: {{1}} name. Footer text must be the template FOOTER component.
 
-**The second no-show touch needs NO new template.** `no_show_d3` (11:00 CDMX
-three days after a missed class) reuses `no_show_followup_es` / `_en` from §4 —
-only the free-form body differs between the two touches.
+**Superseded 2026-10-11:** the no-show chain is now `no_show_hoy` / `no_show_d2`
+/ `no_show_d7` (§11–§13); legacy `no_show_d3` rows are sent as `no_show_d2`.
 
 ---
 
@@ -357,6 +359,141 @@ old generic text) and posts one Slack note saying so.
 Variables: **none** (owner 2026-10-03: push names are too often junk, so no
 {{1}} here — the sender passes no body parameters). No footer (Utility). Links
 are plain body text so the template needs no URL-button sample.
+
+---
+
+# v2 chains — DRAFTS for owner review (2026-10-11, NOT submitted)
+
+Added by the post-trial / no-show chain v2 (src/cron/post-trial.ts, audit
+2026-10-09). **Nothing here is submitted to Meta yet** — Evan reviews first.
+Until a template is approved the code only sends the free-form twin
+(`CLIENT.copy.*` in clients/md-condesa/client.mjs) inside the 24h window; with
+the window closed and the template unknown it **skips silently** (a console
+line, no Slack note, never a fallback to the old "ayer" template).
+
+All of them: **Category Marketing**, FOOTER component
+_Responde BAJA para dejar de recibir mensajes._ / _Reply BAJA to stop receiving
+messages._ `{{1}}` = first name (sender substitutes "qué tal" / "there" when
+unknown). `{{2}}` = ONE concrete slot of the lead's age band, rendered by the
+code as "<class> <when>", e.g. `Muay Thai el sábado 10:00 am`,
+`Mini Muay Thai mañana martes 3:15 pm` (never an adult slot for a minor, never
+Kids for a mini/baby lead). If the code has no slot to offer, the template is
+not sent.
+
+**Two bodies per step:** the base name is the adult (singular) text; the `_fam`
+name is the parent (plural) text used for baby / mini / kids / teens leads.
+Sent names append `_es` / `_en`: e.g. `no_show_hoy_es`, `no_show_hoy_fam_en`.
+
+`no_show_followup` (§4) is **retired** by these: it said "Te extrañamos ayer"
+whatever the day was (…9340 got it two hours after a 7 am class, and again
+three days later).
+
+## 11. no_show_hoy — Marketing (class start + 2 h, ONLY on the class day)
+
+The code never sends this template on a later day (its text says "hoy").
+Quick-reply buttons: `Sí, reagendar` · `Luego les aviso` (EN: `Yes, reschedule` · `I'll let you know`).
+
+**ES (`no_show_hoy_es`)**
+> Hola {{1}}, parece que hoy no pudiste llegar a tu clase de prueba en MD Condesa 🙏 Sin bronca, pasa seguido. ¿Te la reagendamos? Tenemos {{2}} — contéstame y te aparto lugar.
+
+**ES familia (`no_show_hoy_fam_es`)**
+> Hola {{1}}, parece que hoy no pudieron llegar a su clase de prueba en MD Condesa 🙏 Sin bronca, pasa seguido. ¿Se la reagendamos? Tenemos {{2}} — contéstenme y les aparto lugar.
+
+**EN (`no_show_hoy_en`)**
+> Hi {{1}}, looks like you couldn't make it to your trial class at MD Condesa today 🙏 No worries, it happens. Want to reschedule? We have {{2}} — reply and I'll save your spot.
+
+**EN family (`no_show_hoy_fam_en`)**
+> Hi {{1}}, looks like you couldn't make it to the trial class at MD Condesa today 🙏 No worries, it happens. Want to reschedule? We have {{2}} — reply and I'll save the spot.
+
+Variables: {{1}} name, {{2}} slot.
+
+## 12. no_show_d2 — Marketing (11:00 CDMX, two days after the missed class)
+
+**ES (`no_show_d2_es`)**
+> ¡Hola {{1}}! Te seguimos guardando tu clase de prueba gratis en MD Condesa 🥋 La próxima opción es {{2}}. ¿Te la aparto?
+
+**ES familia (`no_show_d2_fam_es`)**
+> ¡Hola {{1}}! Les seguimos guardando la clase de prueba gratis en MD Condesa 🥋 La próxima opción es {{2}}. ¿Se la aparto?
+
+**EN (`no_show_d2_en`)**
+> Hi {{1}}! We're still holding your free trial class at MD Condesa 🥋 The next option is {{2}}. Shall I save it for you?
+
+**EN family (`no_show_d2_fam_en`)**
+> Hi {{1}}! We're still holding the free trial class at MD Condesa 🥋 The next option is {{2}}. Shall I save it for you?
+
+Variables: {{1}} name, {{2}} slot. (Legacy `no_show_d3` rows still pending
+at deploy are sent with this template too.)
+
+## 13. no_show_d7 — Marketing (11:00 CDMX, seven days after; the goodbye)
+
+After this step the bot posts a Slack TASK "Marcar Perdido: <nombre> · <tel>"
+— a human writes Perdido; the bot never does.
+
+**ES (`no_show_d7_es`)**
+> Hola {{1}}, es la última vez que te escribimos por aquí 🙂 Si más adelante quieres probar una clase gratis en MD Condesa, mándanos un mensaje y te agendamos. ¡Que estés muy bien!
+
+**ES familia (`no_show_d7_fam_es`)**
+> Hola {{1}}, es la última vez que les escribimos por aquí 🙂 Si más adelante quieren probar una clase gratis en MD Condesa, mándennos un mensaje y les agendamos. ¡Que estén muy bien!
+
+**EN (`no_show_d7_en`)**
+> Hi {{1}}, this is the last time we'll write here 🙂 If later on you'd like to try a free class at MD Condesa, just message us and we'll book you in. Take care!
+
+**EN family (`no_show_d7_fam_en`)**
+> Hi {{1}}, this is the last time we'll write here 🙂 If later on you'd like your kid to try a free class at MD Condesa, just message us and we'll book you in. Take care!
+
+Variables: {{1}} name.
+
+## 14. post_trial_d3 — Marketing (11:00 CDMX, three days after an attended trial)
+
+Replaces `post_trial_d2` (§8) for chains armed from 2026-10-11 on. No price,
+no discount, no deadline (same rule as §7–§9).
+
+**ES (`post_trial_d3_es`)**
+> ¡Hola {{1}}! Tu clase de prueba ya cuenta como primera clase 🥋 ¿Te gustaría venir otra vez esta semana antes de decidir? Tenemos {{2}}.
+
+**ES familia (`post_trial_d3_fam_es`)**
+> ¡Hola {{1}}! 👋 Su clase de prueba ya cuenta como primera clase. ¿Les gustaría venir otra vez esta semana antes de decidir? Tenemos {{2}}.
+
+**EN (`post_trial_d3_en`)**
+> Hi {{1}}! Your trial already counts as your first class 🥋 Would you like to come once more this week before deciding? We have {{2}}.
+
+**EN family (`post_trial_d3_fam_en`)**
+> Hi {{1}}! 👋 The trial already counts as a first class. Would you like to come once more this week before deciding? We have {{2}}.
+
+Variables: {{1}} name, {{2}} slot.
+
+## 15. post_trial_d6 — Marketing (11:00 CDMX, six days after; the goodbye)
+
+Replaces `post_trial_d5` (§9). `{{2}}` = the public schedule link
+(`links.schedule`, today https://mdcondesa.com/#horarios).
+
+**ES (`post_trial_d6_es`)**
+> ¡Hola {{1}}! Cerramos la semana 🙂 Si decides inscribirte, aquí seguimos para ayudarte con horario y paquete; si prefieres más adelante, también está bien. ¡Gracias por venir! Horarios: {{2}}
+
+**ES familia (`post_trial_d6_fam_es`)**
+> ¡Hola {{1}}! Cerramos la semana 🙂 Si deciden inscribirse, aquí seguimos para ayudarles con horario y paquete; si prefieren más adelante, sin bronca. ¡Gracias por venir! Horarios: {{2}}
+
+**EN (`post_trial_d6_en`)**
+> Hi {{1}}! Wrapping up the week 🙂 If you decide to sign up, we're here to help with schedule and plan; if later works better, that's fine too. Thanks for coming! Schedule: {{2}}
+
+**EN family (`post_trial_d6_fam_en`)**
+> Hi {{1}}! Wrapping up the week 🙂 If you decide to enroll, we're here to help with schedule and plan; if later works better, no problem. Thanks for coming! Schedule: {{2}}
+
+Variables: {{1}} name, {{2}} schedule link.
+
+## 16. reschedule_offer — Marketing (WP3: "Necesito reagendar" out of window)
+
+Used by the reschedule flow (another work package) when the lead asked to
+reschedule and the 24h window has closed. One body works for adults and
+parents. Quick-reply buttons: the two options (`{{2}}`, `{{3}}` texts).
+
+**ES (`reschedule_offer_es`)**
+> Claro {{1}}, reagendamos sin bronca 🙌 Las próximas opciones son {{2}} o {{3}}. ¿Cuál les queda mejor?
+
+**EN (`reschedule_offer_en`)**
+> Sure {{1}}, happy to reschedule 🙌 The next options are {{2}} or {{3}}. Which one works best?
+
+Variables: {{1}} name, {{2}} first slot, {{3}} second slot.
 
 ---
 
