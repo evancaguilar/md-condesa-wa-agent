@@ -49,6 +49,26 @@ Variables: {{1}} name.
 
 ---
 
+## 1b. trial_confirm_v2 — Utility (replaces §1 once approved; owner-approved 2026-10-11)
+
+Meta templates cannot be edited, so the gear line ships as a new template. The
+old "no necesitas equipo, nosotros te lo prestamos" read as "don't bring yours";
+the owner wants leads to bring their own gloves and wraps when they have them.
+
+**ES (`trial_confirm_v2_es`)**
+> ¡Hola {{1}}! 🥋 Tu clase de prueba en MD Condesa quedó confirmada. Estamos en Av. México 49, 1º piso, Condesa. Trae ropa cómoda, agua, y si tienes guantes y vendas tráelos; si no, sin bronca, nosotros te prestamos. ¡Nos vemos!
+
+**ES familia (`trial_confirm_v2_fam_es`, Kids/Teens)**
+> ¡Hola {{1}}! 🥋 La clase de prueba en MD Condesa quedó confirmada. Estamos en Av. México 49, 1º piso, Condesa. Ropa cómoda, agua, y si su peque ya tiene guantes y vendas tráiganlos; si no, nosotros se los prestamos. ¡Nos vemos!
+
+**ES bebés (`trial_confirm_v2_baby_es`, Baby Fight Club / Mini Muay Thai)**
+> ¡Hola {{1}}! 🙌 La clase de prueba en MD Condesa quedó confirmada. Estamos en Av. México 49, 1º piso, Condesa. Ropa cómoda para el peque y para ti, chanclas y agua. ¡Nos vemos!
+
+**EN (`trial_confirm_v2_en`)**
+> Hi {{1}}! 🥋 Your trial class at MD Condesa is confirmed. We're at Av. México 49, 1st floor, Condesa. Bring comfortable clothes, water, and your gloves and wraps if you have them; if not, no worries, we lend them. See you there!
+
+Variables: {{1}} name. Code switch: `tpl("trial_confirm")` → `trial_confirm_v2` once Meta approves (see followups.ts).
+
 ## 2. trial_reminder_day_before — Utility
 
 **ES (`trial_reminder_day_before_es`)**

@@ -41,7 +41,7 @@ and the brain answers instead — never a half-filled sentence.
 > ¡Hola! 💪 Qué gusto que te interese el Reto Gladiador. Estamos en Av. México 49,
 > 1er piso, Condesa.
 >
-> Empiezas con una clase de prueba GRATIS, sin experiencia ni equipo.
+> Empiezas con una clase de prueba GRATIS. No necesitas experiencia, y si tienes guantes y vendas tráelos; si no, nosotros te prestamos.
 >
 > La próxima es {{slot}} — ¿te la aparto? Si prefieres otro horario, dime cuál y lo vemos. 🙌
 

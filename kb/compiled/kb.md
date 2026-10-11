@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-10-11+628a1d7469a9
-     approx_tokens: 11740 (chars 41089 / 3.5)
+     version: 2026-10-11+920b68007b2f
+     approx_tokens: 11803 (chars 41309 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -240,8 +240,8 @@ Mensaje sugerido (niños — primero preguntar edad):
 
 ## Qué traer a la primera clase
 
-- **Adultos**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. No se necesita experiencia.
-- **Niños**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes, muchas ganas de moverse y aprender.
+- **Adultos**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Si ya tienen guantes y vendas, que los traigan; si no, sin bronca, nosotros se los prestamos. No se necesita experiencia (y si la tienen, bienvenida).
+- **Niños / Teens**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes, muchas ganas de moverse y aprender. Si el peque ya tiene guantes y vendas, que los traiga; si no, nosotros se los prestamos.
 - **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el peque Y para papá/mamá (en Baby participan toda la clase; en Mini ayudan en partes), sandalias/chanclas, botella de agua, llegar 10 minutos antes.
 
 ## Cómo describir el horario (adultos)

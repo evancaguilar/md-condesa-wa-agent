@@ -244,9 +244,9 @@ export default {
   },
   copy: {
     confirmEs:
-      "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda y una botella de agua — no necesitas equipo, nosotros te lo prestamos. ¡Nos vemos!",
+      "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda, agua, y si tienes guantes y vendas tráelos; si no, sin bronca, nosotros te prestamos. ¡Nos vemos!",
     confirmEn:
-      "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes and a water bottle — no gear needed, we lend it. See you soon!",
+      "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes, water, and your gloves and wraps if you have them; if not, no worries, we lend them. See you soon!",
     checkinEs: "¡Hola! Te escribimos de MD Condesa 🥋",
     checkinEn: "Hi! Just checking in from MD Condesa 🥋",
     // {cta} = the engine's closing line: ONE real upcoming slot from the
