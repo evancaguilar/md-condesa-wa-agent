@@ -140,8 +140,8 @@ Mensaje sugerido (niños — primero preguntar edad):
 
 ## Qué traer a la primera clase
 
-- **Adultos**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Si tienen guantes y vendas, que los traigan; si no, nosotros prestamos. No se necesita experiencia.
-- **Niños / Teens**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes, muchas ganas de moverse y aprender. Guantes y vendas propios si los tiene; si no, prestamos.
+- **Adultos**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Guantes y vendas propios si los tienen; si no, prestamos.
+- **Niños / Teens**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Guantes y vendas propios si los tiene; si no, prestamos.
 - **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el peque Y para papá/mamá (en Baby participan toda la clase; en Mini ayudan en partes), sandalias/chanclas, botella de agua, llegar 10 minutos antes.
 
 ## Cómo describir el horario (adultos)
