@@ -19,7 +19,7 @@ import { parseInteractionPayload } from "../src/services/slack-timeouts.js";
 import { claimPendingFollowup } from "../src/db/queries-admin.js";
 import { runDueFollowups, syncBookings } from "../src/cron/followups.js";
 import { noShowCopy } from "../src/cron/nudges.js";
-import { cdmxToEpoch, cdmxParts, DAY } from "../src/cron/time.js";
+import { cdmxToEpoch, cdmxParts, cdmxDateStr, DAY } from "../src/cron/time.js";
 import type { Contact, Env } from "../src/types.js";
 
 // ---- tiny scriptable fake D1 (mirrors cron.test.ts / nudges.test.ts) ----
@@ -164,14 +164,14 @@ test("isLostResult reads 'Perdido' out of any join, and nothing else", () => {
 
 // ---- post-trial timing (pure) --------------------------------------------
 
-test("computePostTrialSequence: evening trial → same-day d0, then 11:00 d2/d5", () => {
+test("computePostTrialSequence: evening trial → d0, then 11:00 d3/d6", () => {
   const marked = WED_TRIAL + 30 * 60; // marked half an hour after class
   const steps = computePostTrialSequence(WED_TRIAL, marked);
   const by = Object.fromEntries(steps.map((s) => [s.kind, s.dueAt]));
   // 19:00 + 3h = 22:00, past the 21:00 close → 09:30 the next morning.
   assert.equal(by["post_trial_d0"], cdmxToEpoch(2026, 9, 17, 9, 30, 0));
-  assert.equal(by["post_trial_d2"], cdmxToEpoch(2026, 9, 18, 11, 0, 0));
-  assert.equal(by["post_trial_d5"], cdmxToEpoch(2026, 9, 21, 11, 0, 0));
+  assert.equal(by["post_trial_d3"], cdmxToEpoch(2026, 9, 19, 11, 0, 0));
+  assert.equal(by["post_trial_d6"], cdmxToEpoch(2026, 9, 22, 11, 0, 0));
   assert.deepEqual(
     steps.map((s) => s.kind),
     [...POST_TRIAL_KINDS],
@@ -203,8 +203,8 @@ test("computePostTrialSequence: late-evening Saturday trial rolls d0 into Sunday
   const steps = computePostTrialSequence(sat, sat + 600);
   const by = Object.fromEntries(steps.map((s) => [s.kind, s.dueAt]));
   assert.equal(by["post_trial_d0"], cdmxToEpoch(2026, 9, 20, 9, 30, 0)); // Sunday
-  assert.equal(by["post_trial_d2"], cdmxToEpoch(2026, 9, 21, 11, 0, 0)); // Monday
-  assert.equal(by["post_trial_d5"], cdmxToEpoch(2026, 9, 24, 11, 0, 0)); // Thursday
+  assert.equal(by["post_trial_d3"], cdmxToEpoch(2026, 9, 22, 11, 0, 0)); // Tuesday
+  assert.equal(by["post_trial_d6"], cdmxToEpoch(2026, 9, 25, 11, 0, 0)); // Friday
 });
 
 test("computePostTrialSequence: a Sunday trial crosses the month boundary cleanly", () => {
@@ -212,32 +212,32 @@ test("computePostTrialSequence: a Sunday trial crosses the month boundary cleanl
   const by = Object.fromEntries(
     computePostTrialSequence(sun, sun + 60).map((s) => [s.kind, s.dueAt]),
   );
-  assert.equal(by["post_trial_d2"], cdmxToEpoch(2026, 9, 29, 11, 0, 0));
-  assert.equal(by["post_trial_d5"], cdmxToEpoch(2026, 10, 2, 11, 0, 0));
-  assert.equal(cdmxParts(by["post_trial_d5"]!).month, 10);
+  assert.equal(by["post_trial_d3"], cdmxToEpoch(2026, 9, 30, 11, 0, 0));
+  assert.equal(by["post_trial_d6"], cdmxToEpoch(2026, 10, 3, 11, 0, 0));
+  assert.equal(cdmxParts(by["post_trial_d6"]!).month, 10);
 });
 
 test("computePostTrialSequence: marked 3 days late keeps only what is still ahead", () => {
   const marked = WED_TRIAL + 3 * DAY; // Saturday evening
   const kinds = computePostTrialSequence(WED_TRIAL, marked).map((s) => s.kind);
-  assert.deepEqual(kinds, ["post_trial_d5"]); // d0 stale, d2 (Friday 11:00) past
+  assert.deepEqual(kinds, ["post_trial_d6"]); // d0 stale, d3 (Saturday 11:00) past
 });
 
 test("computePostTrialSequence: the 48h cutoff is what drops d0, not the clock alone", () => {
-  const marked = WED_TRIAL + 2 * DAY + 3600; // Friday 20:00, d2 was Friday 11:00
+  const marked = WED_TRIAL + 2 * DAY + 3600; // Friday 20:00 — past 48h
   const late = WED_TRIAL + 2 * DAY - 12 * 3600; // Thursday ~07:00: past 48h? no
   assert.deepEqual(
     computePostTrialSequence(WED_TRIAL, late).map((s) => s.kind),
-    ["post_trial_d0", "post_trial_d2", "post_trial_d5"],
+    ["post_trial_d0", "post_trial_d3", "post_trial_d6"],
   );
   assert.deepEqual(
     computePostTrialSequence(WED_TRIAL, marked).map((s) => s.kind),
-    ["post_trial_d5"],
+    ["post_trial_d3", "post_trial_d6"],
   );
 });
 
-test("computePostTrialSequence: a trial older than 5 days arms nothing", () => {
-  assert.deepEqual(computePostTrialSequence(WED_TRIAL, WED_TRIAL + 6 * DAY), []);
+test("computePostTrialSequence: a trial older than 6 days arms nothing", () => {
+  assert.deepEqual(computePostTrialSequence(WED_TRIAL, WED_TRIAL + 6 * DAY + 60), []);
   // …and neither does a nonsense record dated far in the future.
   assert.deepEqual(computePostTrialSequence(WED_TRIAL, WED_TRIAL - 3 * DAY), []);
   assert.deepEqual(computePostTrialSequence(NaN, WED_TRIAL), []);
@@ -324,10 +324,14 @@ test("no-show copy: the two touches differ and both close with a CTA + link", ()
   }
 });
 
-test("postTrialTemplateName: post-trial kinds are their own base, no_show_d3 reuses the existing one", () => {
+test("postTrialTemplateName: v2 kinds, _fam for parents, legacy no_show_d3 → no_show_d2 (never the 'ayer' template)", () => {
   assert.equal(postTrialTemplateName("post_trial_d0"), "post_trial_d0");
   assert.equal(postTrialTemplateName("post_trial_d5"), "post_trial_d5");
-  assert.equal(postTrialTemplateName("no_show_d3"), "no_show_followup");
+  assert.equal(postTrialTemplateName("post_trial_d3"), "post_trial_d3");
+  assert.equal(postTrialTemplateName("post_trial_d6", null, "kids"), "post_trial_d6_fam");
+  assert.equal(postTrialTemplateName("no_show_hoy", null, "baby"), "no_show_hoy_fam");
+  assert.equal(postTrialTemplateName("no_show_d7"), "no_show_d7");
+  assert.equal(postTrialTemplateName("no_show_d3"), "no_show_d2");
 });
 
 // ---- send-time stop conditions -------------------------------------------
@@ -432,7 +436,7 @@ test("processPostTrial: a closed window falls back to the per-kind template", as
   assert.deepEqual(sent, ["[template:post_trial_d0_es]"]);
 });
 
-test("processPostTrial: no_show_d3 falls back to the existing no_show_followup template", async () => {
+test("processPostTrial: legacy no_show_d3 falls back to no_show_d2 (slot template), never the 'ayer' one", async () => {
   const { sent, deps } = sendDeps([], { windowClosed: true });
   const { db } = contactDb(contact({}));
   const res = await processPostTrial(
@@ -442,7 +446,7 @@ test("processPostTrial: no_show_d3 falls back to the existing no_show_followup t
     WED_TRIAL,
   );
   assert.deepEqual(res, { outcome: "sent" });
-  assert.deepEqual(sent, ["[template:no_show_followup_es]"]);
+  assert.deepEqual(sent, ["[template:no_show_d2_es]"]);
 });
 
 test("processPostTrial: an unapproved template is reported as approval-pending", async () => {
@@ -586,8 +590,13 @@ test("runDueFollowups: a stopChain outcome cancels the rest of the chain by kind
     });
     assert.deepEqual(cancelledKinds, [
       "post_trial_d0",
+      "post_trial_d3",
+      "post_trial_d6",
       "post_trial_d2",
       "post_trial_d5",
+      "no_show_hoy",
+      "no_show_d2",
+      "no_show_d7",
       "no_show_d3",
       "post_trial_card",
     ]);
@@ -651,6 +660,9 @@ async function runWatcher(
       });
       return {};
     }
+    // syncBookings retiring one record's own reminder rows (date past /
+    // cleared / next to Asistió) — not part of what these tests assert on.
+    if (sql.includes("kind IN ('trial_confirm'")) return {};
     if (sql.startsWith("UPDATE followups SET status") && sql.includes("kind IN")) {
       run.cancelledKinds.push(binds.slice(2).map(String));
       return {};
@@ -697,12 +709,14 @@ function recentTrial(): number {
 }
 
 test("result watcher: 'Asistió' arms the three post-trial rows and pings Slack", async () => {
-  const run = await runWatcher("Asistió", recentTrial());
+  const trial = recentTrial();
+  const run = await runWatcher("Asistió", trial);
   assert.deepEqual(
     run.scheduled.map((s) => s.kind),
-    ["post_trial_d0", "post_trial_d2", "post_trial_d5"],
+    ["post_trial_d0", "post_trial_d3", "post_trial_d6"],
   );
-  assert.ok(run.scheduled.every((s) => s.recordId === "recA"));
+  // keyed per PHONE + trial date (one chain per family), not per record
+  assert.ok(run.scheduled.every((s) => s.recordId === `pt:${cdmxDateStr(trial)}`));
   assert.equal(run.notes.length, 1);
   assert.ok(/asistió y no se inscribió/.test(run.notes[0]!), run.notes[0]);
   assert.ok(/Ana/.test(run.notes[0]!), run.notes[0]);
@@ -745,8 +759,8 @@ test("result watcher: an opted-out attendee gets bookkeeping and nothing else", 
   assert.equal(run.kv.get("resultado:recA"), "attended");
 });
 
-test("result watcher: an attendance marked 6 days late arms nothing and stays quiet", async () => {
-  const run = await runWatcher("Asistió", Math.floor(Date.now() / 1000) - 6 * DAY);
+test("result watcher: an attendance marked 7 days late arms nothing and stays quiet", async () => {
+  const run = await runWatcher("Asistió", Math.floor(Date.now() / 1000) - 7 * DAY);
   assert.deepEqual(run.scheduled, []);
   assert.deepEqual(run.notes, []);
   assert.equal(run.kv.get("resultado:recA"), "attended");
@@ -799,7 +813,7 @@ test("result watcher: 'Se inscribió, Perdido' still enrolls them — they paid"
 
 test("result watcher: 'No asistió, Reprogramó' with a live booking says nothing", async () => {
   const run = await runWatcher("No asistió, Reprogramó", recentTrial(), { rebooked: true });
-  assert.deepEqual(run.scheduled, []); // no no_show_d3
+  assert.deepEqual(run.scheduled, []); // no no-show chain
   assert.equal(run.cancelledAll, 0); // the NEW sequence must survive
   assert.deepEqual(run.cancelledKinds, []);
   assert.equal(run.kv.get("resultado:recA"), "no_show");
@@ -815,13 +829,15 @@ test("result watcher: an attendee who already rebooked keeps that sequence", asy
   assert.ok(!cancelled.includes("day_before"));
 });
 
-test("result watcher: 'No asistió' arms the +3d touch and proposes a real slot", async () => {
+test("result watcher: 'No asistió' arms the no-show chain v2 (nothing sent inline)", async () => {
   const run = await runWatcher("No asistió", recentTrial());
   assert.deepEqual(
     run.scheduled.map((s) => s.kind),
-    ["no_show_d3"],
+    ["no_show_hoy", "no_show_d2", "no_show_d7"],
   );
-  assert.ok(run.cancelledAll > 0); // every pending row dies first
+  assert.deepEqual(run.sent, []);
+  assert.equal(run.cancelledAll, 0); // the chain's own rows survive
+  assert.ok(run.cancelledKinds.flat().includes("nudge_d2"));
   assert.equal(run.kv.get("resultado:recA"), "no_show");
 });
 
@@ -855,7 +871,7 @@ test("decideClaim: a fresh claim records and stops today's message only", () => 
   assert.equal(d.record, true);
   assert.ok(d.text.includes("evan le escribe hoy a Ana (5215512345678)"), d.text);
   assert.ok(d.text.includes("el bot NO manda el mensaje de hoy"), d.text);
-  assert.ok(d.text.includes("+2d y +5d siguen"), d.text);
+  assert.ok(d.text.includes("+3d y +6d siguen"), d.text);
 });
 
 test("decideClaim: a second click reports who got there first, records nothing", () => {
@@ -939,7 +955,7 @@ test("claimPendingFollowup: a cancelled/absent row reports no send time", async 
 test("attendedCardText is the 🔥 line the card leads with", () => {
   const t = attendedCardText("Ana", "5215512345678");
   assert.ok(t.startsWith("🔥 Ana (5215512345678) asistió y no se inscribió"), t);
-  assert.ok(t.includes("hoy, +2d, +5d"), t);
+  assert.ok(t.includes("hoy, +3d, +6d"), t);
 });
 
 // ---- the two result readers stay independent but must not contradict -------
@@ -1028,21 +1044,30 @@ test("post_trial_card is part of the cancellation surface and its note round-tri
 
 // ---- d0 "ayer" variant (2026-10-07) --------------------------------------
 
-test("computePostTrialSequence: 18:00 class → d0 next day 09:30 tagged ayer", () => {
-  const trial = cdmxToEpoch(2026, 10, 6, 18, 0, 0);
-  const d0 = computePostTrialSequence(trial, trial + 3600).find((s) => s.kind === "post_trial_d0")!;
-  assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 7, 9, 30, 0));
-  assert.equal(d0.note, "ayer");
+test("computePostTrialSequence: 18:00 / 19:30 class → d0 next day 09:30 (day word decided at send time)", () => {
+  for (const [h, m] of [[18, 0], [19, 30]] as const) {
+    const trial = cdmxToEpoch(2026, 10, 6, h, m, 0);
+    const d0 = computePostTrialSequence(trial, trial + 3600).find((s) => s.kind === "post_trial_d0")!;
+    assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 7, 9, 30, 0));
+    assert.equal(d0.note, undefined);
+  }
 });
 
-test("computePostTrialSequence: 19:30 class → d0 next day 09:30 tagged ayer", () => {
-  const trial = cdmxToEpoch(2026, 10, 6, 19, 30, 0);
-  const d0 = computePostTrialSequence(trial, trial + 3600).find((s) => s.kind === "post_trial_d0")!;
-  assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 7, 9, 30, 0));
-  assert.equal(d0.note, "ayer");
+test("post-trial d0 copy: the SEND moment picks hoy vs ayer (a quiet-pushed row never says 'verte hoy' next morning)", () => {
+  const trial = cdmxToEpoch(2026, 10, 6, 11, 0, 0);
+  const sameDay = postTrialCopy(contact({ name: "Ana" }), "post_trial_d0", null, false, {
+    trialEpoch: trial,
+    now: cdmxToEpoch(2026, 10, 6, 14, 30, 0),
+  });
+  assert.ok(sameDay.includes("verte hoy"), sameDay);
+  const nextMorning = postTrialCopy(contact({ name: "Ana" }), "post_trial_d0", null, false, {
+    trialEpoch: trial,
+    now: cdmxToEpoch(2026, 10, 7, 8, 0, 0),
+  });
+  assert.ok(nextMorning.includes("verte ayer"), nextMorning);
 });
 
-test("computePostTrialSequence: 11:00 class → same-day 14:30 d0, no note; d2/d5 never noted", () => {
+test("computePostTrialSequence: 11:00 class → same-day 14:30 d0, no note; d3/d6 never noted", () => {
   const trial = cdmxToEpoch(2026, 10, 6, 11, 0, 0);
   const steps = computePostTrialSequence(trial, trial + 3600);
   const d0 = steps.find((s) => s.kind === "post_trial_d0")!;
@@ -1051,13 +1076,12 @@ test("computePostTrialSequence: 11:00 class → same-day 14:30 d0, no note; d2/d
   for (const s of steps.filter((x) => x.kind !== "post_trial_d0")) assert.equal(s.note, undefined);
 });
 
-test("computePostTrialSequence: 11:00 class marked next morning → past d0 (fires next tick) tagged ayer", () => {
+test("computePostTrialSequence: 11:00 class marked next morning → past d0 (fires next tick)", () => {
   const trial = cdmxToEpoch(2026, 10, 6, 11, 0, 0);
   const now = cdmxToEpoch(2026, 10, 7, 8, 0, 0);
   const d0 = computePostTrialSequence(trial, now).find((s) => s.kind === "post_trial_d0")!;
   assert.equal(d0.dueAt, cdmxToEpoch(2026, 10, 6, 14, 30, 0)); // unchanged: already due
   assert.ok(d0.dueAt < now);
-  assert.equal(d0.note, "ayer");
 });
 
 test("post-trial copy: ayer flag swaps d0 to the 'ayer' body (both langs), not d2", () => {

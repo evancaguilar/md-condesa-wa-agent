@@ -476,8 +476,12 @@ export async function rescheduleFollowup(
       `INSERT INTO followups(phone, kind, due_at, status, airtable_record_id, note, created_at)
        VALUES(?1, ?2, ?3, 'scheduled', ?4, ?5, ?6)
        ON CONFLICT(phone, kind, airtable_record_id) DO UPDATE SET
-         due_at = excluded.due_at, status = 'scheduled', note = excluded.note, created_at = excluded.created_at
-       WHERE followups.due_at <> excluded.due_at AND followups.status <> 'skipped_optout'`,
+         status = CASE WHEN followups.due_at <> excluded.due_at THEN 'scheduled' ELSE followups.status END,
+         created_at = CASE WHEN followups.due_at <> excluded.due_at THEN excluded.created_at ELSE followups.created_at END,
+         due_at = excluded.due_at, note = excluded.note
+       WHERE followups.status <> 'skipped_optout'
+         AND (followups.due_at <> excluded.due_at
+              OR (excluded.note IS NOT NULL AND COALESCE(followups.note, '') NOT LIKE excluded.note || '%'))`,
     )
     .bind(
       input.phone,
@@ -513,6 +517,32 @@ export async function cancelFollowupsOfOtherRecords(
          AND kind IN (${placeholders})`,
     )
     .bind(phone, bare, `${bare}#%`, ...kinds)
+    .run();
+}
+
+/**
+ * Cancel the scheduled trial reminders (trial_confirm / day_before / same_day)
+ * of ONE Airtable record — its group-booking "#n" rows included — and, with
+ * `includeNoShow`, the first no-show touch armed from it (keyed per date, so
+ * matched through its `rec:<id>` note). syncBookings calls this when a record's
+ * date is cleared, past, or sits next to an Asistió / Se inscribió.
+ */
+export async function cancelReminderRowsForRecord(
+  db: D1Database,
+  phone: string,
+  recordId: string,
+  includeNoShow: boolean,
+): Promise<void> {
+  const bare = recordId.split("#")[0] ?? recordId;
+  await db
+    .prepare(
+      `UPDATE followups SET status = 'cancelled'
+       WHERE phone = ?1 AND status = 'scheduled' AND (
+         (kind IN ('trial_confirm', 'day_before', 'same_day')
+            AND (airtable_record_id = ?2 OR airtable_record_id LIKE ?3))
+         OR (?4 = 1 AND kind = 'no_show_hoy' AND note LIKE ?5))`,
+    )
+    .bind(phone, bare, `${bare}#%`, includeNoShow ? 1 : 0, `rec:${bare}%`)
     .run();
 }
 

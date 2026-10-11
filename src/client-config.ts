@@ -74,6 +74,35 @@ export interface ClientCopy {
   postTrialD2En: string;
   postTrialD5Es: string;
   postTrialD5En: string;
+  /**
+   * v2 chains (src/cron/post-trial.ts, 2026-10-11). Optional: a client without
+   * them falls back to the v1 lines. `Fam` = plural copy to a parent (baby /
+   * mini / kids / teens). Extra placeholders, filled by post-trial.ts:
+   * {day} → "hoy" / "ayer" / "el sábado" (computed at send time) and
+   * {kid} → the child's name or "su peque" / "su bebé".
+   */
+  noShowHoyEs?: string;
+  noShowHoyEn?: string;
+  noShowHoyFamEs?: string;
+  noShowHoyFamEn?: string;
+  noShowD2Es?: string;
+  noShowD2En?: string;
+  noShowD2FamEs?: string;
+  noShowD2FamEn?: string;
+  noShowD7Es?: string;
+  noShowD7En?: string;
+  noShowD7FamEs?: string;
+  noShowD7FamEn?: string;
+  postTrialD0FamEs?: string;
+  postTrialD0FamEn?: string;
+  postTrialD3Es?: string;
+  postTrialD3En?: string;
+  postTrialD3FamEs?: string;
+  postTrialD3FamEn?: string;
+  postTrialD6Es?: string;
+  postTrialD6En?: string;
+  postTrialD6FamEs?: string;
+  postTrialD6FamEn?: string;
 }
 
 export interface ClientFeatures {

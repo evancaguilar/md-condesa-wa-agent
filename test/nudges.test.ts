@@ -498,16 +498,25 @@ test("syncBookings: future booking cancels nudge_* rows", async () => {
   assert.equal(nudgeCancelForBooking, true);
 });
 
-test("syncBookings: 'No asistió' result (trial today) → cancels all followups, sends reschedule, marks kv once", async () => {
-  stubFetchOk();
+test("syncBookings: 'No asistió' result (trial today) → arms the no-show chain per phone, sends nothing inline, marks kv once", async () => {
+  let sent = false;
+  (globalThis as { fetch: unknown }).fetch = async () => {
+    sent = true;
+    return { ok: true, status: 200, async json() { return { messages: [{ id: "w" }] }; }, async text() { return ""; } };
+  };
   let cancelledAll = false;
+  const armed: { kind: string; key: unknown }[] = [];
   let kvMark: string | null = null;
   const { db } = fakeDb((sql, binds) => {
     if (sql.includes("SELECT value FROM kv")) {
       if (String(binds[0]).startsWith("resultado:")) return { first: null }; // not acted yet
       return { first: { value: "2026-01-01T00:00:00Z" } };
     }
-    if (sql.startsWith("UPDATE followups SET status") && !sql.includes("kind IN"))
+    if (sql.includes("INSERT OR IGNORE INTO followups")) {
+      armed.push({ kind: String(binds[1]), key: binds[3] });
+      return {};
+    }
+    if (sql.startsWith("UPDATE followups SET status") && !sql.includes("kind IN") && !sql.includes("kind ="))
       cancelledAll = true; // cancelFollowups (all kinds)
     if (sql.includes("SELECT * FROM contacts"))
       return { first: contact({ status: "lead", last_inbound_at: Math.floor(Date.now() / 1000) }) };
@@ -531,7 +540,13 @@ test("syncBookings: 'No asistió' result (trial today) → cancels all followups
     },
   };
   await syncBookings(envWith(db), fakeAirtable);
-  assert.equal(cancelledAll, true);
+  assert.equal(cancelledAll, false, "the chain's own rows must survive");
+  assert.equal(sent, false, "every touch goes out from its row, after class + 2 h");
+  assert.deepEqual(
+    armed.map((a) => a.kind),
+    ["no_show_hoy", "no_show_d2", "no_show_d7"],
+  );
+  assert.ok(armed.every((a) => String(a.key).startsWith("ns:")), "keyed per phone + date");
   assert.equal(kvMark, "no_show");
 });
 
@@ -654,8 +669,7 @@ test("syncBookings: 'Se inscribió' for an opted-out lead → bookkeeping only, 
       return { first: { value: "2026-01-01T00:00:00Z" } };
     }
     if (sql.startsWith("UPDATE contacts SET status") && binds[1] === "student") setStudent = true;
-    if (sql.startsWith("UPDATE followups SET status") && !sql.includes("kind IN"))
-      cancelledAll = true;
+    if (sql.includes("kind IN") && sql.includes("UPDATE followups SET status")) cancelledAll = true;
     if (sql.includes("SELECT * FROM contacts"))
       return {
         first: contact({ status: "opted_out", last_inbound_at: Math.floor(Date.now() / 1000) }),
@@ -699,8 +713,7 @@ test("syncBookings: 'No asistió' for an opted-out lead → cancels + marks, no 
       if (String(binds[0]).startsWith("resultado:")) return { first: null };
       return { first: { value: "2026-01-01T00:00:00Z" } };
     }
-    if (sql.startsWith("UPDATE followups SET status") && !sql.includes("kind IN"))
-      cancelledAll = true;
+    if (sql.includes("kind IN") && sql.includes("UPDATE followups SET status")) cancelledAll = true;
     if (sql.includes("SELECT * FROM contacts"))
       return {
         first: contact({ status: "opted_out", last_inbound_at: Math.floor(Date.now() / 1000) }),

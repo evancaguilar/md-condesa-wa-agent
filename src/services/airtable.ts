@@ -786,6 +786,23 @@ export async function listRecentBookings(
   return out;
 }
 
+/**
+ * One booking record by id, re-read right before a trial reminder / no-show
+ * touch goes out (src/cron/followups.ts shouldSendReminder). null when the
+ * record no longer exists (404); throws on any other failure so the caller's
+ * retry machinery decides.
+ */
+export async function getBookingRecord(
+  env: Env,
+  recordId: string,
+): Promise<BookingRecord | null> {
+  const url = `${baseUrl(env, env.AIRTABLE_TRIALS_TABLE)}/${encodeURIComponent(recordId)}`;
+  const res = await airtableFetch(env, url, { method: "GET" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`airtable getBookingRecord failed: HTTP ${res.status}`);
+  return toBookingRecord((await res.json()) as AirtableRecord, resultFieldName(env));
+}
+
 function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord {
   const f = r.fields;
   const m = leadsMap();

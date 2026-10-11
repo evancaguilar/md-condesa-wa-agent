@@ -24,6 +24,8 @@ export interface Mismatch {
   snippet: string;
   /** CDMX date the copy actually promised, when it states one. */
   claimedDate?: string;
+  /** "HH:mm" the copy promised, when it states one (names the slot in the alert). */
+  claimedTime?: string;
   /** Closest booking this lead DOES have (CDMX date), or null if none at all. */
   nearestBookingDate?: string | null;
 }
@@ -72,8 +74,13 @@ function trialEpochsFor(send: ReconSend, bookings: ReconBooking[]): number[] {
  * against the day it was WRITTEN, not the day the cron runs.
  */
 function claimedDateOf(send: ReconSend): string | undefined {
+  return claimedSlotOf(send).date;
+}
+
+function claimedSlotOf(send: ReconSend): { date?: string; time?: string } {
   const { iso, weekdayIdx } = cdmxHintContext(send.ts);
-  return parseBookingHints(send.body, iso, weekdayIdx).trialDate;
+  const h = parseBookingHints(send.body, iso, weekdayIdx);
+  return { date: h.trialDate, time: h.trialTime };
 }
 
 /** Noon CDMX of a YYYY-MM-DD, for date-distance math. */
@@ -132,6 +139,8 @@ export function findUnbackedConfirmations(
       ts: send.ts,
       snippet: send.body.slice(0, 120),
     };
+    const claimedTime = claimedSlotOf(send).time;
+    if (claimedTime) m.claimedTime = claimedTime;
     if (claimedDate) {
       m.claimedDate = claimedDate;
       // What the lead DOES have, so the digest can say "prometido X, hay Y".
@@ -147,4 +156,29 @@ export function findUnbackedConfirmations(
     mismatches.push(m);
   }
   return mismatches;
+}
+
+/** How far back the daily alert looks: an unbacked claim repeats every day
+ *  until Airtable has the booking (or the claim goes stale, below). */
+export const RECON_LOOKBACK_S = 14 * 24 * 3600;
+
+/**
+ * Pure. Should this mismatch still be in today's alert? It repeats daily until
+ * resolved (a matching Airtable record makes it disappear from the mismatch
+ * list itself), and stops once it can no longer be acted on: a dated promise
+ * whose class day is more than a day behind us, or an undated claim older
+ * than 7 days.
+ */
+export function stillActionable(m: Mismatch, now: number): boolean {
+  if (m.claimedDate) return noonEpoch(m.claimedDate) + 36 * 3600 >= now;
+  return now - m.ts <= SEVEN_DAYS_S;
+}
+
+const WD = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
+/** Pure. "sáb 2026-10-10 14:00" / "2026-10-10" / "" — the slot the alert names. */
+export function slotLabel(m: Pick<Mismatch, "claimedDate" | "claimedTime">): string {
+  if (!m.claimedDate) return m.claimedTime ? `${m.claimedTime} (sin fecha)` : "";
+  const wd = WD[new Date(`${m.claimedDate}T12:00:00Z`).getUTCDay()] ?? "";
+  return `${wd} ${m.claimedDate}${m.claimedTime ? ` ${m.claimedTime}` : ""}`.trim();
 }

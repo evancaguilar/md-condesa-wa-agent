@@ -192,12 +192,12 @@ test("computeTrialSequence: a web-form booking days ahead keeps all three steps"
 });
 
 test("scheduleTrialSequence: a rebook re-arms the reminders at the new slot and retires the dropped step", async () => {
-  const upserts: { kind: string; dueAt: number; recordId: unknown }[] = [];
+  const upserts: { kind: string; dueAt: number; recordId: unknown; note?: unknown }[] = [];
   const cancelled: string[] = [];
   const cancelledOthers: unknown[][] = [];
   const { db } = fakeDb((sql, binds) => {
     if (sql.includes("ON CONFLICT(phone, kind, airtable_record_id)")) {
-      upserts.push({ kind: String(binds[1]), dueAt: Number(binds[2]), recordId: binds[3] });
+      upserts.push({ kind: String(binds[1]), dueAt: Number(binds[2]), recordId: binds[3], note: binds[4] });
       return {};
     }
     if (sql.includes("airtable_record_id NOT LIKE")) {
@@ -216,13 +216,19 @@ test("scheduleTrialSequence: a rebook re-arms the reminders at the new slot and 
     includeConfirm: false,
     nowEpoch: cdmxToEpoch(2026, 9, 28, 13, 0, 0),
   });
+  const trial = cdmxToEpoch(2026, 9, 28, 18, 0, 0);
   assert.deepEqual(upserts, [
-    { kind: "same_day", dueAt: cdmxToEpoch(2026, 9, 28, 14, 0, 0), recordId: "recX" },
+    // reminders remember the class they were armed for (send-time guard)
+    { kind: "same_day", dueAt: cdmxToEpoch(2026, 9, 28, 14, 0, 0), recordId: "recX", note: `trial:${trial}` },
+    // the first no-show touch rides with the booking: class + 2 h, per phone + date
+    { kind: "no_show_hoy", dueAt: trial + 2 * 3600, recordId: "ns:2026-09-28", note: `rec:recX;trial:${trial}` },
   ]);
   assert.deepEqual(cancelled, ["day_before"]);
-  // reminders of any OTHER booking record for this phone are cancelled
-  assert.equal(cancelledOthers.length, 1);
+  // reminders of any OTHER booking record for this phone are cancelled, and a
+  // no-show touch armed for another date
+  assert.equal(cancelledOthers.length, 2);
   assert.deepEqual(cancelledOthers[0]!.slice(0, 3), ["5215512345678", "recX", "recX#%"]);
+  assert.deepEqual(cancelledOthers[1]!.slice(0, 4), ["5215512345678", "ns:2026-09-28", "ns:2026-09-28#%", "no_show_hoy"]);
 });
 
 // ---- phone normalization ----

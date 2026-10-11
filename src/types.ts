@@ -278,6 +278,14 @@ export type FollowupKind =
   | "post_trial_d0"
   | "post_trial_d2"
   | "post_trial_d5"
+  /** v2 attended chain (2026-10-11): +3 / +6 days at 11:00 (d2/d5 legacy). */
+  | "post_trial_d3"
+  | "post_trial_d6"
+  /** v2 no-show chain: class start + 2 h (armed with the booking, sends only
+   *  while Resultado is empty / "No asistió"), then +2 / +7 days at 11:00. */
+  | "no_show_hoy"
+  | "no_show_d2"
+  | "no_show_d7"
   /** The Slack "asistió y no se inscribió" card, held until ~30 min after the
    *  class ends so the front desk can close in person first (src/cron/post-trial.ts). */
   | "post_trial_card"
