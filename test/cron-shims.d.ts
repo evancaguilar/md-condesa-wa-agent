@@ -39,9 +39,20 @@ interface RequestInit {
 interface Response {
   ok: boolean;
   status: number;
+  /** Optional so hand-rolled fake responses still type-check. */
+  headers?: { get(name: string): string | null };
   json(): Promise<unknown>;
   text(): Promise<string>;
 }
+// Node's global Request/Response, for route handlers under test (src/routes/google-click.ts).
+declare var Response: {
+  new (body?: string | null, init?: { status?: number; headers?: Record<string, string> }): Response;
+};
+interface Request {
+  method: string;
+  text(): Promise<string>;
+}
+declare var Request: { new (url: string, init?: RequestInit): Request };
 
 declare class URL {
   constructor(url: string, base?: string);

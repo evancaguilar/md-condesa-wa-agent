@@ -98,3 +98,58 @@ export function googleClickFromAd(ad: string | null | undefined): { gclid: strin
   }
   return gclid ? { gclid, time } : null;
 }
+
+// ---- short code (attribution.js v8+) ----
+//
+// A real gclid is ~100 characters, far too long to sit in a lead's WhatsApp
+// message. Since v8 the site makes a 6-character code per Google click, POSTs
+// {code, kind, id, ts} to the worker's /g endpoint when the click is captured
+// (page load, not WhatsApp tap), and the prefill ends with just "[K7M2QX]".
+// The worker keeps the click in kv `gref:<code>` and the inbound pipeline
+// swaps the code for the click.
+
+/** Code alphabet: no 0/O, 1/I/L — readable if someone retypes it. */
+export const GOOGLE_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const CODE_RE = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/;
+const CODE_IN_BODY_RE = /\s*\[([23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6})\]/;
+
+/** kv key holding the click a site code stands for. */
+export function googleRefKey(code: string): string {
+  return `gref:${code}`;
+}
+
+/** Finds a "[K7M2QX]" code in an inbound body; returns it and the body without it. */
+export function parseGoogleClickCode(body: string): { code: string | null; body: string } {
+  const m = CODE_IN_BODY_RE.exec(body);
+  if (!m) return { code: null, body };
+  return { code: m[1]!, body: (body.slice(0, m.index) + body.slice(m.index + m[0].length)).trim() };
+}
+
+/** Max age of a click the beacon accepts / the cleanup keeps: Google's 90-day gclid life. */
+export const GOOGLE_CLICK_TTL_SEC = 90 * 86400;
+
+/**
+ * Validates the site's beacon body: {"code","kind","id","ts"} with ts in ms
+ * (Date.now()). Returns null on anything off — the endpoint is public, so
+ * nothing loosely shaped is stored.
+ */
+export function parseGoogleClickBeacon(
+  raw: string,
+  nowSec: number,
+): { code: string; click: GoogleClick } | null {
+  if (!raw || raw.length > 1024) return null;
+  let v: { code?: unknown; kind?: unknown; id?: unknown; ts?: unknown };
+  try {
+    v = JSON.parse(raw) as typeof v;
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== "object") return null;
+  if (typeof v.code !== "string" || !CODE_RE.test(v.code)) return null;
+  if (v.kind !== "gclid" && v.kind !== "gbraid" && v.kind !== "wbraid") return null;
+  if (typeof v.id !== "string" || !/^[A-Za-z0-9_-]{4,200}$/.test(v.id)) return null;
+  if (typeof v.ts !== "number" || !Number.isFinite(v.ts)) return null;
+  const ts = Math.floor(v.ts / 1000);
+  if (ts > nowSec + 3600 || ts < nowSec - GOOGLE_CLICK_TTL_SEC) return null;
+  return { code: v.code, click: { kind: v.kind, id: v.id, ts } };
+}

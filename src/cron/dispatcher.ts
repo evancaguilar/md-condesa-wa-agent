@@ -40,6 +40,7 @@ import { runAudienceSync } from "./audiences.js";
 import { syncPostTrialD0Templates } from "./template-sync.js";
 import { seedCampaigns } from "./seed-campaigns.js";
 import { runRedrive } from "./redrive.js";
+import { gcGoogleRefs } from "../routes/google-click.js";
 import { copyStep, startCursor, type CopyCursor, type DbLike } from "../services/d1-copy.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
@@ -257,6 +258,8 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       await safe("audienceSync", () => runAudienceSync(env, nowEpoch, { postNote: metricsNote }));
       await safe("budgetReport", () => runBudgetReport(env, cronDeps, nowEpoch));
       await safe("ensureControlPanel", () => cronDeps.ensureControlPanel(env));
+      // Expire Google click codes from the site's /g beacon (90-day gclid life).
+      await safe("googleRefGc", () => gcGoogleRefs(env.DB, nowEpoch));
       // Edit tuner: self-gated to ~weekly + ≥5 new edits since its watermark.
       await safe("editTuning", () => maybeRunEditTuning(env, cronDeps, nowEpoch));
       // Booking-reconciliation backstop: flag outbound "ya quedó agendado"
