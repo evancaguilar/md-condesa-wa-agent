@@ -110,6 +110,7 @@ import {
 } from "../services/media.js";
 import { lookupAdMeta } from "../services/ad-meta.js";
 import { attributionFor, decorateBookingLinks } from "../services/booking-link.js";
+import { googleClickKey, parseGoogleClickRef, type GoogleClick } from "../services/google-click.js";
 import {
   bookingMarkerLive,
   bookingRecordedKey,
@@ -209,6 +210,18 @@ export async function processInbound(
     if (msg.media.mediaUrl) meta.mediaUrl = msg.media.mediaUrl;
     if (msg.media.filename) meta.filename = msg.media.filename;
   }
+  // Google Ads click ref the site appends to its WhatsApp prefill
+  // ("… [ref gclid:<id>:<ts>]"): stripped from the body BEFORE it is stored, so
+  // the brain/Slack/dashboard never see it; kept on the bubble's meta and, in
+  // 1a below, in kv for the Leads gclid / gclid_time columns.
+  const gRef = parseGoogleClickRef(body);
+  let googleClick: GoogleClick | null = null;
+  if (gRef.click) {
+    googleClick = gRef.click;
+    body = gRef.body;
+    meta = meta ?? {};
+    meta.googleClick = googleClick;
+  }
   // Per-message ad context: lets the dashboard show "respondió a un anuncio"
   // on THIS bubble (contact.ad_ref below keeps only the first attribution).
   if (msg.referral && (msg.referral.headline || msg.referral.sourceId)) {
@@ -265,6 +278,15 @@ export async function processInbound(
         thumbnailUrl: msg.referral.thumbnailUrl ?? null,
       };
       await setContactAdRef(env.DB, msg.phone, JSON.stringify(adRef));
+    }
+  }
+  // Google click: first one wins, like ad_ref. Written before the Airtable
+  // sync below so this very message's lead_created/campaign_matched carries it.
+  if (googleClick) {
+    try {
+      await kvSetIfAbsent(env.DB, googleClickKey(msg.phone), JSON.stringify(googleClick));
+    } catch (err) {
+      console.warn("[inbound] google click store failed", msg.phone, err);
     }
   }
 

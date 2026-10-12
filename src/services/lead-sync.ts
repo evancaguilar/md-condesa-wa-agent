@@ -20,6 +20,7 @@ import {
 } from "./airtable.js";
 import { parseRule, ruleMatches } from "./airtable-rules.js";
 import { ctwaClidFromAdRef } from "./meta-capi.js";
+import { googleClickKey, parseStoredGoogleClick } from "./google-click.js";
 import { classifyProgram, legacyProgram } from "../cron/nudge-copy.js";
 import { postNote } from "./slack.js";
 import { cdmxDateStr } from "../cron/time.js";
@@ -83,6 +84,8 @@ export async function syncLead(
       if (c) campaignName = c.name;
     }
     const ad = adLabelFromRef(contact.ad_ref);
+    // Google Ads click captured from the site's WhatsApp prefill (inbound 1a).
+    const googleClick = parseStoredGoogleClick(await kvGet(env.DB, googleClickKey(phone)));
 
     // One find: used for fill-if-empty of base fields AND to skip upsertLead's
     // own lookup. upsertLead returns the authoritative post-write fields.
@@ -94,6 +97,7 @@ export async function syncLead(
       campaignName,
       ad,
       ctwaClid: ctwaClidFromAdRef(contact.ad_ref),
+      googleClick,
     });
     const res = await upsertLead(env, phone, baseFields, baseFields, current);
     if (contact.airtable_lead_id !== res.id) {

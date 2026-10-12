@@ -126,6 +126,10 @@ export default {
     // multi-select is marked by the drain ONLY after Meta answers 2xx; the
     // rollup is the Purchase value (never written).
     ctwaClid: "CTWA Click ID",
+    // Google Ads click (site attribution.js → WhatsApp prefill ref or form
+    // prefill). Text columns; written fill-if-empty, id and time together.
+    gclid: "gclid",
+    gclidTime: "gclid_time",
     booked: "Agendó",
     attended: "Asistió",
     closed: "Cerró",

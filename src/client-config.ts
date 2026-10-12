@@ -173,6 +173,13 @@ export interface AirtableLeadsMap {
   /** Click-to-WhatsApp click id column, e.g. "CTWA Click ID". Written
    *  fill-if-empty from contacts.ad_ref (docs/meta-capi.md). Absent = not synced. */
   ctwaClid?: string;
+  /** Google Ads click id column, e.g. "gclid" (gbraid/wbraid as "gbraid:<id>").
+   *  The site's booking forms prefill it; the bot writes it fill-if-empty from
+   *  the WhatsApp prefill ref (src/services/google-click.ts). Absent = not synced. */
+  gclid?: string;
+  /** Click time of `gclid`, ISO with the CDMX offset, e.g. "gclid_time".
+   *  Written only together with `gclid`. */
+  gclidTime?: string;
   /** Lifetime revenue of the lead (rollup of the linked student's payments),
    *  e.g. "Ingresos Lead". Read-only: the Purchase value sent to Meta. */
   leadIncome?: string;
