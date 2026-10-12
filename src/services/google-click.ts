@@ -3,7 +3,8 @@
 // The site's js/attribution.js (md-condesa-site) remembers the latest Google
 // click (gclid / gbraid / wbraid + time) and, when a visitor opens WhatsApp
 // from the site, prefills the message with
-//   "Hola, vi su anuncio en Google (kw: …) [ref gclid:<id>:<unix seconds>]"
+//   "Hola, vi su página en Google (kw: …) [ref gclid:<id>:<unix seconds>]"
+// ("anuncio" before md-condesa-site#7; campaigns.ts aliases both.)
 // The campaign trigger is the leading phrase; this module pulls the bracketed
 // ref back out so the pipeline can (1) strip it from the stored body — the
 // brain, Slack and the dashboard never see it — and (2) keep the click in kv
