@@ -38,7 +38,7 @@ import { runCapiDrain } from "./capi.js";
 import { runCapiFunnelSweep } from "./capi-sweep.js";
 import { runAudienceSync } from "./audiences.js";
 import { syncPostTrialD0Templates } from "./template-sync.js";
-import { seedCampaigns } from "./seed-campaigns.js";
+import { applyCampaignTriggerUpdates, seedCampaigns } from "./seed-campaigns.js";
 import { runRedrive } from "./redrive.js";
 import { gcGoogleRefs } from "../routes/google-click.js";
 import { copyStep, startCursor, type CopyCursor, type DbLike } from "../services/d1-copy.js";
@@ -100,6 +100,9 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // One-shot campaign seeds (src/cron/seed-campaigns.ts, kv-guarded).
   await safe("seedCampaigns", () =>
     seedCampaigns(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+  );
+  await safe("applyCampaignTriggerUpdates", () =>
+    applyCampaignTriggerUpdates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
   );
 
   // One-shot post-switch delta (2026-10-06 D1 migration): DB_TARGET is the OLD

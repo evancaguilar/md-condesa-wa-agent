@@ -45,10 +45,32 @@ export function stripLeadingGreeting(norm: string): string {
 }
 
 /**
+ * Retired prefill phrasings → their current form, applied to the start of BOTH
+ * sides (after the greeting strip). The site's Google WhatsApp prefill went from
+ * "vi su anuncio en Google" to "vi su página en Google" (md-condesa-site#7,
+ * 2026-10-12): pages cached before the switch still send the old one, and the
+ * site merge and the D1 trigger update can't land at the same instant. With
+ * the alias, either phrase matches either stored trigger.
+ */
+const PHRASE_ALIASES: readonly (readonly [string, string])[] = [
+  ["vi su anuncio en google", "vi su pagina en google"],
+];
+
+/** Greeting-stripped, alias-canonicalized form used for trigger comparison. */
+export function triggerKey(norm: string): string {
+  const s = stripLeadingGreeting(norm);
+  for (const [from, to] of PHRASE_ALIASES) {
+    if (s === from || s.startsWith(`${from} `)) return to + s.slice(from.length);
+  }
+  return s;
+}
+
+/**
  * First active campaign whose normalized trigger matches the normalized inbound
  * body: either the whole body equals the trigger, or the body starts with the
  * trigger (so "curso de defensa ... me interesa" still matches trigger "curso de
- * defensa"). Leading greetings ("hola", "buenas", …) are ignored on both sides.
+ * defensa"). Leading greetings ("hola", "buenas", …) are ignored on both sides,
+ * and retired phrasings (PHRASE_ALIASES) count as their current form.
  * Returns the campaign id, or null when nothing matches.
  *
  * `bodyNorm` is expected already normalized via `normalizeText`.
@@ -57,9 +79,9 @@ export function matchCampaign(
   bodyNorm: string,
   campaigns: Campaign[],
 ): number | null {
-  const body = stripLeadingGreeting(bodyNorm);
+  const body = triggerKey(bodyNorm);
   for (const c of campaigns) {
-    const trigger = c.trigger_norm ? stripLeadingGreeting(c.trigger_norm) : "";
+    const trigger = c.trigger_norm ? triggerKey(c.trigger_norm) : "";
     if (!trigger) continue;
     if (body === trigger || body.startsWith(trigger)) {
       return c.id;
