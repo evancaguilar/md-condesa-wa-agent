@@ -110,7 +110,14 @@ import {
 } from "../services/media.js";
 import { lookupAdMeta } from "../services/ad-meta.js";
 import { attributionFor, decorateBookingLinks } from "../services/booking-link.js";
-import { googleClickKey, parseGoogleClickRef, type GoogleClick } from "../services/google-click.js";
+import {
+  googleClickKey,
+  googleRefKey,
+  parseGoogleClickCode,
+  parseGoogleClickRef,
+  parseStoredGoogleClick,
+  type GoogleClick,
+} from "../services/google-click.js";
 import {
   bookingMarkerLive,
   bookingRecordedKey,
@@ -214,6 +221,9 @@ export async function processInbound(
   // ("… [ref gclid:<id>:<ts>]"): stripped from the body BEFORE it is stored, so
   // the brain/Slack/dashboard never see it; kept on the bubble's meta and, in
   // 1a below, in kv for the Leads gclid / gclid_time columns.
+  // Since attribution.js v8 the prefill carries only a short code
+  // ("… [K7M2QX]"); the click itself was POSTed to /g at page load and waits in
+  // kv. The long ref above is still parsed for pages cached before v8.
   const gRef = parseGoogleClickRef(body);
   let googleClick: GoogleClick | null = null;
   if (gRef.click) {
@@ -221,6 +231,19 @@ export async function processInbound(
     body = gRef.body;
     meta = meta ?? {};
     meta.googleClick = googleClick;
+  } else {
+    const gCode = parseGoogleClickCode(body);
+    if (gCode.code) {
+      body = gCode.body;
+      meta = meta ?? {};
+      meta.googleCode = gCode.code;
+      try {
+        googleClick = parseStoredGoogleClick(await kvGet(env.DB, googleRefKey(gCode.code)));
+      } catch (err) {
+        console.warn("[inbound] google code lookup failed", msg.phone, err);
+      }
+      if (googleClick) meta.googleClick = googleClick;
+    }
   }
   // Per-message ad context: lets the dashboard show "respondió a un anuncio"
   // on THIS bubble (contact.ad_ref below keeps only the first attribution).

@@ -5,12 +5,16 @@ import {
   gclidColumnValue,
   googleClickFromAd,
   googleClickKey,
+  googleRefKey,
+  parseGoogleClickBeacon,
+  parseGoogleClickCode,
   parseGoogleClickRef,
   parseStoredGoogleClick,
 } from "../src/services/google-click.js";
 import { buildLeadFields, DEFAULT_LEADS_MAP } from "../src/services/airtable.js";
 import { gclidFromAdSweep } from "../src/services/metrics-airtable.js";
 import type { Env } from "../src/types.js";
+import { GREF_DAILY_CAP, handleGoogleClickBeacon } from "../src/routes/google-click.js";
 import { matchCampaign, normalizeText } from "../src/pipeline/campaigns.js";
 import type { AirtableLeadsMap } from "../src/client-config.js";
 import type { Campaign } from "../src/types.js";
@@ -172,5 +176,103 @@ test("gclidFromAdSweep: no gclid column in the client map → no request at all"
     assert.equal(st.scanned, 0);
   } finally {
     (globalThis as { fetch: unknown }).fetch = realFetch;
+  }
+});
+
+// ---- short code (attribution.js v8): "[K7M2QX]" + /g beacon ------------
+
+test("parseGoogleClickCode: strips the bracketed code; ignores lowercase / ambiguous chars", () => {
+  assert.deepEqual(parseGoogleClickCode("Hola, vi su anuncio en Google (kw: jiu jitsu) [K7M2QX]"), {
+    code: "K7M2QX",
+    body: "Hola, vi su anuncio en Google (kw: jiu jitsu)",
+  });
+  for (const b of ["Hola [k7m2qx]", "Hola [K7M2Q0]", "Hola [K7M2Q]", "Hola [K7M2QXZ]", "Hola"]) {
+    assert.deepEqual(parseGoogleClickCode(b), { code: null, body: b }, b);
+  }
+});
+
+const NOW = 1791841634;
+const beacon = (o: Record<string, unknown>) =>
+  JSON.stringify({ code: "K7M2QX", kind: "gclid", id: "EVANTEST1", ts: NOW * 1000, ...o });
+
+test("parseGoogleClickBeacon: valid body → code + click (ts ms → s); anything off → null", () => {
+  assert.deepEqual(parseGoogleClickBeacon(beacon({}), NOW), {
+    code: "K7M2QX",
+    click: { kind: "gclid", id: "EVANTEST1", ts: NOW },
+  });
+  for (const raw of [
+    "",
+    "nope",
+    beacon({ code: "k7m2qx" }),
+    beacon({ kind: "fbclid" }),
+    beacon({ id: "bad id" }),
+    beacon({ ts: "x" }),
+    beacon({ ts: (NOW + 7200) * 1000 }), // future
+    beacon({ ts: (NOW - 91 * 86400) * 1000 }), // past Google's 90 days
+    "x".repeat(2000),
+  ]) {
+    assert.equal(parseGoogleClickBeacon(raw, NOW), null, raw.slice(0, 60));
+  }
+});
+
+/** Just enough D1 for the kv statements the /g handler runs. */
+function kvDb(kv: Map<string, string>): D1Database {
+  const stmt = (sql: string, binds: unknown[]) => ({
+    bind: (...b: unknown[]) => stmt(sql, b),
+    first: async () => (kv.has(String(binds[0])) ? { value: kv.get(String(binds[0])) } : null),
+    run: async () => {
+      const k = String(binds[0]);
+      let changes = 0;
+      if (sql.includes("INSERT OR IGNORE")) {
+        if (!kv.has(k)) { kv.set(k, sql.includes("'0'") ? "0" : String(binds[1])); changes = 1; }
+      } else if (sql.includes("+ 1")) {
+        const n = Number(kv.get(k) ?? 0);
+        if (n < Number(binds[1])) { kv.set(k, String(n + 1)); changes = 1; }
+      }
+      return { meta: { changes } };
+    },
+  });
+  return { prepare: (sql: string) => stmt(sql, []) } as unknown as D1Database;
+}
+
+const post = (body: string, method = "POST") =>
+  new Request("https://w.example/g", method === "POST" ? { method, body, headers: { "Content-Type": "text/plain" } } : { method });
+
+test("/g: stores a valid click once, answers 204 + CORS to everything, drops junk", async () => {
+  const kv = new Map<string, string>();
+  const env = { DB: kvDb(kv) } as unknown as Env;
+  const realNow = Date.now;
+  Date.now = () => NOW * 1000;
+  try {
+    const r = await handleGoogleClickBeacon(post(beacon({})), env);
+    assert.equal(r.status, 204);
+    assert.equal(r.headers!.get("Access-Control-Allow-Origin"), "*");
+    assert.deepEqual(JSON.parse(kv.get(googleRefKey("K7M2QX"))!), { kind: "gclid", id: "EVANTEST1", ts: NOW });
+    // A re-send (or a collision) never overwrites, and doesn't spend the daily cap.
+    await handleGoogleClickBeacon(post(beacon({ id: "OTHER123" })), env);
+    assert.equal(JSON.parse(kv.get(googleRefKey("K7M2QX"))!).id, "EVANTEST1");
+    assert.equal([...kv.keys()].filter((k) => k.startsWith("gref_day:")).map((k) => kv.get(k))[0], "1");
+    assert.equal((await handleGoogleClickBeacon(post("junk"), env)).status, 204);
+    assert.equal((await handleGoogleClickBeacon(post("", "OPTIONS"), env)).status, 204);
+    assert.equal((await handleGoogleClickBeacon(post("", "GET"), env)).status, 405);
+    assert.equal([...kv.keys()].filter((k) => k.startsWith("gref:")).length, 1);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("/g: past the daily cap new codes are dropped silently", async () => {
+  const kv = new Map<string, string>();
+  const env = { DB: kvDb(kv) } as unknown as Env;
+  const realNow = Date.now;
+  Date.now = () => NOW * 1000;
+  try {
+    await handleGoogleClickBeacon(post(beacon({})), env);
+    const dayKey = [...kv.keys()].find((k) => k.startsWith("gref_day:"))!;
+    kv.set(dayKey, String(GREF_DAILY_CAP));
+    await handleGoogleClickBeacon(post(beacon({ code: "ABCDEF" })), env);
+    assert.equal(kv.has(googleRefKey("ABCDEF")), false);
+  } finally {
+    Date.now = realNow;
   }
 });
