@@ -72,3 +72,29 @@ export function gclidColumnValue(c: GoogleClick): string {
 export function clickTimeIso(tsSec: number): string {
   return new Date((tsSec - 6 * 3600) * 1000).toISOString().slice(0, 19) + "-06:00";
 }
+
+/**
+ * Pure. The Airtable booking forms can't be edited from code, so the site also
+ * folds the click into the hidden `Ad` answer it already sends:
+ *   "google | kw: … | ag: … | camp: … | gclid: <id> | t: <ISO>"
+ * (the site strips "|" from every value, so splitting on it is safe). Returns
+ * the Leads.gclid / gclid_time values, or null when `Ad` has no Google click
+ * id. `time` is null for rows written before the site sent `t:`.
+ */
+export function googleClickFromAd(ad: string | null | undefined): { gclid: string; time: string | null } | null {
+  if (!ad || !/^\s*google\b/i.test(ad)) return null;
+  let gclid: string | null = null;
+  let time: string | null = null;
+  for (const part of ad.split("|")) {
+    const m = /^\s*(gclid|gbraid|wbraid|t):\s*(\S+)\s*$/i.exec(part);
+    if (!m) continue;
+    const key = m[1]!.toLowerCase();
+    const val = m[2]!;
+    if (key === "t") {
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(val)) time = val;
+    } else if (!gclid && /^[A-Za-z0-9_-]{4,200}$/.test(val)) {
+      gclid = key === "gclid" ? val : `${key}:${val}`;
+    }
+  }
+  return gclid ? { gclid, time } : null;
+}

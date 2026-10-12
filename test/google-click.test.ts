@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import {
   clickTimeIso,
   gclidColumnValue,
+  googleClickFromAd,
   googleClickKey,
   parseGoogleClickRef,
   parseStoredGoogleClick,
 } from "../src/services/google-click.js";
 import { buildLeadFields, DEFAULT_LEADS_MAP } from "../src/services/airtable.js";
+import { gclidFromAdSweep } from "../src/services/metrics-airtable.js";
+import type { Env } from "../src/types.js";
 import { matchCampaign, normalizeText } from "../src/pipeline/campaigns.js";
 import type { AirtableLeadsMap } from "../src/client-config.js";
 import type { Campaign } from "../src/types.js";
@@ -101,4 +104,73 @@ test("buildLeadFields: no click, or the map names no column → nothing written"
   assert.equal("gclid" in buildLeadFields(null, { phone: "521" }, MAP), false);
   const f = buildLeadFields(null, { phone: "521", googleClick: CLICK }, DEFAULT_LEADS_MAP);
   assert.equal(Object.keys(f).some((k) => k.startsWith("gclid")), false);
+});
+
+// ---- form path: Google click folded into the `Ad` answer -----------------
+
+test("googleClickFromAd: site's form Ad → gclid + time; gbraid/wbraid keep their kind", () => {
+  assert.deepEqual(
+    googleClickFromAd("google | kw: jiu jitsu condesa | ag: 178223344556 | camp: 24283317593 | gclid: TEST123 | t: 2026-10-12T14:46:10-06:00"),
+    { gclid: "TEST123", time: "2026-10-12T14:46:10-06:00" },
+  );
+  assert.deepEqual(googleClickFromAd("google | gbraid: 0AAAAAo-abc_XYZ | t: 2026-10-12T14:46:10-06:00"), {
+    gclid: "gbraid:0AAAAAo-abc_XYZ",
+    time: "2026-10-12T14:46:10-06:00",
+  });
+  // Rows from before the site sent t: (the live 2026-10-05 lead) → id only.
+  assert.deepEqual(
+    googleClickFromAd("google | gclid: Cj0KCQjw8ofWBhCHARIsANBj4Lt5NKgC95CKFZgedT5Fhh5trQoK37mu-DSURXzagQgf13aXUb1aMngaAsfLEALw_wcB"),
+    { gclid: "Cj0KCQjw8ofWBhCHARIsANBj4Lt5NKgC95CKFZgedT5Fhh5trQoK37mu-DSURXzagQgf13aXUb1aMngaAsfLEALw_wcB", time: null },
+  );
+});
+
+test("googleClickFromAd: Meta / no id / junk → null; a bad time is dropped", () => {
+  for (const ad of [null, "", "utm (120212345678901)", "google | kw: box", "google | camp: 1 | ag: 2", "gclid: TEST123"]) {
+    assert.equal(googleClickFromAd(ad), null, String(ad));
+  }
+  assert.deepEqual(googleClickFromAd("google | gclid: TEST123 | t: ayer"), { gclid: "TEST123", time: null });
+});
+
+const fakeRes = (status: number, data: unknown) => ({ ok: status < 400, status, json: async () => data, text: async () => JSON.stringify(data) });
+const SWEEP_ENV = { AIRTABLE_PAT: "pat", AIRTABLE_BASE_ID: "appX", AIRTABLE_TRIALS_TABLE: "Leads" } as unknown as Env;
+
+test("gclidFromAdSweep: lists only blank-gclid Google rows, PATCHes gclid (+ time when the Ad has one)", async () => {
+  const urls: string[] = [];
+  const patched: unknown[] = [];
+  const realFetch = globalThis.fetch;
+  (globalThis as { fetch: unknown }).fetch = async (url: string, init?: RequestInit) => {
+    urls.push(decodeURIComponent(String(url).replace(/\+/g, " ")));
+    if (init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body)) as { records: { id: string; fields: unknown }[] };
+      patched.push(...body.records);
+      return fakeRes(200, { records: body.records });
+    }
+    return fakeRes(200, { records: [
+      { id: "recNew", fields: { Ad: "google | gclid: TEST123 | t: 2026-10-12T14:46:10-06:00" } },
+      { id: "recOld", fields: { Ad: "google | gclid: Cj0KCQjw_old" } },
+      { id: "recBad", fields: { Ad: "google | gclid: x" } },
+    ] });
+  };
+  try {
+    const st = await gclidFromAdSweep(SWEEP_ENV, { limit: 10 }, { ad: "Ad", gclid: "gclid", gclidTime: "gclid_time" });
+    assert.match(urls[0]!, /AND\(\{gclid\} = '', REGEX_MATCH\(\{Ad\} & '', '\(gclid\|gbraid\|wbraid\): '\)\)/);
+    assert.deepEqual(patched, [
+      { id: "recNew", fields: { gclid: "TEST123", gclid_time: "2026-10-12T14:46:10-06:00" } },
+      { id: "recOld", fields: { gclid: "Cj0KCQjw_old" } },
+    ]);
+    assert.deepEqual({ scanned: st.scanned, matched: st.matched }, { scanned: 3, matched: 2 });
+  } finally {
+    (globalThis as { fetch: unknown }).fetch = realFetch;
+  }
+});
+
+test("gclidFromAdSweep: no gclid column in the client map → no request at all", async () => {
+  const realFetch = globalThis.fetch;
+  (globalThis as { fetch: unknown }).fetch = async () => { throw new Error("must not fetch"); };
+  try {
+    const st = await gclidFromAdSweep(SWEEP_ENV, { limit: 10 }, { ad: "Ad" });
+    assert.equal(st.scanned, 0);
+  } finally {
+    (globalThis as { fetch: unknown }).fetch = realFetch;
+  }
 });
