@@ -8,7 +8,7 @@
 
 import type { Env } from "../types.js";
 import { kvGet, kvSet } from "../db/queries.js";
-import { createCampaign, listCampaigns } from "../db/queries-admin.js";
+import { createCampaign, listCampaigns, updateCampaign } from "../db/queries-admin.js";
 import { normalizeText } from "../pipeline/campaigns.js";
 
 export interface CampaignSeed {
@@ -101,4 +101,72 @@ export async function seedCampaigns(
     await kvSet(env.DB, seed.key, existing ? `exists:${existing.id}` : "created");
   }
   return created;
+}
+
+// One-shot trigger edits for an EXISTING campaign (same kv guard idea). The
+// dashboard can't be reached from a chat session, so an edit Evan asks for
+// ships here. Finds the row by name or by its old trigger; leaves it alone if
+// it already has the new trigger or another campaign holds it (UNIQUE index).
+export interface CampaignTriggerUpdate {
+  key: string; // kv guard
+  name: string;
+  oldTriggerPhrase: string;
+  newTriggerPhrase: string;
+}
+
+// md-condesa-site#7 (2026-10-12): the Google WhatsApp prefill says "página"
+// instead of "anuncio" (many people don't notice the result was an ad), on
+// every page after a Google click. matchCampaign aliases the two phrasings,
+// so leads are tagged on either side of this update.
+export const GOOGLE_PAGINA_TRIGGER: CampaignTriggerUpdate = {
+  key: "seed_trigger:google-pagina:2026-10-12",
+  name: "Google Search (anuncios Google)",
+  oldTriggerPhrase: "Hola, vi su anuncio en Google",
+  newTriggerPhrase: "Hola, vi su página en Google",
+};
+
+export const CAMPAIGN_TRIGGER_UPDATES: readonly CampaignTriggerUpdate[] = [GOOGLE_PAGINA_TRIGGER];
+
+/** Applies every unapplied trigger update. Returns the campaign ids it changed. */
+export async function applyCampaignTriggerUpdates(
+  env: Env,
+  deps: { postNote: (t: string) => Promise<void> },
+  updates: readonly CampaignTriggerUpdate[] = CAMPAIGN_TRIGGER_UPDATES,
+): Promise<number[]> {
+  const changed: number[] = [];
+  for (const u of updates) {
+    if (await kvGet(env.DB, u.key)) continue;
+    const oldNorm = normalizeText(u.oldTriggerPhrase);
+    const newNorm = normalizeText(u.newTriggerPhrase);
+    const all = await listCampaigns(env.DB);
+    const target =
+      all.find((c) => c.name === u.name) ?? all.find((c) => c.trigger_norm === oldNorm);
+    const holder = all.find((c) => c.trigger_norm === newNorm);
+    let outcome: string;
+    if (!target) {
+      outcome = "missing";
+      await deps.postNote(
+        `⚠️ No encontré la campaña *${u.name}* para cambiar su frase a "${u.newTriggerPhrase}". Cámbiala a mano en /admin → Campañas.`,
+      );
+    } else if (holder) {
+      outcome = holder.id === target.id ? `already:${target.id}` : `taken:${holder.id}`;
+      if (holder.id !== target.id) {
+        await deps.postNote(
+          `⚠️ La frase "${u.newTriggerPhrase}" ya es de la campaña #${holder.id} (*${holder.name}*); no cambié *${target.name}* (#${target.id}).`,
+        );
+      }
+    } else {
+      await updateCampaign(env.DB, target.id, {
+        triggerPhrase: u.newTriggerPhrase,
+        triggerNorm: newNorm,
+      });
+      changed.push(target.id);
+      outcome = `updated:${target.id}`;
+      await deps.postNote(
+        `📣 Campaña *${target.name}* (#${target.id}): frase de activación cambiada a "${u.newTriggerPhrase}" desde el worker.`,
+      );
+    }
+    await kvSet(env.DB, u.key, outcome);
+  }
+  return changed;
 }
