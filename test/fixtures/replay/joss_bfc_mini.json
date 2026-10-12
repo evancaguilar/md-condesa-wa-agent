@@ -1,0 +1,294 @@
+{
+ "case": "joss_bfc_mini",
+ "phone": "5215550000003",
+ "campaign": "baby fight club",
+ "contact": {
+  "name": "Joss😈",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"discipline\":\"baby\",\"audience\":\"kid\",\"name\":\"Jocelyne Sandoval\"}",
+  "campaign_id": 2
+ },
+ "messages": [
+  {
+   "direction": "in",
+   "ts": 1788796942,
+   "body": "Info para alguna disciplina de una niña de 4 años"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788796945,
+   "body": "¡Hola! 🙌 Qué gusto que te interese Baby Fight Club (12 a 36 meses).\n\nEs una clase de movimiento, juego y desarrollo físico inspirada en artes marciales: coordinación, equilibrio, confianza y socialización — siempre acompañado por mamá o papá 😄\n\nLa primera clase es gratis para que la prueben sin compromiso.\n\n¿Te queda mejor miércoles 11 am o sábado 2 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1788796977,
+   "body": "Sábado 2 PM pero es una niña de casi 5 años"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788796995,
+   "body": "¡Ah perfecto, con casi 5 años le queda mejor Mini Muay Thai! 🥋 Es una clase pensada para su edad: coordinación, equilibrio y juego, con mamá o papá ayudando en algunas partes.\n\nEl horario de sábado es a la 1:15 pm — ¿les late esa hora?\n\nPara agendar, ¿me confirmas tu nombre y el de la niña? 😊"
+  },
+  {
+   "direction": "in",
+   "ts": 1788797023,
+   "body": "Si perfecto"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788797037,
+   "body": "Genial 🙌 Para agendar, ¿me compartes tu nombre y el de tu niña?"
+  },
+  {
+   "direction": "in",
+   "ts": 1788797038,
+   "body": "Mi nombres es Jocelyne Itzel Sandoval ramos"
+  },
+  {
+   "direction": "in",
+   "ts": 1788797051,
+   "body": "El de la bebe es Camila Atenea Martínez Sandoval"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788797051,
+   "body": "¡Gracias Jocelyne! Solo me falta el nombre de tu niña para agendarla 😊"
+  },
+  {
+   "direction": "in",
+   "ts": 1788797067,
+   "body": "Que más disciplinas manejan para su edad?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788797070,
+   "body": "¡Perfecto Jocelyne! Ya quedó agendada la clase de Camila 🙌 Nos vemos el sábado a la 1:15 pm para Mini Muay Thai.\nAquí toda la info de su primera clase: mdcondesa.com/tu-primera-clase-ninos/\nSi quieres invitar a otra familia, estaría súper 💪 Cualquier duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788797070,
+   "body": "[video]"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788797083,
+   "body": "Para Camila con casi 5 años, la que mejor le queda es Mini Muay Thai 🥋 (coordinación, equilibrio y juego, con mamá o papá ayudando en partes).\n\nYa la tienes agendada el sábado 12 a la 1:15 pm — ¿la dejamos así? 😊"
+  },
+  {
+   "direction": "in",
+   "ts": 1788797116,
+   "body": "Si"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788797130,
+   "body": "Ya está confirmada su clase 🙌 Nos vemos el sábado a la 1:15 pm para Mini Muay Thai."
+  },
+  {
+   "direction": "in",
+   "ts": 1788797241,
+   "body": "Gracias"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1788797254,
+   "body": "¡Con gusto Jocelyne! Nos vemos el sábado 🙌"
+  },
+  {
+   "direction": "in",
+   "ts": 1789229523,
+   "body": "Hola quisiera reagendar al siguiente sábado"
+  },
+  {
+   "direction": "in",
+   "ts": 1789229534,
+   "body": "Por motivos personales tuvimos que salir de la cdmx"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1789229541,
+   "body": "¡Perfecto Jocelyne! Ya quedó reagendado para el sábado 19 de septiembre a las 2 pm 🙌 Aquí toda la info de su primera clase: mdcondesa.com/tu-primera-clase-bebes/ Si quieren invitar a otra familia, va con todo 💪 Cualquier duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1789229542,
+   "body": "[video]"
+  },
+  {
+   "direction": "in",
+   "ts": 1789229542,
+   "body": "Esta semana"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1789229562,
+   "body": "¡Va! Las cambio para hoy sábado a las 2 pm 🙌 Aquí la info de su primera clase: mdcondesa.com/tu-primera-clase-bebes/ Nos vemos al ratito 💪"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1789229562,
+   "body": "[video]"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389242,
+   "body": "📋 Plantilla · prueba_adultos_manana\n\n¡Hola! 👋 En MD Condesa te seguimos guardando tu día de prueba GRATIS 🥋\n\nMañana sábado tenemos lugar a las 9 am y a las 12 pm, sin costo y sin compromiso. No necesitas experiencia ni equipo.\n\n¿Qué horario te queda mejor?\n\nResponde BAJA para dejar de recibir mensajes."
+  },
+  {
+   "direction": "in",
+   "ts": 1790389706,
+   "body": "La siguiente semana"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389713,
+   "body": "Mañana no puedo en ese horario"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389726,
+   "body": "Va, entonces mejor la próxima semana 🙌 ¿Les queda bien el miércoles 1 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389799,
+   "body": "Entre semana no por que la bebe va al cole"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389813,
+   "body": "Va, entonces sábado 2 pm 🙌 ¿me confirmas tu nombre y el de la bebé para agendarlas?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389825,
+   "body": "Jocelyne Sandoval"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389828,
+   "body": "Y la bebe"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389834,
+   "body": "Camila Martínez"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389854,
+   "body": "¡Perfecto Jocelyne! Ya quedó agendado 🙌 Nos vemos mañana sábado a las 2 pm para la clase de Baby Fight Club con Camila.\nAquí toda la info de su primera clase: mdcondesa.com/tu-primera-clase-bebes/\nSi quieren invitar a otra familia, sería súper 💪 Cualquier duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389855,
+   "body": "[video]"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389881,
+   "body": "No mañana no😕"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389886,
+   "body": "Es la siguiente semana"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389906,
+   "body": "¡Va Jocelyne! Ya quedó cambiado 🙌 Nos vemos el miércoles 30 a la 1 pm para la clase de Baby Fight Club con Camila.\nAquí toda la info de su primera clase: mdcondesa.com/tu-primera-clase-bebes/\nCualquier duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389907,
+   "body": "[video]"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389922,
+   "body": "😮‍💨"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389928,
+   "body": "Entre semana no puedo"
+  },
+  {
+   "direction": "in",
+   "ts": 1790389933,
+   "body": "[sticker]"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790389949,
+   "body": "Ya quedó agendado para el sábado 2 pm, entonces (miércoles no aplica) 🙌 Nos vemos ese día con Camila."
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790985632,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Joss! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "in",
+   "ts": 1790992828,
+   "body": "A qué hora es"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790992840,
+   "body": "Mañana sábado a las 2:00 pm 🥊 ¡Las esperamos!"
+  },
+  {
+   "direction": "in",
+   "ts": 1790992849,
+   "body": "Ok ahí nos vemos"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790992862,
+   "body": "Perfecto 🙌 Las esperamos mañana sábado 2 pm"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791043286,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Joss! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791047139,
+   "body": "Ahí estaré"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791047154,
+   "body": "Genial, nos vemos hoy a las 2 pm 🥊¡Las esperamos!"
+  },
+  {
+   "direction": "in",
+   "ts": 1791047286,
+   "body": "Que necesita llevar la bebe de ropa"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791047300,
+   "body": "Ropa cómoda para la bebé (y para ti también, participas en la clase 😊), la clase es descalza en el tatami. Lleva agua y lo que normalmente necesite para estar cómoda 🙌 ¡Nos vemos hoy a las 2 pm!"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791070267,
+   "body": "¡Hola Jocelyne! Qué gusto verte hoy en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo."
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791158500,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Joss! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791220580,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Joss! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  }
+ ]
+}

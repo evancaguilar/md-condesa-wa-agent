@@ -43,9 +43,33 @@ export const CLAIMS_BOOKED =
 const ASKS_TO_BOOK =
   /(?:me\s+(?:confirmas|compartes|pasas|dices)|conf[ií]rmame|comp[áa]rteme)[^.?!]{0,60}nombre|\bpara\s+(?:dejarl[oa]s?|dejarte|dejarles|poder)\s+agendar|\bpara\s+dejarl[oa]s?\s+agendad/i;
 
+/**
+ * First-person booking PROMISES ("Les apunto el sábado 2 pm", "te aparto
+ * lugar", "quedan apartadas") — 2026-10 …6601 (Mayra): the bot wrote "Les
+ * apunto el sábado 2 pm" without running book_trial and it auto-sent; nothing
+ * reached Airtable. Matched per sentence; a question ("¿te aparto el
+ * sábado?") or a conditional offer ("dime qué día y te aparto") is not a claim.
+ */
+const PROMISES_BOOKING =
+  /\b(?:te|les)\s+(?:apunto|aparto|anoto)\b|\bqueda(?:n)?\s+(?:apartad|agendad|reservad)[oa]s?\b/i;
+const CONDITIONAL_CUE =
+  /\b(?:si|dime|d[ií]game|d[ií]ganme|cuando|en cuanto|me (?:dices|confirmas)|confirm[aá]ndome|quieres que|quieren que|te late|les late)\b/i;
+
+/** True when one sentence of `text` promises a booking as done/being done. */
+export function promisesBooking(text: string): boolean {
+  const sentences = text.match(/[^.!?¿¡\n]+[.!?]?/g) ?? [];
+  return sentences.some((s) => {
+    const t = s.trim();
+    if (!PROMISES_BOOKING.test(t)) return false;
+    if (t.endsWith("?")) return false;
+    return !CONDITIONAL_CUE.test(t);
+  });
+}
+
 /** True when `text` reads as a confirmed (not offered) booking claim. */
 export function claimsBooking(text: string): boolean {
-  return CLAIMS_BOOKED.test(text) && !ASKS_TO_BOOK.test(text);
+  if (ASKS_TO_BOOK.test(text)) return false;
+  return CLAIMS_BOOKED.test(text) || promisesBooking(text);
 }
 
 // ---- shared booking-capture vocabulary -----------------------------------

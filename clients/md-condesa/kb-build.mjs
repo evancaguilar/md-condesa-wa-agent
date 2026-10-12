@@ -289,6 +289,14 @@ function audienceOf(cls) {
   return cls.a ? "kid" : "adult";
 }
 
+/** Age group the class is for (slots.gen.ts `group`): the site's `a:` tag
+ *  (kids 6–12 | teens 13–17 | mini 3–5), baby for Baby Fight Club, else adult. */
+function groupOf(cls) {
+  if (cls.n === "baby") return "baby";
+  if (cls.a === "kids" || cls.a === "teens" || cls.a === "mini") return cls.a;
+  return cls.a ? "kids" : "adult";
+}
+
 /** Classes where a parent trains alongside the child: the model's `audience`
  *  tag is unpredictable, so emit the slot under BOTH audiences.
  *  baby = no `a:` tag at all; mini = a:'mini' (Mini Muay Thai, 3-5 años). */
@@ -342,6 +350,7 @@ function buildSlots(schedule) {
           time, // "HH:mm" 24h CDMX
           discipline: cls.n, // jiu|muay|mma|box|baby
           audience, // 'adult'|'kid'
+          group: groupOf(cls), // adult|kids|teens|mini|baby
         };
         if (cls.rename) out.name = cls.rename.short;
         // Sparring hours take trials (owner, 2026-08-25 — see the header
@@ -355,7 +364,7 @@ function buildSlots(schedule) {
         // `mma` — so the hour must validate under BOTH disciplines.
         if (cls.n === "mma" && cls.l === "Striking" && !cls.a) {
           const mk = `${idx}|${time}|muay|${audience}`;
-          if (!byKey.has(mk)) byKey.set(mk, { weekday: idx, time, discipline: "muay", audience });
+          if (!byKey.has(mk)) byKey.set(mk, { weekday: idx, time, discipline: "muay", audience, group: "adult" });
         }
       }
     }
@@ -388,6 +397,7 @@ function withBabyTrialSlots(slots) {
       time: t.time,
       discipline: "baby",
       audience: "adult",
+      group: "baby",
       dual: true,
     });
   }

@@ -27,10 +27,11 @@ import { SLOTS } from "../brain/slots.gen.js";
 import {
   disciplineLabel,
   formatSlotLabel,
-  nextTrialSlot,
+  nextBandSlot,
   prettyDiscipline,
   type NextSlot,
 } from "./next-slot.js";
+import { bandFromQualification, type ProgramBand } from "../services/age-band.js";
 
 // ---- kinds ----
 
@@ -67,16 +68,46 @@ export const ALL_NUDGE_KINDS = [
   ...EXTENDED_NUDGE_KINDS,
 ] as const;
 
-export type Program = "adults" | "kids" | "baby";
+/**
+ * The lead's program = their AGE BAND (2026-10-11): baby | mini | kids |
+ * teens | adults. Was "adults" | "kids" | "baby", decided by campaign name
+ * before age — see services/age-band.ts for why that broke.
+ */
+export type Program = ProgramBand;
+
+/** The three copy/template families that exist today (nudge tables, Meta
+ *  template names, airtable rule targets). Mini/teens parents read the kids
+ *  copy until their own is written. */
+export type LegacyProgram = "adults" | "kids" | "baby";
+
+export function legacyProgram(band: ProgramBand): LegacyProgram {
+  if (band === "adults" || band === "baby") return band;
+  return "kids"; // mini, kids, teens
+}
 
 // ---- links ----
 
 const ADULT_LINK = CLIENT.links.booking;
 const KIDS_LINK = CLIENT.links.bookingKids ?? CLIENT.links.booking;
+const SITE_ORIGIN = /^https?:\/\/[^/]+/.exec(CLIENT.links.booking)?.[0] ?? "";
 
-/** Booking link for a program (adults → adults page; kids/baby → kids page). */
+/** Booking link for a program (adults → adults page; every minor band → kids page). */
 export function programLink(program: Program): string {
   return program === "adults" ? ADULT_LINK : KIDS_LINK;
+}
+
+/** "Tu primera clase" info page for a band (sent after booking). */
+export function firstClassLink(band: ProgramBand): string {
+  switch (band) {
+    case "baby":
+    case "mini":
+      return `${SITE_ORIGIN}/tu-primera-clase-bebes/`;
+    case "kids":
+    case "teens":
+      return `${SITE_ORIGIN}/tu-primera-clase-ninos/`;
+    default:
+      return `${SITE_ORIGIN}/tu-primera-clase/`;
+  }
 }
 
 // ---- helpers ----
@@ -105,22 +136,20 @@ function nameSuffix(name: string): string {
 }
 
 /**
- * Program classification (pure). baby if qualification.discipline contains
- * "baby" OR the campaign name matches /baby/i; kids if audience === "kid" OR the
- * campaign is a kids campaign ("Kids", "niños", "peques" — a campaign-only lead
- * has no qualification at all, and was falling through to the adults pitch +
- * adults booking link); else adults.
+ * Program classification (pure), AGE FIRST (owner decision 2026-10-11): the
+ * stored qualification (program → child_age_months → legacy discipline /
+ * audience, see bandFromQualification) decides; the campaign name is only a
+ * fallback when the qualification says nothing — a 4-year-old who came from
+ * the Baby Fight Club ad is "mini", never "baby". Campaign fallback: /baby/ →
+ * baby, a kids campaign ("Kids", "niños", "peques") → kids, else adults.
  */
 export function classifyProgram(
   contact: Contact | null,
   campaignName?: string | null,
 ): Program {
-  const q = parseQualification(contact);
-  const disc = (q.discipline ?? "").toLowerCase();
-  if (disc.includes("baby") || (campaignName != null && /baby/i.test(campaignName))) {
-    return "baby";
-  }
-  if (q.audience === "kid") return "kids";
+  const fromQual = bandFromQualification(parseQualification(contact));
+  if (fromQual) return fromQual;
+  if (campaignName != null && /baby/i.test(campaignName)) return "baby";
   if (campaignName != null && KIDS_CAMPAIGN_RE.test(campaignName)) return "kids";
   return "adults";
 }
@@ -136,9 +165,11 @@ export function programAudience(program: Program): "adult" | "kid" {
 }
 
 /**
- * The slot a nudge should propose: the lead's own discipline when they told us
- * one (baby always books Baby Fight Club), otherwise the soonest class of their
- * audience. Pure over (contact, program, now, schedule).
+ * The slot a nudge should propose: a row of the lead's age band ONLY (mini →
+ * Mini Muay Thai rows, teens → Teens rows, baby → BFC rows), the lead's own
+ * discipline first when the band has it, else the soonest class of the band.
+ * Days the lead declined are never proposed. Pure over (contact, program,
+ * now, schedule).
  */
 export function nudgeSlot(
   contact: Contact | null,
@@ -148,7 +179,24 @@ export function nudgeSlot(
 ): NextSlot | null {
   const q = parseQualification(contact);
   const discipline = program === "baby" ? "baby" : (q.discipline ?? null);
-  return nextTrialSlot(discipline, programAudience(program), nowEpoch, schedule);
+  const excludeWeekdays = weekdaySet(q.declined_days);
+  return nextBandSlot(program, discipline, nowEpoch, {
+    schedule,
+    ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
+  });
+}
+
+/** Weekday keys used in qualification.preferred_days / declined_days. */
+export const DAY_KEYS = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"] as const;
+
+/** ["sab","dom"] → {5, 6} (0=Mon … 6=Sun). Unknown keys are ignored. */
+export function weekdaySet(days: readonly string[] | undefined): Set<number> {
+  const out = new Set<number>();
+  for (const d of days ?? []) {
+    const i = (DAY_KEYS as readonly string[]).indexOf(d);
+    if (i >= 0) out.add(i);
+  }
+  return out;
 }
 
 /**
@@ -255,12 +303,13 @@ export function nudgeCopy(
   const slot = opts.noSlot ? null : nudgeSlot(contact, program, nowEpoch, schedule);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
 
-  if (lang === "en") return dayOneEn(program, kind, sp, disc, cta);
-  return dayOneEs(program, kind, sp, disc, cta);
+  const copy = legacyProgram(program);
+  if (lang === "en") return dayOneEn(copy, kind, sp, disc, cta);
+  return dayOneEs(copy, kind, sp, disc, cta);
 }
 
 function dayOneEs(
-  program: Program,
+  program: LegacyProgram,
   kind: NudgeKind,
   sp: string,
   disc: string,
@@ -270,7 +319,7 @@ function dayOneEs(
 }
 
 function dayOneEsInner(
-  program: Program,
+  program: LegacyProgram,
   kind: NudgeKind,
   sp: string,
   disc: string,
@@ -310,7 +359,7 @@ function dayOneEsInner(
 }
 
 function dayOneEn(
-  program: Program,
+  program: LegacyProgram,
   kind: NudgeKind,
   sp: string,
   disc: string,
@@ -320,7 +369,7 @@ function dayOneEn(
 }
 
 function dayOneEnInner(
-  program: Program,
+  program: LegacyProgram,
   kind: NudgeKind,
   sp: string,
   disc: string,
@@ -382,14 +431,14 @@ export function extendedCopy(
   const slot = kind === "nudge_d5" ? null : nudgeSlot(contact, program, nowEpoch, schedule);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
   const table = lang === "en" ? EXTENDED_EN : EXTENDED_ES;
-  const line = table[program][kind];
+  const line = table[legacyProgram(program)][kind];
   return line(sp, cta);
 }
 
 type ExtendedLine = (sp: string, cta: string) => string;
 // Mapped over the finite Program/ExtendedKind keys so indexing stays total under
 // noUncheckedIndexedAccess (no spurious `| undefined`).
-type ExtendedTable = { [P in Program]: { [K in ExtendedKind]: ExtendedLine } };
+type ExtendedTable = { [P in LegacyProgram]: { [K in ExtendedKind]: ExtendedLine } };
 
 const EXTENDED_ES: ExtendedTable = {
   adults: {
@@ -462,5 +511,5 @@ const EXTENDED_EN: ExtendedTable = {
  * WA sender appends the language suffix (_es/_en). See docs/templates.md.
  */
 export function extendedTemplateName(kind: ExtendedKind, program: Program): string {
-  return `${kind}_${program}`;
+  return `${kind}_${legacyProgram(program)}`;
 }

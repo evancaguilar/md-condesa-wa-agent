@@ -11,11 +11,16 @@ import { listRecentBookings } from "../services/airtable.js";
 import { cdmxParts } from "./time.js";
 import {
   findUnbackedConfirmations,
+  RECON_LOOKBACK_S,
+  slotLabel,
+  stillActionable,
   type Mismatch,
   type ReconBooking,
 } from "./booking-recon-core.js";
 
-const CLAIM_LOOKBACK_S = 48 * 3600;
+// Repeats daily until resolved (was a single 48h look, so a missed alert was
+// lost for good) — see stillActionable for when an entry drops off.
+const CLAIM_LOOKBACK_S = RECON_LOOKBACK_S;
 const BOOKING_LOOKBACK_S = 21 * 24 * 3600;
 
 function pad2(n: number): string {
@@ -30,9 +35,11 @@ function fechaCdmx(epoch: number): string {
 
 /** " — prometido 2026-08-29, en Airtable: 2026-08-28" for a dated claim. */
 function slotLine(m: Mismatch): string {
-  if (!m.claimedDate) return "";
+  const slot = slotLabel(m);
+  if (!slot) return "";
+  if (!m.claimedDate) return ` — clase prometida: ${slot}`;
   const has = m.nearestBookingDate ? m.nearestBookingDate : "ninguna clase";
-  return ` — prometido ${m.claimedDate}, en Airtable: ${has}`;
+  return ` — prometido ${slot}, en Airtable: ${has}`;
 }
 
 export interface BookingReconDeps {
@@ -57,7 +64,9 @@ export async function runBookingRecon(
     trialDateTimeIso: r.trialDateTimeIso,
   }));
 
-  const mismatches = findUnbackedConfirmations(sends, bookings, nowEpoch);
+  const mismatches = findUnbackedConfirmations(sends, bookings, nowEpoch).filter((m) =>
+    stillActionable(m, nowEpoch),
+  );
   if (mismatches.length === 0) return 0;
 
   const lines = mismatches
@@ -67,7 +76,7 @@ export async function runBookingRecon(
     )
     .join("\n");
   await deps.slack.postNote(
-    `🕵️ Reconciliación de agendados — ${mismatches.length} confirmación(es) SIN registro en Airtable:\n${lines}\nRevisa y regístralos a mano.`,
+    `🕵️ Reconciliación de agendados — ${mismatches.length} confirmación(es) SIN registro en Airtable:\n${lines}\nRevisa y regístralos a mano — este aviso se repite cada día hasta que el registro exista.`,
   );
   return mismatches.length;
 }

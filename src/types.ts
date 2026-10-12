@@ -82,6 +82,26 @@ export interface Qualification {
   discipline?: string;
   audience?: Audience;
   goal?: string;
+  /** Child's name (kid/baby leads) — the lead told us, or book_trial wrote it. */
+  child_name?: string;
+  /** Child's age in months — the ONLY thing the age→program routing trusts. */
+  child_age_months?: number;
+  /** Program band derived from age (or stated outright): see age-band.ts. */
+  program?: ProgramBand;
+  /** Weekday keys (lun|mar|mie|jue|vie|sab|dom) the lead said work / don't. */
+  preferred_days?: string[];
+  declined_days?: string[];
+}
+
+/** Age/program band a lead books into. "adults" also covers unknown ages. */
+export type ProgramBand = "baby" | "mini" | "kids" | "teens" | "adults";
+
+/** Facts the model reports in send_reply (merged into Qualification). */
+export interface QualUpdate {
+  child_name?: string;
+  child_age_months?: number;
+  preferred_days?: string[];
+  declined_days?: string[];
 }
 
 /** Row of the `contacts` table. Epoch fields are seconds. */
@@ -258,6 +278,14 @@ export type FollowupKind =
   | "post_trial_d0"
   | "post_trial_d2"
   | "post_trial_d5"
+  /** v2 attended chain (2026-10-11): +3 / +6 days at 11:00 (d2/d5 legacy). */
+  | "post_trial_d3"
+  | "post_trial_d6"
+  /** v2 no-show chain: class start + 2 h (armed with the booking, sends only
+   *  while Resultado is empty / "No asistió"), then +2 / +7 days at 11:00. */
+  | "no_show_hoy"
+  | "no_show_d2"
+  | "no_show_d7"
   /** The Slack "asistió y no se inscribió" card, held until ~30 min after the
    *  class ends so the front desk can close in person first (src/cron/post-trial.ts). */
   | "post_trial_card"
@@ -339,6 +367,8 @@ export interface ConvoContext {
    * the day after they WROTE) and no booking without re-confirming the slot.
    */
   staleReply?: { waitedHours: number; lastInboundCdmx: string };
+  /** The lead tapped/wrote "Necesito reagendar" after a trial reminder (WP3). */
+  reschedule?: boolean;
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */
@@ -360,6 +390,10 @@ export interface BookTrialInput {
    * human typed in Airtable never matches and is kept. Absent ⇒ fill-if-empty.
    */
   replaceName?: string | null;
+  /** Age band of the person booked (book_trial child_age / stored qualification). Drives Airtable Programa. */
+  program?: ProgramBand;
+  /** Child age in months when known (persisted into qualification at booking). */
+  childAgeMonths?: number;
 }
 
 /**
@@ -417,6 +451,8 @@ export type BrainResult =
       awaitingReply?: boolean;
       /** send_reply.lead_name: the real name the lead gave this turn (no booking). */
       leadName?: string;
+      /** send_reply child_name / child_age_years / preferred_days / declined_days (WP1). */
+      qualUpdate?: QualUpdate;
     }
   | {
       action: "draft";
@@ -431,6 +467,8 @@ export type BrainResult =
       awaitingReply?: boolean;
       /** send_reply.lead_name: the real name the lead gave this turn (no booking). */
       leadName?: string;
+      /** See the send member. */
+      qualUpdate?: QualUpdate;
     }
   | { action: "escalate"; reason: string; summary: string }
   | ({
@@ -476,6 +514,8 @@ export interface SlackPort {
   /** Plain note to the TASK channel (#wa-leads): a human must do something.
    *  Optional so one-line test fakes stay one-liners; callers fall back to postNote. */
   postTaskNote?(text: string): Promise<void>;
+  /** One open escalation task per phone (updates instead of a new <!here>); optional, falls back to postTaskNote. */
+  postEscalationTask?(phone: string, approvalId: number, text: string): Promise<void>;
   /** FYI card posted whenever book_trial fires (spec: always ALSO to Slack). */
   postBookingFyi(booking: BookTrialInput): Promise<void>;
   /** FYI card for a reply the gated auto-send lane sent without approval. */

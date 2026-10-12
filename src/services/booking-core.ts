@@ -19,8 +19,8 @@
 // booking-core ↔ cron/followups import cycle can never see a half-initialized
 // module) — the unit tests drive the whole flow with fakes.
 
-import type { BookTrialInput, Env, SlackPort } from "../types.js";
-import { kvSet, setContactName, setQualification } from "../db/queries.js";
+import type { BookTrialInput, Env, Qualification, SlackPort } from "../types.js";
+import { getContact, kvSet, setContactName, setQualification } from "../db/queries.js";
 import { syncLead } from "./lead-sync.js";
 import { scheduleTrialSequence } from "../cron/followups.js";
 import { cdmxDateStr, cdmxIso } from "../cron/time.js";
@@ -179,6 +179,9 @@ export interface FinalizeBookingOpts {
 export interface BookingCoreDeps {
   scheduleTrialSequence: typeof scheduleTrialSequence;
   setQualification: typeof setQualification;
+  /** Current contacts.qualification JSON (merged, never clobbered, at booking).
+   *  Optional so test fakes stay small; absent ⇒ start from {}. */
+  getQualification?: (db: D1Database, phone: string) => Promise<string | null>;
   setContactName: typeof setContactName;
   syncLead: typeof syncLead;
   bookTrial: (env: Env, input: BookTrialInput) => Promise<string>;
@@ -193,6 +196,7 @@ export function realBookingDeps(): BookingCoreDeps {
   return {
     scheduleTrialSequence,
     setQualification,
+    getQualification: async (db, phone) => (await getContact(db, phone))?.qualification ?? null,
     setContactName,
     syncLead,
     bookTrial,
@@ -302,15 +306,8 @@ export async function finalizeBooking(
   // Persist qualification (gives classifyProgram real data) then sync the
   // booking to Airtable + fire program rules.
   try {
-    await deps.setQualification(
-      env.DB,
-      b.phone,
-      JSON.stringify({
-        discipline: b.discipline,
-        audience: b.audience,
-        name: b.name,
-      }),
-    );
+    const current = deps.getQualification ? await deps.getQualification(env.DB, b.phone) : null;
+    await deps.setQualification(env.DB, b.phone, JSON.stringify(bookingQualification(current, b)));
   } catch (err) {
     console.error("[finalizeBooking] qualification failed", err);
   }
@@ -431,4 +428,27 @@ export async function registerBooking(
   }
 
   return { ok: true, recordId };
+}
+
+/**
+ * Pure. The qualification to store after a booking: the booked discipline /
+ * audience / name on top of what we ALREADY knew. Until 2026-10-11 this
+ * replaced the whole JSON, so a child age the lead told us (the only thing
+ * the age→program routing trusts) vanished the moment they booked.
+ */
+export function bookingQualification(currentJson: string | null, b: BookTrialInput): Qualification {
+  let cur: Qualification = {};
+  if (currentJson) {
+    try {
+      const v = JSON.parse(currentJson) as Qualification;
+      if (v && typeof v === "object") cur = v;
+    } catch {
+      // corrupt JSON: start over
+    }
+  }
+  const next: Qualification = { ...cur, discipline: b.discipline, audience: b.audience, name: b.name };
+  if (b.childName) next.child_name = b.childName;
+  if (typeof b.childAgeMonths === "number") next.child_age_months = b.childAgeMonths;
+  if (b.program) next.program = b.program;
+  return next;
 }

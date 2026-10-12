@@ -147,7 +147,7 @@ function renderSlotsTs(slots, version) {
   const rows = slots
     .map(
       (s) =>
-        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)}${s.trial === false ? ", trial: false" : ""}${s.pp ? ", pp: true" : ""}${s.name ? `, name: ${JSON.stringify(s.name)}` : ""} },`,
+        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)}${s.trial === false ? ", trial: false" : ""}${s.pp ? ", pp: true" : ""}${s.group ? `, group: ${JSON.stringify(s.group)}` : ""}${s.name ? `, name: ${JSON.stringify(s.name)}` : ""} },`,
     )
     .join("\n");
   return (
@@ -163,6 +163,9 @@ function renderSlotsTs(slots, version) {
     `  /** true = parent-participation class (baby/mini): bookable for either\n` +
     `   *  audience, but never PROPOSED to a generic lead (see next-slot.ts). */\n` +
     `  pp?: boolean;\n` +
+    `  /** Age group the class is for: adult | kids (6–12) | teens (13–17) |\n` +
+    `   *  mini (Mini Muay Thai, 3–5) | baby (Baby Fight Club, 12–36 m). */\n` +
+    `  group?: "adult" | "kids" | "teens" | "mini" | "baby";\n` +
     `  /** Client-facing class name when it differs from the program's (e.g. a\n` +
     `   *  renamed course booked under \`jiu\`). Never offered as \`discipline\`. */\n` +
     `  name?: string;\n` +

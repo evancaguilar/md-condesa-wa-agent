@@ -8,6 +8,7 @@ import { CLIENT } from "../client.gen.js";
 import { cdmxIso } from "../cron/time.js";
 import { kvGet, kvSet } from "../db/queries.js";
 import { channelOf } from "./channel.js";
+import { bandAirtableKey } from "./age-band.js";
 
 const API = "https://api.airtable.com/v0";
 const MAX_429_RETRIES = 4;
@@ -246,7 +247,13 @@ export async function bookTrial(
     (input.audience === "kid" ? m.disciplineValues[`${discKey}:kid`] : undefined) ??
     m.disciplineValues[discKey] ??
     input.discipline;
-  const audKey = discKey === "baby" ? "baby" : input.audience;
+  // Programa from the AGE BAND when the booking carries one (mini → "Mini Muay
+  // Thai", teens → "Teens"); legacy fallback: baby discipline → BFC, else audience.
+  const audKey = input.program
+    ? bandAirtableKey(input.program)
+    : discKey === "baby"
+      ? "baby"
+      : input.audience;
   const audOpt = m.audienceValues[audKey] ?? input.audience;
 
   const fields: Record<string, unknown> = {
@@ -777,6 +784,23 @@ export async function listRecentBookings(
     offset = data.offset;
   } while (offset);
   return out;
+}
+
+/**
+ * One booking record by id, re-read right before a trial reminder / no-show
+ * touch goes out (src/cron/followups.ts shouldSendReminder). null when the
+ * record no longer exists (404); throws on any other failure so the caller's
+ * retry machinery decides.
+ */
+export async function getBookingRecord(
+  env: Env,
+  recordId: string,
+): Promise<BookingRecord | null> {
+  const url = `${baseUrl(env, env.AIRTABLE_TRIALS_TABLE)}/${encodeURIComponent(recordId)}`;
+  const res = await airtableFetch(env, url, { method: "GET" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`airtable getBookingRecord failed: HTTP ${res.status}`);
+  return toBookingRecord((await res.json()) as AirtableRecord, resultFieldName(env));
 }
 
 function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord {

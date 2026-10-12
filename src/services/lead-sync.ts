@@ -20,7 +20,7 @@ import {
 } from "./airtable.js";
 import { parseRule, ruleMatches } from "./airtable-rules.js";
 import { ctwaClidFromAdRef } from "./meta-capi.js";
-import { classifyProgram } from "../cron/nudge-copy.js";
+import { classifyProgram, legacyProgram } from "../cron/nudge-copy.js";
 import { postNote } from "./slack.js";
 import { cdmxDateStr } from "../cron/time.js";
 
@@ -148,7 +148,8 @@ async function applyRules(
   const rules = await listAirtableRules(env.DB, { enabledOnly: true });
   if (rules.length === 0) return;
 
-  const program = classifyProgram(contact, campaignName);
+  // Rules target the 3 legacy families (RuleProgram): mini/teens match "kids".
+  const program = legacyProgram(classifyProgram(contact, campaignName));
   const matched: MatchedRule[] = [];
   for (const rule of rules) {
     const parsed = parseRule(rule.trigger_json, rule.actions_json);

@@ -16,6 +16,7 @@ import {
   setContactNameIfEmpty as setNameIfEmptyRow,
 } from "../db/queries.js";
 import { scheduleTrialSequence } from "../cron/followups.js";
+import { clampExportWindow, exportWindow } from "../db/export.js";
 import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
 import { setQualification } from "../db/queries.js";
 import type { Qualification } from "../types.js";
@@ -765,10 +766,26 @@ export async function handleAdminApi(
       // Attribution: who resolved it from the panel (Slack card stays generic).
       const verb =
         action === "approve" ? "aprobada" : action === "edit" ? "editada" : "descartada";
+      // The sent text rides along: a card resolved from the panel is rewritten
+      // in Slack to a one-liner, so without this the conversation record in
+      // #bot-ops has a hole (2026-10-09 audit: most lead threads unreadable).
       ctx.waitUntil(
-        ports.slack
-          .postNote(`✅ Aprobación #${id} ${verb} por ${session.user} desde el panel`)
-          .catch(() => {}),
+        (async () => {
+          let tail = "";
+          if (action !== "discard") {
+            const row = await env.DB.prepare(
+              `SELECT phone, final_text FROM pending_approvals WHERE id = ?1`,
+            )
+              .bind(id)
+              .first<{ phone: string | null; final_text: string | null }>();
+            if (row?.final_text) {
+              tail = `\n*${row.phone ?? ""}*\n>${row.final_text.replace(/\n/g, "\n>")}`;
+            }
+          }
+          await ports.slack.postNote(
+            `✅ Aprobación #${id} ${verb} por ${session.user} desde el panel${tail}`,
+          );
+        })().catch(() => {}),
       );
     }
     return approvalJson(result);
@@ -842,6 +859,18 @@ export async function handleAdminApi(
   }
 
   // ---- edits ----
+  // ---- audit export (owner-only, read-only, ≤ 7 days) ----
+  if (path === "/admin/api/export" && method === "GET") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const w = clampExportWindow(
+      url.searchParams.get("since"),
+      url.searchParams.get("until"),
+      nowSec(),
+    );
+    if (!w) return json({ error: "since (epoch seconds) is required" }, 400);
+    return json(await exportWindow(env.DB, w));
+  }
+
   if (path === "/admin/api/edits" && method === "GET") {
     const limit = clampLimit(url.searchParams.get("limit"), 50);
     return json({ items: await listEdits(env.DB, limit) });

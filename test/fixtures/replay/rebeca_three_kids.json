@@ -1,0 +1,189 @@
+{
+ "case": "rebeca_three_kids",
+ "phone": "5215550000010",
+ "campaign": "baby fight club",
+ "contact": {
+  "name": "Rebeca",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"discipline\":\"muay\",\"audience\":\"kid\",\"name\":\"Rebeca Flores\"}",
+  "campaign_id": 2
+ },
+ "messages": [
+  {
+   "direction": "in",
+   "ts": 1790965677,
+   "body": "No hay clase más tarde ?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790965680,
+   "body": "¡Hola! 🙌 Qué gusto que te interese Baby Fight Club (12 a 36 meses).\n\nEs una clase de movimiento, juego y desarrollo físico inspirada en artes marciales: coordinación, equilibrio, confianza y socialización — siempre acompañado por mamá o papá 😄\n\nLa primera clase es gratis para que la prueben sin compromiso.\n\n¿Te queda mejor miércoles 1 pm o sábado 2 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790965852,
+   "body": "Me gustaría clase  muestra para 2 bebés de 1 año 4 meses"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790965866,
+   "body": "¡Perfecto, les quedan justo en edad! 🙌 El próximo horario disponible es mañana sábado 2 pm (también hay miércoles 1 pm si les acomoda mejor).\n\n¿Me confirmas tu nombre y el de los dos bebés?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790966113,
+   "body": "También busco para un niño de 10 años ( si se pudiera el miércoles 1 pm estaría perfecto)"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790966132,
+   "body": "¡Va! 🙌 Para los bebés les aparto el miércoles 1 pm.\n\nPara el niño de 10 años las clases son Jiu-Jitsu y Muay Thai Kids, también miércoles pero a las 4 pm (llega y prueba ambas) — ¿les acomoda esa hora?\n\nY para agendar a los tres, ¿me confirmas tu nombre y el de cada peque? 😊"
+  },
+  {
+   "direction": "in",
+   "ts": 1790966225,
+   "body": "No tienes otro horario ? Es que ellos tienen natación a las 4:30 . Y los sábados podemos después de las 3 pm 😖"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790966242,
+   "body": "Entiendo 🙌 Para el niño de 10 años, sábado después de las 3 pm no hay clase (el horario de Kids es 11 am y 12 pm), así que la próxima opción sería el miércoles a las 4 pm con Jiu-Jitsu y Muay Thai.\n\nPara los bebés, el sábado sí les funciona perfecto: 2 pm.\n\n¿Les acomoda así: bebés sábado 2 pm y el niño buscamos otro día entre semana (lunes o martes 4 pm, antes de natación)?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790966314,
+   "body": "Rebeca Flores \nSebastián Gallegos Flores\nAlberto Alejandro Flores Sánchez ( son bebés) \nSantiago Raphael Flores Tabla"
+  },
+  {
+   "direction": "in",
+   "ts": 1790966333,
+   "body": "Permíteme mejor en miércoles pero déjame ver si puedo cambiar natación mejor ."
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790966339,
+   "body": "¡Perfecto Rebeca! Ya quedaron agendados Sebastián y Alberto el miércoles a la 1 pm para Baby Fight Club 🙌\nAquí toda la info de su primera clase: mdcondesa.com/tu-primera-clase-bebes/\n\nPara Santiago (10 años), ¿qué día entre semana les queda mejor antes de natación: lunes o martes a las 4 pm?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790966339,
+   "body": "[video]"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790966347,
+   "body": "Va, sin bronca 🙌 Nos avisas cuando confirmes lo de natación y vemos el mejor día para Santiago."
+  },
+  {
+   "direction": "in",
+   "ts": 1790967208,
+   "body": "Ya logré cambiar la natación si agenda la clase muestra de Santiago en miércoles 4 pm"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790967227,
+   "body": "¡Perfecto! Santiago también quedó agendado el miércoles a las 4 pm para probar Muay Thai y Jiu-Jitsu Kids 🙌 Aquí la info de su primera clase: mdcondesa.com/tu-primera-clase-ninos/ Nos vemos a los tres el miércoles 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790967228,
+   "body": "[video]"
+  },
+  {
+   "direction": "in",
+   "ts": 1790967288,
+   "body": "[reaccionó 🫶🏽]"
+  },
+  {
+   "direction": "in",
+   "ts": 1790967612,
+   "body": "Igual me compartes los costos de ambas clases ( los paquetes )"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790967628,
+   "body": "Con gusto 🙌 Para Baby Fight Club la membresía es de $1,996 cada 4 semanas (1 clase/sem), y para Kids (Santiago) el rango común va de $1,996 a $2,996 cada 4 semanas según cuántas veces por semana entrene. En su clase muestra lo platicamos bien para armarles el mejor plan 💪"
+  },
+  {
+   "direction": "in",
+   "ts": 1790967690,
+   "body": "Vale si está perfecto nos vemos el miércoles"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790967703,
+   "body": "¡Perfecto! Nos vemos el miércoles 🙌🫶🏽"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791331301,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Rebeca! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "in",
+   "ts": 1791332165,
+   "body": "Si"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791332472,
+   "body": "¡Perfecto Rebeca! 🙌 Los esperamos mañana miércoles a la 1 pm para su clase de Baby Fight Club. Cualquier duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "in",
+   "ts": 1791332918,
+   "body": "Y a las 4 *"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791332953,
+   "body": "Es a la 1 pm, Rebeca 🙌 Ya tienen su lugar para mañana miércoles a esa hora. ¡Nos vemos! 🥋"
+  },
+  {
+   "direction": "in",
+   "ts": 1791332976,
+   "body": "Los 3?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791333024,
+   "body": "Son 3 niños \n2 bebés para el Baby figth club\n1 niño de 10 años ( es al que me agendaron a las 4 pm)"
+  },
+  {
+   "direction": "in",
+   "ts": 1791333036,
+   "body": "O sea si se pueden los 3 a la 1 pm no tengo tema"
+  },
+  {
+   "direction": "out_human",
+   "ts": 1791336904,
+   "body": "Hola! Soy Vale, fue una error de automatizacion. Tienes razon es a la 1 para baby fight club y despues a las 4 pm para tu peque de 10 años"
+  },
+  {
+   "direction": "in",
+   "ts": 1791337558,
+   "body": "Ah súper"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791396014,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Rebeca! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791396210,
+   "body": "Ahí estaré"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791399913,
+   "body": "¡Hola Rebeca! 🥋 Tu clase de prueba quedó agendada. Estamos en Av. México 49, 1º piso, Condesa. Trae ropa cómoda y una botella de agua — no necesitas equipo, nosotros te lo prestamos. ¡Nos vemos!"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791399914,
+   "body": "[video]"
+  }
+ ]
+}

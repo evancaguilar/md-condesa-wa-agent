@@ -85,13 +85,15 @@ const D16 = (h: number, m = 0) => cdmxToEpoch(2026, 7, 16, h, m, 0);
 
 // ---- R1: isQuietHour / shiftOutOfQuiet ----
 
-test("isQuietHour: 21:30 allowed, after it quiet, mornings quiet, daytime clear", () => {
+test("isQuietHour: window is 08:00–21:00 (owner 2026-10-11) — 21:00 on is quiet", () => {
   assert.equal(isQuietHour(D15(1)), true); // 1am
   assert.equal(isQuietHour(D15(7, 59)), true); // 7:59am
   assert.equal(isQuietHour(D15(8)), false); // 8:00 exactly allowed
   assert.equal(isQuietHour(D15(12)), false); // noon
-  assert.equal(isQuietHour(D15(21, 30)), false); // 21:30 exactly allowed (pull target)
-  assert.equal(isQuietHour(D15(21, 31)), true); // 21:31 quiet
+  assert.equal(isQuietHour(D15(20, 55)), false); // 20:55 allowed (pull target)
+  assert.equal(isQuietHour(D15(20, 59)), false);
+  assert.equal(isQuietHour(D15(21)), true); // 21:00 quiet
+  assert.equal(isQuietHour(D15(21, 30)), true); // the old 21:30 cluster (7 nudges, 2026-10-08)
   assert.equal(isQuietHour(D15(23)), true); // 11pm
 });
 
@@ -120,23 +122,23 @@ test("placeNudge3: natural time is fine → keep", () => {
   assert.deepEqual(p, { dueAt: natural });
 });
 
-test("placeNudge3: 22:00 quiet + ≥2h satisfied → pull to 21:30", () => {
+test("placeNudge3: 22:00 quiet + ≥2h satisfied → pull to 20:55", () => {
   const natural = D15(22);
-  const nudge2 = D15(19); // earliest 21:00
+  const nudge2 = D15(18); // earliest 20:00
   const p = placeNudge3(natural, nudge2, D16(12), D15(14));
-  assert.deepEqual(p, { dueAt: D15(21, 30) });
+  assert.deepEqual(p, { dueAt: D15(20, 55) });
 });
 
 test("placeNudge3: ≥2h guard fails → defer to next 08:00", () => {
   const natural = D15(22);
-  const nudge2 = D15(20); // earliest 22:00 → 21:30 < 22:00, no pull
+  const nudge2 = D15(20); // earliest 22:00 → 20:55 < 22:00, no pull
   const p = placeNudge3(natural, nudge2, D16(12), D15(14));
   assert.deepEqual(p, { dueAt: D16(8) });
 });
 
 test("placeNudge3: pull + defer both beyond window → drop", () => {
   const natural = D15(22);
-  const nudge2 = D15(19); // earliest 21:00
+  const nudge2 = D15(19); // earliest 21:00 → 20:55 too early, no pull
   const p = placeNudge3(natural, nudge2, D15(21), D15(14)); // window closes 21:00
   assert.deepEqual(p, { dropped: true });
 });

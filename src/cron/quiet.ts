@@ -1,16 +1,22 @@
 // Quiet hours for unsolicited sends (R1/R2 of sequences-v2). No follow-up may be
-// SENT between 21:30 and 08:00 CDMX. These are pure functions over epoch seconds
+// SENT between 21:00 and 08:00 CDMX (owner, 2026-10-11 — was 21:30; seven
+// nudges went out at exactly 21:30 on 2026-10-08). These are pure functions over epoch seconds
 // (no Intl, fixed CDMX offset via ./time.ts) so the scheduling math is fully
 // unit-testable with fake clocks.
 //
-// Boundary convention: 21:30:00 is the LAST permissible instant (the nudge-3
-// "pull to 21:30" rule targets it), so isQuietHour treats > 21:30 as quiet and
-// exactly 21:30 as allowed. 08:00:00 is allowed; anything before it is quiet.
+// Boundary convention: 21:00:00 is already quiet (the window is 08:00–21:00,
+// end exclusive); the nudge-3 "pull to the evening" rule targets 20:55, the
+// last minute-aligned instant a cron tick can still send in. 08:00:00 is
+// allowed; anything before it is quiet. Trial reminders for 7/8/9 am classes
+// keep their own 06:00 floor (followups.ts sameDayReminderAt) — they are not
+// unsolicited.
 
 import { cdmxParts, cdmxToEpoch, DAY } from "./time.js";
 
-/** 21:30 CDMX, in minutes-since-midnight. Sends AFTER this are quiet. */
-export const QUIET_START_MIN = 21 * 60 + 30; // 1290
+/** 21:00 CDMX, in minutes-since-midnight. Sends AT or after this are quiet. */
+export const QUIET_START_MIN = 21 * 60; // 1260
+/** The evening pull target for nudge 3 (20:55 CDMX), minutes-since-midnight. */
+export const EVENING_PULL_MIN = 20 * 60 + 55;
 /** 08:00 CDMX, in minutes-since-midnight. Sends BEFORE this are quiet. */
 export const QUIET_END_MIN = 8 * 60; // 480
 
@@ -23,12 +29,12 @@ function cdmxMinuteOfDay(epoch: number): number {
 }
 
 /**
- * True when `epoch` falls in the CDMX quiet window (after 21:30, before 08:00).
- * 21:30:00 and 08:00:00 exactly are NOT quiet (both are valid send instants).
+ * True when `epoch` falls in the CDMX quiet window (21:00 on, before 08:00).
+ * 08:00:00 is a valid send instant; 21:00:00 is not.
  */
 export function isQuietHour(epoch: number): boolean {
   const min = cdmxMinuteOfDay(epoch);
-  return min > QUIET_START_MIN || min < QUIET_END_MIN;
+  return min >= QUIET_START_MIN || min < QUIET_END_MIN;
 }
 
 /** The 08:00 CDMX that is strictly AFTER `epoch`. */
@@ -41,14 +47,14 @@ export function next8am(epoch: number): number {
 /**
  * If `epoch` is inside quiet hours, return the next 08:00 CDMX; otherwise return
  * `epoch` unchanged. Early-morning quiet (00:00–07:59) → 08:00 the SAME day;
- * evening quiet (after 21:30) → 08:00 the NEXT day.
+ * evening quiet (21:00 on) → 08:00 the NEXT day.
  */
 export function shiftOutOfQuiet(epoch: number): number {
   if (!isQuietHour(epoch)) return epoch;
   const p = cdmxParts(epoch);
   const min = p.hour * 60 + p.minute;
   const today8 = cdmxToEpoch(p.year, p.month, p.day, 8, 0, 0);
-  // Early morning → 08:00 today. Evening (after 21:30) → 08:00 tomorrow.
+  // Early morning → 08:00 today. Evening (21:00 on) → 08:00 tomorrow.
   return min < QUIET_END_MIN ? today8 : today8 + DAY;
 }
 
@@ -59,7 +65,7 @@ export type Nudge3Placement = { dueAt: number } | { dropped: true };
  * Window-aware placement for nudge 3 (R2). It must land inside the 24h window
  * AND outside quiet hours, at least 2h after nudge 2's time:
  *  - natural (+8h) time is fine (in-window, not quiet, ≥2h after nudge 2) → keep;
- *  - else pull EARLIER to 21:30 (the 21:30 at/just-before natural) if that is
+ *  - else pull EARLIER to 20:55 (the 20:55 at/just-before natural) if that is
  *    ≥ nudge2 + 2h and still inside the window;
  *  - else defer to the next 08:00 if that's still inside the window;
  *  - else drop (the day-2 extended message covers it).
@@ -83,9 +89,9 @@ export function placeNudge3(
     return { dueAt: natural };
   }
 
-  // Pull earlier to 21:30 on the evening at/just-before `natural`.
+  // Pull earlier to 20:55 on the evening at/just-before `natural`.
   const pn = cdmxParts(natural);
-  let pull = cdmxToEpoch(pn.year, pn.month, pn.day, 21, 30, 0);
+  let pull = cdmxToEpoch(pn.year, pn.month, pn.day, 0, EVENING_PULL_MIN, 0);
   if (pull > natural) pull -= DAY;
   if (
     pull >= earliest &&

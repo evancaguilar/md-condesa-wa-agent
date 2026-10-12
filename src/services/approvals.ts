@@ -97,6 +97,16 @@ export function escalationKey(id: number): string {
   return `escalation:${id}`;
 }
 
+/**
+ * kv key holding classifyEscalation() of the draft's reason ("complaint",
+ * "opt_out", "price", "nivel0", …). Read by the timeout cron: complaint /
+ * opt-out / price drafts never best-bet, complaint / opt-out never get the
+ * holding line. Missing key = ordinary draft.
+ */
+export function reasonKindKey(id: number): string {
+  return `reason_kind:${id}`;
+}
+
 /** The escalation reason behind an approval row, or null for a normal draft. */
 export async function escalationReason(env: Env, id: number): Promise<string | null> {
   return await kvGet(env.DB, escalationKey(id));

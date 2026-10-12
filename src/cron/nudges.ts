@@ -1,6 +1,6 @@
 // Lead-nudge drip. Day-1 (nudge_1h + nudge_8h, in the 24h window → free-form)
 // plus the extended multi-day sequence (nudge_d2…d5) from sequences-v2.
-// Scheduling honors CDMX quiet hours (21:30–08:00): nudge 1 defers out of quiet,
+// Scheduling honors CDMX quiet hours (21:00–08:00): nudge 1 defers out of quiet,
 // the closing nudge uses the window-aware placement rule, and the extended chain
 // is quiet-shifted (see ./quiet.ts). The old +6h middle step is no longer
 // scheduled (B3) but its kind survives for pending rows. gateOnOpenQuestion
@@ -11,15 +11,21 @@
 // underNudgeCap) is unit-tested with fake clocks. armNudges/cancelNudges/
 // maybeArmExtended touch the DB.
 
-import type { Contact, Env } from "../types.js";
+import type { Contact, Env, ProgramBand, Qualification } from "../types.js";
 import {
   cancelFollowups,
   getContact,
   scheduleFollowup,
   kvGet,
   kvSet,
+  kvSetIfAbsent,
+  kvDelete,
   recentMessages,
 } from "../db/queries.js";
+import { bookingRecordedKey, parseBookingRecordedMarker } from "../services/booking-core.js";
+import { bandFromQualification, slotMatchesBand } from "../services/age-band.js";
+import { SLOTS, type Slot } from "../brain/slots.gen.js";
+import { nextBandSlot, type NextSlot } from "./next-slot.js";
 import { ageConflictsWithProgram, hasBuyIntent, isDuplicateSend } from "./nudge-signals.js";
 import {
   cancelFollowupsByKinds,
@@ -31,7 +37,7 @@ import {
   isTemplateMissingError,
   templateFirstName,
 } from "../services/template-params.js";
-import { DAY } from "./time.js";
+import { DAY, cdmxDateStr, cdmxIso } from "./time.js";
 import { shiftOutOfQuiet, placeNudge3 } from "./quiet.js";
 import {
   NUDGE_KINDS,
@@ -50,6 +56,7 @@ import {
   type ExtendedKind,
   type Program,
 } from "./nudge-copy.js";
+import { weekdaySet } from "./nudge-copy.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -64,6 +71,7 @@ export {
   noShowCopy,
   programLink,
   slotCta,
+  parseQualification,
 };
 export type { NudgeKind, ExtendedKind, Program };
 
@@ -79,6 +87,148 @@ export const NUDGE_CAP_WINDOW_SECONDS = 7 * 86400;
 export const SEQ_GUARD_SECONDS = 30 * DAY;
 
 const HOUR = 3600;
+
+
+// ---- program band → copy inputs (pure) ----
+//
+// nudge-copy.ts only knows three copy programs (adults | kids | baby) and picks
+// one from the campaign name, which is how a 4-year-old from the Baby Fight
+// Club ad got baby copy + BFC hours, and a baby lead with no qualification got
+// the adults pitch (…0442, 2026-10). The AGE band (src/services/age-band.ts) is
+// the truth when we have it; these helpers translate a band into the inputs
+// nudge-copy expects, without touching that module:
+//   baby          → baby copy, Baby Fight Club slots only
+//   mini (3–5)    → kids copy ("tu peque" — the baby copy names Baby Fight
+//                   Club), Mini Muay Thai slots only, never Kids
+//   kids / teens  → kids copy, slots of exactly that group
+//   adults        → adults copy, adult slots only
+
+/** Campaign names that mean "this lead is a parent" (mirror of nudge-copy's). */
+const KIDS_CAMPAIGN_RE = /\bkids?\b|ni[ñn]os?|peques?|infantil/i;
+
+/** The lead's band: stored age/program first, campaign-name guess second. Pure. */
+export function bandForContact(
+  contact: Contact | null,
+  campaignName: string | null = null,
+): ProgramBand {
+  return bandFromQualification(parseQualification(contact)) ?? classifyProgram(contact, campaignName);
+}
+
+/** The copy program a band reads in. Pure. */
+export function bandProgram(band: ProgramBand): Program {
+  if (band === "baby") return "baby";
+  if (band === "adults") return "adults";
+  return "kids";
+}
+
+/** True for every band whose messages go to a parent (plural copy). */
+export function isMinorBand(band: ProgramBand): boolean {
+  return band !== "adults";
+}
+
+/**
+ * The slice of the grid a band may be offered. Mini Muay Thai rows are
+ * parent-participation (pp) rows, which next-slot only proposes to an explicit
+ * baby pick — stripping the flag here lets them be proposed to exactly the
+ * band they belong to, and nobody else ever sees them through this list. Pure.
+ */
+export function bandSchedule(band: ProgramBand, schedule: readonly Slot[] = SLOTS): Slot[] {
+  return schedule
+    .filter((s) => s.trial !== false && slotMatchesBand(s, band))
+    .map((s) => {
+      if (band !== "mini" || !s.pp) return s;
+      const { pp: _pp, ...rest } = s;
+      // …and say the program's own name ("Mini Muay Thai"), not "Muay Thai".
+      return { ...rest, name: s.name ?? "Mini Muay Thai" };
+    });
+}
+
+export interface BandCopyInputs {
+  contact: Contact | null;
+  campaignName: string | null;
+  program: Program;
+  schedule: Slot[];
+}
+
+/**
+ * What to hand nudge-copy so it speaks to `band`: a contact whose qualification
+ * classifies into the band's copy program, a campaign name that cannot drag it
+ * back to another one (a /baby/ campaign for a 6-year-old is dropped — the only
+ * cost is the utm tag on that one link), and the band's slice of the grid. Pure.
+ */
+export function copyInputsForBand(
+  contact: Contact | null,
+  campaignName: string | null,
+  band: ProgramBand,
+  schedule: readonly Slot[] = SLOTS,
+): BandCopyInputs {
+  const q = parseQualification(contact);
+  const disc = (q.discipline ?? "").toLowerCase();
+  const q2: Qualification = { ...q };
+  if (band === "baby") {
+    q2.discipline = "baby";
+    q2.audience = "kid";
+  } else {
+    if (band === "mini" || disc.includes("baby")) delete q2.discipline;
+    q2.audience = band === "adults" ? "adult" : "kid";
+  }
+  let campaign = campaignName;
+  if (campaign != null && band !== "baby" && /baby/i.test(campaign)) campaign = null;
+  if (campaign != null && band === "adults" && KIDS_CAMPAIGN_RE.test(campaign)) campaign = null;
+  return {
+    contact: contact ? { ...contact, qualification: JSON.stringify(q2) } : null,
+    campaignName: campaign,
+    program: bandProgram(band),
+    schedule: bandSchedule(band, schedule),
+  };
+}
+
+/** ONE concrete, band-correct upcoming slot (soonest-first), or null. Pure. */
+export function bandSlot(
+  contact: Contact | null,
+  campaignName: string | null,
+  band: ProgramBand,
+  nowEpoch: number,
+  schedule: readonly Slot[] = SLOTS,
+): NextSlot | null {
+  // The copy program is the LEGACY bucket (mini/teens → kids) and the band
+  // schedule keeps each slot's `group`, so the slot must be picked by the real
+  // band — through copyInputsForBand a Mini lead asked nextBandSlot for a
+  // "kids" row and got nothing (post-merge regression, 2026-10-11).
+  const q = parseQualification(contact);
+  const discipline =
+    band === "baby" ? "baby" : band === "mini" ? "muay" : (q.discipline ?? null);
+  const excludeWeekdays = weekdaySet(q.declined_days);
+  const slot = nextBandSlot(band, discipline, nowEpoch, {
+    schedule: bandSchedule(band, schedule),
+    ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
+  });
+  void campaignName;
+  return slot;
+}
+
+// ---- booking marker / one-nudge-a-day guards (pure) ----
+
+/**
+ * True while a `booking_recorded:<phone>` marker points at a class that has not
+ * started yet — the lead is booked, so no drip may be armed or sent (…6197 got
+ * a nudge one hour before the class it had booked). A legacy marker without a
+ * slot counts for 72h after it was written. Pure.
+ */
+export function bookingMarkerLive(raw: string | null, now: number): boolean {
+  const m = parseBookingRecordedMarker(raw);
+  if (!m) return false;
+  if (m.trialDate && m.trialTime) {
+    const at = Math.floor(Date.parse(cdmxIso(m.trialDate, m.trialTime)) / 1000);
+    if (Number.isFinite(at)) return at > now;
+  }
+  return now - m.ts < 72 * HOUR;
+}
+
+/** kv claim: at most ONE nudge (day-1 or extended) per phone per CDMX day. */
+export function nudgeDayClaimKey(phone: string, now: number): string {
+  return `nudge_day:${phone}:${cdmxDateStr(now)}`;
+}
 
 // ---- day-1 scheduling (pure) ----
 
@@ -287,6 +437,7 @@ async function canArm(env: Env, contact: Contact): Promise<boolean> {
     BOOKING_KINDS,
   );
   if (hasBooking) return false;
+  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(contact.phone)), now)) return false;
   const kv = await kvGet(env.DB, nudgeCountKey(contact.phone));
   if (!underNudgeCap(kv, now)) return false;
   return true;
@@ -399,6 +550,9 @@ export async function processNudge(
   if (await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS)) {
     return "cancelled";
   }
+  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(phone)), now)) {
+    return "cancelled";
+  }
   const kvKey = nudgeCountKey(phone);
   const kv = await kvGet(env.DB, kvKey);
   if (!underNudgeCap(kv, now)) return "cancelled";
@@ -416,16 +570,22 @@ export async function processNudge(
     await deps.onBuyIntent?.(env, phone);
     return "cancelled";
   }
-  const program = classifyProgram(contact, campaignName);
-  const body = nudgeCopy(contact, kind, campaignName, now, undefined, {
-    noSlot: ageConflictsWithProgram(program, inbound),
+  // Copy by AGE band (mini/teens included), campaign name only as a fallback.
+  const c = copyInputsForBand(contact, campaignName, bandForContact(contact, campaignName));
+  const body = nudgeCopy(c.contact, kind, c.campaignName, now, c.schedule, {
+    noSlot: ageConflictsWithProgram(c.program, inbound),
   });
   const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
   if (isDuplicateSend(body, outbound, now)) return "cancelled";
 
+  // Claim BEFORE sending: one nudge per phone per CDMX day, and two ticks (or
+  // two rows) racing in the same minute can never both send (…3373, …5417).
+  const claim = nudgeDayClaimKey(phone, now);
+  if (!(await kvSetIfAbsent(env.DB, claim, String(now)))) return "cancelled";
   try {
     await deps.sendText(env, phone, body);
   } catch (err) {
+    await kvDelete(env.DB, claim); // nothing went out — free the day again
     if (deps.isWindowClosed(err)) return "cancelled";
     throw err;
   }
@@ -477,13 +637,17 @@ export async function processExtendedNudge(
   if (await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS)) {
     return { outcome: "cancelled" };
   }
+  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(phone)), now)) {
+    return { outcome: "cancelled" };
+  }
 
   const campaignName =
     contact.campaign_id !== null
       ? await deps.campaignName(env, contact.campaign_id)
       : null;
-  const program = classifyProgram(contact, campaignName);
-  const body = extendedCopy(contact, kind, program, now, undefined, campaignName);
+  const c = copyInputsForBand(contact, campaignName, bandForContact(contact, campaignName));
+  const program = c.program;
+  const body = extendedCopy(c.contact, kind, program, now, c.schedule, c.campaignName);
   const recent = await recentMessages(env.DB, phone, 30, now - 7 * DAY);
   if (hasBuyIntent(recent.filter((m) => m.direction === "in").map((m) => m.body ?? ""))) {
     return { outcome: "cancelled" };
@@ -491,11 +655,16 @@ export async function processExtendedNudge(
   const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
   if (isDuplicateSend(body, outbound, now)) return { outcome: "cancelled" };
 
+  const claim = nudgeDayClaimKey(phone, now);
+  if (!(await kvSetIfAbsent(env.DB, claim, String(now)))) return { outcome: "cancelled" };
   try {
     await deps.sendText(env, phone, body); // free-form (window open)
     return { outcome: "sent" };
   } catch (err) {
-    if (!deps.isWindowClosed(err)) throw err;
+    if (!deps.isWindowClosed(err)) {
+      await kvDelete(env.DB, claim);
+      throw err;
+    }
   }
 
   // Window closed → per-program template fallback.
@@ -516,6 +685,7 @@ export async function processExtendedNudge(
     ]);
     return { outcome: "sent" };
   } catch (err) {
+    await kvDelete(env.DB, claim);
     const error = err instanceof Error ? err.message : String(err);
     return {
       outcome: "template_missing",

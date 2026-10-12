@@ -135,6 +135,11 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       ),
     );
   }
+  // Human override v2: lead wrote after a staff reply, nobody answered in 60 min.
+  if (cronDeps.overrideChecks) {
+    const run = cronDeps.overrideChecks;
+    await safe("overrideChecks", () => run(nowEpoch).then(() => {}));
+  }
   // Template blasts (docs/blasts.md): a few paced sends per tick, 09:00–21:00
   // CDMX, under the run's daily cap; auto-pauses on template/account errors.
   await safe("runBlastBatch", () => runBlastBatch(env, { slack: cronDeps.slack }, nowEpoch));

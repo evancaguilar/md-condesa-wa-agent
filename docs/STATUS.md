@@ -1,8 +1,21 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-10**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-11**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### Reminders, drips and post-trial chains do the right thing — WP2 of the 2026-10-09 audit (2026-10-11) — ON BRANCH, not pushed
+
+- **Reminder send guard** (`shouldSendReminder`, followups.ts): before `day_before` / `same_day` goes out the Airtable record is re-read by id (`getBookingRecord`, airtable.ts) and the row is skipped + cancelled when the class already started, the date was cleared or moved away from the one the row was armed for (armed epoch in the row note `trial:<epoch>` — no migration), `Resultado` says Asistió / No asistió / Se inscribió, the contact is student / opted out, the lead cancelled in chat after arming, or the reminder no longer matches the class day. One `same_day` per phone per CDMX date (kv claim `same_day_sent:`). Airtable down ⇒ local checks only. (Emilio …9340, Joss, Luciano.)
+- **syncBookings:** a cleared date cancels that record's reminders + no-show touch; a past date cancels its reminders; a future date on a record that says Asistió / Se inscribió is NOT re-armed (Joss: date moved 10-03 → 10-05 after "Asistió"). `rescheduleFollowup` now refreshes the note when only the hour moved, without reviving a sent row.
+- **No-show chain v2:** `no_show_hoy` at class start + 2 h (armed WITH the booking; sends only while `Resultado` is empty or "No asistió" — record re-read), `no_show_d2` / `no_show_d7` at 11:00, then a Slack TASK "Marcar Perdido: nombre · tel" (bot never writes Perdido). Day-aware copy (hoy / ayer / el sábado) + ONE slot of the lead's band. The result watcher no longer sends inline. `no_show_1` and the "ayer" `no_show_followup` template are retired.
+- **Attended chain v2:** d0 timing unchanged, then d3 / d6 at 11:00 (d2/d5 legacy rows still drain). Copy per band (parents: "¿Cómo les fue?"), language per contact, day word decided at send time (no "verte hoy" the next morning).
+- **One chain per PHONE** (`pt:<date>` / `ns:<date>` keys + live-chain check) — …9448 got two.
+- **Nudges:** claim-before-send, max one per phone per CDMX day (kv `nudge_day:`); never armed/sent while a `booking_recorded` marker points at a class ahead (…6197); copy + slot by AGE band (mini → Mini Muay Thai slots, teens → Teens slots; a baby lead with no campaign gets baby copy, …0442).
+- **Quiet hours 08:00–21:00** for every unsolicited send (was 21:30; 7 nudges went out at exactly 21:30). Nudge-3 evening pull target 20:55. Trial reminders keep their 06:00 floor for 7/8/9 am classes.
+- **Booking recon:** unbacked chat bookings repeat in the daily alert for 14 days until Airtable has them (drop once the promised class day is >1 day past) and the line names the slot ("sáb 2026-10-10 14:00").
+- [ ] **Evan:** review + submit the v2 template drafts (docs/templates.md §11–§16; `_fam` plural twins). Until approved, those touches go free-form inside the 24h window only and skip silently outside it.
+- [ ] **Evan:** OK that "at most one nudge per CDMX day" also drops the same-day closing nudge (nudge_8h) when nudge_1h already went out that day.
 
 ### Sábado 12 pm = Blindaje 8 everywhere, not just one rule line (2026-10-10) — ON BRANCH `claude/gracious-clarke-y0c16e`
 

@@ -16,6 +16,7 @@ import type {
   Confidence,
   ConvoContext,
   Language,
+  QualUpdate,
   StoredMessage,
 } from "../types.js";
 import { buildSystem, buildContextBlock, type SystemBlock } from "./prompt.js";
@@ -23,8 +24,11 @@ import {
   TOOLS,
   disciplineNeverRunsAt,
   disciplineTimes,
+  isKnownDiscipline,
   normalizeDiscipline,
   validateSlot,
+  validateSlotBand,
+  type ValidateResult,
   weekdayIndex,
 } from "./tools.js";
 import {
@@ -34,6 +38,17 @@ import {
   parseAllTimes,
   parseBookingHints,
 } from "../services/booking-claims.js";
+import {
+  bandFromAgeMonths,
+  bandFromQualification,
+  monthsFromYears,
+  slotGroup,
+  type ProgramBand,
+} from "../services/age-band.js";
+import { SLOTS } from "./slots.gen.js";
+import { classifyProgram, parseQualification } from "../cron/nudge-copy.js";
+import { findSlotClaimIssues } from "./slot-claims.js";
+import { cleanDayKeys } from "../services/program-signal.js";
 import { CLIENT } from "../client.gen.js";
 
 // ---- deps (injected at construction) -------------------------------------
@@ -91,6 +106,9 @@ const PRICE_CACHE_WRITE_1H = 4 / 1_000_000;
 const HISTORY_MAX_MSGS = 20;
 const HISTORY_MAX_AGE_S = 48 * 3600;
 const HISTORY_TOKEN_CAP = 1000;
+// Long memory (kid leads / live booking): 7 days, ~3000 tokens (see trimHistory).
+const HISTORY_LONG_MAX_AGE_S = 7 * 24 * 3600;
+const HISTORY_LONG_TOKEN_CAP = 3000;
 
 // ---- Anthropic wire types (minimal) --------------------------------------
 
@@ -244,7 +262,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
               deps.onBookingFailure,
             );
             results.push(outcome.result);
-            if (outcome.booking) pendingBookings.push(outcome.booking);
+            if (outcome.booking) addPendingBooking(pendingBookings, outcome.booking);
           } else if (tu.name === "set_followup") {
             // Capture the request; the pipeline persists it (the brain has no DB).
             // We still acknowledge so the model proceeds to send_reply.
@@ -310,7 +328,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
 // ---- request / response --------------------------------------------------
 
 function buildInitialMessages(ctx: ConvoContext): ApiMessage[] {
-  const history = trimHistory(ctx.history);
+  const history = trimHistory(ctx.history, wantsLongHistory(ctx));
   const msgs: ApiMessage[] = history.map((m) => ({
     role: m.direction === "in" ? "user" : "assistant",
     content: m.body,
@@ -351,17 +369,38 @@ export function ensureUserFirst(msgs: ApiMessage[]): ApiMessage[] {
   return msgs;
 }
 
-/** Last 20 msgs / 48h, then truncate oldest-first to ~1000 tokens (chars/3.5). */
-function trimHistory(history: StoredMessage[]): StoredMessage[] {
-  const nowS = Math.floor(Date.now() / 1000);
+/**
+ * Does this conversation get the LONG memory? Yes for a lead with a child
+ * qualification (age, name and declined days were said once, days ago — Joss
+ * re-explained "entre semana no" three times) or a live booking.
+ */
+export function wantsLongHistory(ctx: Pick<ConvoContext, "contact" | "recordedBooking">): boolean {
+  if (ctx.recordedBooking) return true;
+  const band = bandFromQualification(parseQualification(ctx.contact));
+  return band !== null && band !== "adults";
+}
+
+/**
+ * Last 20 msgs / 48h, then truncate oldest-first to ~1000 tokens (chars/3.5).
+ * `long` (wantsLongHistory): 7 days / ~3000 tokens. Cost: ≤ +2000 uncached
+ * input tokens per turn at $2/MTok ≈ +$0.004 per reply on those leads only
+ * (history sits after the cached system blocks, so it is never cached).
+ */
+export function trimHistory(
+  history: StoredMessage[],
+  long = false,
+  nowS: number = Math.floor(Date.now() / 1000),
+): StoredMessage[] {
+  const maxAge = long ? HISTORY_LONG_MAX_AGE_S : HISTORY_MAX_AGE_S;
+  const cap = long ? HISTORY_LONG_TOKEN_CAP : HISTORY_TOKEN_CAP;
   let recent = history
-    .filter((m) => nowS - m.ts <= HISTORY_MAX_AGE_S)
+    .filter((m) => nowS - m.ts <= maxAge)
     .slice(-HISTORY_MAX_MSGS);
 
   // Drop from the front until under the token cap.
   const tokens = (s: string) => Math.ceil(s.length / 3.5);
   let total = recent.reduce((n, m) => n + tokens(m.body), 0);
-  while (total > HISTORY_TOKEN_CAP && recent.length > 1) {
+  while (total > cap && recent.length > 1) {
     const dropped = recent.shift()!;
     total -= tokens(dropped.body);
   }
@@ -458,13 +497,13 @@ function adLabelFromRef(adRef: string | null): string | null {
 }
 
 /** One book_trial call that actually produced an Airtable record. */
-interface PendingBooking {
+export interface PendingBooking {
   input: BookTrialInput;
   followupMessage: string;
   recordId: string;
 }
 
-interface BookOutcome {
+export interface BookOutcome {
   result: ToolResultContent;
   booking?: PendingBooking;
 }
@@ -485,7 +524,78 @@ async function notifyBookingFailure(
   }
 }
 
-async function handleBookTrial(
+/** Who a booking is for: the child when there is one, else the named adult. */
+function personKey(b: BookTrialInput): string {
+  return (b.childName || b.name || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .trim()
+    .split(/\s+/)[0] ?? "";
+}
+
+/**
+ * One booking per person per turn (2026-10-11): a second book_trial for the
+ * SAME phone and the same person (the model "fixing" the slot it just booked)
+ * REPLACES the first in place — one confirmation, one video, one sequence.
+ * Different names (a family booking) still append. Mutates and returns `list`.
+ */
+export function addPendingBooking(list: PendingBooking[], b: PendingBooking): PendingBooking[] {
+  const who = personKey(b.input);
+  const i = list.findIndex((p) => p.input.phone === b.input.phone && personKey(p.input) === who);
+  if (i >= 0) list.splice(i, 1, b);
+  else list.push(b);
+  return list;
+}
+
+/** A finite number from a model field (number or numeric string), else null. */
+function numberOrNull(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v.replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
+ * Pure. The age band a book_trial must respect, or null for "no band check":
+ * the stated child_age wins; otherwise the stored qualification's band, but
+ * only when this booking is for a child (kid audience, a child name, or a
+ * non-adult row) — a parent booking their own adult class stays unchecked.
+ */
+export function bookingBand(
+  ctx: Pick<ConvoContext, "contact">,
+  b: {
+    childAgeMonths: number | null;
+    childName: string;
+    audience: Audience;
+    discipline: string;
+    trialDate: string;
+    trialTime: string;
+  },
+): ProgramBand | null {
+  if (b.childAgeMonths !== null) return bandFromAgeMonths(b.childAgeMonths);
+  const stored = bandFromQualification(parseQualification(ctx.contact));
+  if (!stored || stored === "adults") return null;
+  if (b.audience === "kid" || b.childName) return stored;
+  const wd = weekdayIndex(b.trialDate);
+  const adultRow = SLOTS.some(
+    (s) =>
+      s.weekday === wd &&
+      s.time === b.trialTime.trim() &&
+      s.discipline === b.discipline &&
+      slotGroup(s) === "adult",
+  );
+  return adultRow ? null : stored;
+}
+
+/** First failing check wins (validateSlot's existence check before the band's). */
+function mergeChecks(a: ValidateResult, b: ValidateResult): ValidateResult {
+  return a.ok ? b : a;
+}
+
+export async function handleBookTrial(
   airtable: AirtablePort,
   ctx: ConvoContext,
   tu: ToolUseContent,
@@ -494,6 +604,7 @@ async function handleBookTrial(
   const input = tu.input as {
     name?: string;
     child_name?: string;
+    child_age?: unknown;
     discipline?: string;
     audience?: string;
     trial_date?: string;
@@ -529,7 +640,23 @@ async function handleBookTrial(
   // lead gave for the booking replaces it there (see shouldWriteName).
   if (ctx.contact.name) bookInput.replaceName = ctx.contact.name;
 
-  const check = validateSlot(trialDate, trialTime, audience, discipline);
+  // Age band (2026-10-11): from book_trial.child_age, else the stored
+  // qualification when this is a child's booking. An adult booking themselves
+  // (no child name, adult row) is never band-checked — a parent may book their
+  // own class in the same chat.
+  const childAgeMonths = monthsFromYears(numberOrNull(input.child_age));
+  const band = bookingBand(ctx, { childAgeMonths, childName, audience, discipline, trialDate, trialTime });
+  if (band) {
+    bookInput.program = band;
+    if (childAgeMonths !== null) bookInput.childAgeMonths = childAgeMonths;
+  }
+
+  const check = band
+    ? mergeChecks(
+        validateSlot(trialDate, trialTime, audience, discipline),
+        validateSlotBand(trialDate, trialTime, discipline, band),
+      )
+    : validateSlot(trialDate, trialTime, audience, discipline);
   if (!check.ok) {
     await notifyBookingFailure(onFailure, {
       phone: ctx.phone,
@@ -620,9 +747,14 @@ export function sendResult(
     escalation_reason?: string;
     awaiting_reply?: boolean;
     lead_name?: unknown;
+    child_name?: unknown;
+    child_age_years?: unknown;
+    preferred_days?: unknown;
+    declined_days?: unknown;
   };
   const language: Language = input.language === "en" ? "en" : "es";
   const leadName = cleanLeadName(input.lead_name);
+  const qualUpdate = qualUpdateFromInput(input);
   // Sureness is the source of truth (owner directive 2026-08-25: "if it's at
   // least 75% sure it has the correct answer, it sends"). The high/low enum is
   // DERIVED from it and kept only so every downstream consumer — D1 column,
@@ -641,7 +773,9 @@ export function sendResult(
   const fu = followup ?? undefined;
   // Anything not an explicit false counts as waiting — the safe default.
   const awaitingReply = input.awaiting_reply !== false;
-  if (confidence === "high") {
+  // An opt_out / complaint reason is never a plain send, whatever the sureness
+  // (pipeline/inbound routeResult handles both — WP3).
+  if (confidence === "high" && !/^\s*(?:opt[_ -]?out|complaint)\b/i.test(input.escalation_reason ?? "")) {
     return {
       action: "send",
       message,
@@ -651,6 +785,7 @@ export function sendResult(
       followup: fu,
       awaitingReply,
       ...(leadName ? { leadName } : {}),
+      ...(qualUpdate ? { qualUpdate } : {}),
     };
   }
   const reason = input.escalation_reason;
@@ -663,8 +798,33 @@ export function sendResult(
     followup: fu,
     awaitingReply,
     ...(leadName ? { leadName } : {}),
+    ...(qualUpdate ? { qualUpdate } : {}),
   };
   return reason ? { ...base, reason } : base;
+}
+
+/**
+ * Pure. send_reply's child_name / child_age_years / preferred_days /
+ * declined_days → a QualUpdate, or undefined when the model reported nothing
+ * usable. A missing or garbage age is simply absent (never "erase the age").
+ */
+export function qualUpdateFromInput(input: {
+  child_name?: unknown;
+  child_age_years?: unknown;
+  preferred_days?: unknown;
+  declined_days?: unknown;
+}): QualUpdate | undefined {
+  const u: QualUpdate = {};
+  const childName = cleanLeadName(input.child_name);
+  if (childName) u.child_name = childName;
+  const years = numberOrNull(input.child_age_years);
+  const months = years !== null && years > 0 && years < 18 ? monthsFromYears(years) : null;
+  if (months !== null) u.child_age_months = months;
+  const pref = cleanDayKeys(input.preferred_days);
+  if (pref.length) u.preferred_days = pref;
+  const decl = cleanDayKeys(input.declined_days);
+  if (decl.length) u.declined_days = decl;
+  return Object.keys(u).length ? u : undefined;
 }
 
 /**
@@ -716,6 +876,7 @@ export function guardUnbackedBookingClaim(
       "⚠️ El texto afirma que la clase ya quedó agendada, pero NO se creó ningún booking en Airtable en este turno (book_trial no se ejecutó o falló). Verifica antes de aprobar.",
     followup: res.followup,
     awaitingReply: res.awaitingReply,
+    ...(res.qualUpdate ? { qualUpdate: res.qualUpdate } : {}),
   };
 }
 
@@ -748,7 +909,7 @@ const WEEKDAY_ES = [
  */
 export function guardUnverifiedSlotClaim(
   res: BrainResult,
-  ctx: Pick<ConvoContext, "nowCdmx">,
+  ctx: Pick<ConvoContext, "nowCdmx"> & Partial<Pick<ConvoContext, "contact" | "campaign">>,
 ): BrainResult {
   if (res.action !== "send" && res.action !== "draft") return res;
 
@@ -786,6 +947,29 @@ export function guardUnverifiedSlotClaim(
     }
   }
 
+  // 3. (runs when tier 2 passes or cannot read the copy) Every explicit
+  //    (day, hour) against the lead's AGE BAND (2026-10-11): "lunes 1:15 pm" to
+  //    a Mini parent, "No hay Kids el sábado", Sunday mornings. Only pairs whose
+  //    day is explicit (weekday / hoy / mañana).
+  const bandCheck = (): BrainResult => {
+    const evidence = ctx.contact
+      ? (bandFromQualification(parseQualification(ctx.contact)) ??
+        (ctx.campaign?.name ? classifyProgram(ctx.contact, ctx.campaign.name) : null))
+      : null;
+    const leadDisc = ctx.contact ? normalizeDiscipline(parseQualification(ctx.contact).discipline ?? "") : "";
+    const issues = findSlotClaimIssues(res.message, weekdayIdx, {
+      band: evidence,
+      discipline: isKnownDiscipline(leadDisc) ? leadDisc : null,
+    });
+    if (issues.length > 0) {
+      return downgradeToDraft(
+        res,
+        `⚠️ Horario que no existe para este lead: ${issues.map((i) => i.note).join(" ")} Verifica antes de aprobar.`,
+      );
+    }
+    return res;
+  };
+
   // 2. Exact day+hour pairing. parseBookingHints reads the first day and the
   //    first hour INDEPENDENTLY, so on multi-offer copy it pairs the day of one
   //    offer with the hour of another and judges a slot nobody proposed — which
@@ -794,15 +978,15 @@ export function guardUnverifiedSlotClaim(
   //    So this tier only runs on copy that names ONE hour and at most one day.
   //    Multi-offer messages — now the norm, since the persona allows up to
   //    three slots — are covered by tier 1 instead, which needs no pairing.
-  if (times.length > 1 || countDayTokens(res.message) > 1) return res;
-  if (hints.confidence !== "full") return res;
+  if (times.length > 1 || countDayTokens(res.message) > 1) return bandCheck();
+  if (hints.confidence !== "full") return bandCheck();
   const trialDate = hints.trialDate!;
   const trialTime = hints.trialTime!;
   const discipline = hints.discipline!;
 
   // Both audiences must reject it before we flag anything.
   for (const audience of ["adult", "kid"] as const) {
-    if (validateSlot(trialDate, trialTime, audience, discipline).ok) return res;
+    if (validateSlot(trialDate, trialTime, audience, discipline).ok) return bandCheck();
   }
 
   const wd = weekdayIndex(trialDate);
@@ -839,6 +1023,7 @@ function downgradeToDraft(
     reason: merged,
     followup: res.followup,
     awaitingReply: res.awaitingReply,
+    ...(res.qualUpdate ? { qualUpdate: res.qualUpdate } : {}),
   };
 }
 

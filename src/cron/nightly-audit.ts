@@ -22,7 +22,10 @@ const AUDIT_MAX_TOKENS = 12000;
 /** Compacted transcript budget (chars ≈ tokens×3.5). Oldest convos drop first. */
 const MAX_DATA_CHARS = 220_000;
 /** Slack message ceiling per postNote chunk. */
-const SLACK_CHUNK = 3400;
+// Slack rejects a section block over 3,000 characters ("invalid_blocks"), so a
+// 3,400 chunk made the whole digest vanish from #bot-ops (2026-10-07/08: only
+// the header posted). Keep headroom for mrkdwn escaping.
+const SLACK_CHUNK = 2800;
 
 const PRICE_IN = 5 / 1_000_000;
 const PRICE_OUT = 25 / 1_000_000;

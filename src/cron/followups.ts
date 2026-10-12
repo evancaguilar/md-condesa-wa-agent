@@ -26,6 +26,9 @@ import {
   setContactStatus,
   cancelFollowups,
   lastBotMessage,
+  kvSetIfAbsent,
+  recentMessages,
+  cancelReminderRowsForRecord,
 } from "../db/queries.js";
 import {
   bookingRecordedKey,
@@ -65,8 +68,10 @@ import {
   listRecentBookings,
   listStudents,
   normalizeMxPhone,
+  normalizeResult,
   classifyResult,
   isLostResult,
+  getBookingRecord,
   type BookingRecord,
 } from "../services/airtable.js";
 import {
@@ -76,20 +81,22 @@ import {
   gateOnOpenQuestion,
   ALL_NUDGE_KINDS,
   BOOKING_KINDS,
-  classifyProgram,
-  noShowCopy,
-  programLink,
   slotCta,
   type NudgeKind,
   type ExtendedKind,
 } from "./nudges.js";
 import {
+  ATTENDED_CHAIN_KINDS,
   attendedCardText,
-  computeNoShowRebook,
+  chainKey,
+  computeNoShowSequence,
   computePostTrialCardAt,
   computePostTrialSequence,
   decodeCardNote,
+  decodeChainNote,
   encodeCardNote,
+  encodeChainNote,
+  NO_SHOW_CHAIN_KINDS,
   POST_TRIAL_CARD_KIND,
   processPostTrial,
   POST_TRIAL_ALL_KINDS,
@@ -108,7 +115,7 @@ import {
 
 const ATTENDANCE_NOTE = "attendance_check";
 /** How long after the trial a late-marked Airtable result still sends its message. */
-export const RESULT_NO_SHOW_MAX_AGE = 2 * 86400;
+export const RESULT_NO_SHOW_MAX_AGE = 7 * 86400;
 export const RESULT_ENROLLED_MAX_AGE = 14 * 86400;
 const MAX_SEND_ATTEMPTS = 3;
 
@@ -220,11 +227,116 @@ export async function scheduleTrialSequence(
       kind: step.kind,
       dueAt: step.dueAt,
       airtableRecordId: recordId,
-      note: step.note ?? null,
+      // Reminders remember the class they were armed for, so the send-time
+      // guard can tell a moved booking from this one (shouldSendReminder).
+      note: step.note ?? (step.kind === "trial_confirm" ? null : reminderNote(trialEpoch)),
     };
     if (step.kind === "trial_confirm") await scheduleFollowup(env.DB, input);
     else await rescheduleFollowup(env.DB, input);
   }
+  // The first no-show touch rides with the booking (class start + 2 h). It
+  // only goes out if Airtable still says nothing / "No asistió" at that time.
+  // Keyed per phone + trial date, so a family's second row never arms twice.
+  const now = opts.nowEpoch ?? nowSec();
+  const hoy = computeNoShowSequence(trialEpoch, now).find((s) => s.kind === "no_show_hoy");
+  if (hoy && trialEpoch > now) {
+    const key = chainKey("ns", trialEpoch);
+    await cancelFollowupsOfOtherRecords(env.DB, phone, ["no_show_hoy"], key);
+    await rescheduleFollowup(env.DB, {
+      phone,
+      kind: "no_show_hoy",
+      dueAt: hoy.dueAt,
+      airtableRecordId: key,
+      note: encodeChainNote({ rec: recordId, trial: trialEpoch }),
+    });
+  }
+}
+
+// ---- trial-reminder send guard (pure) ----
+
+/** Note on a day_before / same_day row: the trial epoch it was armed for. */
+export function reminderNote(trialEpoch: number): string {
+  return `trial:${trialEpoch}`;
+}
+
+/**
+ * The lead called it off in chat ("no voy a poder", "ya no", "cancelo…").
+ * Only a message AFTER the row was armed counts. Pure.
+ */
+export const CHAT_CANCEL_RE = /cancel|no\s+voy\s+a\s+poder|no\s+podr[eé]|\bya\s+no\b/i;
+export function leadCancelledInChat(
+  lastInbound: { body: string; ts: number } | null,
+  armedAt: number,
+): boolean {
+  if (!lastInbound || lastInbound.ts <= armedAt) return false;
+  return CHAT_CANCEL_RE.test(lastInbound.body);
+}
+
+export interface ReminderGuardExtra {
+  /** contacts.status ("lead" | "student" | "opted_out" | …). */
+  contactStatus?: string | null;
+  /** The lead's newest inbound message. */
+  lastInbound?: { body: string; ts: number } | null;
+}
+
+/**
+ * Pure. May this day_before / same_day reminder go out now?
+ *
+ * `record` is the Airtable row re-read just now: `undefined` = not checked
+ * (no record id, or Airtable unreachable — the local checks still run), `null`
+ * = the record is gone. Skips when: the class already started; the date was
+ * cleared or moved away from the one the row was armed for; `Resultado` says
+ * Asistió / No asistió / Se inscribió (…luciano: a family that had ENROLLED
+ * got "hoy es tu clase"); the contact is a student / opted out; the lead
+ * cancelled in chat after the row was armed; or the reminder no longer
+ * matches the class day (a same_day row for a class that is not today, a
+ * day_before row for a class that is not tomorrow).
+ */
+export function shouldSendReminder(
+  row: Pick<Followup, "kind" | "note" | "created_at">,
+  record: BookingRecord | null | undefined,
+  now: number,
+  extra: ReminderGuardExtra = {},
+): { send: true; trialEpoch: number | null } | { send: false; why: string } {
+  if (extra.contactStatus === "student" || extra.contactStatus === "opted_out") {
+    return { send: false, why: `status_${extra.contactStatus}` };
+  }
+  if (leadCancelledInChat(extra.lastInbound ?? null, row.created_at)) {
+    return { send: false, why: "cancelled_in_chat" };
+  }
+  const armed = decodeChainNote(row.note).trial;
+  let trial = armed;
+  if (record !== undefined) {
+    if (record === null) return { send: false, why: "record_gone" };
+    if (!record.trialDateTimeIso) return { send: false, why: "date_cleared" };
+    const t = Math.floor(Date.parse(record.trialDateTimeIso) / 1000);
+    if (!Number.isFinite(t)) return { send: false, why: "date_unreadable" };
+    if (armed !== null && Math.abs(t - armed) > 60) return { send: false, why: "moved" };
+    const r = normalizeResult(record.result);
+    if (r.includes("asistio") || r.includes("se inscribio")) {
+      return { send: false, why: "result_marked" };
+    }
+    trial = t;
+  }
+  if (trial === null) return { send: true, trialEpoch: null }; // legacy row, nothing to compare
+  if (trial <= now) return { send: false, why: "class_started" };
+  const day = cdmxDateStr(trial);
+  if (row.kind === "same_day" && day !== cdmxDateStr(now)) return { send: false, why: "not_class_day" };
+  if (row.kind === "day_before" && day !== cdmxDateStr(now + DAY)) {
+    return { send: false, why: "not_day_before" };
+  }
+  return { send: true, trialEpoch: trial };
+}
+
+/** kv claim: one "hoy es tu clase" per phone per CDMX date, whatever the rows. */
+export function sameDaySentKey(phone: string, trialEpoch: number): string {
+  return `same_day_sent:${phone}:${cdmxDateStr(trialEpoch)}`;
+}
+
+/** An Airtable record id worth re-reading (chat keys may carry "#n"). */
+function airtableRecId(id: string | null): string | null {
+  const bare = (id ?? "").split("#")[0] ?? "";
+  return /^rec[A-Za-z0-9]{3,}$/.test(bare) ? bare : null;
 }
 
 // ---- attempt tracking (in the note field: "...|attempts:N") ----
@@ -256,9 +368,15 @@ async function bumpAttempts(
  * failure re-arms the row as 'scheduled' for one retry next tick, and gives up
  * (status 'cancelled') after MAX_SEND_ATTEMPTS.
  */
+/** What the tick processor needs; getRecord defaults to the live Airtable read. */
+export interface FollowupDeps {
+  slack: CronSlackDeps;
+  getRecord?: (env: Env, recordId: string) => Promise<BookingRecord | null>;
+}
+
 export async function runDueFollowups(
   env: Env,
-  deps: { slack: CronSlackDeps },
+  deps: FollowupDeps,
 ): Promise<void> {
   const due = await dueFollowups(env.DB);
   for (const f of due) {
@@ -272,7 +390,7 @@ export async function runDueFollowups(
 
 async function processOne(
   env: Env,
-  deps: { slack: CronSlackDeps },
+  deps: FollowupDeps,
   f: Followup,
 ): Promise<void> {
   const contact = await getContact(env.DB, f.phone);
@@ -292,25 +410,36 @@ async function processOne(
       await markFollowup(env.DB, f.id, "sent");
       return;
 
-    case "day_before": {
-      const outcome = await sendReminder(env, deps, f.phone, {
-        template: "trial_reminder_day_before",
-        lang,
-        name,
-        freeform: messengerReminderText("day_before", name, lang),
-      });
-      await markFollowup(env.DB, f.id, outcome);
-      return;
-    }
-
+    case "day_before":
     case "same_day": {
-      const outcome = await sendReminder(env, deps, f.phone, {
-        template: "trial_reminder_same_day",
-        lang,
-        name,
-        freeform: messengerReminderText("same_day", name, lang),
-      });
-      await markFollowup(env.DB, f.id, outcome);
+      const verdict = await reminderVerdict(env, deps, f, contact?.status ?? null);
+      if (!verdict.send) {
+        console.log(`[followups] ${f.kind} #${f.id} ${f.phone} skipped: ${verdict.why}`);
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
+      // A same_day reminder for a given CDMX date goes out ONCE per phone —
+      // two rows (a rebook, a sibling's "#1" row) can never both send.
+      let claim: string | null = null;
+      if (f.kind === "same_day") {
+        claim = sameDaySentKey(f.phone, verdict.trialEpoch ?? nowSec());
+        if (!(await kvSetIfAbsent(env.DB, claim, String(nowSec())))) {
+          await markFollowup(env.DB, f.id, "cancelled");
+          return;
+        }
+      }
+      try {
+        const outcome = await sendReminder(env, deps, f.phone, {
+          template: f.kind === "same_day" ? "trial_reminder_same_day" : "trial_reminder_day_before",
+          lang,
+          name,
+          freeform: messengerReminderText(f.kind, name, lang),
+        });
+        await markFollowup(env.DB, f.id, outcome);
+      } catch (err) {
+        if (claim) await kvDelete(env.DB, claim);
+        throw err;
+      }
       return;
     }
 
@@ -336,31 +465,12 @@ async function processOne(
       await markFollowup(env.DB, f.id, "sent");
       return;
 
-    case "no_show_1": {
-      const att = await kvGet(env.DB, `attendance:${recordId}`);
-      if (att === "yes") {
-        await markFollowup(env.DB, f.id, "cancelled");
-        return;
-      }
-      if (att === "no") {
-        const outcome = await sendReminder(env, deps, f.phone, {
-          template: "no_show_followup",
-          lang,
-          name,
-          freeform: messengerReminderText("no_show", name, lang, await linkAttribution(env, contact)),
-        });
-        await markFollowup(env.DB, f.id, outcome);
-        return;
-      }
-      // absent attendance signal → reschedule once (+12h), then give up
-      if (readAttempts(f.note) >= 1) {
-        await markFollowup(env.DB, f.id, "cancelled");
-        return;
-      }
-      await bumpAttempts(env, f);
-      await rescheduleRow(env, f, clampToWindow(nowSec() + 12 * 3600));
+    case "no_show_1":
+      // Retired 2026-10-11: its template said "ayer" whatever the day was. The
+      // no-show chain v2 (no_show_hoy / _d2 / _d7, post-trial.ts) replaces it.
+      void recordId;
+      await markFollowup(env.DB, f.id, "cancelled");
       return;
-    }
 
     case "nudge_1h":
     case "nudge_6h":
@@ -430,7 +540,12 @@ async function processOne(
 
     case "post_trial_d0":
     case "post_trial_d2":
+    case "post_trial_d3":
     case "post_trial_d5":
+    case "post_trial_d6":
+    case "no_show_hoy":
+    case "no_show_d2":
+    case "no_show_d7":
     case "no_show_d3": {
       // Same quiet-hour re-check the nudges do: cron drift must never turn a
       // 09:30 row into a 23:00 message.
@@ -447,6 +562,8 @@ async function processOne(
           templateName: tpl,
           isWindowClosed: (err) => err instanceof WindowClosedError,
           campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
+          getRecord: deps.getRecord ?? getBookingRecord,
+          schedule: (e, input) => scheduleFollowup(e.DB, { ...input, kind: input.kind as Followup["kind"] }),
         },
         nowSec(),
       );
@@ -462,6 +579,10 @@ async function processOne(
         return;
       }
       await markFollowup(env.DB, f.id, res.outcome);
+      if ((res.outcome === "sent" || res.outcome === "cancelled") && res.task) {
+        // End of the no-show chain: a human marks Perdido (the bot never does).
+        await taskNote(deps.slack, `📝 ${res.task}`);
+      }
       if (res.outcome === "cancelled" && res.stopChain) {
         // They enrolled / wrote in / booked again: drop the rest of the chain
         // rather than letting each remaining row re-discover it.
@@ -826,6 +947,39 @@ async function rescheduleRow(
     .run();
 }
 
+/**
+ * Gather what shouldSendReminder needs for a due reminder row: the Airtable
+ * record (re-read by id; an unreachable Airtable degrades to the local checks
+ * rather than silencing every reminder) and the lead's newest inbound.
+ */
+async function reminderVerdict(
+  env: Env,
+  deps: FollowupDeps,
+  f: Followup,
+  contactStatus: string | null,
+): Promise<ReturnType<typeof shouldSendReminder>> {
+  let record: BookingRecord | null | undefined = undefined;
+  const recId = airtableRecId(f.airtable_record_id);
+  if (recId) {
+    try {
+      record = await (deps.getRecord ?? getBookingRecord)(env, recId);
+    } catch (err) {
+      console.warn(`[followups] reminder #${f.id}: Airtable re-read failed, local checks only: ${String(err)}`);
+      record = undefined;
+    }
+  }
+  let lastInbound: { body: string; ts: number } | null = null;
+  try {
+    const recent = await recentMessages(env.DB, f.phone, 10);
+    const ins = recent.filter((m) => m.direction === "in");
+    const last = ins[ins.length - 1];
+    if (last) lastInbound = { body: last.body ?? "", ts: last.ts };
+  } catch {
+    lastInbound = null;
+  }
+  return shouldSendReminder(f, record, nowSec(), { contactStatus, lastInbound });
+}
+
 // ---- Airtable syncs ----
 
 /**
@@ -863,8 +1017,21 @@ export async function syncBookings(
     if (!rec.phone) continue;
     const phone = normalizeMxPhone(rec.phone);
 
+    // Reminders follow the record: a cleared date retires this record's
+    // reminders AND its no-show touch; a past date retires the reminders (the
+    // no-show touch is exactly what a past class still needs); a date on a
+    // record that already says Asistió / Se inscribió is NOT a new booking —
+    // staff moving the date after "Asistió" (Joss, 10-03 → 10-05) re-armed
+    // day-before + same-day for a class she had already taken.
+    const syncAction = syncDateAction(rec, nowSec());
+    if (syncAction === "cancel_all") {
+      await cancelReminderRowsForRecord(env.DB, phone, rec.id, true);
+    } else if (syncAction === "cancel_reminders") {
+      await cancelReminderRowsForRecord(env.DB, phone, rec.id, false);
+    }
+
     // Future booking → schedule the sequence and kill the drip.
-    if (rec.trialDateTimeIso) {
+    if (rec.trialDateTimeIso && syncAction === "arm") {
       const trialEpoch = Math.floor(Date.parse(rec.trialDateTimeIso) / 1000);
       if (Number.isFinite(trialEpoch) && trialEpoch > nowSec()) {
         await upsertContact(env.DB, { phone, name: rec.name ?? null });
@@ -930,6 +1097,24 @@ export async function syncBookings(
   }
   await kvSet(env.DB, "airtable_sync_cursor", new Date(nowSec() * 1000).toISOString());
   return scheduled;
+}
+
+/** What syncBookings does with a record's trial date. Pure. */
+export type SyncDateAction = "arm" | "cancel_all" | "cancel_reminders" | "none";
+export function syncDateAction(
+  rec: Pick<BookingRecord, "trialDateTimeIso" | "result">,
+  now: number,
+): SyncDateAction {
+  if (!rec.trialDateTimeIso) return "cancel_all";
+  const t = Math.floor(Date.parse(rec.trialDateTimeIso) / 1000);
+  if (!Number.isFinite(t)) return "none";
+  const action = classifyResult(rec.result);
+  if (t > now) {
+    // Attended / enrolled on THIS record: the future date is not a rebook
+    // until staff clear the result (or book on a new row).
+    return action === "attended" || action === "enrolled" ? "cancel_all" : "arm";
+  }
+  return "cancel_reminders";
 }
 
 /**
@@ -1063,7 +1248,9 @@ async function processResult(
     await cancelFollowupsByKinds(
       env.DB,
       phone,
-      rebooked ? ALL_NUDGE_KINDS : [...BOOKING_KINDS, ...ALL_NUDGE_KINDS],
+      rebooked
+        ? [...ALL_NUDGE_KINDS, ...NO_SHOW_CHAIN_KINDS]
+        : [...BOOKING_KINDS, ...ALL_NUDGE_KINDS, ...NO_SHOW_CHAIN_KINDS],
     );
     if (optedOut || rebooked) {
       // Rebooked: the new anti-no-show sequence owns them, and the post-trial
@@ -1071,17 +1258,21 @@ async function processResult(
       await kvSet(env.DB, kvKey, marker);
       return;
     }
-    const steps = computePostTrialSequence(trialEpoch, nowSec());
+    // ONE chain per phone: a second Airtable row for the same family (two
+    // kids, a staff copy row — …9448 got two chains) finds the first one
+    // armed and adds nothing.
+    const chainLive = await hasScheduledFollowupOfKind(env.DB, phone, ATTENDED_CHAIN_KINDS);
+    const steps = chainLive ? [] : computePostTrialSequence(trialEpoch, nowSec());
     for (const step of steps) {
       await scheduleFollowup(env.DB, {
         phone,
         kind: step.kind,
         dueAt: step.dueAt,
-        airtableRecordId: recordId, // UNIQUE(phone,kind,record) ⇒ idempotent
-        note: step.note ?? null, // d0 "ayer" variant marker
+        airtableRecordId: chainKey("pt", trialEpoch), // per phone + trial date
+        note: encodeChainNote({ rec: recordId, trial: trialEpoch }),
       });
     }
-    if (sendReaction) {
+    if (sendReaction && !chainLive) {
       // The person who taught the class is the one who can close them, and only
       // a human knows that — so the card carries ONE button ("🙋 Yo le escribo")
       // that kills today's automated message. Staff follow up from their own
@@ -1097,7 +1288,7 @@ async function processResult(
           phone,
           kind: POST_TRIAL_CARD_KIND,
           dueAt: cardAt,
-          airtableRecordId: recordId,
+          airtableRecordId: chainKey("pt", trialEpoch),
           note: encodeCardNote(who),
         });
       } else {
@@ -1115,48 +1306,29 @@ async function processResult(
       await kvSet(env.DB, kvKey, marker);
       return;
     }
-    await cancelFollowups(env.DB, phone); // all kinds
+    // Drip + pre-class rows go; the no-show chain itself stays (the first
+    // touch may already be armed from the booking).
+    await cancelFollowupsByKinds(env.DB, phone, [
+      ...BOOKING_KINDS,
+      ...ALL_NUDGE_KINDS,
+      ...ATTENDED_CHAIN_KINDS,
+    ]);
     if (optedOut || !sendReaction) {
       await kvSet(env.DB, kvKey, marker);
       return;
     }
-    // Second touch, +3 days at 11:00 CDMX. Armed BEFORE the first message so a
-    // send failure (which throws out of here) can't lose it.
-    const rebook = computeNoShowRebook(trialEpoch, nowSec());
-    if (rebook) {
+    // Arm the chain (no_show_hoy at class + 2 h, d2, d7 at 11:00), keyed per
+    // phone + trial date: rows the booking already armed are left as they
+    // are (INSERT OR IGNORE). Nothing is sent from here — every touch goes
+    // out from its row, after re-reading the record (post-trial.ts).
+    for (const step of computeNoShowSequence(trialEpoch, nowSec())) {
       await scheduleFollowup(env.DB, {
         phone,
-        kind: rebook.kind,
-        dueAt: rebook.dueAt,
-        airtableRecordId: recordId,
-        note: null,
+        kind: step.kind,
+        dueAt: step.dueAt,
+        airtableRecordId: chainKey("ns", trialEpoch),
+        note: encodeChainNote({ rec: recordId, trial: trialEpoch }),
       });
-    }
-    const { attr, campaignName } = await linkContext(env, contact);
-    const program = classifyProgram(contact, campaignName);
-    const link = withAttribution(programLink(program), attr);
-    // One concrete slot beats a bare link — the same close the nudges use.
-    const body = noShowCopy(contact, program, "first", who, link, nowSec());
-    try {
-      await sendText(env, phone, body);
-    } catch (err) {
-      if (err instanceof WindowClosedError) {
-        if (channelOf(phone) !== "wa") {
-          await noteMessengerWindowClosed(env, deps, phone, "no_show_followup");
-        } else {
-          try {
-            await sendTemplate(env, phone, tpl("no_show_followup", lang), lang, [
-              nameParam(name, lang),
-            ]);
-          } catch (tErr) {
-            await deps.slack.postNote(
-              `No pude enviar reagenda a ${phone} (plantilla no_show_followup falló): ${String(tErr)}`,
-            );
-          }
-        }
-      } else {
-        throw err;
-      }
     }
   } else {
     // enrolled

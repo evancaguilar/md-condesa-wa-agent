@@ -1,0 +1,59 @@
+{
+ "case": "luciano_mini_bfc",
+ "phone": "5215550000007",
+ "campaign": "baby fight club",
+ "contact": {
+  "name": "🙌🏻",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"audience\":\"kid\",\"discipline\":\"baby\"}",
+  "campaign_id": 2
+ },
+ "messages": [
+  {
+   "direction": "in",
+   "ts": 1790994956,
+   "body": "Antes de agendar me puedes dar más información sobre Baby Fight Club?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790994959,
+   "body": "¡Hola! 🙌 Qué gusto que te interese Baby Fight Club (12 a 36 meses).\n\nEs una clase de movimiento, juego y desarrollo físico inspirada en artes marciales: coordinación, equilibrio, confianza y socialización — siempre acompañado por mamá o papá 😄\n\nLa primera clase es gratis para que la prueben sin compromiso.\n\n¿Te queda mejor miércoles 1 pm o sábado 2 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790994972,
+   "body": "Hola, quisiera información, mi bebé tiene 1 año dos meses"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790994986,
+   "body": "¡Perfecto, con esa edad ya puede entrar sin problema! 🙌\n\nTe propongo mañana sábado a las 2 pm para su clase de prueba gratis — ¿les queda bien?"
+  },
+  {
+   "direction": "in",
+   "ts": 1790994987,
+   "body": "Son los únicos horarios?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1790995000,
+   "body": "Sí, esos son los dos horarios de prueba: miércoles 1 pm y sábado 2 pm 🙌\n\n¿Cuál les queda mejor?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791559103,
+   "body": "Antes de agendar me puedes dar más información sobre Baby Fight Club?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791559105,
+   "body": "¡Hola! 🙌 Qué gusto que te interese Baby Fight Club (12 a 36 meses).\n\nEs una clase de movimiento, juego y desarrollo físico inspirada en artes marciales: coordinación, equilibrio, confianza y socialización — siempre acompañado por mamá o papá 😄\n\nLa primera clase es gratis para que la prueben sin compromiso.\n\n¿Te queda mejor miércoles 1 pm o sábado 2 pm?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791588054,
+   "body": "¡Hola! La primera clase de Baby Fight Club es GRATIS 🥋\nLes puedo apartar lugar en Baby Fight Club mañana sábado 2:00 pm — ¿les late? Si prefieren otro horario: https://mdcondesa.com/clase-prueba-ninos/?utm_source=whatsapp&utm_content=120245210095950518&utm_campaign=baby+fight+club"
+  }
+ ]
+}

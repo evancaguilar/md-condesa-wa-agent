@@ -26,6 +26,7 @@ import {
   kvSet,
   kvSetIfAbsent,
   kvClaimIfAbsentOrOlder,
+  kvDelete,
   newestInboundWamid,
   recentMessages,
   scheduleFollowup,
@@ -51,6 +52,7 @@ import {
   trialReminderRows,
 } from "../db/queries-admin.js";
 import { upcomingTrialDateFromReminders } from "../services/booking-guard.js";
+import { claimsBooking } from "../services/booking-claims.js";
 import {
   FIRST_REPLY_RESEND_COOLDOWN_SECONDS,
   adIdToLearn,
@@ -61,8 +63,23 @@ import {
   hasRealQuestion,
   matchCampaignTiered,
   normalizeText,
+  shouldSkipCannedWelcome,
+  slotQueryForCampaign,
+  SLOT_PLACEHOLDER,
 } from "./campaigns.js";
-import { isOptOut } from "./opt-out.js";
+import { nextTrialSlot } from "../cron/next-slot.js";
+import { greetingName } from "../cron/display-name.js";
+import { classifyReminderReply, reminderAckText } from "./reminder-reply.js";
+import {
+  OVERRIDE_CHECK_PREFIX,
+  armOverrideCheck,
+  decideOverrideCheck,
+  overrideCheckKey,
+  overrideFromStaffReply,
+  overrideRouting,
+  parseOverrideCheck,
+} from "./override-check.js";
+import { isOptOut, isOptOutBurst, OPT_OUT_BURST_SECONDS } from "./opt-out.js";
 import { hasBuyIntent } from "../cron/nudge-signals.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
@@ -73,7 +90,9 @@ import {
   guardedApprovalKey,
   surenessKey,
   escalationKey,
+  reasonKindKey,
 } from "../services/approvals.js";
+import { classifyEscalation, escalationNeedsTask } from "../services/slack-timeouts.js";
 import {
   evaluateAutoSendLane,
   getAutoSendCount,
@@ -101,7 +120,7 @@ import {
 } from "../services/booking-core.js";
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import { parseQualification } from "../cron/nudge-copy.js";
-import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
+import { mergeQualUpdate, programSignalUpdate } from "../services/program-signal.js";
 import { setQualification } from "../db/queries.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
@@ -112,7 +131,9 @@ const SAFETY_PATTERNS =
     : [];
 const DEBOUNCE_MS = 8000;
 const HISTORY_LIMIT = 20;
-const HISTORY_WINDOW_SECONDS = 48 * 3600;
+// 7 days (was 48h, 2026-10-11): the brain trims to 48h itself unless the lead
+// has a child qualification or a live booking (claude.ts trimHistory).
+const HISTORY_WINDOW_SECONDS = 7 * 24 * 3600;
 const WINDOW_SECONDS = 24 * 3600;
 
 export interface InboundMessage {
@@ -266,15 +287,22 @@ export async function processInbound(
 
   // 3. Opt-out. CRM flag + Slack note go out BEFORE the confirmation send so
   // the baja is visible to the team even if that send fails.
-  if (isOptOut(body)) {
-    await setContactStatus(env.DB, msg.phone, "opted_out");
-    await cancelFollowups(env.DB, msg.phone, "skipped_optout");
-    // A draft queued before the baja must not stay approvable in Slack/panel.
-    await cancelPendingApprovals(env.DB, msg.phone, "discarded");
-    ctx.waitUntil(flagOptOutInAirtable(env, msg.phone));
-    await ports.slack.postNote(
-      `🚫 ${msg.phone} se dio de baja (opt-out). Seguimientos cancelados.`,
-    );
+  // v2: the last ≤3 inbound messages within 2 min count as ONE text (2026-10-10
+  // …4595: "No me interesa…" / "Gracias" / "Ya no me manden mensaje.").
+  let optOut = isOptOut(body);
+  if (!optOut) {
+    try {
+      const recent = await recentMessages(env.DB, msg.phone, 6, msg.ts - OPT_OUT_BURST_SECONDS);
+      optOut = isOptOutBurst(recent.map((m) => ({ body: m.body, ts: m.ts, direction: m.direction })));
+    } catch (err) {
+      console.warn("[inbound] opt-out burst read failed", msg.phone, err);
+    }
+  }
+  if (optOut) {
+    await applyOptOut(env, ports, msg.phone, {
+      note: `🚫 ${msg.phone} se dio de baja (opt-out). Seguimientos cancelados.`,
+      waitUntil: (p) => ctx.waitUntil(p),
+    });
     try {
       await sendText(
         env,
@@ -355,9 +383,26 @@ export async function processInbound(
   // Program signal (2026-09-30): "2 años", "mi hija", "18 meses" → store
   // audience/discipline now, not only at booking, so nudges and blast
   // audiences stop filing unbooked parents as adults. Side effect only — not
-  // a gate; fail-soft.
+  // a gate; fail-soft. 2026-10-11: also the child's AGE (a bare "5" counts
+  // when our previous message asked for it) → child_age_months + program, and
+  // the discipline of the ad they tapped when none is stored yet.
   try {
-    const merged = mergeProgramSignal(parseQualification(contact), programSignalFromText(body));
+    const prior = await recentMessages(env.DB, msg.phone, 6);
+    const lastOut = [...prior].reverse().find((m) => m.direction !== "in");
+    let adText = matchedCampaign?.ad_keywords ?? "";
+    if (contact.ad_ref) {
+      try {
+        const r = JSON.parse(contact.ad_ref) as { headline?: string | null; body?: string | null };
+        adText = `${r.headline ?? ""} ${r.body ?? ""} ${adText}`;
+      } catch {
+        // malformed ad_ref: campaign keywords only
+      }
+    }
+    const merged = programSignalUpdate(parseQualification(contact), {
+      body,
+      lastOutboundBody: lastOut?.body ?? null,
+      adText,
+    });
     if (merged) {
       const q = JSON.stringify(merged);
       await setQualification(env.DB, msg.phone, q);
@@ -397,8 +442,28 @@ export async function processInbound(
   // 5. Human override active.
   const nowSec = Math.floor(Date.now() / 1000);
   if (contact.human_override_until && contact.human_override_until > nowSec) {
+    // Override v2: after a STAFF REPLY, a lead who writes again is not left
+    // for the whole 8 h pause (…1521, …5625 waited a day). Arm a 60-min
+    // check; the cron (runOverrideChecks) runs the brain if no human answers.
+    let armed = false;
+    try {
+      const recent = await recentMessages(env.DB, msg.phone, 10, nowSec - HISTORY_WINDOW_SECONDS);
+      if (overrideFromStaffReply(recent)) {
+        const key = overrideCheckKey(msg.phone);
+        const prev = parseOverrideCheck(await kvGet(env.DB, key));
+        await kvSet(
+          env.DB,
+          key,
+          JSON.stringify(armOverrideCheck(prev, { wamid: msg.wamid, ts: msg.ts, body }, nowSec)),
+        );
+        armed = true;
+      }
+    } catch (err) {
+      console.warn("[inbound] override check arm failed", msg.phone, err);
+    }
     await ports.slack.postNote(
-      `(bot en pausa por override) ${msg.phone}: ${body}`,
+      `(bot en pausa por override) ${msg.phone}: ${body}` +
+        (armed ? "\n_Si nadie le contesta en 60 min, la IA responde (directo si ≥70 % segura, si no borrador)._" : ""),
     );
     return;
   }
@@ -422,6 +487,38 @@ export async function processInbound(
     return;
   }
 
+  // 5b'. Trial-reminder quick replies (owner decision 2026-10-11; …2139 got
+  // "te esperamos hoy a las 9 am" 6.5 h late, after the class). "Ahí estaré"
+  // → no brain turn: silence, or CLIENT.copy.reminderAckEs/En when set.
+  // "Necesito reagendar" → brain turn with a <reschedule> hint. Nothing is
+  // written to Airtable here (old reminders are cancelled only by the NEW
+  // booking's sequence).
+  let reschedule = false;
+  try {
+    const reminderReply = classifyReminderReply({
+      body,
+      kind: msg.kind,
+      reminders: await trialReminderRows(env.DB, msg.phone),
+      now: nowSec,
+    });
+    if (reminderReply === "confirm") {
+      const copy = CLIENT.copy as unknown as Record<string, string | undefined>;
+      const ack = contact.lang === "en" ? copy.reminderAckEn : copy.reminderAckEs;
+      if (ack) {
+        try {
+          await sendText(env, msg.phone, reminderAckText(ack, greetingName(contact.name)));
+        } catch (err) {
+          if (!(err instanceof WindowClosedError)) throw err;
+        }
+      }
+      console.log(`[inbound] reminder confirm from ${msg.phone}; no brain turn`);
+      return;
+    }
+    reschedule = reminderReply === "reschedule";
+  } catch (err) {
+    console.warn("[inbound] reminder reply check failed", msg.phone, err);
+  }
+
   // 5c. Campaign first-reply: a campaign-matched lead gets the pre-written
   // welcome INSTANTLY — no debounce, no brain, no approval (ManyChat parity);
   // the AI takes over from the lead's NEXT message. Two ways in:
@@ -434,8 +531,26 @@ export async function processInbound(
   // brain is then told what the lead is already reading (see buildContextBlock's
   // <bienvenida_ya_enviada>) so this turn adds only what the welcome left out.
   let justSentWelcome: string | undefined;
-  if (matchedCampaign && contact.status === "lead") {
-    const rawCanned = firstReplyFor(matchedCampaign, false);
+  if (matchedCampaign && contact.status === "lead" && !reschedule) {
+    // {{slot}} in the welcome → the concrete next bookable slot for the
+    // campaign's grid (docs/welcomes-draft.md). No slot ⇒ no canned text.
+    let slotLabel: string | null = null;
+    if ((matchedCampaign.first_reply ?? "").includes(SLOT_PLACEHOLDER)) {
+      const q = slotQueryForCampaign(matchedCampaign.name);
+      slotLabel = nextTrialSlot(q.discipline, q.audience, nowSec)?.label ?? null;
+    }
+    const rawCanned = firstReplyFor(matchedCampaign, false, slotLabel);
+    // The lead's own words beyond the ad's prefill (campaign vocabulary is
+    // never the lead's — 2026-10-07 double reply).
+    const realQuestion = hasRealQuestion(body, matchedCampaign.trigger_phrase, [
+      matchedCampaign.name,
+      matchedCampaign.ad_keywords ?? null,
+      msg.referral?.headline ?? null,
+    ]);
+    // Age / day / hour / uncovered discipline already in the text ⇒ the brain
+    // answers alone (joss_bfc_mini: "niña de 4 años" got the 12–36-month pitch;
+    // welcome_resend: "Jueves 7:00am" got the Reto welcome again).
+    const skipCanned = shouldSkipCannedWelcome(body, matchedCampaign);
     // Booking links inside the welcome carry the lead's ad as utm params so
     // the site's form prefill credits it (see services/booking-link.ts).
     const canned =
@@ -456,8 +571,16 @@ export async function processInbound(
         hasReferral: Boolean(msg.referral),
         hasActiveBooking,
         buyIntent: hasBuyIntent([body]),
+        realQuestion,
+        skipCanned,
       });
       const key = firstReplyKey(msg.phone);
+      // Skipped first welcome still burns the at-most-once claim, so the
+      // lead's NEXT message (while the brain's reply waits for approval)
+      // doesn't get the canned text after all.
+      if (skipCanned && !hasPriorOutbound) {
+        await kvSetIfAbsent(env.DB, key, String(nowSec));
+      }
       const claimed =
         decision === "first"
           ? await kvSetIfAbsent(env.DB, key, String(nowSec))
@@ -488,14 +611,7 @@ export async function processInbound(
           // The campaign's own vocabulary (name, ad keywords, the ad's
           // headline) is never the lead's question — a prefill that names
           // the program must not read as one (2026-10-07 double reply).
-          if (
-            !hasRealQuestion(body, matchedCampaign.trigger_phrase, [
-              matchedCampaign.name,
-              matchedCampaign.ad_keywords ?? null,
-              msg.referral?.headline ?? null,
-            ])
-          )
-            return;
+          if (!realQuestion) return;
           justSentWelcome = canned;
         } catch (err) {
           // WindowClosed can't happen here (last_inbound was just touched); any
@@ -515,7 +631,9 @@ export async function processInbound(
   const newest = await newestInboundWamid(env.DB, msg.phone);
   if (newest !== msg.wamid) return;
 
-  await runBrainTurn(env, ports, msg, nowSec, justSentWelcome);
+  // A normal turn now owns this lead's reply: any armed override check is moot.
+  await kvDelete(env.DB, overrideCheckKey(msg.phone)).catch(() => {});
+  await runBrainTurn(env, ports, msg, nowSec, justSentWelcome, reschedule ? { reschedule: true } : undefined);
 }
 
 /**
@@ -528,6 +646,66 @@ export async function processInbound(
 export interface BrainTurnOptions {
   forceReview?: boolean;
   stale?: ConvoContext["staleReply"];
+  /** "Necesito reagendar" reminder reply → <reschedule> hint in the context. */
+  reschedule?: boolean;
+  /** Override v2 turn (runOverrideChecks): direct send only at sureness ≥ 70. */
+  overrideCheck?: boolean;
+}
+
+/**
+ * Cron step (every tick): human override v2. For each armed
+ * `override_check:<phone>` older than 60 min whose lead message is still
+ * unanswered, run one brain turn (routeResult then sends only at ≥ 70 %
+ * sureness with wheels off, else drafts). Returns how many turns ran.
+ */
+export async function runOverrideChecks(
+  env: Env,
+  ports: Ports,
+  nowSec: number,
+): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT key, value FROM kv WHERE key LIKE ?1 LIMIT 50`,
+  )
+    .bind(`${OVERRIDE_CHECK_PREFIX}%`)
+    .all<{ key: string; value: string }>();
+  let ran = 0;
+  for (const row of results ?? []) {
+    const phone = row.key.slice(OVERRIDE_CHECK_PREFIX.length);
+    const state = parseOverrideCheck(row.value);
+    if (!state) {
+      await kvDelete(env.DB, row.key);
+      continue;
+    }
+    try {
+      const answered = await env.DB.prepare(
+        `SELECT 1 AS x FROM messages WHERE phone = ?1 AND direction <> 'in' AND ts > ?2 LIMIT 1`,
+      )
+        .bind(phone, state.ts)
+        .first<{ x: number }>();
+      const contact = await getContact(env.DB, phone);
+      const decision = decideOverrideCheck({
+        state,
+        now: nowSec,
+        answeredAfter: answered !== null,
+        contactStatus: contact?.status ?? null,
+      });
+      if (decision === "wait") continue;
+      await kvDelete(env.DB, row.key); // claim before the (slow) brain turn
+      if (decision === "drop") continue;
+      ran++;
+      await runBrainTurn(
+        env,
+        ports,
+        { wamid: state.wamid, phone, body: state.body, ts: state.ts },
+        nowSec,
+        undefined,
+        { overrideCheck: true },
+      );
+    } catch (err) {
+      console.error("[override-check] failed", phone, err);
+    }
+  }
+  return ran;
 }
 
 /**
@@ -626,6 +804,7 @@ export async function runBrainTurn(
     justSentWelcome,
     recordedBooking,
     ...(opts?.stale ? { staleReply: opts.stale } : {}),
+    ...(opts?.reschedule ? { reschedule: true } : {}),
   };
 
   const result = await ports.brain.respond(brainCtx);
@@ -680,22 +859,75 @@ async function routeResult(
   }
   const phone = ctx.phone;
 
+  // Brain-flagged opt-out (escalation_reason / escalate reason "opt_out"): the
+  // lead asked us to stop in words the gate-3 patterns missed. Same routine as
+  // the gate — status, followups, pending drafts, Airtable «Baja» — and NO
+  // reply or draft at all; staff get a one-click undo path.
+  const escReason =
+    result.action === "escalate" ? result.reason : result.action === "draft" ? result.reason : undefined;
+  const escKind = classifyEscalation(escReason);
+  if (escKind === "opt_out" && result.action !== "book") {
+    await applyOptOut(env, ports, phone, {
+      note:
+        `🚫 ${phone} pidió no recibir más mensajes (detectado por la IA). Baja aplicada: seguimientos y borradores cancelados, sin respuesta.\n` +
+        `¿Fue un error? Deshacer: panel → Chats → ${phone} → Estado «Lead».`,
+    });
+    return;
+  }
+
   if (result.action === "escalate") {
-    // <!here> — an escalation is action-required (often the HOTTEST leads:
-    // "quiero pagar/inscribirme"). Without the ping it drowns in a channel
-    // muted to Mentions-only and the lead never gets any reply (seen live
-    // 2026-08-07: enrollment-ready lead silently dropped for 6 hours).
-    await taskNote(ports.slack, 
-      `<!here> ⚠️ Escalar (${phone}): ${result.reason}\n${result.summary}\n_El bot NO respondió nada — este lead espera respuesta humana._`,
-    );
-    // ...and a draft-less row in pending_approvals so the lead is listed in
-    // the Aprobar tab with everything else waiting on a human (Evan,
-    // 2026-09-28: one place to work through, not Aprobar + "No leídos").
+    // A draft-less row in pending_approvals so the lead is listed in the
+    // Aprobar tab with everything else waiting on a human (Evan, 2026-09-28:
+    // one place to work through, not Aprobar + "No leídos").
+    let escalationId: number | null = null;
     try {
-      await queueEscalation(env, ports, ctx, history, result.reason, result.summary);
+      escalationId = await queueEscalation(env, ports, ctx, history, result.reason, result.summary);
     } catch (err) {
       console.error("[routeResult] queueEscalation failed", phone, err);
     }
+    // <!here> — an escalation is action-required (often the HOTTEST leads:
+    // "quiero pagar/inscribirme"). Without the ping it drowns in a channel
+    // muted to Mentions-only (2026-08-07: enrollment-ready lead dropped 6 h).
+    // One open task per phone: a second escalation edits it (no new @here);
+    // the timeout cron re-pings at 45 min and DMs the owner after that.
+    await escalationTask(
+      ports,
+      phone,
+      escalationId,
+      `<!here> ⚠️ Escalar (${phone}): ${result.reason}\n${result.summary}\n_El bot NO respondió nada — este lead espera respuesta humana._`,
+    );
+    return;
+  }
+
+  // Complaint / Nivel 0 / special needs / visitor package: the draft goes to
+  // review (never auto-sent, never best-bet for a complaint) AND a human task
+  // is opened — the bot must never leave these on "te aviso".
+  if (result.action === "draft" && escalationNeedsTask(escKind)) {
+    const id = await queueApproval(
+      env,
+      ports,
+      ctx,
+      result.message,
+      history,
+      result.reason,
+      false,
+      result.awaitingReply ?? true,
+      result.confidence,
+      escKind === "complaint" ? undefined : result.sureness,
+    );
+    const label: Record<string, string> = {
+      complaint: "Queja / inconformidad",
+      nivel0: "Bebé menor de 12 meses (Nivel 0)",
+      special_needs: "Necesidades especiales (TDAH/autismo/condición)",
+      visitor: "Visitante / paquete por clase",
+    };
+    await escalationTask(
+      ports,
+      phone,
+      id,
+      `<!here> ⚠️ ${label[escKind!] ?? escKind} (${phone}): ${result.reason ?? ""}\nBorrador adjunto en la tarjeta #${id} — revísalo y respóndele tú.`,
+    );
+    if (result.followup) await scheduleCustomFollowup(env, phone, result.followup);
     return;
   }
 
@@ -800,6 +1032,46 @@ async function routeResult(
         console.error("[routeResult] lead name update failed", phone, err);
       }
     }
+    // send_reply child_name / child_age_years / preferred / declined days →
+    // qualification (merge; a missing age never erases a stated one).
+    if (result.qualUpdate) {
+      try {
+        const fresh = await getContact(env.DB, phone);
+        const merged = mergeQualUpdate(parseQualification(fresh ?? ctx.contact), result.qualUpdate);
+        if (merged) await setQualification(env.DB, phone, JSON.stringify(merged));
+      } catch (err) {
+        console.error("[routeResult] qualification update failed", phone, err);
+      }
+    }
+  }
+
+  // Override v2 turn: a staff reply paused the bot and nobody answered the
+  // lead's next message for an hour. Direct send only when the model is ≥ 70 %
+  // sure (wheels off, no correctness guard), else a draft for review.
+  if (opts?.overrideCheck && (result.action === "send" || result.action === "draft")) {
+    const route = overrideRouting({
+      sureness: result.sureness ?? surenessOf(undefined, result.confidence),
+      trainingWheels: ctx.trainingWheels,
+      guarded: result.action === "draft" && (result.reason?.includes("⚠️") ?? false),
+    });
+    if (route === "send") {
+      const delivered = await deliverOrDraft(env, ports, ctx, result.message, "high", history);
+      if (delivered) await supersedeStalePending(env, ports, phone);
+      return;
+    }
+    await queueApproval(
+      env,
+      ports,
+      ctx,
+      result.message,
+      history,
+      result.action === "draft" ? result.reason : undefined,
+      false,
+      result.awaitingReply ?? true,
+      result.confidence,
+      result.sureness,
+    );
+    return;
   }
 
   // forceReview (outage redrive): NEVER the direct path, whatever the mode.
@@ -1055,7 +1327,7 @@ async function queueEscalation(
   history: StoredMessage[],
   reason: string,
   summary: string,
-): Promise<void> {
+): Promise<number> {
   const id = await createSupersedingApproval(
     env,
     ports,
@@ -1066,6 +1338,38 @@ async function queueEscalation(
   );
   const label = summary ? `${reason} — ${summary}` : reason;
   await kvSet(env.DB, escalationKey(id), label.slice(0, 500));
+  const kind = classifyEscalation(reason);
+  if (kind) await kvSet(env.DB, reasonKindKey(id), kind);
+  return id;
+}
+
+/**
+ * Card hint for a guarded draft that promises a booking nothing backs
+ * ("Les apunto el sábado 2 pm" with no book_trial — …6601): approving it
+ * opens the «Registrar en Airtable» capture card (booking-guard), which is
+ * where the class gets recorded.
+ */
+function registrarHint(reason: string, draft: string): string {
+  if (!reason.includes("⚠️") || !claimsBooking(draft)) return "";
+  return "\n👉 Si la clase sí va: aprueba/edita y usa «Registrar en Airtable» en la tarjeta que aparece después (o regístrala desde el panel).";
+}
+
+/** Opens/updates the phone's single escalation task (fallback: plain task note). */
+async function escalationTask(
+  ports: Ports,
+  phone: string,
+  approvalId: number | null,
+  text: string,
+): Promise<void> {
+  try {
+    if (approvalId !== null && ports.slack.postEscalationTask) {
+      await ports.slack.postEscalationTask(phone, approvalId, text);
+      return;
+    }
+  } catch (err) {
+    console.error("[routeResult] escalation task failed; plain note", phone, err);
+  }
+  await taskNote(ports.slack, text);
 }
 
 async function queueApproval(
@@ -1080,7 +1384,7 @@ async function queueApproval(
   confidence: "high" | "low" = "low",
   /** Model's 0–100 self-report; drives the card chip + the 1h best-bet timeout. */
   sureness?: number,
-): Promise<void> {
+): Promise<number> {
   const contextText = approvalContextText(history);
   const id = await createSupersedingApproval(
     env,
@@ -1109,6 +1413,11 @@ async function queueApproval(
   // escalation reason. Such a draft NEVER best-bets — a human fixes it or it
   // expires.
   if (reason?.includes("⚠️")) await kvSet(env.DB, guardedApprovalKey(id), "1");
+  // Reason bucket (complaint / opt_out / price / …): the timeout cron never
+  // best-bets a complaint, opt-out or price negotiation, and never sends the
+  // holding line on a complaint/opt-out.
+  const kind = classifyEscalation(reason);
+  if (kind) await kvSet(env.DB, reasonKindKey(id), kind);
   const slackTs = await ports.slack.postDraft({
     id,
     phone: ctx.phone,
@@ -1124,9 +1433,36 @@ async function queueApproval(
     created_at: Math.floor(Date.now() / 1000),
     resolved_at: null,
     final_text: null,
-    contextText: reason ? `${reason}\n\n${contextText}` : contextText,
+    contextText: reason
+      ? `${reason}${registrarHint(reason, draft)}\n\n${contextText}`
+      : contextText,
   });
   await setApprovalSlackTs(env.DB, id, slackTs);
+  return id;
+}
+
+/**
+ * The one opt-out routine (gate 3 and the brain's `opt_out` escalation):
+ * status opted_out, followups + pending drafts cancelled, Airtable «Baja» tag,
+ * Slack note. CRM flag + note go out BEFORE any confirmation send so the baja
+ * is visible to the team even if that send fails.
+ */
+async function applyOptOut(
+  env: Env,
+  ports: Ports,
+  phone: string,
+  opts: { note: string; waitUntil?: (p: Promise<unknown>) => void },
+): Promise<void> {
+  await setContactStatus(env.DB, phone, "opted_out");
+  await cancelFollowups(env.DB, phone, "skipped_optout");
+  // A draft queued before the baja must not stay approvable in Slack/panel.
+  await cancelPendingApprovals(env.DB, phone, "discarded");
+  const flag = flagOptOutInAirtable(env, phone).catch((err) =>
+    console.error("[inbound] Airtable opt-out flag failed", phone, err),
+  );
+  if (opts.waitUntil) opts.waitUntil(flag);
+  else await flag;
+  await ports.slack.postNote(opts.note);
 }
 
 /** True when a stored message's meta JSON marks it as a voice transcription. */

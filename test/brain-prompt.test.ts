@@ -263,43 +263,56 @@ test("context block lists the next valid hours, soonest first, with the 1h buffe
   // Monday 2026-07-06 18:30 + 1h ⇒ the 20:00 class is still offerable today,
   // so the list opens with "hoy" and runs in ascending order.
   const block = buildContextBlock(ctx());
-  assert.match(block, /próximos horarios válidos para adultos/);
+  assert.match(block, /programa por edad: adultos/);
   const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
   assert.equal(line.split(" · ").length, 3, line);
   assert.ok(line.includes("hoy a las 8:00 pm"), "18:30 + 1h keeps the 8 pm class today: " + line);
   assert.ok(line.includes("mañana martes 7:00 am"), line);
   assert.ok(line.indexOf("hoy a las") < line.indexOf("mañana"), "soonest first");
   // The hint must not license an unverified offer.
-  assert.match(block, /confirma en el horario del KB que esa fila existe/);
+  assert.match(block, /Ofrece SOLO filas de su grupo de edad/);
 });
 
 test("slot hints follow the lead's program — a kids campaign never sees adult hours", () => {
   const block = buildContextBlock(
     ctx({ campaign: { name: "Kids septiembre", info: "clases para niños" } }),
   );
-  assert.match(block, /próximos horarios válidos para niños/);
+  assert.match(block, /programa por edad: Kids \(6–12 años\)/);
   assert.ok(block.includes("mañana martes 4:00 pm"), block); // Kids Muay Thai
   assert.ok(!block.includes("7:00 am"), "7 am is an adults-only hour");
 });
 
-test("kids slot hints add the Mini Muay Thai (3–5) hours with 'hoy' computed (2026-09-28)", () => {
+test("a stated 3–5 age lists ONLY Mini Muay Thai hours, 'hoy' computed (2026-09-28 → bands 2026-10-11)", () => {
   // Monday 2026-07-06 10:51 (the Raquel case): today's 3:15 pm Mini class is
-  // 4h away, so the Mini line must open with "hoy", not Wednesday.
+  // 4h away, so the list must open with "hoy", not Wednesday — and once the
+  // age is known, the Kids rows are gone entirely.
+  const block = buildContextBlock(
+    ctx({
+      nowCdmx: "2026-07-06T10:51",
+      contact: contact({ qualification: JSON.stringify({ audience: "kid", child_age_months: 48 }) }),
+      campaign: { name: "Kids septiembre", info: "clases para niños" },
+    }),
+  );
+  assert.match(block, /programa por edad: Mini Muay Thai \(3–5 años\)/);
+  const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
+  assert.ok(line.includes("hoy a las 3:15 pm"), line);
+  assert.ok(line.indexOf("hoy a las 3:15 pm") < line.indexOf("miércoles"), "soonest first: " + line);
+  assert.ok(!block.includes("4:00 pm"), "no Kids row for a 4-year-old: " + block);
+  assert.match(block, /el lead ya dijo: edad: 4 años/);
+});
+
+test("a kids band guessed from the campaign asks the age instead of listing Mini hours", () => {
   const block = buildContextBlock(
     ctx({
       nowCdmx: "2026-07-06T10:51",
       campaign: { name: "Kids septiembre", info: "clases para niños" },
     }),
   );
-  const mini = block.split("\n").find((l) => l.startsWith("si el peque tiene 3–5 años"))!;
-  assert.ok(mini, block);
-  assert.ok(mini.includes("hoy a las 3:15 pm"), mini);
-  assert.ok(mini.indexOf("hoy a las 3:15 pm") < mini.indexOf("miércoles"), "soonest first: " + mini);
-  // The Kids line itself still has no Mini row.
-  const kids = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
-  assert.ok(!kids.includes("3:15 pm"), kids);
+  assert.match(block, /edad aún no confirmada/);
+  assert.match(block, /si el peque tiene 3–5 años su programa es Mini Muay Thai/);
+  assert.ok(!block.includes("3:15 pm"), "never list another band's hours: " + block);
   // Adults never get the Mini line.
-  assert.ok(!buildContextBlock(ctx()).includes("Mini Muay Thai (no Kids)"));
+  assert.ok(!buildContextBlock(ctx()).includes("Mini Muay Thai"));
 });
 
 test("slot hints stay OUT of the cached system blocks", () => {

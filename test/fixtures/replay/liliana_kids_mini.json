@@ -1,0 +1,139 @@
+{
+ "case": "liliana_kids_mini",
+ "phone": "5215550000006",
+ "campaign": "Kids",
+ "contact": {
+  "name": "Liliana",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"discipline\":\"muay\",\"audience\":\"kid\",\"name\":\"Liliana\"}",
+  "campaign_id": 3
+ },
+ "messages": [
+  {
+   "direction": "out_bot",
+   "ts": 1790985659,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Liliana! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791040572,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Liliana! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791044235,
+   "body": "Si, ahí estaré,buen día"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791044248,
+   "body": "¡Perfecto Liliana! Las esperamos a la 1:15 pm 🥋 ¡Buen día!"
+  },
+  {
+   "direction": "in",
+   "ts": 1791044258,
+   "body": "Buen día"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791044273,
+   "body": "Buen día Liliana 🙌 Nos vemos hoy a la 1:15 pm para la clase de prueba."
+  },
+  {
+   "direction": "in",
+   "ts": 1791044339,
+   "body": "Gracias"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791044353,
+   "body": "Con gusto 🙌 ¡Nos vemos ahorita a la 1:15!"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791055888,
+   "body": "¡Hola Liliana! Te esperábamos en tu clase de prueba 🥋 No pasa nada, ¿la reagendamos? Les puedo apartar lugar en Muay Thai el lunes 4:00 pm — ¿les late? Si prefieren otro horario: https://mdcondesa.com/clase-prueba-ninos/?utm_source=whatsapp&utm_content=120244434754400518&utm_campaign=Kids"
+  },
+  {
+   "direction": "in",
+   "ts": 1791056818,
+   "body": "Tuvimos un problema con el metro q se paro justo en medio sin darnos la oportunidad de bajar y tomar otro medio de transporte para poder ir, una disculpa"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791056832,
+   "body": "No te preocupes Liliana, cosas que pasan 🙏 ¿Les late reagendar para el lunes a las 4:00 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791056846,
+   "body": "Si"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791056860,
+   "body": "¡Va! 🙌 Les aparto el lunes a las 4:00 pm. ¿Me confirmas el nombre de tu peque?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791056874,
+   "body": "David Emmanuel"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791056893,
+   "body": "¡Perfecto Liliana! Ya quedó agendado 🙌 Nos vemos el lunes a las 4:00 pm para que David Emmanuel pruebe Muay Thai y Jiu-Jitsu.\nAquí toda la info de su primera clase: mdcondesa.com/tu-primera-clase-ninos/\nSi quieren invitar a un amigo o pariente, estaría súper 💪 Cualquier duda, aquí estoy 🙏"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791056893,
+   "body": "[video]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791056938,
+   "body": "Q es el mini Muay Thai?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791056954,
+   "body": "Mini Muay Thai es para peques de 3 a 5 años: clase corta y divertida de equilibrio, coordinación y disciplina básica, donde el papá o mamá también participa en algunos momentos 🙌 David ya está agendado el lunes a las 4 pm, ¿cuántos años tiene?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791056977,
+   "body": "3"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791056993,
+   "body": "¡Ah con 3 años le toca Mini Muay Thai! 🙌 Es a las 3:15 pm — te cambio su lugar del lunes a esa hora en vez de las 4. ¿Les queda bien?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791057039,
+   "body": "Pues si,es muy imperativo y necesita correr y sacar todo"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791057681,
+   "body": "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí."
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791060664,
+   "body": "¡Va! 🙌 Entonces le cambio el lunes a las 3:15 pm (Mini Muay Thai), en vez de las 4 pm. ¿Lo dejamos así?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791158503,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Liliana! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791223272,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Liliana! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  }
+ ]
+}

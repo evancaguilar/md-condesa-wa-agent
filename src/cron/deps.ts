@@ -59,6 +59,8 @@ export interface CronDeps {
    * pipeline/inbound.runBrainTurn; absent ⇒ the redrive is skipped.
    */
   redriveTurn?(row: UnansweredRow, nowSec: number): Promise<void>;
+  /** Human override v2 (pipeline/inbound.runOverrideChecks); absent ⇒ skipped. */
+  overrideChecks?(nowSec: number): Promise<unknown>;
   slack: CronSlackDeps;
   runApprovalTimeouts: RunApprovalTimeouts;
   ensureControlPanel: EnsureControlPanel;

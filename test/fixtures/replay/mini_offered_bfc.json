@@ -1,0 +1,74 @@
+{
+ "case": "mini_offered_bfc",
+ "phone": "5215550000009",
+ "campaign": "baby fight club",
+ "contact": {
+  "name": "Karla",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"discipline\":\"muay\",\"audience\":\"kid\",\"name\":\"Karla Deniss\"}",
+  "campaign_id": 2
+ },
+ "messages": [
+  {
+   "direction": "out_bot",
+   "ts": 1790985665,
+   "body": "📋 Plantilla · trial_reminder_day_before_es\n\n¡Hola Karla! Te recordamos tu clase de prueba mañana en MD Condesa (Av. México 49, 1º piso, Condesa). Llega 10 min antes para registrarte. ¿Nos vemos? 🥋"
+  },
+  {
+   "direction": "in",
+   "ts": 1791001024,
+   "body": "Buena noche , sí"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791001038,
+   "body": "Buena noche Karla 🙌 ¡Los esperamos mañana sábado a la 1:15 pm para la clase de Dante!"
+  },
+  {
+   "direction": "in",
+   "ts": 1791001157,
+   "body": "Si, gracias.\nBuena noche"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791001170,
+   "body": "¡Por nada, Karla! Buena noche 🙌 Nos vemos mañana con Dante 💪"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791040577,
+   "body": "📋 Plantilla · trial_reminder_same_day_es\n\n¡Hoy es tu clase de prueba, Karla! 🥋 Te esperamos en Av. México 49, 1º piso, Condesa. Confírmanos si vienes:\n\n[ Ahí estaré ] [ Necesito reagendar ]"
+  },
+  {
+   "direction": "in",
+   "ts": 1791052140,
+   "body": "Buen día una disculpa,no nos será posible asistir el día de hoy ,será posible cambiar \nLa para otro día?"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791052156,
+   "body": "Sin problema, Karla 🙌 ¿Te late reagendar para el miércoles 1 pm o el sábado que viene 2 pm?"
+  },
+  {
+   "direction": "in",
+   "ts": 1791052194,
+   "body": "Hola ,genial Miércoles 1,por favor"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791055869,
+   "body": "¡Va, Karla! Ya quedó cambiado a miércoles 1 pm con Dante 🙌 Nos vemos entonces 💪"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791055900,
+   "body": "¡Hola Karla! Te esperábamos en tu clase de prueba 🥋 No pasa nada, ¿la reagendamos? Les puedo apartar lugar en Baby Fight Club el miércoles 1:00 pm — ¿les late? Si prefieren otro horario: https://mdcondesa.com/clase-prueba-ninos/?utm_source=whatsapp&utm_content=120246749604320518&utm_campaign=baby+fight+club"
+  },
+  {
+   "direction": "out_bot",
+   "ts": 1791306121,
+   "body": "📋 Plantilla · no_show_followup_es\n\n¡Hola Karla! Te extrañamos ayer en MD Condesa. Sabemos que la vida se atraviesa 🙂 ¿Te reagendamos tu clase de prueba? Solo dinos qué día te queda bien."
+  }
+ ]
+}

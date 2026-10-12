@@ -1,0 +1,19 @@
+{
+ "case": "kids_noshow_bfc",
+ "phone": "5215550000004",
+ "campaign": "baby fight club",
+ "contact": {
+  "name": ".",
+  "lang": "es",
+  "status": "lead",
+  "qualification": "{\"audience\":\"kid\"}",
+  "campaign_id": 2
+ },
+ "messages": [
+  {
+   "direction": "out_bot",
+   "ts": 1790989920,
+   "body": "📋 Plantilla · bfc_amiguitos_sabado_v2\n\n¡Hola! 👋 En Baby Fight Club tu bebé (12 a 36 meses) hace sus primeros amiguitos y comparte 40 minutos contigo en el tatami: juego y movimiento, siempre a tu lado 🍼🥊\n\nSu clase de prueba es GRATIS y mañana sábado hay lugar a las 2 pm.\n\n¿Les apartamos su lugar?\n\nResponde BAJA para dejar de recibir mensajes.\n\n[ Sí, mañana 2 pm ]"
+  }
+ ]
+}

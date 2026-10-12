@@ -2,57 +2,91 @@
 // until 2026-09-21 (163 people attended since July and never heard from us
 // again; ~400 no-shows got exactly one message).
 //
-// Two chains, both armed by the Airtable result watcher (cron/followups.ts
-// processResult) off `Resultado Clase Prueba`:
-//   - "Asistió" (and NOT "Se inscribió") → post_trial_d0 / _d2 / _d5: the same
-//     evening, +2 days and +5 days (goodbye).
-//   - "No asistió" → the immediate rebook message (sent inline by the watcher)
-//     plus a second touch, no_show_d3, ~3 days after the missed class.
+// v2 (2026-10-11, audit 2026-10-09). Two chains, both keyed per PHONE (a
+// mother with two Airtable rows used to get two chains — …9448):
+//   - Attended and did NOT sign up → post_trial_d0 (same evening, unchanged
+//     timing) / post_trial_d3 / post_trial_d6 (11:00 CDMX). Armed by the
+//     Airtable result watcher (cron/followups.ts processResult) on "Asistió".
+//   - No-show → no_show_hoy at class start + 2 h (armed with the booking; it
+//     only sends when `Resultado` is still empty or says "No asistió" at send
+//     time — the record is re-read), then no_show_d2 / no_show_d7 at 11:00,
+//     then a Slack TASK "Marcar Perdido" (the bot never writes Perdido).
 //
-// The timing is pure (computePostTrialSequence / computeNoShowRebook, fake-clock
-// unit tests) and always lands inside 09:00–21:00 CDMX, so it can never collide
-// with quiet hours (21:30–08:00). processPostTrial is the send-time half: it
-// re-checks every stop condition against live state, because a row armed on
-// Monday evening may only fire on Saturday.
+// Copy is per program BAND (baby / mini / kids / teens → plural, to the
+// parent; adults → singular) and per contact language, and every day word is
+// computed at SEND time against the trial date ("hoy" / "ayer" / "el sábado"),
+// so a row that a quiet-hours re-check pushed to the next morning can never
+// say "hoy" again (post_trial_d0 "verte hoy" went out the next morning; the
+// no-show template said "ayer" two hours after a 7 am class — …9340).
+//
+// Timing is pure (computePostTrialSequence / computeNoShowSequence, fake-clock
+// unit tests) and always lands inside 08:00–21:00 CDMX. processPostTrial is the
+// send-time half: it re-checks every stop condition against live state.
+//
+// Legacy kinds (post_trial_d2 / _d5, no_show_d3) armed before v2 still drain
+// through here; no_show_d3 is sent as a d2-style touch (never the old "ayer"
+// template).
 
-import type { Contact, Env } from "../types.js";
-import { getContact } from "../db/queries.js";
+import type { Contact, Env, ProgramBand } from "../types.js";
+import { getContact, kvGet } from "../db/queries.js";
 import { hasScheduledFollowupOfKind } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
 import { attributionFor, withAttribution } from "../services/booking-link.js";
 import { greetingName } from "./display-name.js";
-import { isTemplateMissingError, nameParam } from "../services/template-params.js";
-import { cdmxParts, cdmxToEpoch, DAY } from "./time.js";
-import { BOOKING_KINDS } from "./nudges.js";
+import { bodyParams, isTemplateMissingError, nameParam, templateFirstName } from "../services/template-params.js";
+import { cdmxDateStr, cdmxParts, cdmxToEpoch, DAY } from "./time.js";
+import { shiftOutOfQuiet } from "./quiet.js";
 import {
-  classifyProgram,
-  noShowCopy,
+  BOOKING_KINDS,
+  bandForContact,
+  bandProgram,
+  bandSlot,
+  bookingMarkerLive,
+  isMinorBand,
   parseQualification,
   programLink,
-  type Program,
-} from "./nudge-copy.js";
+  slotCta,
+} from "./nudges.js";
+import { formatSlotLabel, disciplineLabel, type NextSlot } from "./next-slot.js";
+import { bookingRecordedKey } from "../services/booking-core.js";
+import { classifyResult, isLostResult, normalizeResult, type BookingRecord } from "../services/airtable.js";
 
 const HOUR = 3600;
 
 // ---- kinds ----
 
-/** The attended-and-didn't-buy chain, in send order. */
-export const POST_TRIAL_KINDS = [
-  "post_trial_d0",
-  "post_trial_d2",
-  "post_trial_d5",
-] as const;
-export type PostTrialKind = (typeof POST_TRIAL_KINDS)[number];
+/** The attended-and-didn't-buy chain v2, in send order. */
+export const POST_TRIAL_KINDS = ["post_trial_d0", "post_trial_d3", "post_trial_d6"] as const;
+/** v1 steps still draining from rows armed before 2026-10-11. */
+export const LEGACY_POST_TRIAL_KINDS = ["post_trial_d2", "post_trial_d5"] as const;
+export type PostTrialKind =
+  | (typeof POST_TRIAL_KINDS)[number]
+  | (typeof LEGACY_POST_TRIAL_KINDS)[number];
 
-/** Second (and last) no-show touch. */
+/** The no-show chain v2, in send order. */
+export const NO_SHOW_KINDS = ["no_show_hoy", "no_show_d2", "no_show_d7"] as const;
+export type NoShowKind = (typeof NO_SHOW_KINDS)[number];
+
+/** v1 second no-show touch (legacy rows only — sent as a d2-style touch). */
 export const NO_SHOW_KIND = "no_show_d3";
 
 /** The delayed Slack card ("asistió y no se inscribió" + 🙋 button). */
 export const POST_TRIAL_CARD_KIND = "post_trial_card";
 
 /** Every kind this module owns — the cancellation surface. */
-export const POST_TRIAL_ALL_KINDS = [...POST_TRIAL_KINDS, NO_SHOW_KIND, POST_TRIAL_CARD_KIND] as const;
+export const POST_TRIAL_ALL_KINDS = [
+  ...POST_TRIAL_KINDS,
+  ...LEGACY_POST_TRIAL_KINDS,
+  ...NO_SHOW_KINDS,
+  NO_SHOW_KIND,
+  POST_TRIAL_CARD_KIND,
+] as const;
+
+/** The attended chain's message kinds (new + legacy) — the per-phone dedupe surface. */
+export const ATTENDED_CHAIN_KINDS = [...POST_TRIAL_KINDS, ...LEGACY_POST_TRIAL_KINDS] as const;
+/** The no-show chain's message kinds (new + legacy). */
+export const NO_SHOW_CHAIN_KINDS = [...NO_SHOW_KINDS, NO_SHOW_KIND] as const;
 
 /**
  * When the attended card ("asistió y no se inscribió" + 🙋) posts (Evan,
@@ -104,19 +138,50 @@ export function decodeCardNote(note: string | null): string | null {
   }
 }
 
-export type FollowUpKindHere = PostTrialKind | typeof NO_SHOW_KIND;
+export type FollowUpKindHere = PostTrialKind | NoShowKind | typeof NO_SHOW_KIND;
+
+// ---- chain rows: per-phone key + note codec (pure) ----
+
+/**
+ * airtable_record_id of a chain row: one chain per PHONE per trial DATE, so two
+ * Airtable rows for one family (two kids, or a staff "copy" row) collapse onto
+ * the same UNIQUE(phone, kind, record) slot instead of arming two chains.
+ */
+export function chainKey(family: "pt" | "ns", trialEpoch: number): string {
+  return `${family}:${cdmxDateStr(trialEpoch)}`;
+}
+
+export interface ChainNote {
+  /** The Airtable record the chain came from (re-read at send time). */
+  rec: string | null;
+  /** The trial start (epoch s) the chain was armed for. */
+  trial: number | null;
+}
+
+/** Note on a chain row: `rec:<id>;trial:<epoch>`. */
+export function encodeChainNote(n: { rec: string | null; trial: number }): string {
+  return `rec:${n.rec ?? ""};trial:${n.trial}`;
+}
+
+/** Tolerates legacy notes (null, "ayer") and the "|attempts:N" retry suffix. */
+export function decodeChainNote(note: string | null | undefined): ChainNote {
+  const s = note ?? "";
+  const rec = /(?:^|;)rec:([^;|]*)/.exec(s)?.[1] ?? "";
+  const trial = /(?:^|;)trial:(\d+)/.exec(s)?.[1];
+  return { rec: rec || null, trial: trial ? Number(trial) : null };
+}
 
 // ---- timing (pure) ----
 
 export interface PostTrialStep {
   kind: PostTrialKind;
   dueAt: number; // epoch seconds, inside 09:00–21:00 CDMX
-  /** Row note to arm with. d0 gets "ayer" when it lands on a later CDMX
-   *  calendar day than the class (copy/template switch to the "ayer" variant). */
+  /** Legacy: "ayer" marked a d0 that lands on a later day. v2 decides the day
+   *  word at send time from the trial epoch in the note; kept for old rows. */
   note?: string;
 }
 
-/** Note on a d0 row that fires on a later CDMX day than the trial. */
+/** Note on a v1 d0 row that fires on a later CDMX day than the trial. */
 export const D0_AYER_NOTE = "ayer";
 
 /** True when a row note marks the d0 "ayer" variant (tolerates a trailing
@@ -126,22 +191,18 @@ export function isAyerNote(note: string | null | undefined): boolean {
 }
 
 function sameCdmxDate(a: number, b: number): boolean {
-  const pa = cdmxParts(a);
-  const pb = cdmxParts(b);
-  return pa.year === pb.year && pa.month === pb.month && pa.day === pb.day;
+  return cdmxDateStr(a) === cdmxDateStr(b);
 }
 
 /** Past this age a trial is cold: nothing is armed at all. */
-export const POST_TRIAL_MAX_AGE = 5 * DAY;
+export const POST_TRIAL_MAX_AGE = 6 * DAY;
 /** Marked later than this ⇒ the "same evening" touch is skipped as stale. */
 export const POST_TRIAL_D0_MAX_AGE = 2 * DAY;
 
 /**
  * Push an epoch into the 09:00–21:00 CDMX send window. Anything before 09:00 or
  * at/after 21:00 lands on the fallback time (09:30) — the same day for a
- * too-early epoch, the NEXT day for a too-late one. Unlike time.ts clampToWindow
- * this places the overflow at 09:30 rather than 09:00, so an evening class whose
- * thank-you spills past 21:00 arrives at a humane hour instead of on the dot.
+ * too-early epoch, the NEXT day for a too-late one.
  */
 function placeInWindow(epoch: number, fallbackHour = 9, fallbackMinute = 30): number {
   const p = cdmxParts(epoch);
@@ -153,10 +214,9 @@ function placeInWindow(epoch: number, fallbackHour = 9, fallbackMinute = 30): nu
 }
 
 /** 11:00 CDMX, `days` calendar days after the trial's CDMX date. */
-function morningAfter(trialEpoch: number, days: number): number {
+export function morningAfter(trialEpoch: number, days: number): number {
   const p = cdmxParts(trialEpoch);
-  // Date.UTC normalizes day overflow inside cdmxToEpoch, so p.day + days rolls
-  // months and years on its own.
+  // Date.UTC normalizes day overflow inside cdmxToEpoch.
   return cdmxToEpoch(p.year, p.month, p.day + days, 11, 0, 0);
 }
 
@@ -166,9 +226,8 @@ function morningAfter(trialEpoch: number, days: number): number {
  *
  *  - d0 = 30 min after the attended card (card ≈ class start + 3 h; see
  *    postTrialCardTime); anything that lands at/after 21:00 → 09:30 tomorrow.
- *    Dropped when the front desk marked the result more than 48h late — a
- *    "¿cómo te sentiste hoy?" two days after the fact reads like a bot.
- *  - d2 / d5 at 11:00 CDMX on the trial date + 2 / + 5 days, and only when that
+ *    Dropped when the front desk marked the result more than 48h late.
+ *  - d3 / d6 at 11:00 CDMX on the trial date + 3 / + 6 days, and only when that
  *    is still in the future.
  *  - A trial older than POST_TRIAL_MAX_AGE (or more than a day in the future,
  *    i.e. a nonsense record) arms nothing.
@@ -183,17 +242,11 @@ export function computePostTrialSequence(
 
   const steps: PostTrialStep[] = [];
   if (age <= POST_TRIAL_D0_MAX_AGE) {
-    const dueAt = placeInWindow(postTrialCardTime(trialEpoch) + D0_AFTER_CARD);
-    steps.push(
-      // Marked late, a past dueAt fires on the next tick, i.e. ~now.
-      sameCdmxDate(Math.max(dueAt, now), trialEpoch)
-        ? { kind: "post_trial_d0", dueAt }
-        : { kind: "post_trial_d0", dueAt, note: D0_AYER_NOTE },
-    );
+    steps.push({ kind: "post_trial_d0", dueAt: placeInWindow(postTrialCardTime(trialEpoch) + D0_AFTER_CARD) });
   }
   for (const [kind, days] of [
-    ["post_trial_d2", 2],
-    ["post_trial_d5", 5],
+    ["post_trial_d3", 3],
+    ["post_trial_d6", 6],
   ] as const) {
     const dueAt = morningAfter(trialEpoch, days);
     if (dueAt > now) steps.push({ kind, dueAt });
@@ -201,11 +254,43 @@ export function computePostTrialSequence(
   return steps;
 }
 
+export interface NoShowStep {
+  kind: NoShowKind;
+  dueAt: number;
+}
+
+/** Past this, the first touch is dropped (d2 at 11:00 is about to cover it). */
+const HOY_LATEST_BEFORE_D2 = 12 * HOUR;
+
 /**
- * The second no-show touch: 11:00 CDMX three days after the missed class, or
- * null when that moment has already passed (the front desk marked the no-show
- * very late) or the trial is too old to chase. Anchored on the TRIAL, not on the
- * marking, so re-running the watcher can never walk the date forward. Pure.
+ * The no-show chain for a trial at `trialEpoch`, evaluated at `now`. Pure.
+ *
+ *  - no_show_hoy at class start + 2 h (quiet-shifted to 08:00 for a late
+ *    class) — never before, so a lead still on the mat in an 11 am–1 pm class
+ *    is not asked "¿qué pasó?" at 12:01 (…7571). Marked late, it still goes on
+ *    the next tick (day-aware copy) unless d2 is less than 12 h away.
+ *  - no_show_d2 / no_show_d7 at 11:00 CDMX, trial date + 2 / + 7 days, when
+ *    still in the future.
+ * Anchored on the TRIAL, so re-running it can never walk a date forward.
+ */
+export function computeNoShowSequence(trialEpoch: number, now: number): NoShowStep[] {
+  if (!Number.isFinite(trialEpoch)) return [];
+  const d2 = morningAfter(trialEpoch, 2);
+  const d7 = morningAfter(trialEpoch, 7);
+  const steps: NoShowStep[] = [];
+  const hoy = shiftOutOfQuiet(trialEpoch + NO_SHOW_DELAY);
+  if (now < d2 - HOY_LATEST_BEFORE_D2) steps.push({ kind: "no_show_hoy", dueAt: hoy });
+  if (d2 > now) steps.push({ kind: "no_show_d2", dueAt: d2 });
+  if (d7 > now) steps.push({ kind: "no_show_d7", dueAt: d7 });
+  return steps;
+}
+
+/** How long after class START the first no-show touch waits. */
+export const NO_SHOW_DELAY = 2 * HOUR;
+
+/**
+ * v1 second no-show touch (kept for callers/tests of the old chain): 11:00 CDMX
+ * three days after the missed class, or null when already past. Pure.
  */
 export function computeNoShowRebook(
   trialEpoch: number,
@@ -218,6 +303,25 @@ export function computeNoShowRebook(
   return dueAt > now ? { kind: NO_SHOW_KIND, dueAt } : null;
 }
 
+// ---- day words (pure) ----
+
+const WEEKDAY_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const WEEKDAY_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * How a message sent at `now` refers to the class at `trialEpoch`: "hoy" on the
+ * same CDMX date, "ayer" the next date, "el sábado" further out (EN: today /
+ * yesterday / on Saturday). Pure.
+ */
+export function dayWord(trialEpoch: number, now: number, lang: "es" | "en"): string {
+  const t = cdmxDateStr(trialEpoch);
+  if (t === cdmxDateStr(now)) return lang === "en" ? "today" : "hoy";
+  if (t === cdmxDateStr(now - DAY)) return lang === "en" ? "yesterday" : "ayer";
+  const p = cdmxParts(trialEpoch);
+  const wd = new Date(Date.UTC(p.year, p.month - 1, p.day, 12)).getUTCDay();
+  return lang === "en" ? `on ${WEEKDAY_EN[wd]}` : `el ${WEEKDAY_ES[wd]}`;
+}
+
 // ---- copy (pure) ----
 
 /** Greeting name, qualification first (a name the lead TOLD us), push name second. */
@@ -226,55 +330,124 @@ export function postTrialName(contact: Contact | null): string {
   return greetingName(q.name) || greetingName(contact?.name);
 }
 
+/** How the parent's copy names the child: their name, else a band noun. */
+export function kidNoun(contact: Contact | null, band: ProgramBand, lang: "es" | "en"): string {
+  const child = greetingName(parseQualification(contact).child_name);
+  if (child) return child;
+  if (lang === "en") return band === "baby" ? "your baby" : band === "teens" ? "your teen" : "your little one";
+  return band === "baby" ? "su bebé" : band === "teens" ? "su hijo o hija" : "su peque";
+}
+
+function langOf(contact: Contact | null): "es" | "en" {
+  return contact?.lang === "en" ? "en" : "es";
+}
+
+type CopyKey = keyof typeof CLIENT.copy;
+
+/** CLIENT.copy[key] with a fallback key (a client without the v2 lines). */
+function line(key: string, fallback: CopyKey): string {
+  const c = CLIENT.copy as unknown as Record<string, string | undefined>;
+  return c[key] ?? (CLIENT.copy[fallback] as string);
+}
+
 /**
- * Body for one post-trial touch. d0/d2 are pure conversation (a question, no
- * link — they just came to the academy, they know where it is); d5 is the
- * goodbye and carries the public schedule. Pure over (contact, kind).
+ * Body for one attended-chain touch. Adults read singular, parents plural
+ * ("¿cómo les fue?"); d0 says hoy/ayer from the real send moment. Pure over
+ * (contact, kind, now) — `band` defaults to the contact's.
  */
 export function postTrialCopy(
   contact: Contact | null,
   kind: PostTrialKind,
   campaignName: string | null = null,
   ayer = false,
+  opts: { band?: ProgramBand; trialEpoch?: number | null; now?: number } = {},
 ): string {
-  const en = contact?.lang === "en";
+  const lang = langOf(contact);
+  const en = lang === "en";
+  const band = opts.band ?? bandForContact(contact, campaignName);
+  const fam = isMinorBand(band);
   const who = nameSuffix(postTrialName(contact));
-  const c = CLIENT.copy;
-  const template =
-    kind === "post_trial_d0"
-      ? ayer
-        ? en
-          ? c.postTrialD0AyerEn
-          : c.postTrialD0AyerEs
-        : en
-          ? c.postTrialD0En
-          : c.postTrialD0Es
-      : kind === "post_trial_d2"
-        ? en
-          ? c.postTrialD2En
-          : c.postTrialD2Es
-        : en
-          ? c.postTrialD5En
-          : c.postTrialD5Es;
+  const now = opts.now ?? Math.floor(Date.now() / 1000);
+  const trial = opts.trialEpoch ?? null;
+  const isAyer = trial !== null ? cdmxDateStr(trial) !== cdmxDateStr(now) : ayer;
+  const day = trial !== null ? dayWord(trial, now, lang) : isAyer ? (en ? "yesterday" : "ayer") : en ? "today" : "hoy";
   const link = withAttribution(
     CLIENT.links.schedule ?? CLIENT.links.booking,
     attributionFor(contact, campaignName),
   );
-  return renderCopy(template, { who, link });
+  const kid = kidNoun(contact, band, lang);
+  const sfx = en ? "En" : "Es";
+  let template: string;
+  switch (kind) {
+    case "post_trial_d0":
+      template = fam
+        ? line(`postTrialD0Fam${sfx}`, en ? "postTrialD0En" : "postTrialD0Es")
+        : isAyer
+          ? (en ? CLIENT.copy.postTrialD0AyerEn : CLIENT.copy.postTrialD0AyerEs)
+          : (en ? CLIENT.copy.postTrialD0En : CLIENT.copy.postTrialD0Es);
+      break;
+    case "post_trial_d3":
+      template = line(`postTrialD3${fam ? "Fam" : ""}${sfx}`, en ? "postTrialD2En" : "postTrialD2Es");
+      break;
+    case "post_trial_d6":
+      template = line(`postTrialD6${fam ? "Fam" : ""}${sfx}`, en ? "postTrialD5En" : "postTrialD5Es");
+      break;
+    case "post_trial_d2":
+      template = en ? CLIENT.copy.postTrialD2En : CLIENT.copy.postTrialD2Es;
+      break;
+    default:
+      template = en ? CLIENT.copy.postTrialD5En : CLIENT.copy.postTrialD5Es;
+  }
+  const cta =
+    kind === "post_trial_d3"
+      ? slotCta(
+          bandProgram(band),
+          lang,
+          bandSlot(contact, campaignName, band, now),
+          withAttribution(programLink(bandProgram(band)), attributionFor(contact, campaignName)),
+          now,
+        )
+      : "";
+  return renderCopy(fill(template, { day, kid }), { who, link, cta }).trim();
 }
 
-/** Body for the second no-show touch (one real slot, like the first one). */
-export function noShowD3Copy(
+/**
+ * Body for a no-show touch: day-aware ("hoy / ayer / el sábado") + ONE concrete
+ * slot of the lead's band (never an adult slot for a minor, never Kids for a
+ * mini/baby), singular for adults and plural for parents. d7 is the goodbye
+ * (no slot). Pure over (contact, step, trial, now).
+ */
+export function noShowTouchCopy(
   contact: Contact | null,
-  program: Program,
-  nowEpoch: number,
+  step: "hoy" | "d2" | "d7",
+  trialEpoch: number | null,
+  now: number,
   campaignName: string | null = null,
+  band: ProgramBand = bandForContact(contact, campaignName),
 ): string {
-  const link = withAttribution(
-    programLink(program),
-    attributionFor(contact, campaignName),
-  );
-  return noShowCopy(contact, program, "d3", nameSuffix(postTrialName(contact)), link, nowEpoch);
+  const lang = langOf(contact);
+  const fam = isMinorBand(band) ? "Fam" : "";
+  const sfx = lang === "en" ? "En" : "Es";
+  const who = nameSuffix(postTrialName(contact));
+  const day = trialEpoch !== null ? dayWord(trialEpoch, now, lang) : lang === "en" ? "recently" : "el otro día";
+  const program = bandProgram(band);
+  const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
+  const cta =
+    step === "d7" ? "" : slotCta(program, lang, bandSlot(contact, campaignName, band, now), link, now);
+  const fallback: CopyKey = lang === "en" ? "noShowEn" : "noShowEs";
+  const key = step === "hoy" ? `noShowHoy${fam}${sfx}` : step === "d2" ? `noShowD2${fam}${sfx}` : `noShowD7${fam}${sfx}`;
+  return renderCopy(fill(line(key, fallback), { day, kid: kidNoun(contact, band, lang) }), { who, cta, link }).trim();
+}
+
+/** "Muay Thai el sábado 10:00 am" — the {{2}} of the slot templates. */
+export function slotParam(slot: NextSlot | null, now: number, lang: "es" | "en"): string | null {
+  if (!slot) return null;
+  return `${slot.name ?? disciplineLabel(slot.discipline)} ${formatSlotLabel(slot, now, lang)}`;
+}
+
+/** The v2 placeholders renderCopy does not know: {day} and {kid}. */
+function fill(template: string, vars: { day: string; kid: string }): string {
+  return template.replaceAll("{day}", vars.day).replaceAll("{kid}", vars.kid);
 }
 
 /** " Nombre" (leading space) or "" — the shape every {who} placeholder expects. */
@@ -282,11 +455,31 @@ function nameSuffix(name: string): string {
   return name ? ` ${name}` : "";
 }
 
-/** Template base name for a kind (the sender appends _es / _en). */
-export function postTrialTemplateName(kind: FollowUpKindHere, note: string | null = null): string {
-  if (kind === NO_SHOW_KIND) return "no_show_followup";
-  if (kind === "post_trial_d0" && isAyerNote(note)) return "post_trial_d0_ayer";
-  return kind;
+/** Template base name for a kind (the sender appends _es / _en). Minors take
+ *  the plural `_fam` body of the v2 templates (docs/templates.md §11–§16). */
+export function postTrialTemplateName(
+  kind: FollowUpKindHere,
+  note: string | null = null,
+  band: ProgramBand = "adults",
+): string {
+  const fam = isMinorBand(band) ? "_fam" : "";
+  switch (kind) {
+    case NO_SHOW_KIND:
+    case "no_show_d2":
+      return `no_show_d2${fam}`;
+    case "no_show_hoy":
+      return `no_show_hoy${fam}`;
+    case "no_show_d7":
+      return `no_show_d7${fam}`;
+    case "post_trial_d3":
+      return `post_trial_d3${fam}`;
+    case "post_trial_d6":
+      return `post_trial_d6${fam}`;
+    case "post_trial_d0":
+      return isAyerNote(note) ? "post_trial_d0_ayer" : "post_trial_d0";
+    default:
+      return kind;
+  }
 }
 
 // ---- "🙋 Yo le escribo" claim (Slack card on the attended lead) ----
@@ -294,7 +487,7 @@ export function postTrialTemplateName(kind: FollowUpKindHere, note: string | nul
 // Staff almost always follow up from their OWN phone, which the bot cannot see:
 // no inbound arrives, so every send-time stop condition stays false and the bot
 // writes on top of a human. The claim button IS that missing signal. It kills
-// only the d0 touch — d2/d5 keep running under their normal stop conditions,
+// only the d0 touch — d3/d6 keep running under their normal stop conditions,
 // because "I'll message them today" is a promise about today.
 
 /** Slack action verb on the card's button: `posttrial_claim|<phone>`. */
@@ -351,7 +544,7 @@ function hhmm(epoch: number): string {
   return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
 }
 
-const TAIL = "+2d y +5d siguen si no responde ni se marca resultado.";
+const TAIL = "+3d y +6d siguen si no responde ni se marca resultado.";
 
 /**
  * Pure. What a click on "🙋 Yo le escribo" means, given who clicked, whether
@@ -397,19 +590,21 @@ export function decideClaim(input: {
 export function attendedCardText(name: string, phone: string): string {
   return (
     `🔥 ${name} (${phone}) asistió y no se inscribió — seguimiento automático ` +
-    `armado (hoy, +2d, +5d). Quien cerró: escríbele hoy.`
+    `armado (hoy, +3d, +6d). Quien cerró: escríbele hoy.`
   );
 }
 
 // ---- send-time processing ----
 
 export type PostTrialOutcome =
-  | { outcome: "sent" }
+  /** `task` ⇒ post this text to the Slack TASK channel (end of the no-show chain). */
+  | { outcome: "sent"; task?: string }
   /** `stopChain` ⇒ the remaining rows of this chain are pointless now. */
-  | { outcome: "cancelled"; stopChain?: boolean }
+  | { outcome: "cancelled"; stopChain?: boolean; task?: string }
   | { outcome: "skipped_optout" }
   /** `missing` ⇒ Meta says the template does not exist (132001), i.e. it is not
-   *  approved yet; anything else is our bug and `error` carries Graph's words. */
+   *  approved yet; anything else is our bug and `error` carries Graph's words.
+   *  Only the v1 kinds report this (v2 kinds skip silently with a log line). */
   | { outcome: "template_missing"; template: string; missing: boolean; error: string };
 
 export interface PostTrialDeps {
@@ -425,19 +620,59 @@ export interface PostTrialDeps {
   templateName: (base: string, lang: string) => string;
   isWindowClosed: (err: unknown) => boolean;
   campaignName?: (env: Env, campaignId: number) => Promise<string | null>;
+  /** Re-read the Airtable record behind a no-show row. Absent ⇒ no record gate. */
+  getRecord?: (env: Env, recordId: string) => Promise<BookingRecord | null>;
+  /** Arm a row (the first no-show touch arms d2 / d7). Absent ⇒ nothing armed. */
+  schedule?: (
+    env: Env,
+    input: { phone: string; kind: string; dueAt: number; airtableRecordId: string; note: string | null },
+  ) => Promise<void>;
 }
 
 /**
- * Send-time processing for a due post-trial / no-show-d3 row. Every stop
- * condition is re-checked here rather than at arming time, because the world
- * moves between the two: the lead may have signed up, opted out, written in
- * (then the brain and the humans own the conversation), been taken over by a
- * human, or booked a NEW class.
+ * Pure. May a no-show touch go out, given the Airtable record re-read at send
+ * time and the trial the chain was armed for? Only an empty `Resultado` or a
+ * plain "No asistió" lets it through: attended / enrolled / Reprogramó /
+ * Perdido, a cleared date, a moved date, or a deleted record all stop it.
+ */
+export function noShowRecordGate(
+  rec: BookingRecord | null,
+  armedTrial: number | null,
+): { send: boolean; why: string } {
+  if (!rec) return { send: false, why: "record_gone" };
+  if (!rec.trialDateTimeIso) return { send: false, why: "date_cleared" };
+  const t = Math.floor(Date.parse(rec.trialDateTimeIso) / 1000);
+  if (armedTrial !== null && Number.isFinite(t) && Math.abs(t - armedTrial) > 60) {
+    return { send: false, why: "moved" };
+  }
+  const action = classifyResult(rec.result);
+  if (action === "attended" || action === "enrolled") return { send: false, why: action };
+  if (isLostResult(rec.result)) return { send: false, why: "lost" };
+  if (normalizeResult(rec.result).includes("reprogram")) return { send: false, why: "rescheduled" };
+  return { send: true, why: "ok" };
+}
+
+function isNoShowKind(kind: FollowUpKindHere): boolean {
+  return kind === NO_SHOW_KIND || (NO_SHOW_KINDS as readonly string[]).includes(kind);
+}
+
+/** Strip the "|attempts:N" retry suffix so a note can be copied to new rows. */
+function bareNote(note: string | null | undefined): string | null {
+  const s = (note ?? "").replace(/\s*\|?attempts:\d+$/, "");
+  return s || null;
+}
+
+/**
+ * Send-time processing for a due post-trial / no-show row. Every stop condition
+ * is re-checked here rather than at arming time, because the world moves
+ * between the two: the lead may have signed up, opted out, written in (then
+ * the brain and the humans own the conversation), been taken over by a human,
+ * or booked a NEW class — and for the no-show chain, the front desk may have
+ * marked the class after all (the Airtable record is re-read).
  *
- * Free-form first — most of these leads are inside the 24h window, having just
- * been in the gym — with the per-kind template as the closed-window fallback.
- * A missing/unapproved template returns `template_missing` so the caller can
- * post its once-a-day Slack note instead of retrying forever.
+ * Free-form first; the per-kind template is the closed-window fallback. A v2
+ * template Meta does not know yet is skipped with a log line (never loudly,
+ * never the old "ayer" template on the wrong day).
  */
 export async function processPostTrial(
   env: Env,
@@ -445,57 +680,137 @@ export async function processPostTrial(
   deps: PostTrialDeps,
   nowEpoch: number = Math.floor(Date.now() / 1000),
 ): Promise<PostTrialOutcome> {
+  const noShow = isNoShowKind(row.kind);
+  const chain = decodeChainNote(row.note);
+
   const contact = await getContact(env.DB, row.phone);
   if (!contact) return { outcome: "cancelled" };
   if (contact.status === "opted_out") return { outcome: "skipped_optout" };
   // Enrolled since the row was armed (student sync, Airtable, or a human).
   if (contact.status === "student") return { outcome: "cancelled", stopChain: true };
   if (contact.human_override_until && contact.human_override_until > nowEpoch) {
-    // A human is on this conversation right now — skip this touch only; the
-    // next one re-checks and may well be fine.
+    // A human is on this conversation right now — skip this touch only.
     return { outcome: "cancelled" };
   }
-  // The lead wrote in after we armed the chain: they are in a real conversation
-  // now, and an automated "¿cómo te sentiste?" on top of it is noise.
-  if ((contact.last_inbound_at ?? 0) > row.created_at) {
+  // The lead wrote in: they are in a real conversation now. For the first
+  // no-show touch (armed together with the booking) only messages since the
+  // class started count — "ok, ahí nos vemos" the night before is not a stop.
+  const since = row.kind === "no_show_hoy" && chain.trial !== null ? chain.trial : row.created_at;
+  if ((contact.last_inbound_at ?? 0) > since) {
     return { outcome: "cancelled", stopChain: true };
   }
-  // A new class on the calendar makes the whole chain obsolete — the anti-no-show
-  // sequence takes over from here.
+  // A new class on the calendar makes the whole chain obsolete.
   if (await hasScheduledFollowupOfKind(env.DB, row.phone, BOOKING_KINDS)) {
     return { outcome: "cancelled", stopChain: true };
+  }
+  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(row.phone)), nowEpoch)) {
+    return { outcome: "cancelled", stopChain: true };
+  }
+  // No-show chain: Airtable is the truth about whether they came.
+  if (noShow && chain.rec && /^rec/.test(chain.rec) && deps.getRecord) {
+    const rec = await deps.getRecord(env, chain.rec.split("#")[0] ?? chain.rec);
+    const gate = noShowRecordGate(rec, chain.trial);
+    if (!gate.send) {
+      console.log(`[post-trial] ${row.kind} ${row.phone} stopped: ${gate.why}`);
+      return { outcome: "cancelled", stopChain: true };
+    }
   }
 
   const campaign =
     contact.campaign_id !== null && deps.campaignName
       ? await deps.campaignName(env, contact.campaign_id)
       : null;
-  const body =
-    row.kind === NO_SHOW_KIND
-      ? noShowD3Copy(contact, classifyProgram(contact, campaign), nowEpoch, campaign)
-      : postTrialCopy(contact, row.kind, campaign, row.kind === "post_trial_d0" && isAyerNote(row.note));
+  const band = bandForContact(contact, campaign);
+  const lang = langOf(contact);
+  const step: "hoy" | "d2" | "d7" | null = !noShow
+    ? null
+    : row.kind === "no_show_hoy"
+      ? "hoy"
+      : row.kind === "no_show_d7"
+        ? "d7"
+        : "d2";
+  const body = step
+    ? noShowTouchCopy(contact, step, chain.trial, nowEpoch, campaign, band)
+    : postTrialCopy(contact, row.kind as PostTrialKind, campaign, isAyerNote(row.note), {
+        band,
+        trialEpoch: chain.trial,
+        now: nowEpoch,
+      });
+
+  const finish = async (sent: boolean): Promise<PostTrialOutcome> => {
+    // The first touch hands over to d2 / d7 (keyed per phone + trial date, so
+    // a re-run or a second Airtable row never arms a second chain).
+    if (row.kind === "no_show_hoy" && chain.trial !== null && deps.schedule) {
+      for (const s of computeNoShowSequence(chain.trial, nowEpoch)) {
+        if (s.kind === "no_show_hoy") continue;
+        await deps.schedule(env, {
+          phone: row.phone,
+          kind: s.kind,
+          dueAt: s.dueAt,
+          airtableRecordId: chainKey("ns", chain.trial),
+          note: bareNote(row.note),
+        });
+      }
+    }
+    const task =
+      row.kind === "no_show_d7"
+        ? `Marcar Perdido: ${(contact.name ?? "").trim() || postTrialName(contact) || "Lead"} · ${row.phone}`
+        : undefined;
+    const base: PostTrialOutcome = sent ? { outcome: "sent" } : { outcome: "cancelled" };
+    return task ? { ...base, task } : base;
+  };
 
   try {
     await deps.sendText(env, row.phone, body);
-    return { outcome: "sent" };
+    return await finish(true);
   } catch (err) {
     if (!deps.isWindowClosed(err)) throw err;
   }
 
-  const lang = contact.lang === "en" ? "en" : "es";
-  const template = deps.templateName(postTrialTemplateName(row.kind, row.note ?? null), lang);
+  // ---- window closed: template fallback ----
+  const legacy = row.kind === "post_trial_d2" || row.kind === "post_trial_d5";
+  const name = templateFirstName(postTrialName(contact), lang);
+  let base: string;
+  let params: string[] = [name];
+  if (row.kind === "post_trial_d0") {
+    const later = chain.trial !== null ? !sameCdmxDate(chain.trial, nowEpoch) : isAyerNote(row.note);
+    base = later ? "post_trial_d0_ayer" : "post_trial_d0";
+  } else {
+    base = postTrialTemplateName(row.kind, row.note ?? null, band);
+    if (step === "hoy" && (chain.trial === null || !sameCdmxDate(chain.trial, nowEpoch))) {
+      // no_show_hoy says "hoy": on any other day there is no right template.
+      console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, not the class day — skipped`);
+      return finish(false);
+    }
+    if (step === "hoy" || step === "d2" || row.kind === "post_trial_d3") {
+      const slot = slotParam(bandSlot(contact, campaign, band, nowEpoch), nowEpoch, lang);
+      if (!slot) {
+        console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, no slot for {{2}} — skipped`);
+        return finish(false);
+      }
+      params = [name, slot];
+    } else if (row.kind === "post_trial_d6") {
+      params = [name, CLIENT.links.schedule ?? CLIENT.links.booking];
+    }
+  }
+  const template = deps.templateName(base, lang);
   try {
-    await deps.sendTemplate(env, row.phone, template, lang, [
-      nameParam(postTrialName(contact), lang),
-    ]);
-    return { outcome: "sent" };
+    await deps.sendTemplate(
+      env,
+      row.phone,
+      template,
+      lang,
+      params.length === 1 ? [nameParam(postTrialName(contact), lang)] : [bodyParams(params, lang)],
+    );
+    return await finish(true);
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    return {
-      outcome: "template_missing",
-      template,
-      missing: isTemplateMissingError(error),
-      error,
-    };
+    if (legacy || row.kind === "post_trial_d0") {
+      return { outcome: "template_missing", template, missing: isTemplateMissingError(error), error };
+    }
+    // v2 templates are drafts until Meta approves them (docs/templates.md):
+    // skip quietly, never fail loudly.
+    console.log(`[post-trial] ${row.kind} ${row.phone}: template ${template} not sent (${error}) — skipped`);
+    return finish(false);
   }
 }

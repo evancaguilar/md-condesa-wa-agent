@@ -4,6 +4,7 @@
 // knowledge. Pure module (no I/O) — unit-tested.
 
 import type { Campaign } from "../types.js";
+import { childAgeMonthsFromText } from "../services/age-band.js";
 
 /**
  * Normalize free text for trigger matching:
@@ -194,10 +195,39 @@ export function adIdToLearn(
 export function firstReplyFor(
   campaign: Campaign | null | undefined,
   hasPriorOutbound: boolean,
+  /** Concrete next-slot label ("mañana sábado 2:00 pm") for a `{{slot}}`
+   *  placeholder in the welcome. A welcome WITH the placeholder but no slot
+   *  returns null — the brain answers instead of a half-filled sentence. */
+  slotLabel?: string | null,
 ): string | null {
   if (!campaign || hasPriorOutbound) return null;
   const text = (campaign.first_reply ?? "").trim();
-  return text === "" ? null : text;
+  if (text === "") return null;
+  return fillSlotPlaceholder(text, slotLabel ?? null);
+}
+
+/** The welcome-copy placeholder the sender fills from nextTrialSlot. */
+export const SLOT_PLACEHOLDER = "{{slot}}";
+
+/** Replaces every `{{slot}}`; null when one is present and no slot is known. */
+export function fillSlotPlaceholder(text: string, slotLabel: string | null): string | null {
+  if (!text.includes(SLOT_PLACEHOLDER)) return text;
+  if (!slotLabel || !slotLabel.trim()) return null;
+  return text.split(SLOT_PLACEHOLDER).join(slotLabel.trim());
+}
+
+/**
+ * Which grid a campaign's `{{slot}}` is computed from, by its name. Program by
+ * AGE rules bookings; this only picks the welcome's example slot for a
+ * campaign that is itself age-scoped (Baby Fight Club, Kids).
+ */
+export function slotQueryForCampaign(
+  name: string,
+): { discipline: string | null; audience: "adult" | "kid" } {
+  const n = normalizeText(name);
+  if (/\b(baby|bebe|bebes)\b/.test(n)) return { discipline: "baby", audience: "kid" };
+  if (/\b(kids|ninos|ninas|infantil|peques?)\b/.test(n)) return { discipline: null, audience: "kid" };
+  return { discipline: null, audience: "adult" };
 }
 
 /** kv key for the at-most-once claim on a phone's first-reply send. */
@@ -224,11 +254,74 @@ export function firstReplyDecision(opts: {
    *  welcome would answer the wrong question (2026-09-21, lead from the site
    *  asking for plan Silver got "¿la clase es para ti o para un peque?"). */
   buyIntent?: boolean;
+  /** hasRealQuestion(): the lead wrote their own words, not just the prefill.
+   *  A RETURNING lead with real text goes straight to the brain. */
+  realQuestion?: boolean;
+  /** shouldSkipCannedWelcome(): the message already carries an age, a
+   *  day/hour or a discipline the welcome does not cover ⇒ brain alone.
+   *  (2026-10 welcome_resend: "Jueves está bien 7:00am" got the Reto welcome
+   *  a second time and the booking was lost.) */
+  skipCanned?: boolean;
 }): "first" | "resend" | "none" {
   if (opts.buyIntent) return "none";
+  if (opts.skipCanned) return "none";
   if (!opts.hasPriorOutbound) return "first";
-  if (opts.hasReferral && !opts.hasActiveBooking) return "resend";
+  if (opts.hasReferral && !opts.hasActiveBooking && !opts.realQuestion) return "resend";
   return "none";
+}
+
+/** A weekday or a clock time in the lead's own words ("jueves", "7:00am", "a las 6"). */
+const DAY_OR_HOUR_RE =
+  /\b(lunes|martes|miercoles|jueves|viernes|sabados?|domingos?|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\b\d{1,2}\s*(?:\d{2}\s*)?(?:am|pm|hrs?)\b|\ba las \d{1,2}\b/;
+
+/** Discipline vocabulary (normalized text) → canonical key. */
+const DISCIPLINE_WORDS: [RegExp, string][] = [
+  [/\bmuay ?thai\b/, "muay"],
+  [/\b(jiu ?jitsu|jiujitsu|bjj)\b/, "bjj"],
+  [/\b(box|boxeo|boxing)\b/, "box"],
+  [/\b(mma|artes marciales mixtas)\b/, "mma"],
+  [/\bkick ?boxing\b/, "kick"],
+  [/\bdefensa personal\b/, "defensa"],
+  [/\b(karate|taekwondo|judo|lucha)\b/, "other"],
+];
+
+function disciplinesIn(norm: string): Set<string> {
+  const out = new Set<string>();
+  for (const [re, key] of DISCIPLINE_WORDS) if (re.test(norm)) out.add(key);
+  return out;
+}
+
+/**
+ * Pure. True when the canned welcome would answer the AD instead of the lead,
+ * so the brain answers alone (no canned text, `justSentWelcome` unset):
+ *  - the message states a child's age ("una niña de 4 años" — joss_bfc_mini
+ *    got the 12–36-month Baby Fight Club pitch),
+ *  - it names a weekday or an hour ("Jueves 7:00am" — the lead is booking),
+ *  - it names a discipline the campaign/welcome never mentions.
+ * Words of the campaign's own prefill never count (the ad put them there).
+ * Bare prefills keep the instant welcome.
+ */
+export function shouldSkipCannedWelcome(
+  text: string,
+  campaign: Pick<Campaign, "name" | "trigger_phrase" | "first_reply">,
+): boolean {
+  const body = normalizeText(text);
+  if (!body) return false;
+  const trigger = stripLeadingGreeting(normalizeText(campaign.trigger_phrase ?? ""));
+  const stripped = stripLeadingGreeting(body);
+  // Only the part the lead added beyond the prefill.
+  const own =
+    trigger && stripped.startsWith(trigger) ? stripped.slice(trigger.length).trim() : stripped;
+  if (!own) return false;
+  if (childAgeMonthsFromText(own) !== null) return true;
+  if (DAY_OR_HOUR_RE.test(own)) return true;
+  const asked = disciplinesIn(own);
+  if (asked.size === 0) return false;
+  const covered = disciplinesIn(
+    normalizeText(`${campaign.name} ${campaign.trigger_phrase ?? ""} ${campaign.first_reply ?? ""}`),
+  );
+  for (const d of asked) if (!covered.has(d)) return true;
+  return false;
 }
 
 /** Extra characters over the trigger phrase that count as the lead's own words. */
