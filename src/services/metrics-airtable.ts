@@ -23,6 +23,7 @@ import {
   type AirtableErrorBody,
 } from "./airtable.js";
 import { lookupAdMeta } from "./ad-meta.js";
+import { googleClickFromAd } from "./google-click.js";
 import type { InsightRow } from "./meta-insights.js";
 
 /** md-condesa's contract; also the fallback when a client sets the feature but no map. */
@@ -671,6 +672,47 @@ export async function attributeTwinLeadsSweep(
     errors: st.errors,
     nextCursor: rows.length >= o.limit && last?.createdTime ? last.createdTime : null,
   };
+}
+
+// ---- Google click from the form's Ad answer → Leads.gclid / gclid_time ----
+
+export interface GclidSweepStats {
+  scanned: number;
+  matched: number;
+  updated: number;
+  errors: string[];
+}
+
+/**
+ * Form leads carry the Google click only inside `Ad` (the forms can't take new
+ * hidden questions from code). Copies it into the gclid / gclid_time columns,
+ * write-once: a filled gclid drops the row out of the filter, so no cursor. A
+ * client map without a gclid column ⇒ no-op. 1 list + 1 PATCH per tick.
+ */
+export async function gclidFromAdSweep(
+  env: Env,
+  o: { limit: number },
+  lm: { ad: string; gclid?: string; gclidTime?: string } = leadsMap(),
+): Promise<GclidSweepStats> {
+  if (!lm.gclid) return { scanned: 0, matched: 0, updated: 0, errors: [] };
+  const rows = await listRecords(env, env.AIRTABLE_TRIALS_TABLE, {
+    filterByFormula: `AND({${lm.gclid}} = '', REGEX_MATCH({${lm.ad}} & '', '(gclid|gbraid|wbraid): '))`,
+    fields: [lm.ad],
+    maxRecords: o.limit,
+    sort: { field: "Fecha de Creación", direction: "desc" },
+  });
+  const patches: { id: string; fields: Record<string, unknown> }[] = [];
+  for (const r of rows) {
+    const c = googleClickFromAd(textField(r.fields, lm.ad));
+    if (!c) continue;
+    const fields: Record<string, unknown> = { [lm.gclid]: c.gclid };
+    if (c.time && lm.gclidTime) fields[lm.gclidTime] = c.time;
+    patches.push({ id: r.id, fields });
+  }
+  const st = patches.length
+    ? await batchPatch(env, env.AIRTABLE_TRIALS_TABLE, patches)
+    : { created: 0, updated: 0, errors: [] };
+  return { scanned: rows.length, matched: patches.length, updated: st.updated, errors: st.errors };
 }
 
 // ---- duplicate students (payment-automation race) ----

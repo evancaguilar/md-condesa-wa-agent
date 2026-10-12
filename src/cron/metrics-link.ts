@@ -10,6 +10,8 @@ import { cdmxDateStr, cdmxToEpoch } from "./time.js";
 import {
   MetricsSchemaError,
   attributeTwinLeadsSweep,
+  gclidFromAdSweep,
+  type GclidSweepStats,
   linkLeadsSweep,
   linkStudentsSweep,
   type StudentSweepStats,
@@ -25,6 +27,8 @@ export const LEAD_SWEEP_PER_TICK = 40;
 export const STUDENT_SWEEP_PER_TICK = 5;
 /** Twin attribution: 1 list + 1 lookup per lead + 1 PATCH. */
 export const TWIN_SWEEP_PER_TICK = 8;
+/** Form Google clicks (Ad → gclid / gclid_time): 1 list + 1 PATCH. */
+export const GCLID_SWEEP_PER_TICK = 10;
 export const KV_LINK_ERROR = "metrics_link_error";
 export const KV_LINK_LAST_OK = "metrics_link_last_ok";
 /** createdTime cursor of the twin sweep's oldest-first walk (resets when a page is short). */
@@ -113,6 +117,20 @@ export async function runTwinAttributionSweep(
     return r;
   } catch (err) {
     await noteSchemaError(env, deps, "twins", err);
+    throw err;
+  }
+}
+
+/** Copy the Google click out of form leads' `Ad` into gclid / gclid_time. */
+export async function runGclidFromAdSweep(
+  env: Env,
+  deps: NoteDeps = {},
+  o: { limit?: number } = {},
+): Promise<GclidSweepStats> {
+  try {
+    return await gclidFromAdSweep(env, { limit: o.limit ?? GCLID_SWEEP_PER_TICK });
+  } catch (err) {
+    await noteSchemaError(env, deps, "gclid", err);
     throw err;
   }
 }

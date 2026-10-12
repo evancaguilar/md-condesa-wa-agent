@@ -4,6 +4,7 @@
 
 import type { Env, BookTrialInput, RuleAction } from "../types.js";
 import type { AirtableLeadsMap } from "../client-config.js";
+import { clickTimeIso, gclidColumnValue, type GoogleClick } from "./google-click.js";
 import { CLIENT } from "../client.gen.js";
 import { cdmxIso } from "../cron/time.js";
 import { kvGet, kvSet } from "../db/queries.js";
@@ -552,6 +553,9 @@ export interface LeadFieldsInput {
   ad?: string | null; // "headline (id)" attribution label
   /** Click-to-WhatsApp click id (contacts.ad_ref.ctwaClid); fill-if-empty. */
   ctwaClid?: string | null;
+  /** Google Ads click from the site's WhatsApp prefill (kv gclick:<phone>);
+   *  gclid + gclid_time, fill-if-empty as a pair. */
+  googleClick?: GoogleClick | null;
 }
 
 /** Case/space-insensitive name equality for the replace rule. */
@@ -605,6 +609,13 @@ export function buildLeadFields(
   // (a human-pasted or earlier value wins), and only when the map names a column.
   const clid = (input.ctwaClid ?? "").trim();
   if (clid && map.ctwaClid && isEmpty(current?.[map.ctwaClid])) f[map.ctwaClid] = clid;
+  // Google click: same write-once rule. The time travels with its id — written
+  // only together, so a form-submitted gclid never gets the bot's click time.
+  const g = input.googleClick;
+  if (g && map.gclid && isEmpty(current?.[map.gclid])) {
+    f[map.gclid] = gclidColumnValue(g);
+    if (map.gclidTime && isEmpty(current?.[map.gclidTime])) f[map.gclidTime] = clickTimeIso(g.ts);
+  }
   return f;
 }
 

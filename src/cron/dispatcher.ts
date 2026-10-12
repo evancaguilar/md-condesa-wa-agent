@@ -25,7 +25,12 @@ import { reportInfraError } from "../services/infra-alert.js";
 import { ensureIndexes } from "../db/indexes.js";
 import { CLIENT } from "../client.gen.js";
 import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./ad-spend.js";
-import { runLeadLinkSweep, runStudentLinkSweep, runTwinAttributionSweep } from "./metrics-link.js";
+import {
+  runGclidFromAdSweep,
+  runLeadLinkSweep,
+  runStudentLinkSweep,
+  runTwinAttributionSweep,
+} from "./metrics-link.js";
 import { runMetricsBrief } from "./metrics-brief.js";
 import { runBlastBatch } from "./blasts.js";
 import { runSalesAudio } from "./sales-audio.js";
@@ -170,6 +175,7 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     await safe("leadLinkSweep", () => runLeadLinkSweep(env, { postNote: metricsNote }));
     await safe("studentLinkSweep", () => runStudentLinkSweep(env, { postNote: metricsNote }));
     await safe("twinAttributionSweep", () => runTwinAttributionSweep(env, { postNote: metricsNote }));
+    await safe("gclidFromAdSweep", () => runGclidFromAdSweep(env, { postNote: metricsNote }));
     let pulledToday = false;
     if (shouldRunDailyPull(p)) {
       const today = cdmxDateStr(nowEpoch);
