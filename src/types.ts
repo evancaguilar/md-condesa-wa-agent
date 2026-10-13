@@ -64,6 +64,11 @@ export interface Env {
   /** WhatsApp Business Account that holds the sales number — lets the blast
    *  tab list/validate message templates (docs/blasts.md). Unset = manual names. */
   WA_WABA_ID?: string;
+  /** Meta app the WhatsApp token belongs to — only needed to upload template
+   *  header samples (Resumable Upload API, src/services/blast-templates.ts).
+   *  Optional: unset ⇒ discovered once via /debug_token and cached in kv
+   *  `meta_app_id`. */
+  META_APP_ID?: string;
   /** Meta dataset (pixel-like id) the business-messaging conversion events are
    *  posted to (docs/meta-capi.md). UNSET = the whole CAPI path is a no-op. */
   META_CAPI_DATASET_ID?: string;
@@ -311,9 +316,14 @@ export type FollowupKind =
    *  UNIQUE(phone, kind, airtable_record_id) index dedupes per submit instead of
    *  capping the lead at one queued message. */
   | "staff_later"
+  /** New-student kit ~90 s after "Se inscribió": check-in QR image + responsiva
+   *  link (src/cron/student-kit.ts). note = retry state ("alumno:N;tpl:N;…");
+   *  airtable_record_id = the Leads record. */
+  | "student_kit"
   | "custom";
 
-/** `paused` / `failed` are used by blast rows only (docs/blasts.md). */
+/** `paused` is used by blast rows only (docs/blasts.md); `failed` by blast and
+ *  student_kit rows (gave up after its retries, one Slack note posted). */
 export type FollowupStatus =
   | "scheduled"
   | "sent"

@@ -103,6 +103,15 @@ export interface ClientCopy {
   postTrialD6En?: string;
   postTrialD6FamEs?: string;
   postTrialD6FamEn?: string;
+  /**
+   * Student kit after "Se inscribió" (src/cron/student-kit.ts): the check-in QR
+   * caption, and the responsiva nudge ({link} = the Alumno's signing link).
+   * Optional: a client without them never schedules the kit.
+   */
+  studentQrEs?: string;
+  studentQrEn?: string;
+  studentResponsivaEs?: string;
+  studentResponsivaEn?: string;
 }
 
 export interface ClientFeatures {

@@ -49,7 +49,10 @@ import {
   sendText,
   sendTemplate,
   sendBookingVideo,
+  sendMedia,
+  uploadMedia,
   WindowClosedError,
+  OptedOutError,
 } from "../services/send.js";
 import { channelOf, displayContact } from "../services/channel.js";
 import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
@@ -65,6 +68,9 @@ import {
 import { isQuietHour, next8am, shiftOutOfQuiet } from "./quiet.js";
 import { greetingName } from "./display-name.js";
 import {
+  airtableFetch,
+  baseUrl,
+  updateRecord,
   listRecentBookings,
   listStudents,
   normalizeMxPhone,
@@ -112,6 +118,17 @@ import {
   nameParam,
   tpl,
 } from "../services/template-params.js";
+import { checkinUrl, qrPng } from "../services/qr-png.js";
+import {
+  ALUMNOS_TABLE,
+  LEAD_ALUMNOS_FIELD,
+  STUDENT_KIT_DELAY,
+  STUDENT_KIT_KIND,
+  alumnoFromFields,
+  firstLinkedId,
+  runStudentKit,
+  type KitIo,
+} from "./student-kit.js";
 
 const ATTENDANCE_NOTE = "attendance_check";
 /** How long after the trial a late-marked Airtable result still sends its message. */
@@ -693,9 +710,134 @@ async function processOne(
       return;
     }
 
+    case "student_kit": {
+      // QR + responsiva after "Se inscribió" (src/cron/student-kit.ts).
+      const copy = studentKitCopy(lang);
+      if (!copy) {
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
+      if (channelOf(f.phone) !== "wa") {
+        // IG/FB: no templates, no media-id sends — a human hands it over.
+        await deps.slack.postNote(
+          `🎟️ ${displayContact(f.phone)} se inscribió y escribe por IG/FB: mándale su QR de acceso y el link de la responsiva a mano (Airtable → Alumnos).`,
+        );
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
+      await runStudentKit(
+        studentKitIo(env, deps, f),
+        { leadRecordId: recordId, lang, who: displayContact(f.phone), copy },
+        f.note,
+      );
+      return;
+    }
+
     default:
       await markFollowup(env.DB, f.id, "cancelled");
   }
+}
+
+/** The kit's copy for `lang`, or null when this client has none (kit off). */
+function studentKitCopy(lang: string): { qr: string; responsiva: string } | null {
+  const c = CLIENT.copy;
+  const qr = lang === "en" ? c.studentQrEn : c.studentQrEs;
+  const responsiva = lang === "en" ? c.studentResponsivaEn : c.studentResponsivaEs;
+  return qr && responsiva ? { qr, responsiva } : null;
+}
+
+/** Real Airtable / Graph / D1 wiring for one student_kit row. */
+function studentKitIo(env: Env, deps: { slack: CronSlackDeps }, f: Followup): KitIo {
+  const getRecord = async (table: string, id: string): Promise<Record<string, unknown> | null> => {
+    const res = await airtableFetch(env, `${baseUrl(env, table)}/${encodeURIComponent(id)}`, {
+      method: "GET",
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`airtable GET ${table}/${id} failed: HTTP ${res.status}`);
+    const data = (await res.json()) as { fields?: Record<string, unknown> };
+    return data.fields ?? {};
+  };
+  return {
+    now: nowSec,
+    async leadAlumnoIds(leadId) {
+      if (!leadId) return [];
+      const fields = await getRecord(env.AIRTABLE_TRIALS_TABLE, leadId);
+      const first = firstLinkedId(fields?.[LEAD_ALUMNOS_FIELD]);
+      return first ? [first] : [];
+    },
+    async alumno(id) {
+      const fields = await getRecord(ALUMNOS_TABLE, id);
+      return fields ? alumnoFromFields(id, fields) : null;
+    },
+    kvGet: (k) => kvGet(env.DB, k),
+    kvSet: (k, v) => kvSet(env.DB, k, v),
+    async qrMediaId(alumnoId) {
+      // PNG, not Airtable's qr.gif: WhatsApp images are JPEG/PNG only.
+      const png = await qrPng(checkinUrl(alumnoId));
+      return uploadMedia(env, new Blob([png], { type: "image/png" }), "qr-mdcondesa.png");
+    },
+    async sendImage(mediaId, caption) {
+      await sendMedia(env, f.phone, "image", mediaId, { caption });
+    },
+    async sendText(body) {
+      await sendText(env, f.phone, body);
+    },
+    async sendTemplate(name, lang, components) {
+      await sendTemplate(env, f.phone, name, lang, components);
+    },
+    isWindowClosed: (err) => err instanceof WindowClosedError,
+    isOptedOut: (err) => err instanceof OptedOutError,
+    async contactOptedOut() {
+      return (await getContact(env.DB, f.phone))?.status === "opted_out";
+    },
+    async markQrShared(alumnoId) {
+      await updateRecord(env, ALUMNOS_TABLE, alumnoId, { "QR Compartido": true });
+    },
+    async saveProgress(note) {
+      await env.DB.prepare(`UPDATE followups SET note = ?2 WHERE id = ?1`).bind(f.id, note).run();
+      // handleSendFailure → bumpAttempts rebuilds the note from THIS object;
+      // keep it current or a later throw would write the stale note back.
+      f.note = note;
+    },
+    async reschedule(dueAt, note) {
+      // Same status guard as rescheduleRow: a cancel that raced us wins.
+      await env.DB.prepare(
+        `UPDATE followups SET due_at = ?2, note = ?3, status = 'scheduled'
+         WHERE id = ?1 AND status = 'scheduled'`,
+      )
+        .bind(f.id, dueAt, note)
+        .run();
+      f.note = note;
+    },
+    mark: (status) => markFollowup(env.DB, f.id, status),
+    postNote: (t) => deps.slack.postNote(t),
+  };
+}
+
+/**
+ * Arm the student kit for an enrolment. INSERT OR IGNORE keeps it one row per
+ * lead record; the re-arm covers a processResult that threw after arming (the
+ * welcome send failed) and re-runs next sync — its own cancelFollowups would
+ * otherwise have cancelled the row for good. A row the kit already finished
+ * ('sent' / 'failed') is left alone, and a re-armed one whose Alumno already
+ * got the kit stops at the kv guard. The note (qr/resp progress) is KEPT: a
+ * revived row must never resend a part that already landed.
+ */
+async function armStudentKit(env: Env, phone: string, recordId: string): Promise<void> {
+  const dueAt = nowSec() + STUDENT_KIT_DELAY;
+  await scheduleFollowup(env.DB, {
+    phone,
+    kind: STUDENT_KIT_KIND,
+    dueAt,
+    airtableRecordId: recordId,
+    note: null,
+  });
+  await env.DB.prepare(
+    `UPDATE followups SET status = 'scheduled', due_at = ?4
+     WHERE phone = ?1 AND kind = ?2 AND airtable_record_id = ?3 AND status = 'cancelled'`,
+  )
+    .bind(phone, STUDENT_KIT_KIND, recordId, dueAt)
+    .run();
 }
 
 /** The "asistió y no se inscribió" card, with the 🙋 button when the dep is wired. */
@@ -1338,6 +1480,11 @@ async function processResult(
       await kvSet(env.DB, kvKey, marker);
       return;
     }
+    // Student kit (QR + responsiva, src/cron/student-kit.ts), ~90 s after the
+    // welcome. Armed AFTER the cancelFollowups above (which would kill it) and
+    // BEFORE the welcome send, so the kit goes out whatever the welcome's fate —
+    // a non-window send error throws out of this function (owner, 2026-10-13).
+    if (studentKitCopy(lang)) await armStudentKit(env, phone, recordId);
     const body = renderCopy(
       lang === "en" ? CLIENT.copy.welcomeEn : CLIENT.copy.welcomeEs,
       {

@@ -613,6 +613,8 @@ interface WatcherRun {
   kv: Map<string, string>;
   statusWrites: string[];
   sent: string[];
+  /** Write order: "cancelAll" / "schedule:<kind>" (student-kit ordering test). */
+  ops: string[];
 }
 
 /**
@@ -638,6 +640,7 @@ async function runWatcher(
     kv: over.kv ?? new Map(),
     statusWrites: [],
     sent: [],
+    ops: [],
   };
   const c = over.contact === undefined ? contact({}) : over.contact;
   const { db } = fakeDb((sql, binds) => {
@@ -653,6 +656,7 @@ async function runWatcher(
     if (sql.includes("SELECT 1 AS n FROM followups"))
       return { first: over.rebooked ? { n: 1 } : null };
     if (sql.includes("INSERT OR IGNORE INTO followups")) {
+      run.ops.push(`schedule:${String(binds[1])}`);
       run.scheduled.push({
         kind: String(binds[1]),
         dueAt: Number(binds[2]),
@@ -667,7 +671,13 @@ async function runWatcher(
       run.cancelledKinds.push(binds.slice(2).map(String));
       return {};
     }
+    if (sql.startsWith("UPDATE followups SET status = 'scheduled'")) {
+      // The revive must keep the note (qr/resp progress), only status + due_at.
+      run.ops.push(/\bnote\b/.test(sql) ? "rearm+note" : "rearm");
+      return {};
+    }
     if (sql.startsWith("UPDATE followups SET status")) {
+      run.ops.push("cancelAll");
       run.cancelledAll++;
       return {};
     }
@@ -1119,4 +1129,30 @@ test("processPostTrial: ayer note + closed window → post_trial_d0_ayer_es temp
   const plain = sendDeps([], { windowClosed: true });
   await processPostTrial(envWith(contactDb(contact({})).db), ROW, plain.deps, WED_TRIAL);
   assert.deepEqual(plain.sent, ["[template:post_trial_d0_es]"]);
+});
+
+// ---- student kit (2026-10-13) ----------------------------------------------
+
+test("result watcher: 'Se inscribió' arms student_kit AFTER the cancel-all, ~90 s out", async () => {
+  const before = Math.floor(Date.now() / 1000);
+  const run = await runWatcher("Se inscribió", recentTrial());
+  const kit = run.scheduled.find((x) => x.kind === "student_kit");
+  assert.ok(kit, JSON.stringify(run.scheduled));
+  assert.equal(kit!.recordId, "recA");
+  assert.ok(kit!.dueAt >= before + 90 && kit!.dueAt <= before + 95, String(kit!.dueAt - before));
+  const iCancel = run.ops.indexOf("cancelAll");
+  const iKit = run.ops.indexOf("schedule:student_kit");
+  assert.ok(iCancel >= 0 && iKit > iCancel, run.ops.join(","));
+  // The re-arm runs right after the insert (covers a re-run after a throw)
+  // and leaves the note — progress — untouched.
+  assert.equal(run.ops[iKit + 1], "rearm");
+});
+
+test("result watcher: no student_kit for an opted-out contact or a stale enrolment", async () => {
+  const optedOut = await runWatcher("Se inscribió", recentTrial(), {
+    contact: contact({ status: "opted_out" }),
+  });
+  assert.ok(!optedOut.scheduled.some((x) => x.kind === "student_kit"));
+  const stale = await runWatcher("Se inscribió", Math.floor(Date.now() / 1000) - 30 * DAY);
+  assert.ok(!stale.scheduled.some((x) => x.kind === "student_kit"));
 });

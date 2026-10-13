@@ -1,6 +1,6 @@
 # WhatsApp message templates (submit verbatim to Meta)
 
-Ten templates, ES + EN each (one template per language — the code appends `_es` /
+Twelve templates, ES + EN each (one template per language — the code appends `_es` /
 `_en` to the base name). All bodies use `{{1}}` = contact first name; the sender
 passes `""` when the name is unknown, so keep the greeting readable without it.
 
@@ -23,6 +23,15 @@ Template name mapping (base → sent name):
   (2026-09-21, attended-and-didn't-sign-up chain — see the section below)
 - `student_welcome` → `student_welcome_es` / `_en`  (2026-10-03, enrolment
   welcome when the 24h window is closed — see §10; the ONE template with no {{1}})
+- `student_qr` → `student_qr_es` / `_en`  (2026-10-13, the new student's check-in
+  QR as an IMAGE header — see §17)
+- `student_responsiva` → `student_responsiva_es` / `_en`  (2026-10-13, waiver
+  signing link on a URL button — see §18)
+
+**§10, §17 and §18 are submitted by the worker itself** (src/cron/template-seed-student.ts,
+one-shot, kv `tpl_seed:student_kit:2026-10-13`): whatever name+language the WABA
+does not already hold is created, and one Slack note in #bot-ops lists what was
+sent to review, what already existed and what failed. Nobody submits them by hand.
 
 Address string used across templates: **Av. México 49, 1º piso, Condesa**.
 
@@ -514,6 +523,58 @@ parents. Quick-reply buttons: the two options (`{{2}}`, `{{3}}` texts).
 > Sure {{1}}, happy to reschedule 🙌 The next options are {{2}} or {{3}}. Which one works best?
 
 Variables: {{1}} name, {{2}} first slot, {{3}} second slot.
+
+---
+
+## 17. student_qr — Utility (IMAGE header, check-in QR)
+
+Student kit (src/cron/student-kit.ts), ~90 s after the enrolment welcome, when
+the 24h window is closed (open window → the same text goes free-form as the
+caption of the QR image, from `CLIENT.copy.studentQrEs/En`). The header image is
+the student's personal check-in QR — a PNG the worker generates for
+`https://mdcondesa.com/checkin?Alumno=<Alumnos record id>` (same content as the
+Airtable `QR Code` formula; not Airtable's `qr.gif`, WhatsApp takes JPEG/PNG
+only) — uploaded per send and passed as `{type:"header", parameters:[{type:"image",
+image:{id}}]}`. Submission sample: the QR for `…?Alumno=sample`, uploaded through
+the Resumable Upload API (`uploadHeaderSample`).
+
+**ES (`student_qr_es`)** — header: IMAGE
+> Este es tu código QR de acceso 🥋 Guárdalo en tus fotos y escanéalo en recepción al llegar a cada clase.
+>
+> Con eso registramos tu asistencia, y es lo que usamos para seguir tu avance: grados, graduaciones y quién está listo para competir.
+
+**EN (`student_qr_en`)** — header: IMAGE
+> This is your check-in QR code 🥋 Save it to your photos and scan it at the front desk when you arrive for each class.
+>
+> That's how we log your attendance, and it's what we use to track your progress: stripes, promotions and who's ready to compete.
+
+Variables: **none** in the body. No footer, no buttons.
+
+---
+
+## 18. student_responsiva — Utility (URL button with dynamic suffix)
+
+Student kit, right after the QR, only when the Alumno's `Responsiva OK` is not
+"✅". Open window → free-form `CLIENT.copy.studentResponsivaEs/En` with the
+Alumno's full prefilled `Link Responsiva`; closed → this template. The body is
+the free-form copy WITHOUT the "👉 {link}" line: the link is the button, whose
+`{{1}}` suffix is the Alumnos record id (the responsiva worker links a signed
+waiver by `rid` alone). Sent as `{type:"button", sub_type:"url", index:"0",
+parameters:[{type:"text", text:<alumnoId>}]}`.
+
+**ES (`student_responsiva_es`)**
+> Último paso: tu responsiva. Toma 2 minutos desde tu cel y la necesitamos firmada antes de tu siguiente clase 📝
+
+Button (URL): **Firmar responsiva** → `https://responsiva.mdcondesa.com/?rid={{1}}`
+(sample: `https://responsiva.mdcondesa.com/?rid=recJGBLgxBbsGqrf0`)
+
+**EN (`student_responsiva_en`)**
+> Last step: your waiver. It takes 2 minutes from your phone and we need it signed before your next class 📝
+
+Button (URL): **Sign waiver** → `https://responsiva.mdcondesa.com/?rid={{1}}`
+(same sample)
+
+Variables: **none** in the body; one in the button URL. No footer.
 
 ---
 

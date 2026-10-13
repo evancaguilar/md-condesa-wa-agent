@@ -27,6 +27,7 @@ declare class TextEncoder {
 // them for the media upload path and is pulled into the test build by
 // cron/followups.ts).
 declare class Blob {
+  constructor(parts?: unknown[], options?: { type?: string });
   readonly size: number;
   readonly type: string;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -92,4 +93,20 @@ declare module "node:sqlite" {
 
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: string): string;
+}
+
+declare module "node:zlib" {
+  export function inflateSync(buf: Uint8Array): Uint8Array;
+}
+
+// Web Streams compression (Node v24 + workerd both ship it) — qr-png.ts deflates
+// the PNG IDAT with it.
+declare class CompressionStream {
+  constructor(format: "deflate" | "deflate-raw" | "gzip");
+  readonly writable: {
+    getWriter(): { write(chunk: Uint8Array): Promise<void>; close(): Promise<void> };
+  };
+  readonly readable: {
+    getReader(): { read(): Promise<{ done: boolean; value?: unknown }> };
+  };
 }

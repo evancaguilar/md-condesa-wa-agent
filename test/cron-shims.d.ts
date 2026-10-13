@@ -34,7 +34,7 @@ declare function fetch(
 interface RequestInit {
   method?: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: string | FormData | Uint8Array;
 }
 interface Response {
   ok: boolean;

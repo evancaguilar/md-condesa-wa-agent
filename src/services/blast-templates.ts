@@ -8,6 +8,7 @@
 // it is unset the catalog is "unavailable" and the owner types names by hand.
 
 import type { Env } from "../types.js";
+import { kvGet, kvSet } from "../db/queries.js";
 
 const GRAPH_VERSION = "v21.0";
 const MAX_PAGES = 3;
@@ -214,7 +215,13 @@ export interface CreateTemplateInput {
   /** Sample values for {{1}}..{{n}} in the body (Meta requires one per variable). */
   bodyExamples?: string[];
   footer?: string;
-  buttons?: { type: "URL"; text: string; url: string }[] | { type: "QUICK_REPLY"; text: string }[];
+  /** IMAGE header; `handle` = a Resumable-Upload sample handle (uploadHeaderSample). */
+  header?: { type: "IMAGE"; handle: string };
+  /** URL buttons may end in `{{1}}` (dynamic suffix); Meta then needs one full
+   *  sample URL in `example`. */
+  buttons?:
+    | { type: "URL"; text: string; url: string; example?: string[] }[]
+    | { type: "QUICK_REPLY"; text: string }[];
 }
 
 export interface CreateTemplateResult {
@@ -228,6 +235,13 @@ export interface CreateTemplateResult {
 /** Pure. Graph payload for POST /{WABA}/message_templates. */
 export function buildCreateTemplatePayload(input: CreateTemplateInput): Record<string, unknown> {
   const components: Record<string, unknown>[] = [];
+  if (input.header) {
+    components.push({
+      type: "HEADER",
+      format: input.header.type,
+      example: { header_handle: [input.header.handle] },
+    });
+  }
   const bodyComp: Record<string, unknown> = { type: "BODY", text: input.body };
   const n = countVars(input.body);
   if (n > 0) {
@@ -241,7 +255,9 @@ export function buildCreateTemplatePayload(input: CreateTemplateInput): Record<s
     components.push({
       type: "BUTTONS",
       buttons: input.buttons.map((b) =>
-        b.type === "URL" ? { type: "URL", text: b.text, url: b.url } : { type: "QUICK_REPLY", text: b.text },
+        b.type === "URL"
+          ? { type: "URL", text: b.text, url: b.url, ...(b.example?.length ? { example: b.example } : {}) }
+          : { type: "QUICK_REPLY", text: b.text },
       ),
     });
   }
@@ -334,6 +350,94 @@ export async function updateTemplate(
       };
     }
     return { ok: true, id: t.id, status: t.status };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ---- media header samples (Resumable Upload API) ----
+//
+// A template with an IMAGE header can only be SUBMITTED with a sample image,
+// and Meta takes that sample as a Resumable-Upload handle ("4::aW1h…"), not as
+// a URL or a /media id. The upload session lives on the Meta APP, so we need
+// its id: env.META_APP_ID when set, else asked once from /debug_token for the
+// WhatsApp token itself and cached in kv (the owner can't easily find or set
+// it — owner, 2026-10-13).
+
+export const META_APP_ID_KV = "meta_app_id";
+
+/** env.META_APP_ID, else the app behind WA_ACCESS_TOKEN (kv-cached). null when unknown. */
+export async function resolveMetaAppId(
+  env: Env,
+  doFetch: typeof fetch = fetch,
+): Promise<string | null> {
+  const fromEnv = env.META_APP_ID?.trim();
+  if (fromEnv) return fromEnv;
+  const cached = await kvGet(env.DB, META_APP_ID_KV);
+  if (cached) return cached;
+  const tok = encodeURIComponent(env.WA_ACCESS_TOKEN);
+  const res = await doFetch(
+    `https://graph.facebook.com/${GRAPH_VERSION}/debug_token?input_token=${tok}&access_token=${tok}`,
+  );
+  const data = (await res.json().catch(() => ({}))) as { data?: { app_id?: string | number } };
+  const id = data.data?.app_id != null ? String(data.data.app_id) : "";
+  if (!res.ok || !/^\d+$/.test(id)) return null;
+  await kvSet(env.DB, META_APP_ID_KV, id);
+  return id;
+}
+
+export interface HeaderSampleResult {
+  ok: boolean;
+  handle?: string;
+  error?: string;
+}
+
+/**
+ * Uploads `bytes` as a template header sample. Two calls: open a session on the
+ * app (`POST /<app>/uploads?file_length&file_type` → `upload:…`), then push the
+ * bytes into it (`POST /<upload id>`, `Authorization: OAuth`, `file_offset: 0`)
+ * → `{h}`. Never throws.
+ */
+export async function uploadHeaderSample(
+  env: Env,
+  bytes: Uint8Array,
+  mime: string,
+  doFetch: typeof fetch = fetch,
+): Promise<HeaderSampleResult> {
+  try {
+    const appId = await resolveMetaAppId(env, doFetch);
+    if (!appId) return { ok: false, error: "no pude averiguar el app id de Meta (pon META_APP_ID)" };
+    const open = await doFetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${appId}/uploads` +
+        `?file_length=${bytes.length}&file_type=${encodeURIComponent(mime)}`,
+      { method: "POST", headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}` } },
+    );
+    const session = (await open.json().catch(() => ({}))) as {
+      id?: string;
+      error?: { message?: string; code?: number };
+    };
+    if (!open.ok || !session.id) {
+      return {
+        ok: false,
+        error: `upload session ${open.status}${session.error?.code ? ` [${session.error.code}]` : ""}: ${session.error?.message ?? "sin id"}`,
+      };
+    }
+    const push = await doFetch(`https://graph.facebook.com/${GRAPH_VERSION}/${session.id}`, {
+      method: "POST",
+      headers: { Authorization: `OAuth ${env.WA_ACCESS_TOKEN}`, file_offset: "0" },
+      body: bytes,
+    });
+    const up = (await push.json().catch(() => ({}))) as {
+      h?: string;
+      error?: { message?: string; code?: number };
+    };
+    if (!push.ok || !up.h) {
+      return {
+        ok: false,
+        error: `upload ${push.status}${up.error?.code ? ` [${up.error.code}]` : ""}: ${up.error?.message ?? "sin handle"}`,
+      };
+    }
+    return { ok: true, handle: up.h };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

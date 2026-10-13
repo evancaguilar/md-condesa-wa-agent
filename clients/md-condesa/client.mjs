@@ -274,6 +274,21 @@ export default {
       "¡Bienvenid@ a la familia MD Condesa! 🥋🎉 Nos da mucho gusto tenerte.\n\nLo primero: únete al grupo de WhatsApp de la academia. Ahí avisamos cambios de horario, eventos y dudas rápidas: {group}\n\nY guarda tu guía de nuevo miembro: horarios, lo básico de cada disciplina, qué incluye tu plan y cómo pedir tu equipo Venum con 25% de descuento: {link}\n\nUn dato: este WhatsApp es el de ventas. Puedes seguir escribiendo aquí para dudas generales, pero para hablar con el equipo administrativo o recepción escribe al +52 55 3426 0813.\n\n¡Nos vemos en el tatami!",
     welcomeEn:
       "Welcome to the MD Condesa family! 🥋🎉 So glad to have you.\n\nFirst thing: join the academy WhatsApp group. That's where we post schedule changes, events and quick answers: {group}\n\nAnd save your new-member guide: schedule, the basics of each discipline, what your plan includes and how to order Venum gear at 25% off: {link}\n\nOne note: this WhatsApp is our sales line. You can keep writing here for general questions, but to reach the admin team or front desk, message +52 55 3426 0813.\n\nSee you on the mats!",
+    // Student kit (owner, 2026-10-13): ~90 s after the welcome, the new student
+    // gets their check-in QR as an image (studentQr* = the caption) and, when
+    // Airtable says the responsiva is unsigned, the signing link
+    // ({link} = the Alumno's `Link Responsiva`, prefilled with name/phone/email).
+    // Same text is the student_qr / student_responsiva Utility templates for the
+    // closed window (docs/templates.md §17–18) — there the "👉 {link}" line is
+    // dropped because the link rides on the URL button. Keep them in sync.
+    studentQrEs:
+      "Este es tu código QR de acceso 🥋 Guárdalo en tus fotos y escanéalo en recepción al llegar a cada clase.\n\nCon eso registramos tu asistencia, y es lo que usamos para seguir tu avance: grados, graduaciones y quién está listo para competir.",
+    studentQrEn:
+      "This is your check-in QR code 🥋 Save it to your photos and scan it at the front desk when you arrive for each class.\n\nThat's how we log your attendance, and it's what we use to track your progress: stripes, promotions and who's ready to compete.",
+    studentResponsivaEs:
+      "Último paso: tu responsiva. Toma 2 minutos desde tu cel y la necesitamos firmada antes de tu siguiente clase 📝\n\n👉 {link}",
+    studentResponsivaEn:
+      "Last step: your waiver. It takes 2 minutes from your phone and we need it signed before your next class 📝\n\n👉 {link}",
     // Post-trial chain (attended, did not sign up).
     // NO PRICE, NO DISCOUNT, NO DEADLINE in any of these (owner, 2026-09-21):
     // the inscription discount is SAME-DAY-ONLY at the academy, so holding it
