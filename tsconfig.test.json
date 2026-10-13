@@ -61,6 +61,8 @@
     "src/brain/claude.ts",
     "src/brain/overlay.ts",
     "src/pipeline/campaigns.ts",
+    "src/pipeline/reto-login.ts",
+    "src/services/reto-login.ts",
     "src/services/meta-insights.ts",
     "src/services/metrics-airtable.ts",
     "src/cron/ad-spend.ts",

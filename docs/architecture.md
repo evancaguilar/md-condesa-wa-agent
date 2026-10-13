@@ -108,6 +108,7 @@ Gate order (contractual — the file header comment mirrors this list):
 1. **Dedupe**: `INSERT OR IGNORE INTO messages(wamid,…)`; existing row ⇒ drop event. (Voice notes are transcribed before this so the stored body is the transcript; ad referral + nudge-cancel run right after.)
 2. **Global kill switch**: `kv.bot_enabled === 'false'` ⇒ log + surface to Slack, no reply.
 3. **Opt-out**: `isOptOut(body)` (src/pipeline/opt-out.ts — exact-match set: baja/stop/alto/unsubscribe + unambiguous "ya no me manden mensajes" phrases, accent/punctuation-tolerant) ⇒ `status='opted_out'`, cancel followups, flag `Tags += "Baja"` in Airtable (best-effort), 🚫 Slack note, send one confirmation, done.
+3a. **Reto course login** (src/pipeline/reto-login.ts + src/services/reto-login.ts): a WhatsApp message carrying the site's `[CURSOS]` marker (or "entrar a mis cursos del Reto") ⇒ `POST RETO_LOGIN_URL` (md-condesa-site `/api/reto/wa-login`, `Authorization: Bearer RETO_BOT_SECRET`, `{phone}`) and send back the `reply` it returns (a one-time login link, or "not found") — in-window free-form, no brain, no approval, no lead sync. Site down ⇒ fallback text + 🎓 ops note; number without the `reto` tag ⇒ 🎓 ops note. Inert until both settings exist.
 4. **Campaign tagging** (three tiers, first match wins): referral `source_id` ∈ campaign `ad_id` list (comma-separated) → **ad-creative keywords** (`campaigns.ad_keywords` phrases matched normalized/whole-phrase against referral headline+body) → trigger-phrase prefix match on the body. A keyword/trigger match on a referral AUTO-LEARNS the new ad id into `ad_id` (race-safe guarded append, best-effort, one-time 🔗 Slack note). Tags `contacts.campaign_id` + syncs Airtable.
 5. **Student**: `status='student'` ⇒ Slack note "known student wrote on lead line", no bot reply.
 6. **Human override**: `human_override_until > now` ⇒ log + silent Slack surface, no reply.
@@ -188,6 +189,7 @@ Cron dispatcher (every 5 min): due followups → approval timeouts → hourly bo
 
 Secrets: `META_APP_SECRET`, `WA_ACCESS_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_VERIFY_TOKEN`, `ANTHROPIC_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `AIRTABLE_PAT`, `ADMIN_PASSWORD` (dashboard login).
 Vars: `SLACK_CHANNEL_ID`, `AIRTABLE_BASE_ID=appcX38TBVltyxHR6`, `AIRTABLE_TRIALS_TABLE`, `TRAINING_WHEELS=1`, `HUMAN_SNOOZE_HOURS=8`.
+Reto course login (optional, gate 3a): var `RETO_LOGIN_URL` (in wrangler.jsonc) + secret `RETO_BOT_SECRET` (same value as the md-condesa-site Pages secret).
 
 ## Admin dashboard (`/admin`)
 

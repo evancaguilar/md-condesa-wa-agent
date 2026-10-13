@@ -67,6 +67,12 @@ export interface Env {
   /** Meta dataset (pixel-like id) the business-messaging conversion events are
    *  posted to (docs/meta-capi.md). UNSET = the whole CAPI path is a no-op. */
   META_CAPI_DATASET_ID?: string;
+  /** md-condesa-site endpoint for Reto course logins
+   *  (https://mdcondesa.com/api/reto/wa-login). Gate 3a in pipeline/inbound.ts
+   *  stays OFF until this AND RETO_BOT_SECRET are set. */
+  RETO_LOGIN_URL?: string;
+  /** Secret shared with md-condesa-site (Pages secret of the same name). */
+  RETO_BOT_SECRET?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;

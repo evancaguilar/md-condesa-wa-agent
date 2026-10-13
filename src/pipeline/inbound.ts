@@ -1,5 +1,5 @@
 // Inbound pipeline. Gate order is EXACTLY as architecture.md §Inbound pipeline:
-// dedupe → kill switch → opt-out → campaign tagging → student → human override
+// dedupe → kill switch → opt-out → reto login → campaign tagging → student → human override
 // → crisis → campaign first-reply → 8s debounce → brain → route reply.
 // Brain/Slack/Airtable arrive as injected ports.
 
@@ -80,6 +80,8 @@ import {
   parseOverrideCheck,
 } from "./override-check.js";
 import { isOptOut, isOptOutBurst, OPT_OUT_BURST_SECONDS } from "./opt-out.js";
+import { isRetoLoginRequest, retoLoginConfigured } from "./reto-login.js";
+import { requestRetoLogin } from "../services/reto-login.js";
 import { hasBuyIntent } from "../cron/nudge-signals.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
@@ -357,6 +359,18 @@ export async function processInbound(
     } catch (err) {
       if (!(err instanceof WindowClosedError)) throw err;
     }
+    return;
+  }
+
+  // 3a. Reto course login (md-condesa-site /reto/entrar/ → "…entrar a mis cursos
+  // del Reto [CURSOS]"). Deterministic: the site checks the Airtable `reto` tag
+  // and returns the exact reply (one-time login link, or "not found"); we relay
+  // it. Runs BEFORE campaign tagging / lead sync / brain, so a member logging in
+  // is never filed as a lead (no Leads row, no drip, no approval). Inert until
+  // RETO_LOGIN_URL + RETO_BOT_SECRET are set. WhatsApp only (the site matches
+  // on the phone number).
+  if (channelOf(msg.phone) === "wa" && retoLoginConfigured(env) && isRetoLoginRequest(body)) {
+    await handleRetoLogin(env, ports, msg.phone);
     return;
   }
 
@@ -1484,6 +1498,28 @@ async function queueApproval(
   });
   await setApprovalSlackTs(env.DB, id, slackTs);
   return id;
+}
+
+/**
+ * Gate 3a: relays the site's answer to a Reto course-login request. The member
+ * just wrote, so the window is open; a failure only costs a Slack ops note.
+ */
+async function handleRetoLogin(env: Env, ports: Ports, phone: string): Promise<void> {
+  const res = await requestRetoLogin(env, phone);
+  try {
+    await sendText(env, phone, res.reply);
+  } catch (err) {
+    if (!(err instanceof WindowClosedError)) {
+      console.error("[inbound] reto login reply failed", phone, err);
+      await ports.slack.postNote(`🎓 Login de cursos del Reto: no pude responderle a ${phone} (${String(err)}).`);
+      return;
+    }
+  }
+  if (res.error || !res.ok) {
+    await ports.slack.postNote(`🎓 Login de cursos del Reto: el sitio falló para ${phone} (${res.error ?? "respuesta sin texto"}). Le mandé el mensaje de respaldo.`);
+  } else if (res.member === false) {
+    await ports.slack.postNote(`🎓 ${phone} pidió entrar a los cursos del Reto pero su número no tiene la etiqueta \`reto\` en Airtable (Alumnos). Si ya pagó el Reto, agrégala.`);
+  }
 }
 
 /**
