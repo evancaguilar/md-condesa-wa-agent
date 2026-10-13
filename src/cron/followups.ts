@@ -55,7 +55,8 @@ import {
 } from "../services/send.js";
 import { channelOf, displayContact } from "../services/channel.js";
 import { afterBookingConfirmed, syncCuestionario } from "../services/cuestionario.js";
-import { dayBeforeMotivoText } from "../services/cuestionario-core.js";
+import { cellText, dayBeforeMotivoText } from "../services/cuestionario-core.js";
+import { isCuestionarioVersion, type CuestionarioVersion } from "../services/cuestionario-token.js";
 import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
 import { taskNote } from "./deps.js";
 import {
@@ -346,6 +347,20 @@ export function shouldSendReminder(
   return { send: true, trialEpoch: trial };
 }
 
+/**
+ * Pure. Adult vs parent wording for the questionnaire-aware day-before
+ * reminder: `Cuestionario versión` when it's set, else kids when the record
+ * names a child. kid = that child's greeting-safe name (null → generic copy).
+ */
+export function reminderAudience(
+  record: Pick<BookingRecord, "cuestionarioVersion" | "childName"> | null,
+): { version: CuestionarioVersion; kid: string | null } {
+  const kid = greetingName(cellText(record?.childName)) || null;
+  const v = record?.cuestionarioVersion;
+  const version: CuestionarioVersion = isCuestionarioVersion(v) ? v : kid ? "kids" : "adultos";
+  return { version, kid };
+}
+
 /** kv claim: one "hoy es tu clase" per phone per CDMX date, whatever the rows. */
 export function sameDaySentKey(phone: string, trialEpoch: number): string {
   return `same_day_sent:${phone}:${cdmxDateStr(trialEpoch)}`;
@@ -456,6 +471,7 @@ async function processOne(
               trialEpoch: verdict.trialEpoch ?? null,
               motivoPrincipal: record?.motivoPrincipal,
               meta6Meses: record?.meta6Meses,
+              ...reminderAudience(record ?? null),
             })
           : null;
       try {

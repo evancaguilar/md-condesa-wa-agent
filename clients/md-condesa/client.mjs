@@ -299,11 +299,11 @@ export default {
     cuestionarioEn:
       "All set{who}, your class is booked{cuando}. One more thing - answer this in 3 minutes so your coach meets you already knowing what you're looking for. It's what makes your first class about you instead of a generic class: {link}",
     cuestionarioKidsEs:
-      "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 3 minutos para que tu coach reciba a {kid} sabiendo qué buscan ustedes. Es lo que hace que tu primera clase sea para ti y no una clase genérica: {link}",
+      "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 3 minutos para que tu coach reciba a {kid} sabiendo qué buscan ustedes. Es lo que hace que su primera clase sea para {kid} y no una clase genérica: {link}",
     cuestionarioKidsEn:
       "All set{who}, the class is booked{cuando}. One more thing - answer this in 3 minutes so the coach meets {kid} already knowing what you're looking for as a family. It's what makes the first class about {kid} instead of a generic class: {link}",
     cuestionarioBfcEs:
-      "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 2 minutos para que tu coach reciba a {kid} sabiendo qué buscan ustedes. Es lo que hace que tu primera clase sea para ti y no una clase genérica: {link}",
+      "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 2 minutos para que tu coach reciba a {kid} sabiendo qué buscan ustedes. Es lo que hace que su primera clase sea para {kid} y no una clase genérica: {link}",
     cuestionarioBfcEn:
       "All set{who}, the class is booked{cuando}. One more thing - answer this in 2 minutes so the coach meets {kid} already knowing what you're looking for as a family. It's what makes the first class about {kid} instead of a generic class: {link}",
     // Day-before reminder when the questionnaire told us what they want
@@ -313,6 +313,12 @@ export default {
       "Hola{who}! Mañana a las {hora} es tu clase. Ya le pasé al coach que buscas {motivo}, te va a estar esperando. Av. México 49, 1º piso. Llega 10 min antes.",
     reminderMotivoEn:
       "Hi{who}! Your class is tomorrow at {hora}. I already told the coach you're looking for {motivo}, they'll be expecting you. Av. México 49, 1st floor. Please arrive 10 min early.",
+    // Same for kids/bfc (to the parent); {kid} = the child's name. Unknown
+    // child name → the generic reminder.
+    reminderMotivoKidsEs:
+      "Hola{who}! Mañana a las {hora} es la clase de {kid}. Ya le pasé al coach que buscan {motivo}, lo va a estar esperando. Av. México 49, 1º piso. Lleguen 10 min antes.",
+    reminderMotivoKidsEn:
+      "Hi{who}! {kid}'s class is tomorrow at {hora}. I already told the coach you're looking for {motivo}, they'll be expecting {kid}. Av. México 49, 1st floor. Please arrive 10 min early.",
     // Post-trial chain (attended, did not sign up).
     // NO PRICE, NO DISCOUNT, NO DEADLINE in any of these (owner, 2026-09-21):
     // the inscription discount is SAME-DAY-ONLY at the academy, so holding it

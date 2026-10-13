@@ -40,6 +40,7 @@ import { runAudienceSync } from "./audiences.js";
 import { syncPostTrialD0Templates } from "./template-sync.js";
 import { applyCampaignTriggerUpdates, seedCampaigns } from "./seed-campaigns.js";
 import { seedStudentKitTemplates } from "./template-seed-student.js";
+import { seedCuestionarioTemplates } from "./template-seed-cuestionario.js";
 import { runRedrive } from "./redrive.js";
 import { gcGoogleRefs } from "../routes/google-click.js";
 import { gcCuestionarioRate } from "../services/cuestionario.js";
@@ -110,6 +111,11 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // welcome) to Meta (src/cron/template-seed-student.ts, kv-guarded).
   await safe("seedStudentKitTemplates", () =>
     seedStudentKitTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+  );
+  // One-shot submission of the questionnaire-invite templates (closed-window
+  // fallback of sendCuestionario; src/cron/template-seed-cuestionario.ts).
+  await safe("seedCuestionarioTemplates", () =>
+    seedCuestionarioTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
   );
 
   // One-shot post-switch delta (2026-10-06 D1 migration): DB_TARGET is the OLD

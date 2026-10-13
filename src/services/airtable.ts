@@ -10,7 +10,7 @@ import { cdmxIso } from "../cron/time.js";
 import { kvGet, kvSet } from "../db/queries.js";
 import { channelOf } from "./channel.js";
 import { bandAirtableKey } from "./age-band.js";
-import { F_META, F_MOTIVO, F_SENT } from "./cuestionario-core.js";
+import { F_META, F_MOTIVO, F_SENT, F_VERSION } from "./cuestionario-core.js";
 
 const API = "https://api.airtable.com/v0";
 const MAX_429_RETRIES = 4;
@@ -48,6 +48,10 @@ export interface BookingRecord {
   meta6Meses?: unknown;
   /** `Cuestionario enviado` cell — the sync loop's cheap "already sent" filter. */
   cuestionarioEnviado?: unknown;
+  /** `Cuestionario versión` and the child-name cell — the reminder picks the
+   *  adult vs parent wording from them. */
+  cuestionarioVersion?: unknown;
+  childName?: unknown;
 }
 
 /** Default name of the Airtable trial-outcome field (env-overridable). */
@@ -839,6 +843,8 @@ function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord 
     motivoPrincipal: f[F_MOTIVO] ?? null,
     meta6Meses: f[F_META] ?? null,
     cuestionarioEnviado: f[F_SENT] ?? null,
+    cuestionarioVersion: f[F_VERSION] ?? null,
+    childName: f[m.childName] ?? null,
   };
 }
 

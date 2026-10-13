@@ -44,12 +44,17 @@ v1.<base64url(JSON {r:<recordId>, v:"adultos"|"kids"|"bfc", e:<unix exp sec>})>.
   (no 400). Strings trimmed + capped at 2000 chars, `""`/`null` clears; arrays
   of strings for multi-selects (`Motivos`, `Horarios preferidos` — a bare
   string is wrapped); numbers; booleans. `typecast: true` (new select options
-  are created). `"__complete": true` (top level or inside `answers`) also sets
+  are created). Enum columns take only their options — `Días por semana`
+  1/2/3/4+ (a number 1–3 is accepted as its string), `Rápido o permanente`
+  Rápidos/Permanentes — anything else is dropped; multi-selects take only
+  strings. `"__complete": true` (top level or inside `answers`) also sets
   `Cuestionario completado` = ✓ and `Cuestionario completado el` = today (CDMX).
   The browser can NEVER write `Cuestionario enviado`, `Cuestionario versión`,
   nor the two completion columns directly. A column that doesn't exist in
-  Airtable yet is dropped and the PATCH retried (the rest still saves).
-  Idempotent, last write wins.
+  Airtable yet is dropped and the PATCH retried (the rest still saves; at most
+  fields+1 attempts) — still `{ok:true}`, even when every column was unknown.
+  Idempotent, last write wins. Bodies over 64 KB are refused from
+  `Content-Length` before reading.
 - Errors: 401 `{error:"invalid"}`, 410 `{error:"expired"}`, 404
   `{error:"not_found"}` (record deleted), 429 `{error:"rate_limited"}` (120
   requests per token per clock hour, GET+PATCH, kv `cq_rl:<hour>:<sig>`,
@@ -58,21 +63,37 @@ v1.<base64url(JSON {r:<recordId>, v:"adultos"|"kids"|"bfc", e:<unix exp sec>})>.
 - CORS origins: `https://mdcondesa.com`, `https://www.mdcondesa.com`,
   `https://<anything>.md-condesa-site.pages.dev` (one label), and
   `http://localhost:4173`. Methods GET, PATCH, OPTIONS; header content-type.
-- First completion (record wasn't already completed) → 4-line summary in
+- First completion (record wasn't already completed, and kv claim
+  `cq_done:<rec>` taken before posting — two simultaneous `__complete` post
+  once) → 4-line summary in
   #wa-leads (`SLACK_CHANNEL_ID`): name · program · class day/time · phone, then
   `Motivo principal`, `Costo de seguir así` (adultos) or `Meta 6 meses`
-  (kids/bfc), and `Lesiones / cuidados`.
+  (kids/bfc), and `Lesiones / cuidados`. Every lead-typed string is
+  Slack-escaped (`&`, `<`, `>`), so `<!channel>` or `<https://…|x>` arrive inert.
+- Tokens: only the canonical base64url signature is accepted (the rate limit
+  is keyed on it).
 
 ## When the link is sent
 
 `sendCuestionario(env, deps, {recordId, version?, resend?, phone?})` — reads the
 record, derives the version when not given (`Programa`: Adultos → adultos;
 Kids / Mini Muay Thai / Teens → kids; Baby Fight Club → bfc; then `Actividad`
-kid/baby options; then the contact's stored age band; else adultos), skips when
-`Cuestionario enviado` is set (or the kv marker `cuestionario_sent:<rec>`)
-unless `resend`, sends ONE free-form WhatsApp text, then stamps
-`Cuestionario enviado` = today (CDMX) and `Cuestionario versión`. Window closed
-→ **no template**: `{ok:false, reason:"window_closed"}` + one #bot-ops note.
+kid/baby options; then the contact's stored age band when it names a minor;
+then a child name on the record or the contact → kids; else adultos), skips
+when `Cuestionario enviado` is set unless `resend`, and otherwise CLAIMS the kv
+marker `cuestionario_sent:<rec>` atomically before sending (released if the
+send fails). It sends ONE message, then stamps `Cuestionario enviado` = today
+(CDMX) and `Cuestionario versión` (and the kv marker), on either path:
+
+- 24 h window open → free-form text (copy below, link inline).
+- Window closed (typical for web-form bookers) → Utility template
+  `cuestionario_invite_es/_en` (adultos) or `cuestionario_invite_kids_es/_en`
+  (kids and bfc), body params = class date/time (+ the child's name), URL
+  button suffix = the token (docs/templates.md §19). The worker submits these
+  four itself (src/cron/template-seed-cuestionario.ts, one-shot kv-guarded).
+- Template also fails (not approved yet, IG/FB, no class date): console.warn,
+  `{ok:false, reason:"window_closed"}`, and at most ONE #bot-ops note per CDMX
+  day (`cq_tpl_note:<date>`) — never a note per lead.
 
 Automatic triggers (all gated by `CUESTIONARIO_ENABLED === "1"`, best-effort,
 never block or break the confirmation):
@@ -88,7 +109,8 @@ never block or break the confirmation):
    a record with a future trial and a phone whose `Cuestionario enviado` is
    empty, when no trial_confirm was just scheduled for it and it isn't a fresh
    chat booking (those two are covered by 1., after their confirmation). Tried
-   once per record (kv `cuestionario_try:<rec>`).
+   once per record (kv `cuestionario_try:<rec>`); skipped without claiming
+   during quiet hours (21:00–08:00 CDMX).
 3. **`POST /api/cuestionario/send`** — for an Airtable automation. **Optional /
    currently OFF**: 1 and 2 already cover every booking; keep it for manual or
    future use.
@@ -96,10 +118,14 @@ never block or break the confirmation):
 ## Day-before reminder
 
 When the record has `Motivo principal` (else `Meta 6 meses`), the day-before
-reminder becomes "Hola {nombre}! Mañana a las {hora} es tu clase. Ya le pasé al
-coach que buscas {motivo}, te va a estar esperando. Av. México 49, 1º piso.
-Llega 10 min antes." (motivo lowercased, acronyms kept, no final period; >140
-chars → generic copy). On WhatsApp this is tried free-form first; a closed
+reminder becomes, for adultos, "Hola {nombre}! Mañana a las {hora} es tu clase.
+Ya le pasé al coach que buscas {motivo}, te va a estar esperando. Av. México 49,
+1º piso. Llega 10 min antes." and for kids/bfc "Hola {nombre}! Mañana a las
+{hora} es la clase de {kid}. Ya le pasé al coach que buscan {motivo}, lo va a
+estar esperando. Av. México 49, 1º piso. Lleguen 10 min antes." (version from
+`Cuestionario versión`, else kids when the record names a child; kids/bfc with
+no child name → generic copy). Motivo lowercased, acronyms kept, no final
+period; >140 chars → generic copy. On WhatsApp this is tried free-form first; a closed
 window falls back to the `trial_reminder_day_before` template exactly as
 before. IG/FB use it as their free-form copy. Without an answer nothing changes.
 

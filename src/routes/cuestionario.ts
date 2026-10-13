@@ -39,6 +39,7 @@ import {
   RATE_LIMIT_PER_HOUR,
   getLeadRecord,
   patchLeadAnswers,
+  postCompletionOnce,
   rateKey,
   sendCuestionario,
 } from "../services/cuestionario.js";
@@ -127,6 +128,8 @@ async function handlePatch(
   origin: string | null,
   nowSec: number,
 ): Promise<Response> {
+  const declared = Number(req.headers.get("Content-Length") ?? "");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return json({ error: "too_large" }, 413, origin);
   const raw = await req.text().catch(() => "");
   if (raw.length > MAX_BODY_BYTES) return json({ error: "too_large" }, 413, origin);
   let body: unknown = {};
@@ -154,9 +157,11 @@ async function handlePatch(
     if (err instanceof AirtableWriteError && err.status === 404) return json({ error: "not_found" }, 404, origin);
     throw err;
   }
+  // Columns Airtable doesn't have yet were dropped (all of them ⇒ record null):
+  // still {ok:true}, as documented — the page must not error on schema gaps.
   if (saved.dropped.length) console.warn(`[cuestionario] ${recordId}: missing Airtable columns ${saved.dropped.join(", ")}`);
 
-  if (complete && !wasDone) {
+  if (complete && !wasDone && saved.record) {
     const m = leadsMap();
     const f = saved.record.fields;
     const text = completionSummary({
@@ -168,7 +173,13 @@ async function handlePatch(
       phone: cellText(f[m.phone]),
       fields: f,
     });
-    ctx.waitUntil(postTaskNote(env, text).catch((e) => console.error("[cuestionario] slack summary failed", e)));
+    // Once per record even if `__complete` arrives twice at the same time.
+    ctx.waitUntil(
+      postCompletionOnce(env.DB, recordId, () => postTaskNote(env, text), nowSec).then(
+        () => {},
+        (e) => console.error("[cuestionario] slack summary failed", e),
+      ),
+    );
   }
   return json({ ok: true }, 200, origin);
 }

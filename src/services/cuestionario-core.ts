@@ -66,6 +66,13 @@ export const VERSION_ANSWER_FIELDS: Record<CuestionarioVersion, readonly string[
 /** Multi-select columns: a bare string is wrapped into a one-item array. */
 export const MULTI_FIELDS: ReadonlySet<string> = new Set(["Motivos", "Horarios preferidos"]);
 
+/** Single-select columns with a FIXED option list (the owner's Airtable
+ *  schema): anything else is dropped rather than typecast into a new option. */
+export const ENUM_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  "Días por semana": ["1", "2", "3", "4+"],
+  "Rápido o permanente": ["Rápidos", "Permanentes"],
+};
+
 /** Columns the BROWSER may write for a version (PATCH whitelist). */
 export function answerFields(version: CuestionarioVersion): string[] {
   return [...SHARED_ANSWER_FIELDS, ...VERSION_ANSWER_FIELDS[version]];
@@ -120,9 +127,10 @@ function cleanString(s: string): string {
 /**
  * Pure. Keep only whitelisted columns, coerce each value: strings trimmed and
  * capped; arrays → unique non-empty strings (multi-select); finite numbers;
- * booleans; `null`/"" clears the cell. Unknown keys and odd types are dropped,
- * never an error. `__complete: true` is honored at the top level of the body
- * or inside `answers`.
+ * booleans; `null`/"" clears the cell. Enum columns (ENUM_FIELDS) take only
+ * their listed options (a number 1–3 is matched as its string); multi-selects
+ * take only strings. Unknown keys and odd types are dropped, never an error.
+ * `__complete: true` is honored at the top level of the body or inside `answers`.
  */
 export function sanitizeAnswers(version: CuestionarioVersion, body: unknown): SanitizedPatch {
   const out: Record<string, unknown> = {};
@@ -136,6 +144,17 @@ export function sanitizeAnswers(version: CuestionarioVersion, body: unknown): Sa
   for (const [key, raw] of Object.entries(answers)) {
     if (!allowed.has(key)) continue;
     const multi = MULTI_FIELDS.has(key);
+    const options = ENUM_FIELDS[key];
+    if (options) {
+      if (raw === null || raw === "") {
+        out[key] = null;
+      } else if (typeof raw === "string" || typeof raw === "number") {
+        const v = String(raw).trim();
+        if (options.includes(v)) out[key] = v;
+      }
+      continue;
+    }
+    if (multi && (typeof raw === "number" || typeof raw === "boolean")) continue;
     if (raw === null) {
       out[key] = multi ? [] : null;
     } else if (typeof raw === "string") {
@@ -228,13 +247,16 @@ export function versionFromBand(band: ProgramBand | null | undefined): Cuestiona
  *  1. `Programa` (audience) — mapped back through the client's audienceValues
  *     (Adultos → adultos; Kids / Mini Muay Thai / Teens → kids; BFC → bfc);
  *  2. `Actividad` — a Baby Fight Club or a `*:kid` discipline option;
- *  3. the contact's stored age band (same source classifyProgram trusts);
- *  4. adultos.
+ *  3. the contact's stored age band when it names a minor (baby → bfc);
+ *  4. a child name (`Nombre Del Niñ@` on the record, or the contact's
+ *     qualification.child_name) → kids — a parent booked, not an adult;
+ *  5. adultos.
  */
 export function deriveVersion(
   fields: Record<string, unknown>,
-  map: Pick<AirtableLeadsMap, "audience" | "discipline" | "audienceValues" | "disciplineValues">,
+  map: Pick<AirtableLeadsMap, "audience" | "discipline" | "audienceValues" | "disciplineValues" | "childName">,
   band: ProgramBand | null = null,
+  contactChildName: string | null = null,
 ): CuestionarioVersion {
   const byAudience = new Map<string, string>();
   for (const [k, label] of Object.entries(map.audienceValues)) byAudience.set(norm(label), k);
@@ -253,7 +275,10 @@ export function deriveVersion(
   const acts = values(fields[map.discipline]).map(norm);
   if (acts.some((a) => a === babyOpt)) return "bfc";
   if (acts.some((a) => kidOpts.has(a))) return "kids";
-  return versionFromBand(band) ?? "adultos";
+  const fromBand = versionFromBand(band);
+  if (fromBand && fromBand !== "adultos") return fromBand;
+  if (cellText(fields[map.childName]) || contactChildName?.trim()) return "kids";
+  return "adultos";
 }
 
 // ---- CDMX wording -------------------------------------------------------------
@@ -364,6 +389,10 @@ export function motivoPhrase(raw: unknown): string | null {
 export interface MotivoReminderInput {
   lang: Language;
   name: string;
+  /** Questionnaire version; kids/bfc use the parent copy with {kid}. Default adultos. */
+  version?: CuestionarioVersion | null;
+  /** Child's name (kids/bfc). Unknown ⇒ null (generic reminder). */
+  kid?: string | null;
   trialEpoch: number | null;
   motivoPrincipal: unknown;
   meta6Meses: unknown;
@@ -372,7 +401,9 @@ export interface MotivoReminderInput {
 /**
  * Pure. The day-before FREE-FORM reminder when the questionnaire told us what
  * the lead is after ("Ya le pasé al coach que buscas …"); null ⇒ the caller
- * keeps its existing copy. Motivo principal wins over Meta 6 meses.
+ * keeps its existing copy. Motivo principal wins over Meta 6 meses. Adults get
+ * reminderMotivo*; kids/bfc get reminderMotivoKids* ("es la clase de {kid}"),
+ * and null when the child's name is unknown.
  */
 export function dayBeforeMotivoText(
   i: MotivoReminderInput,
@@ -381,9 +412,14 @@ export function dayBeforeMotivoText(
   if (i.trialEpoch === null) return null;
   const motivo = motivoPhrase(i.motivoPrincipal) ?? motivoPhrase(i.meta6Meses);
   if (!motivo) return null;
-  const tpl = i.lang === "en" ? copy.reminderMotivoEn : copy.reminderMotivoEs;
+  const family = i.version === "kids" || i.version === "bfc";
+  const kid = (i.kid ?? "").trim();
+  if (family && !kid) return null;
+  const tpl = family
+    ? i.lang === "en" ? copy.reminderMotivoKidsEn : copy.reminderMotivoKidsEs
+    : i.lang === "en" ? copy.reminderMotivoEn : copy.reminderMotivoEs;
   if (!tpl) return null;
-  const text = fill(tpl, { who: i.name ? ` ${i.name}` : "", hora: cdmxHora(i.trialEpoch), motivo });
+  const text = fill(tpl, { who: i.name ? ` ${i.name}` : "", hora: cdmxHora(i.trialEpoch), motivo, kid });
   return i.lang === "en" ? text : fixSpanishOne(text);
 }
 
@@ -407,18 +443,82 @@ const VERSION_LABEL: Record<CuestionarioVersion, string> = {
   bfc: "Baby Fight Club",
 };
 
+/** Slack mrkdwn control characters → entities, so lead text can't ping
+ *  (`<!channel>`) or smuggle links (`<https://evil|x>`). */
+export function slackEscape(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function clip(s: string, n = 220): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
 /** Pure. ≤ 4 lines: who · program · class, then motivo, cost/meta, lesiones. */
 export function completionSummary(i: CompletionSummaryInput): string {
-  const who = [i.name?.trim() || "Lead sin nombre", i.kid ? `(${i.kid})` : ""].filter(Boolean).join(" ");
+  const e = slackEscape;
+  const who = [e(i.name?.trim() || "Lead sin nombre"), i.kid ? `(${e(i.kid)})` : ""].filter(Boolean).join(" ");
   const when = i.trialEpoch === null ? "sin fecha" : `${cdmxDia(i.trialEpoch)} ${cdmxHora(i.trialEpoch)}`;
-  const head = [`📝 Cuestionario: *${who}*`, i.program || VERSION_LABEL[i.version], when, i.phone]
+  const head = [`📝 Cuestionario: *${who}*`, e(i.program || VERSION_LABEL[i.version]), when, i.phone ? e(i.phone) : null]
     .filter(Boolean)
     .join(" · ");
   const second = i.version === "adultos" ? F_COSTO : F_META;
-  const line = (label: string): string => `• ${label}: ${clip(cellText(i.fields[label]) ?? "—")}`;
+  const line = (label: string): string => `• ${label}: ${e(clip(cellText(i.fields[label]) ?? "—"))}`;
   return [head, line(F_MOTIVO), line(second), line(F_LESIONES)].join("\n");
+}
+
+// ---- closed-window template (cuestionario_invite[_kids]_es/_en) -----------------
+
+/** Template base names: adults, and kids+bfc (one body for both). */
+export function inviteTemplateBase(version: CuestionarioVersion): string {
+  return version === "adultos" ? "cuestionario_invite" : "cuestionario_invite_kids";
+}
+
+/** The URL button: the token is the dynamic suffix. */
+export const INVITE_BUTTON_URL = "https://mdcondesa.com/cuestionario/?t={{1}}";
+
+/**
+ * Pure. A template body from the free-form invite copy: no name ({who} → ""),
+ * the date phrase becomes {{1}}, each {kid} the next variable, and the trailing
+ * ": {link}" becomes a period (the link is the button). Returns the body and
+ * how many {kid} variables it carries.
+ */
+export function inviteTemplateBody(copy: string, lang: Language): { body: string; kidVars: number } {
+  let n = 1;
+  let kidVars = 0;
+  let body = copy
+    .replaceAll("{who}", "")
+    .replaceAll("{cuando}", lang === "en" ? " for {{1}}" : " el {{1}}")
+    .replace(/[\s:]*\{link\}\s*$/u, ".")
+    .replaceAll("{link}", "");
+  body = body.replace(/\{kid\}/g, () => {
+    kidVars++;
+    n++;
+    return `{{${n}}}`;
+  });
+  return { body: body.replace(/ {2,}/g, " ").trim(), kidVars };
+}
+
+/** Pure. "{{1}}" value: "viernes 16 de octubre a las 7:00 PM" / "Friday, October 16 at 7:00 PM". */
+export function inviteWhenParam(epoch: number, lang: Language): string {
+  return lang === "en"
+    ? `${cdmxDia(epoch, "en")} at ${cdmxHora(epoch)}`
+    : fixSpanishOne(`${cdmxDia(epoch, "es")} a las ${cdmxHora(epoch)}`);
+}
+
+/** Pure. Graph components for the invite template (body params + URL button suffix). */
+export function inviteTemplateComponents(
+  version: CuestionarioVersion,
+  lang: Language,
+  trialEpoch: number,
+  kid: string | null,
+  token: string,
+  kidVars: number,
+): unknown[] {
+  const kidText = kid?.trim() || (lang === "en" ? "your little one" : "tu peque");
+  const params = [inviteWhenParam(trialEpoch, lang)];
+  if (version !== "adultos") for (let i = 0; i < kidVars; i++) params.push(kidText);
+  return [
+    { type: "body", parameters: params.map((text) => ({ type: "text", text })) },
+    { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: token }] },
+  ];
 }

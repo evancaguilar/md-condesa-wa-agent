@@ -134,6 +134,9 @@ export interface ClientCopy {
    */
   reminderMotivoEs?: string;
   reminderMotivoEn?: string;
+  /** Kids/bfc twin of reminderMotivo (to the parent): also {kid}. */
+  reminderMotivoKidsEs?: string;
+  reminderMotivoKidsEn?: string;
 }
 
 export interface ClientFeatures {

@@ -12,7 +12,7 @@
 //
 // Pure logic (whitelists, copy, version) lives in cuestionario-core.ts.
 
-import type { Env, Language } from "../types.js";
+import type { Contact, Env, Language } from "../types.js";
 import {
   airtableFetch,
   AirtableWriteError,
@@ -24,8 +24,12 @@ import {
   updateRecord,
   type AirtableRecord,
 } from "./airtable.js";
-import { sendBookingVideo, sendText, WindowClosedError } from "./send.js";
-import { getContact, kvGet, kvSet, kvSetIfAbsent } from "../db/queries.js";
+import { sendBookingVideo, sendTemplate, sendText, WindowClosedError, type SendTextOpts } from "./send.js";
+import { channelOf } from "./channel.js";
+import { tpl } from "./template-params.js";
+import { CLIENT } from "../client.gen.js";
+import { isQuietHour } from "../cron/quiet.js";
+import { getContact, kvDelete, kvGet, kvSet, kvSetIfAbsent } from "../db/queries.js";
 import { greetingName } from "../cron/display-name.js";
 import { parseQualification } from "../cron/nudge-copy.js";
 import { bandFromQualification } from "./age-band.js";
@@ -38,6 +42,9 @@ import {
   cellFilled,
   cellText,
   deriveVersion,
+  inviteTemplateBase,
+  inviteTemplateBody,
+  inviteTemplateComponents,
   inviteText,
   isoToEpoch,
 } from "./cuestionario-core.js";
@@ -82,40 +89,69 @@ export async function getLeadRecord(env: Env, recordId: string): Promise<Airtabl
 /**
  * PATCH (typecast:true, so new select options are created) and, when the
  * owner hasn't created a column yet, drop it and retry — one missing column
- * must not lose every other answer. Returns the record + what was dropped.
+ * must not lose every other answer. At most (fields + 1) attempts. `record` is
+ * null when EVERY column was unknown (nothing stored, not an error).
  */
 export async function patchLeadAnswers(
   env: Env,
   recordId: string,
   fields: Record<string, unknown>,
   update: typeof updateRecord = updateRecord,
-): Promise<{ record: AirtableRecord; dropped: string[] }> {
+): Promise<{ record: AirtableRecord | null; dropped: string[] }> {
   const pending = { ...fields };
   const dropped: string[] = [];
-  for (let i = 0; i <= 12; i++) {
+  const maxAttempts = Object.keys(fields).length + 1;
+  for (let i = 0; i < maxAttempts; i++) {
+    if (Object.keys(pending).length === 0) return { record: null, dropped };
     try {
       const record = await update(env, env.AIRTABLE_TRIALS_TABLE, recordId, pending);
       return { record, dropped };
     } catch (err) {
       if (!(err instanceof AirtableWriteError) || !err.unknownField) throw err;
       const name = extractUnknownFieldName(err.message);
-      if (!name || !(name in pending)) throw err;
+      if (!name || !Object.hasOwn(pending, name)) throw err;
       delete pending[name];
       dropped.push(name);
-      if (Object.keys(pending).length === 0) {
-        throw new AirtableWriteError(`all fields unknown: ${dropped.join(", ")}`, true, err.status);
-      }
     }
   }
+  if (Object.keys(pending).length === 0) return { record: null, dropped };
   throw new Error("patchLeadAnswers: too many unknown fields");
+}
+
+// ---- completion summary idempotence ---------------------------------------------
+
+export function doneKey(recordId: string): string {
+  return `cq_done:${recordId}`;
+}
+
+/**
+ * Post the completion summary at most once per record (kv claim
+ * `cq_done:<rec>` taken BEFORE posting — a double `__complete` from two tabs
+ * posts once). A failed post releases nothing: one summary or none, never two.
+ */
+export async function postCompletionOnce(
+  db: D1Database,
+  recordId: string,
+  post: () => Promise<void>,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): Promise<boolean> {
+  if (!(await kvSetIfAbsent(db, doneKey(recordId), String(nowSec)))) return false;
+  await post();
+  return true;
 }
 
 // ---- send -----------------------------------------------------------------------
 
 export interface CuestionarioDeps {
-  /** Ops-channel note (window closed / send failure). */
+  /** Ops-channel note (non-window send failures; the daily template-failure note). */
   postNote(text: string): Promise<void>;
   now?(): number;
+  /** Test seams; default to the real implementations. */
+  getRecord?: (env: Env, recordId: string) => Promise<AirtableRecord | null>;
+  getContact?: (db: D1Database, phone: string) => Promise<Contact | null>;
+  sendText?: (env: Env, phone: string, body: string, opts?: SendTextOpts) => Promise<string>;
+  sendTemplate?: (env: Env, phone: string, name: string, lang: string, components?: unknown[]) => Promise<string>;
+  patch?: (env: Env, recordId: string, fields: Record<string, unknown>) => Promise<unknown>;
 }
 
 export interface SendCuestionarioInput {
@@ -128,7 +164,15 @@ export interface SendCuestionarioInput {
 }
 
 export type SendCuestionarioResult =
-  | { ok: true; version: CuestionarioVersion; phone: string; link: string; warning?: string }
+  | {
+      ok: true;
+      version: CuestionarioVersion;
+      phone: string;
+      link: string;
+      /** "text" in the 24 h window, "template" (cuestionario_invite*) outside it. */
+      via: "text" | "template";
+      warning?: string;
+    }
   | {
       ok: false;
       reason:
@@ -144,12 +188,23 @@ export type SendCuestionarioResult =
       detail?: string;
     };
 
+/** kv: one ops note per CDMX day about invite templates that could not be sent. */
+export function templateNoteKey(nowSec: number): string {
+  return `cq_tpl_note:${cdmxDateStr(nowSec)}`;
+}
+
 /**
  * Send the questionnaire link for one Leads record. Never throws: every
- * failure comes back as `{ok:false, reason}` (window_closed / send_failed also
- * post one ops note). No template fallback on a closed window — the booking
- * confirmation just went out, so the window is normally open; when it isn't,
- * a human decides.
+ * failure comes back as `{ok:false, reason}`.
+ *
+ * In the 24 h window → free-form text. Window closed (web-form bookers) →
+ * the Utility template `cuestionario_invite[_kids]_es/_en` with the token as
+ * the URL-button suffix (docs/templates.md §19). Only if THAT fails too (not
+ * approved yet, IG/FB, no class date to fill it): console.warn + at most one
+ * ops note per day — never a note per lead.
+ *
+ * Unless `resend`, the kv sent marker is CLAIMED atomically before sending
+ * (two hooks racing on one booking send once) and released if the send fails.
  */
 export async function sendCuestionario(
   env: Env,
@@ -162,7 +217,7 @@ export async function sendCuestionario(
 
   let rec: AirtableRecord | null;
   try {
-    rec = await getLeadRecord(env, input.recordId);
+    rec = await (deps.getRecord ?? getLeadRecord)(env, input.recordId);
   } catch (err) {
     return { ok: false, reason: "airtable_error", detail: String(err) };
   }
@@ -171,72 +226,126 @@ export async function sendCuestionario(
 
   const phone = input.phone ?? normalizeMxPhone(cellText(f[m.phone]) ?? "");
   if (!phone) return { ok: false, reason: "no_phone" };
+  if (!input.resend && cellFilled(f[F_SENT])) return { ok: false, reason: "already_sent" };
 
-  if (!input.resend) {
-    let kvSent: string | null = null;
-    try {
-      kvSent = await kvGet(env.DB, sentKey(rec.id));
-    } catch {
-      kvSent = null;
-    }
-    if (cellFilled(f[F_SENT]) || kvSent) return { ok: false, reason: "already_sent" };
-  }
-
-  const contact = await getContact(env.DB, phone).catch(() => null);
+  const contact = await (deps.getContact ?? getContact)(env.DB, phone).catch(() => null);
   if (contact?.status === "opted_out") return { ok: false, reason: "opted_out" };
   const lang: Language = contact?.lang === "en" ? "en" : "es";
+  const qual = parseQualification(contact);
   const version =
-    input.version ?? deriveVersion(f, m, bandFromQualification(parseQualification(contact)));
+    input.version ?? deriveVersion(f, m, bandFromQualification(qual), qual.child_name ?? null);
 
   const token = await signToken(env.CUESTIONARIO_SECRET, { recordId: rec.id, version }, now);
   const link = `${CUESTIONARIO_URL}?t=${token}`;
   const name = greetingName(cellText(f[m.name]) ?? contact?.name ?? null);
-  const kid = version === "adultos" ? null : greetingName(cellText(f[m.childName])) || null;
-  const text = inviteText({
-    version,
-    lang,
-    name,
-    kid,
-    trialEpoch: isoToEpoch(cellText(f[m.trialDateTime])),
-    link,
-  });
+  const kid =
+    version === "adultos" ? null : greetingName(cellText(f[m.childName]) ?? qual.child_name ?? null) || null;
+  const trialEpoch = isoToEpoch(cellText(f[m.trialDateTime]));
+  const text = inviteText({ version, lang, name, kid, trialEpoch, link });
   if (!text) return { ok: false, reason: "no_copy" };
 
+  // Atomic claim (unless resend): whoever inserts the marker sends.
+  const key = sentKey(rec.id);
+  let claimed = false;
+  if (!input.resend) {
+    try {
+      claimed = await kvSetIfAbsent(env.DB, key, String(now));
+    } catch (err) {
+      return { ok: false, reason: "send_failed", detail: `kv claim: ${String(err)}` };
+    }
+    if (!claimed) return { ok: false, reason: "already_sent" };
+  }
+  const release = async (): Promise<void> => {
+    if (claimed) await kvDelete(env.DB, key).catch(() => {});
+  };
+
+  let via: "text" | "template" = "text";
   try {
-    await sendText(env, phone, text, { metaExtra: { cuestionario: version } });
+    await (deps.sendText ?? sendText)(env, phone, text, { metaExtra: { cuestionario: version } });
   } catch (err) {
-    const windowClosed = err instanceof WindowClosedError;
-    await deps
-      .postNote(
-        windowClosed
-          ? `📝 Cuestionario NO enviado a ${phone} (${rec.id}): la ventana de 24 h está cerrada. Mándaselo a mano si hace falta.`
-          : `📝 Cuestionario NO enviado a ${phone} (${rec.id}): ${String(err).slice(0, 200)}`,
-      )
-      .catch(() => {});
-    return windowClosed
-      ? { ok: false, reason: "window_closed" }
-      : { ok: false, reason: "send_failed", detail: String(err) };
+    if (!(err instanceof WindowClosedError)) {
+      await release();
+      await deps
+        .postNote(`📝 Cuestionario NO enviado a ${phone} (${rec.id}): ${String(err).slice(0, 200)}`)
+        .catch(() => {});
+      return { ok: false, reason: "send_failed", detail: String(err) };
+    }
+    // Closed window → the invite template.
+    const tplErr = await sendInviteTemplate(env, deps, { phone, version, lang, trialEpoch, kid, token });
+    if (tplErr) {
+      await release();
+      console.warn(`[cuestionario] ${rec.id} ${phone}: window closed, template not sent: ${tplErr}`);
+      try {
+        if (await kvSetIfAbsent(env.DB, templateNoteKey(now), "1")) {
+          await deps.postNote(
+            `📝 Cuestionario: hoy hay leads con la ventana cerrada a los que no se pudo mandar la plantilla cuestionario_invite (${tplErr.slice(0, 160)}). ¿Está aprobada en WhatsApp Manager? (un aviso por día)`,
+          );
+        }
+      } catch {
+        // note is best-effort
+      }
+      return { ok: false, reason: "window_closed", detail: tplErr };
+    }
+    via = "template";
   }
 
-  // Sent. Stamp the record (and the kv backstop); a failed stamp only costs
+  // Sent. Stamp the record (and the kv marker); a failed stamp only costs
   // dedupe, never the send that already happened.
   let warning: string | undefined;
-  try {
-    await kvSet(env.DB, sentKey(rec.id), String(now));
-  } catch (err) {
-    console.warn("[cuestionario] kv sent marker failed", err);
+  if (!claimed) {
+    try {
+      await kvSet(env.DB, key, String(now));
+    } catch (err) {
+      console.warn("[cuestionario] kv sent marker failed", err);
+    }
   }
   try {
-    const { dropped } = await patchLeadAnswers(env, rec.id, {
-      [F_SENT]: cdmxDateStr(now),
-      [F_VERSION]: version,
-    });
-    if (dropped.length) warning = `faltan columnas en Airtable: ${dropped.join(", ")}`;
+    const stamp = { [F_SENT]: cdmxDateStr(now), [F_VERSION]: version };
+    if (deps.patch) {
+      await deps.patch(env, rec.id, stamp);
+    } else {
+      const { dropped } = await patchLeadAnswers(env, rec.id, stamp);
+      if (dropped.length) warning = `faltan columnas en Airtable: ${dropped.join(", ")}`;
+    }
   } catch (err) {
     warning = `no se pudo marcar Airtable: ${String(err).slice(0, 200)}`;
   }
   if (warning) console.warn(`[cuestionario] ${rec.id}: ${warning}`);
-  return { ok: true, version, phone, link, ...(warning ? { warning } : {}) };
+  return { ok: true, version, phone, link, via, ...(warning ? { warning } : {}) };
+}
+
+/** The closed-window template send; returns an error string, or null on success. */
+async function sendInviteTemplate(
+  env: Env,
+  deps: CuestionarioDeps,
+  a: {
+    phone: string;
+    version: CuestionarioVersion;
+    lang: Language;
+    trialEpoch: number | null;
+    kid: string | null;
+    token: string;
+  },
+): Promise<string | null> {
+  if (a.trialEpoch === null) return "sin fecha de clase para la plantilla";
+  if (channelOf(a.phone) !== "wa") return "IG/FB no tiene plantillas";
+  const copy = a.version === "adultos"
+    ? (a.lang === "en" ? CLIENT.copy.cuestionarioEn : CLIENT.copy.cuestionarioEs)
+    : (a.lang === "en" ? CLIENT.copy.cuestionarioKidsEn : CLIENT.copy.cuestionarioKidsEs);
+  if (!copy) return "sin texto configurado";
+  const { kidVars } = inviteTemplateBody(copy, a.lang);
+  try {
+    await (deps.sendTemplate ?? sendTemplate)(
+      env,
+      a.phone,
+      tpl(inviteTemplateBase(a.version), a.lang),
+      a.lang,
+      inviteTemplateComponents(a.version, a.lang, a.trialEpoch, a.kid, a.token, kidVars),
+    );
+    return null;
+  } catch (err) {
+    return String(err instanceof Error ? err.message : err);
+  }
 }
 
 // ---- the booking hook ---------------------------------------------------------------
@@ -272,13 +381,17 @@ export async function syncCuestionario(
   postNote: (text: string) => Promise<void>,
   rec: { id: string; cuestionarioEnviado?: unknown },
   phone: string,
+  nowSec: number = Math.floor(Date.now() / 1000),
 ): Promise<SendCuestionarioResult | null> {
   if (!cuestionarioEnabled(env)) return null;
+  // Unsolicited send → quiet hours apply (21:00–08:00 CDMX). Skip WITHOUT
+  // claiming, so a later sync of the same record can still send.
+  if (isQuietHour(nowSec)) return null;
   try {
     if (cellFilled(rec.cuestionarioEnviado)) return null;
     if (await kvGet(env.DB, sentKey(rec.id))) return null;
-    if (!(await kvSetIfAbsent(env.DB, syncTryKey(rec.id), String(Math.floor(Date.now() / 1000))))) return null;
-    const r = await sendCuestionario(env, { postNote }, { recordId: rec.id, phone });
+    if (!(await kvSetIfAbsent(env.DB, syncTryKey(rec.id), String(nowSec)))) return null;
+    const r = await sendCuestionario(env, { postNote, now: () => nowSec }, { recordId: rec.id, phone });
     if (!r.ok && r.reason !== "already_sent") console.warn(`[cuestionario] sync ${rec.id}: ${r.reason}`);
     return r;
   } catch (err) {

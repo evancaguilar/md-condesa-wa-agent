@@ -130,6 +130,10 @@ export async function verifyToken(
   const payloadB64 = parts[1]!;
   const got = b64urlDecode(parts[2]!);
   if (!payloadB64 || !got) return invalid;
+  // Canonical encoding only: the last base64url char carries spare bits, so
+  // several strings decode to the same 16 bytes. Accepting only the one we
+  // issue keeps tokenId() (the rate-limit key) one-per-token.
+  if (b64urlEncode(got) !== parts[2]) return invalid;
   const want = await signPart(secret, payloadB64);
   if (!timingSafeEqual(got, want)) return invalid;
 
@@ -150,7 +154,8 @@ export async function verifyToken(
   return { recordId: p.r, version: p.v, exp: p.e };
 }
 
-/** The signature part — a stable per-token id for rate-limit keys (never the secret). */
+/** The signature part — a stable per-token id for rate-limit keys (never the
+ *  secret). Canonical by construction once verifyToken accepted the token. */
 export function tokenId(token: string): string {
   return token.split(".")[2] ?? "";
 }

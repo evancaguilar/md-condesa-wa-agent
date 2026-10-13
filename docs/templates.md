@@ -578,6 +578,42 @@ Variables: **none** in the body; one in the button URL. No footer.
 
 ---
 
+## 19. cuestionario_invite / cuestionario_invite_kids — Utility (URL button with dynamic suffix)
+
+Pre-trial questionnaire (docs/cuestionario.md) for a lead whose 24 h window is
+closed — typically a web-form booker. Open window → free-form
+`CLIENT.copy.cuestionario*` with the link inline; closed → this template. Body =
+the free-form copy WITHOUT the name and WITHOUT the link (the link is the
+button); `{{1}}` = class day + time, kids also `{{2}}`/`{{3}}` = the child's name
+(or "tu peque" / "your little one"). bfc uses the kids template. Button `{{1}}`
+= the questionnaire token. **Submitted by the worker** (src/cron/
+template-seed-cuestionario.ts, one-shot, kv `tpl_seed:cuestionario_invite:2026-10-13`).
+Sent as body params + `{type:"button", sub_type:"url", index:"0",
+parameters:[{type:"text", text:<token>}]}`.
+
+**ES (`cuestionario_invite_es`)**
+> Listo, quedó tu clase el {{1}}. Una cosa más - contéstanos esto en 3 minutos para que tu coach te reciba sabiendo qué buscas. Es lo que hace que tu primera clase sea para ti y no una clase genérica.
+
+**EN (`cuestionario_invite_en`)**
+> All set, your class is booked for {{1}}. One more thing - answer this in 3 minutes so your coach meets you already knowing what you're looking for. It's what makes your first class about you instead of a generic class.
+
+**ES (`cuestionario_invite_kids_es`)**
+> Listo, quedó tu clase el {{1}}. Una cosa más - contéstanos esto en 3 minutos para que tu coach reciba a {{2}} sabiendo qué buscan ustedes. Es lo que hace que su primera clase sea para {{3}} y no una clase genérica.
+
+**EN (`cuestionario_invite_kids_en`)**
+> All set, the class is booked for {{1}}. One more thing - answer this in 3 minutes so the coach meets {{2}} already knowing what you're looking for as a family. It's what makes the first class about {{3}} instead of a generic class.
+
+Samples: `{{1}}` "viernes 16 de octubre a las 7:00 PM" / "Friday, October 16 at
+7:00 PM"; `{{2}}`/`{{3}}` "Mateo".
+
+Button (URL): **Contestar** / **Answer** → `https://mdcondesa.com/cuestionario/?t={{1}}`
+(sample: `https://mdcondesa.com/cuestionario/?t=v1.eyJyIjoicmVjSkdCTGd4QmJzR3FyZjAiLCJ2IjoiYWR1bHRvcyIsImUiOjE3OTMyMDk2MDB9.aH_y4qlARj7FDpNrqeZx2w`)
+
+No footer. Bodies are generated from client.mjs copy — keep them in sync (a
+copy change needs a new SEED_KEY + Meta re-review).
+
+---
+
 # Blast templates (bulk sends, docs/blasts.md) — Marketing
 
 The dashboard's **Envíos** tab sends ANY approved template on the live WABA
