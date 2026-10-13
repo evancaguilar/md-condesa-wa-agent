@@ -40,7 +40,12 @@
     // Marketing metrics feeder (src/cron/ad-spend.ts, metrics-link.ts, metrics-brief.ts).
     "META_AD_ACCOUNT_ID": "act_1334257084455191",
     "WA_WABA_ID": "1717538906028335",
-    "METRICS_SINCE": "2026-07-01"
+    "METRICS_SINCE": "2026-07-01",
+    // Reto course login (src/pipeline/reto-login.ts): members who message
+    // "…entrar a mis cursos del Reto [CURSOS]" get a login link from the site.
+    // OFF until the secret RETO_BOT_SECRET is also set (same value as the
+    // Pages secret on md-condesa-site).
+    "RETO_LOGIN_URL": "https://mdcondesa.com/api/reto/wa-login"
     // Conversions API for Business Messaging (docs/meta-capi.md). Uncomment and
     // paste the dataset id linked to WA_WABA_ID once it exists in Events Manager
     // (GET /admin/api/capi/dataset reads it). Non-secret, so a var is fine. The
