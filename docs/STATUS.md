@@ -5,9 +5,9 @@
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
 ### Reto course login over WhatsApp (2026-10-13) — ON BRANCH `claude/reto-cursos-login`, INERT until configured
-- Members open mdcondesa.com/reto/entrar/ → "Entrar con WhatsApp" → this number gets "Hola, quiero entrar a mis cursos del Reto [CURSOS]". New gate 3a (after opt-out, before campaign tagging) relays it to the site (`RETO_LOGIN_URL`), which checks the Airtable `reto` tag and returns the reply text (one-time login link or "not found"); the bot sends it in-window. No brain, no approval, no Leads row, no drip.
+- Members open mdcondesa.com/reto/entrar/ → "Entrar con WhatsApp" → this number gets "Hola, quiero entrar a mis cursos del Reto [CURSOS]". New gate 3a (after opt-out, before campaign tagging) relays it to the site (`RETO_LOGIN_URL`), which checks the Airtable `fundamentos` tag and returns the reply text (one-time login link or "not found"); the bot sends it in-window. No brain, no approval, no Leads row, no drip.
 - To turn on: `wrangler secret put RETO_BOT_SECRET` (same value as the md-condesa-site Pages secret). `RETO_LOGIN_URL` is already in wrangler.jsonc. Without the secret the message goes through the normal pipeline.
-- Ops notes (🎓, #bot-ops): site failure (fallback text sent) and "number without the `reto` tag".
+- Ops notes (🎓, #bot-ops): site failure (fallback text sent) and "number without the `fundamentos` tag".
 - Site side: evancaguilar/md-condesa-site#14.
 
 ### Reminders, drips and post-trial chains do the right thing — WP2 of the 2026-10-09 audit (2026-10-11) — ON BRANCH, not pushed

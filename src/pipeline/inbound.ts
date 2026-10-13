@@ -363,7 +363,7 @@ export async function processInbound(
   }
 
   // 3a. Reto course login (md-condesa-site /reto/entrar/ → "…entrar a mis cursos
-  // del Reto [CURSOS]"). Deterministic: the site checks the Airtable `reto` tag
+  // del Reto [CURSOS]"). Deterministic: the site checks the Airtable `fundamentos` tag
   // and returns the exact reply (one-time login link, or "not found"); we relay
   // it. Runs BEFORE campaign tagging / lead sync / brain, so a member logging in
   // is never filed as a lead (no Leads row, no drip, no approval). Inert until
@@ -1518,7 +1518,7 @@ async function handleRetoLogin(env: Env, ports: Ports, phone: string): Promise<v
   if (res.error || !res.ok) {
     await ports.slack.postNote(`🎓 Login de cursos del Reto: el sitio falló para ${phone} (${res.error ?? "respuesta sin texto"}). Le mandé el mensaje de respaldo.`);
   } else if (res.member === false) {
-    await ports.slack.postNote(`🎓 ${phone} pidió entrar a los cursos del Reto pero su número no tiene la etiqueta \`reto\` en Airtable (Alumnos). Si ya pagó el Reto, agrégala.`);
+    await ports.slack.postNote(`🎓 ${phone} pidió entrar a los cursos del Reto pero su número no tiene la etiqueta \`fundamentos\` en Airtable (Alumnos). Si ya pagó el Reto, agrégala.`);
   }
 }
 
