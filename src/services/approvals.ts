@@ -19,7 +19,8 @@ import {
   setContactStatus,
   setHumanOverride,
 } from "../db/queries.js";
-import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
+import { sendText, WindowClosedError } from "../services/send.js";
+import { afterBookingConfirmed } from "./cuestionario.js";
 import { armNudges } from "../cron/nudges.js";
 import { auditHumanSend } from "./booking-guard.js";
 import type { HumanSendSource } from "./booking-claims.js";
@@ -189,9 +190,10 @@ export async function runPostSendEffects(
   sentText: string,
   source: HumanSendSource,
 ): Promise<void> {
-  // Booking-confirmation draft → fire the booking video right after (R4).
+  // Booking-confirmation draft → booking video right after (R4) + the
+  // questionnaire invite when enabled (services/cuestionario.afterBookingConfirmed).
   const bookingOrigin = await isBookingApproval(env, id);
-  if (bookingOrigin) await sendBookingVideo(env, phone);
+  if (bookingOrigin) await afterBookingConfirmed(env, phone);
   // Bot reply landed → arm/re-arm the lead-nudge drip (no-op unless the contact
   // is a lead with no active booking/override, under the cap).
   await armNudges(env, phone);

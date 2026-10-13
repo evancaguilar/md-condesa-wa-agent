@@ -42,6 +42,7 @@ import { applyCampaignTriggerUpdates, seedCampaigns } from "./seed-campaigns.js"
 import { seedStudentKitTemplates } from "./template-seed-student.js";
 import { runRedrive } from "./redrive.js";
 import { gcGoogleRefs } from "../routes/google-click.js";
+import { gcCuestionarioRate } from "../services/cuestionario.js";
 import { copyStep, startCursor, type CopyCursor, type DbLike } from "../services/d1-copy.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
@@ -269,6 +270,8 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       await safe("ensureControlPanel", () => cronDeps.ensureControlPanel(env));
       // Expire Google click codes from the site's /g beacon (90-day gclid life).
       await safe("googleRefGc", () => gcGoogleRefs(env.DB, nowEpoch));
+      // Questionnaire rate-limit counters (kv cq_rl:<hour>:<token>), > 48 h old.
+      await safe("cuestionarioRateGc", () => gcCuestionarioRate(env.DB, nowEpoch));
       // Edit tuner: self-gated to ~weekly + ≥5 new edits since its watermark.
       await safe("editTuning", () => maybeRunEditTuning(env, cronDeps, nowEpoch));
       // Booking-reconciliation backstop: flag outbound "ya quedó agendado"

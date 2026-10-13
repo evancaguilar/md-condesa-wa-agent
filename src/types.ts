@@ -78,6 +78,16 @@ export interface Env {
   RETO_LOGIN_URL?: string;
   /** Secret shared with md-condesa-site (Pages secret of the same name). */
   RETO_BOT_SECRET?: string;
+  /** Pre-trial questionnaire (docs/cuestionario.md). HMAC key for the
+   *  `?t=` tokens in mdcondesa.com/cuestionario/ links. Secret. Unset ⇒ the
+   *  /api/cuestionario routes answer 503 and nothing is ever sent. */
+  CUESTIONARIO_SECRET?: string;
+  /** Bearer key for POST /api/cuestionario/send (the future Airtable
+   *  automation). Secret. Unset ⇒ that endpoint refuses every call. */
+  CUESTIONARIO_SEND_KEY?: string;
+  /** "1" ⇒ the bot sends the questionnaire link right after every booking
+   *  confirmation. Var (wrangler.jsonc), default "0" — ships dark. */
+  CUESTIONARIO_ENABLED?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;

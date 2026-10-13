@@ -10,6 +10,7 @@ import { cdmxIso } from "../cron/time.js";
 import { kvGet, kvSet } from "../db/queries.js";
 import { channelOf } from "./channel.js";
 import { bandAirtableKey } from "./age-band.js";
+import { F_META, F_MOTIVO, F_SENT } from "./cuestionario-core.js";
 
 const API = "https://api.airtable.com/v0";
 const MAX_429_RETRIES = 4;
@@ -38,6 +39,15 @@ export interface BookingRecord {
    * over initialPayment as the Purchase value (docs/meta-capi.md).
    */
   leadIncome?: number | null;
+  /**
+   * Pre-trial questionnaire answers the day-before reminder quotes
+   * (docs/cuestionario.md): `Motivo principal` / `Meta 6 meses`, raw cells.
+   * Optional so existing fakes/consumers need not know about them.
+   */
+  motivoPrincipal?: unknown;
+  meta6Meses?: unknown;
+  /** `Cuestionario enviado` cell — the sync loop's cheap "already sent" filter. */
+  cuestionarioEnviado?: unknown;
 }
 
 /** Default name of the Airtable trial-outcome field (env-overridable). */
@@ -826,6 +836,9 @@ function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord 
     result: asResultString(f[resultField]),
     initialPayment: m.initialPayment ? asAmount(f[m.initialPayment]) : null,
     leadIncome: m.leadIncome ? asAmount(f[m.leadIncome]) : null,
+    motivoPrincipal: f[F_MOTIVO] ?? null,
+    meta6Meses: f[F_META] ?? null,
+    cuestionarioEnviado: f[F_SENT] ?? null,
   };
 }
 

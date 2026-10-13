@@ -289,6 +289,30 @@ export default {
       "Último paso: tu responsiva. Toma 2 minutos desde tu cel y la necesitamos firmada antes de tu siguiente clase 📝\n\n👉 {link}",
     studentResponsivaEn:
       "Last step: your waiver. It takes 2 minutes from your phone and we need it signed before your next class 📝\n\n👉 {link}",
+    // Pre-trial questionnaire (docs/cuestionario.md, owner copy 2026-10-13).
+    // Sent ONCE right after the booking confirmation (src/services/cuestionario.ts).
+    // {who} = " Nombre" or "" (→ "Listo, quedó…"), {cuando} = " el jueves 16 de
+    // octubre a las 7:00 PM" (or "" when the record has no date), {kid} = the
+    // child's name or "tu peque", {link} = the tokenized questionnaire link.
+    cuestionarioEs:
+      "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 3 minutos para que tu coach te reciba sabiendo qué buscas. Es lo que hace que tu primera clase sea para ti y no una clase genérica: {link}",
+    cuestionarioEn:
+      "All set{who}, your class is booked{cuando}. One more thing - answer this in 3 minutes so your coach meets you already knowing what you're looking for. It's what makes your first class about you instead of a generic class: {link}",
+    cuestionarioKidsEs:
+      "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 3 minutos para que tu coach reciba a {kid} sabiendo qué buscan ustedes. Es lo que hace que tu primera clase sea para ti y no una clase genérica: {link}",
+    cuestionarioKidsEn:
+      "All set{who}, the class is booked{cuando}. One more thing - answer this in 3 minutes so the coach meets {kid} already knowing what you're looking for as a family. It's what makes the first class about {kid} instead of a generic class: {link}",
+    cuestionarioBfcEs:
+      "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 2 minutos para que tu coach reciba a {kid} sabiendo qué buscan ustedes. Es lo que hace que tu primera clase sea para ti y no una clase genérica: {link}",
+    cuestionarioBfcEn:
+      "All set{who}, the class is booked{cuando}. One more thing - answer this in 2 minutes so the coach meets {kid} already knowing what you're looking for as a family. It's what makes the first class about {kid} instead of a generic class: {link}",
+    // Day-before reminder when the questionnaire told us what they want
+    // (free-form path only; the WA template fallback is unchanged).
+    // {motivo} = Motivo principal (or Meta 6 meses), lowercased, no final period.
+    reminderMotivoEs:
+      "Hola{who}! Mañana a las {hora} es tu clase. Ya le pasé al coach que buscas {motivo}, te va a estar esperando. Av. México 49, 1º piso. Llega 10 min antes.",
+    reminderMotivoEn:
+      "Hi{who}! Your class is tomorrow at {hora}. I already told the coach you're looking for {motivo}, they'll be expecting you. Av. México 49, 1st floor. Please arrive 10 min early.",
     // Post-trial chain (attended, did not sign up).
     // NO PRICE, NO DISCOUNT, NO DEADLINE in any of these (owner, 2026-09-21):
     // the inscription discount is SAME-DAY-ONLY at the academy, so holding it

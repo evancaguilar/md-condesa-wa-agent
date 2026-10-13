@@ -45,7 +45,12 @@
     // "…entrar a mis cursos del Reto [CURSOS]" get a login link from the site.
     // OFF until the secret RETO_BOT_SECRET is also set (same value as the
     // Pages secret on md-condesa-site).
-    "RETO_LOGIN_URL": "https://mdcondesa.com/api/reto/wa-login"
+    "RETO_LOGIN_URL": "https://mdcondesa.com/api/reto/wa-login",
+    // Pre-trial questionnaire (docs/cuestionario.md): "1" = the bot sends the
+    // mdcondesa.com/cuestionario/ link right after every booking confirmation.
+    // Needs the secrets CUESTIONARIO_SECRET (+ CUESTIONARIO_SEND_KEY for the
+    // Airtable automation). Ships dark; Evan flips it.
+    "CUESTIONARIO_ENABLED": "0"
     // Conversions API for Business Messaging (docs/meta-capi.md). Uncomment and
     // paste the dataset id linked to WA_WABA_ID once it exists in Events Manager
     // (GET /admin/api/capi/dataset reads it). Non-secret, so a var is fine. The

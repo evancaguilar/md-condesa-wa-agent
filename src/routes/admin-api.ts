@@ -30,6 +30,8 @@ import type {
   StoredMessage,
 } from "../types.js";
 import { CLIENT } from "../client.gen.js";
+import { sendCuestionario } from "../services/cuestionario.js";
+import { isCuestionarioVersion } from "../services/cuestionario-token.js";
 import { cdmxDateStr, DAY } from "../cron/time.js";
 import { probeMetaAds } from "../services/meta-insights.js";
 import { MetricsSchemaError, relinkDuplicateStudents } from "../services/metrics-airtable.js";
@@ -466,6 +468,31 @@ export async function handleAdminApi(
       stale: staleReplyFor({ ts: lastMsg.ts }, now),
     });
     return json({ ok: true, phone, stored: msgs.length });
+  }
+
+  // ---- pre-trial questionnaire: manual send (owner-only; docs/cuestionario.md) ----
+  // Same function the bot hook uses, always with resend (testing with one
+  // phone). Ignores CUESTIONARIO_ENABLED so it works while the feature is dark.
+  if (path === "/admin/api/cuestionario/send" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const body = (await req.json().catch(() => null)) as
+      | { recordId?: unknown; version?: unknown; resend?: unknown }
+      | null;
+    const recordId = typeof body?.recordId === "string" ? body.recordId.trim() : "";
+    if (!/^rec[A-Za-z0-9]{14}$/.test(recordId)) return json({ error: "recordId inválido" }, 400);
+    if (body?.version !== undefined && !isCuestionarioVersion(body.version)) {
+      return json({ error: "version inválida (adultos|kids|bfc)" }, 400);
+    }
+    const r = await sendCuestionario(
+      env,
+      { postNote: (t) => ports.slack.postNote(t) },
+      {
+        recordId,
+        ...(isCuestionarioVersion(body?.version) ? { version: body.version } : {}),
+        resend: body?.resend !== false,
+      },
+    );
+    return json(r);
   }
 
   // ---- template blasts (owner-only; docs/blasts.md, services/blast.ts) ----

@@ -5,6 +5,7 @@ import { handleSlackInteractive } from "./routes/slack.js";
 import { handleAdminUi, handleMigrateUi } from "./routes/admin-ui.js";
 import { handleAdminApi } from "./routes/admin-api.js";
 import { handleGoogleClickBeacon } from "./routes/google-click.js";
+import { handleCuestionario } from "./routes/cuestionario.js";
 import { runCron, setCronDeps } from "./cron/dispatcher.js";
 import { runBrainTurn, runOverrideChecks } from "./pipeline/inbound.js";
 import { staleReplyFor } from "./cron/redrive.js";
@@ -138,6 +139,12 @@ export default {
     // The site's attribution.js reports a Google Ads click under a short code
     // (the WhatsApp prefill then carries "[K7M2QX]", not a 100-char gclid).
     if (pathname === "/g") return handleGoogleClickBeacon(req, env);
+
+    // Pre-trial questionnaire (docs/cuestionario.md): the mdcondesa.com page
+    // reads/saves answers over CORS; /send is the Bearer-keyed trigger.
+    if (pathname === "/api/cuestionario" || pathname === "/api/cuestionario/send") {
+      return handleCuestionario(req, env, ctx);
+    }
 
     // Admin dashboard: SPA shell + JSON API (W3 owns the handler bodies).
     if (pathname === "/admin" && req.method === "GET") {

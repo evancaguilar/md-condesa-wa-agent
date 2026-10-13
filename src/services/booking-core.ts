@@ -26,7 +26,7 @@ import { scheduleTrialSequence } from "../cron/followups.js";
 import { cdmxDateStr, cdmxIso } from "../cron/time.js";
 import { normalizeDiscipline, validateSlot } from "../brain/tools.js";
 import { bookTrial } from "./airtable.js";
-import { sendBookingVideo } from "./send.js";
+import { afterBookingConfirmed } from "./cuestionario.js";
 import { captureCapiEvent } from "./meta-capi.js";
 
 /** A booking that already has its Airtable record id. */
@@ -186,7 +186,9 @@ export interface BookingCoreDeps {
   syncLead: typeof syncLead;
   bookTrial: (env: Env, input: BookTrialInput) => Promise<string>;
   validateSlot: typeof validateSlot;
-  sendBookingVideo: typeof sendBookingVideo;
+  /** Runs after a human registration: booking video + (when enabled) the
+   *  questionnaire invite — services/cuestionario.afterBookingConfirmed. */
+  sendBookingVideo: (env: Env, phone: string, recordId?: string) => Promise<void>;
   kvSet: typeof kvSet;
   now(): number;
 }
@@ -201,7 +203,7 @@ export function realBookingDeps(): BookingCoreDeps {
     syncLead,
     bookTrial,
     validateSlot,
-    sendBookingVideo,
+    sendBookingVideo: (env, phone, recordId) => afterBookingConfirmed(env, phone, { recordId: recordId ?? null }),
     kvSet,
     now: () => Math.floor(Date.now() / 1000),
   };
@@ -421,7 +423,7 @@ export async function registerBooking(
 
   if (opts?.sendVideo !== false) {
     try {
-      await deps.sendBookingVideo(env, booking.phone);
+      await deps.sendBookingVideo(env, booking.phone, recordId);
     } catch (err) {
       console.error(`[booking] video failed for ${booking.phone}:`, err);
     }

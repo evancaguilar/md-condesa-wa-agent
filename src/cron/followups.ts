@@ -48,13 +48,14 @@ import {
 import {
   sendText,
   sendTemplate,
-  sendBookingVideo,
   sendMedia,
   uploadMedia,
   WindowClosedError,
   OptedOutError,
 } from "../services/send.js";
 import { channelOf, displayContact } from "../services/channel.js";
+import { afterBookingConfirmed, syncCuestionario } from "../services/cuestionario.js";
+import { dayBeforeMotivoText } from "../services/cuestionario-core.js";
 import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
 import { taskNote } from "./deps.js";
 import {
@@ -423,13 +424,13 @@ async function processOne(
 
   switch (f.kind) {
     case "trial_confirm":
-      await sendTrialConfirm(env, f.phone, name, lang);
+      await sendTrialConfirm(env, f.phone, name, lang, recordId, deps.slack);
       await markFollowup(env.DB, f.id, "sent");
       return;
 
     case "day_before":
     case "same_day": {
-      const verdict = await reminderVerdict(env, deps, f, contact?.status ?? null);
+      const { verdict, record } = await reminderVerdict(env, deps, f, contact?.status ?? null);
       if (!verdict.send) {
         console.log(`[followups] ${f.kind} #${f.id} ${f.phone} skipped: ${verdict.why}`);
         await markFollowup(env.DB, f.id, "cancelled");
@@ -445,12 +446,25 @@ async function processOne(
           return;
         }
       }
+      // Day-before + a questionnaire answer → the personal free-form copy
+      // ("Ya le pasé al coach que buscas …"); otherwise the existing copy.
+      const motivoText =
+        f.kind === "day_before"
+          ? dayBeforeMotivoText({
+              lang: lang === "en" ? "en" : "es",
+              name,
+              trialEpoch: verdict.trialEpoch ?? null,
+              motivoPrincipal: record?.motivoPrincipal,
+              meta6Meses: record?.meta6Meses,
+            })
+          : null;
       try {
         const outcome = await sendReminder(env, deps, f.phone, {
           template: f.kind === "same_day" ? "trial_reminder_same_day" : "trial_reminder_day_before",
           lang,
           name,
-          freeform: messengerReminderText(f.kind, name, lang),
+          freeform: motivoText ?? messengerReminderText(f.kind, name, lang),
+          preferFreeform: motivoText !== null,
         });
         await markFollowup(env.DB, f.id, outcome);
       } catch (err) {
@@ -860,7 +874,13 @@ async function sendTrialConfirm(
   phone: string,
   name: string,
   lang: string,
+  recordId: string,
+  slack: Pick<CronSlackDeps, "postNote">,
 ): Promise<void> {
+  // Booking video + (when enabled) the questionnaire invite, after the
+  // confirmation landed — services/cuestionario.afterBookingConfirmed.
+  const after = (): Promise<void> =>
+    afterBookingConfirmed(env, phone, { recordId, postNote: (t) => slack.postNote(t) });
   const text = confirmText(name, lang);
   try {
     await sendText(env, phone, text);
@@ -871,12 +891,12 @@ async function sendTrialConfirm(
       await sendTemplate(env, phone, tpl("trial_confirm", lang), lang, [
         nameParam(name, lang),
       ]);
-      await sendBookingVideo(env, phone); // after the template confirmation
+      await after(); // after the template confirmation
       return;
     }
     throw err;
   }
-  await sendBookingVideo(env, phone); // after the free-form confirmation
+  await after(); // after the free-form confirmation
 }
 
 /**
@@ -890,8 +910,25 @@ async function sendReminder(
   env: Env,
   deps: { slack: Pick<CronSlackDeps, "postNote"> },
   phone: string,
-  opts: { template: string; lang: string; name: string; freeform: string },
+  opts: {
+    template: string;
+    lang: string;
+    name: string;
+    freeform: string;
+    /** WA: try `freeform` first while the 24h window is open; a closed window
+     *  falls back to the template exactly as before (questionnaire copy). */
+    preferFreeform?: boolean;
+  },
 ): Promise<"sent" | "cancelled"> {
+  if (channelOf(phone) === "wa" && opts.preferFreeform) {
+    try {
+      await sendText(env, phone, opts.freeform);
+      return "sent";
+    } catch (err) {
+      if (!(err instanceof WindowClosedError)) throw err;
+      // closed window → the template below, unchanged
+    }
+  }
   if (channelOf(phone) === "wa") {
     await sendTemplate(env, phone, tpl(opts.template, opts.lang), opts.lang, [
       nameParam(opts.name, opts.lang),
@@ -1099,7 +1136,7 @@ async function reminderVerdict(
   deps: FollowupDeps,
   f: Followup,
   contactStatus: string | null,
-): Promise<ReturnType<typeof shouldSendReminder>> {
+): Promise<{ verdict: ReturnType<typeof shouldSendReminder>; record: BookingRecord | null | undefined }> {
   let record: BookingRecord | null | undefined = undefined;
   const recId = airtableRecId(f.airtable_record_id);
   if (recId) {
@@ -1119,7 +1156,7 @@ async function reminderVerdict(
   } catch {
     lastInbound = null;
   }
-  return shouldSendReminder(f, record, nowSec(), { contactStatus, lastInbound });
+  return { verdict: shouldSendReminder(f, record, nowSec(), { contactStatus, lastInbound }), record };
 }
 
 // ---- Airtable syncs ----
@@ -1189,9 +1226,25 @@ export async function syncBookings(
         );
         const recentlyConfirmedInline =
           marker !== null && nowSec() - marker.ts < 72 * 3600;
+        const includeConfirm = !knownRecord && !recentlyConfirmedInline;
         await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso, {
-          includeConfirm: !knownRecord && !recentlyConfirmedInline,
+          includeConfirm,
         });
+        // Pre-trial questionnaire (docs/cuestionario.md). Ordering rule: the
+        // invite always follows the confirmation. So:
+        //  - a record that just got a trial_confirm row (web-form / staff-typed
+        //    booking) is left to that row — sendTrialConfirm →
+        //    afterBookingConfirmed sends it right AFTER the confirmation, ≤ 5
+        //    min from now;
+        //  - a chat booking (recent booking_recorded marker) is left to the
+        //    chat hook, which fires when the confirmation actually lands (under
+        //    TRAINING_WHEELS that can be an approval an hour later);
+        //  - everything else (a known record re-armed after the 72 h marker —
+        //    staff moved the date, or it was booked while the feature was off)
+        //    is sent here, once. syncCuestionario never throws.
+        if (!includeConfirm && !recentlyConfirmedInline) {
+          await syncCuestionario(env, (t) => deps.slack.postNote(t), rec, phone);
+        }
         // The same "real Airtable booking" marker chat bookings write, so the
         // brain knows this lead is booked (no duplicate book_trial) and its
         // "¡nos vemos mañana!" ack is not flagged as unbacked (2026-09-30: a

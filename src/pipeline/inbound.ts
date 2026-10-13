@@ -84,7 +84,8 @@ import { isRetoLoginRequest, retoLoginConfigured } from "./reto-login.js";
 import { requestRetoLogin } from "../services/reto-login.js";
 import { hasBuyIntent } from "../cron/nudge-signals.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
-import { sendText, sendBookingVideo, WindowClosedError } from "../services/send.js";
+import { sendText, WindowClosedError } from "../services/send.js";
+import { afterBookingConfirmed } from "../services/cuestionario.js";
 import { channelOf } from "../services/channel.js";
 import {
   bookingApprovalKey,
@@ -1069,8 +1070,14 @@ async function routeResult(
         history,
         true,
       );
-      // Confirmation text landed → fire the booking video right after (R4).
-      if (delivered) await sendBookingVideo(env, phone);
+      // Confirmation text landed → booking video (R4) + the questionnaire
+      // invite when enabled (services/cuestionario.afterBookingConfirmed).
+      if (delivered) {
+        await afterBookingConfirmed(env, phone, {
+          recordId: result.recordId,
+          postNote: (t) => ports.slack.postNote(t),
+        });
+      }
     }
     return;
   }

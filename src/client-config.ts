@@ -112,6 +112,28 @@ export interface ClientCopy {
   studentQrEn?: string;
   studentResponsivaEs?: string;
   studentResponsivaEn?: string;
+  /**
+   * Pre-trial questionnaire invite (src/services/cuestionario.ts), sent right
+   * after a booking confirmation. Placeholders: {who} → " Nombre" or "",
+   * {cuando} → " el jueves 16 de octubre a las 7:00 PM" or "" (no date on the
+   * record), {kid} → the child's name or "tu peque", {link} → the tokenized
+   * mdcondesa.com/cuestionario/ link. Kids = kids/teens/mini; Bfc = baby.
+   * Optional: a client without them never sends the questionnaire.
+   */
+  cuestionarioEs?: string;
+  cuestionarioEn?: string;
+  cuestionarioKidsEs?: string;
+  cuestionarioKidsEn?: string;
+  cuestionarioBfcEs?: string;
+  cuestionarioBfcEn?: string;
+  /**
+   * Day-before reminder (free-form path only) when the lead's questionnaire
+   * gave a `Motivo principal` / `Meta 6 meses`. Placeholders: {who},
+   * {hora} ("7:00 PM"), {motivo} (lowercased, no final period). Optional:
+   * absent ⇒ the generic reminder.
+   */
+  reminderMotivoEs?: string;
+  reminderMotivoEn?: string;
 }
 
 export interface ClientFeatures {
