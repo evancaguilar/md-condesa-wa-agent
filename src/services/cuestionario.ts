@@ -245,8 +245,8 @@ export function cuestionarioEnabled(env: Env): boolean {
   return env.CUESTIONARIO_ENABLED === "1" && !!env.CUESTIONARIO_SECRET;
 }
 
-/** Leads record for a phone when the caller doesn't know it. */
-async function recordIdForPhone(env: Env, phone: string): Promise<string | null> {
+/** Leads record for a phone when the caller doesn't know it (contact link, then phone lookup). */
+export async function recordIdForPhone(env: Env, phone: string): Promise<string | null> {
   const contact = await getContact(env.DB, phone).catch(() => null);
   if (contact?.airtable_lead_id) return contact.airtable_lead_id;
   const found = await findLeadByPhone(env, normalizeMxPhone(phone)).catch(() => null);

@@ -30,7 +30,7 @@ import type {
   StoredMessage,
 } from "../types.js";
 import { CLIENT } from "../client.gen.js";
-import { sendCuestionario } from "../services/cuestionario.js";
+import { recordIdForPhone, sendCuestionario } from "../services/cuestionario.js";
 import { isCuestionarioVersion } from "../services/cuestionario-token.js";
 import { cdmxDateStr, DAY } from "../cron/time.js";
 import { probeMetaAds } from "../services/meta-insights.js";
@@ -475,11 +475,19 @@ export async function handleAdminApi(
   // phone). Ignores CUESTIONARIO_ENABLED so it works while the feature is dark.
   if (path === "/admin/api/cuestionario/send" && method === "POST") {
     if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    // Body: {recordId} or {phone} (the dashboard chat view: the record is
+    // resolved from the contact's Airtable link, then by phone, and the send
+    // goes to that exact contact id).
     const body = (await req.json().catch(() => null)) as
-      | { recordId?: unknown; version?: unknown; resend?: unknown }
+      | { recordId?: unknown; phone?: unknown; version?: unknown; resend?: unknown }
       | null;
-    const recordId = typeof body?.recordId === "string" ? body.recordId.trim() : "";
-    if (!/^rec[A-Za-z0-9]{14}$/.test(recordId)) return json({ error: "recordId inválido" }, 400);
+    const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
+    let recordId = typeof body?.recordId === "string" ? body.recordId.trim() : "";
+    if (!recordId && phone) {
+      recordId = (await recordIdForPhone(env, phone)) ?? "";
+      if (!recordId) return json({ ok: false, reason: "not_found", detail: "sin registro en Airtable para este número" });
+    }
+    if (!/^rec[A-Za-z0-9]{14}$/.test(recordId)) return json({ error: "recordId o phone requerido" }, 400);
     if (body?.version !== undefined && !isCuestionarioVersion(body.version)) {
       return json({ error: "version inválida (adultos|kids|bfc)" }, 400);
     }
@@ -488,6 +496,7 @@ export async function handleAdminApi(
       { postNote: (t) => ports.slack.postNote(t) },
       {
         recordId,
+        ...(phone ? { phone } : {}),
         ...(isCuestionarioVersion(body?.version) ? { version: body.version } : {}),
         resend: body?.resend !== false,
       },

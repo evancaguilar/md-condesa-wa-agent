@@ -868,6 +868,13 @@ function renderChatHeader(nowSec){
     if(c.status==="opted_out") html+='<button class="btn sm" id="optoutBtn">↩️ Quitar baja</button>';
     else html+='<button class="btn red sm" id="optoutBtn">🚫 Baja</button>';
     html+='<button class="btn red sm" id="resetBtn">🧹 Reiniciar</button>';
+    // Pre-trial questionnaire (docs/cuestionario.md): owner-only manual (re)send,
+    // works while CUESTIONARIO_ENABLED is off. Result stays inline per phone.
+    if(state.me && state.me.role==="owner"){
+      html+='<button class="btn sm" id="cqBtn">📋 Enviar cuestionario</button>';
+      var cq=cqResults[chatState.phone];
+      if(cq) html+='<span class="muted sm" id="cqResult" style="align-self:center">'+esc(cq)+'</span>';
+    }
     // Rebuild only when something actually changed: detailTick polls every few
     // seconds and an innerHTML rewrite would slam an open <select> shut.
     if(acts.__html!==html){
@@ -881,6 +888,7 @@ function renderChatHeader(nowSec){
         toggleOptOut(chatState.phone, chatState.contact && chatState.contact.status==="opted_out");
       };
       if(el("resetBtn")) el("resetBtn").onclick=function(){ resetConvo(chatState.phone); };
+      if(el("cqBtn")) el("cqBtn").onclick=function(){ sendCuestionarioTo(chatState.phone); };
       if(el("assignSel")) el("assignSel").onchange=function(){
         assignConvo(chatState.phone, el("assignSel").value||null);
       };
@@ -1346,6 +1354,26 @@ async function toggleOptOut(phone, isOptedOut){
     if(chatState.contact) chatState.contact.status=isOptedOut?"lead":"opted_out";
     renderChatHeader(); loadChats(); }
   catch(e){ toast("No se pudo actualizar","err"); }
+}
+// Pre-trial questionnaire: manual (re)send from the chat header (owner-only).
+var cqResults={};
+var CQ_REASONS={not_configured:"falta CUESTIONARIO_SECRET",not_found:"sin registro en Airtable",no_phone:"el registro no tiene teléfono",
+  opted_out:"el lead está dado de baja",already_sent:"ya se había enviado",no_copy:"no hay texto configurado",
+  window_closed:"la ventana de 24 h está cerrada",send_failed:"falló el envío",airtable_error:"Airtable no respondió"};
+async function sendCuestionarioTo(phone){
+  if(!phone) return;
+  if(!confirm("¿Enviar el cuestionario pre-clase a este lead por WhatsApp?")) return;
+  var b=el("cqBtn"); if(b) b.disabled=true;
+  var msg;
+  try{
+    var r=await api("/cuestionario/send",{method:"POST",body:{phone:phone,resend:true}});
+    if(r && r.ok) msg="Cuestionario enviado ("+r.version+")"+(r.warning?" — "+r.warning:"");
+    else msg="No enviado: "+((r && (CQ_REASONS[r.reason]||r.reason))||"error")+(r && r.detail?" ("+r.detail+")":"");
+  }catch(e){ msg="No enviado: "+((e && e.data && e.data.error)||("HTTP "+(e && e.status))); }
+  cqResults[phone]=msg;
+  toast(msg, msg.indexOf("Cuestionario enviado")===0?"ok":"err");
+  if(chatState.phone===phone) renderChatHeader();
+  else if(b) b.disabled=false;
 }
 async function resetConvo(phone){
   if(!confirm("¿Borrar TODO el historial y estado de este número? El bot lo tratará como lead nuevo (bienvenida de campaña incluida). Solo para pruebas.")) return;

@@ -32,7 +32,7 @@ v1.<base64url(JSON {r:<recordId>, v:"adultos"|"kids"|"bfc", e:<unix exp sec>})>.
 | `PATCH` | `/api/cuestionario?t=<token>` | token | body `{answers:{"<field>":value,…}}` (+ `"__complete": true`) → `{ok:true}` |
 | `OPTIONS` | `/api/cuestionario` | — | CORS preflight (204) |
 | `POST` | `/api/cuestionario/send` | `Authorization: Bearer <CUESTIONARIO_SEND_KEY>` | body `{recordId, version?, resend?}` → send result |
-| `POST` | `/admin/api/cuestionario/send` | owner session | same, `resend` defaults to true (testing) |
+| `POST` | `/admin/api/cuestionario/send` | owner session | body `{recordId}` or `{phone}` (+ `version?`, `resend?`); `resend` defaults to true. Dashboard: Chats → a conversation → **📋 Enviar cuestionario** |
 
 - GET: `nombre` = greeting-safe first name (`greetingName`, "" when the CRM name
   isn't clearly a first name); `hijo` = `Nombre Del Niñ@` or null; `dia` e.g.
@@ -137,9 +137,10 @@ Answers, all versions: `Motivos` (multi), `Motivo principal`, `Situación actual
 1. Set `CUESTIONARIO_SECRET`, deploy (with `CUESTIONARIO_ENABLED` still "0").
 2. From your own phone, message the bot (opens the 24 h window) and make sure
    your number has a Leads record (book a test trial, or use an existing one).
-3. Logged in to /admin as owner (browser console):
-   `fetch('/admin/api/cuestionario/send',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({recordId:'rec…',version:'adultos'})}).then(r=>r.json())`
-   → the result includes the link; the WhatsApp message arrives.
+3. In /admin (owner), open your chat → **📋 Enviar cuestionario**. The result
+   shows inline ("Cuestionario enviado (adultos)" or the reason it wasn't). To
+   force a version, from the browser console:
+   `fetch('/admin/api/cuestionario/send',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({recordId:'rec…',version:'kids'})}).then(r=>r.json())`
 4. Open the link, answer, finish → check the Airtable row and the #wa-leads
-   summary. Repeat with `version:'kids'` / `'bfc'` (resend is on by default).
+   summary. Repeat with `version:'kids'` / `'bfc'` (resend is on by default). The same button is the manual re-send later (owner-only for now).
 5. When happy, flip `CUESTIONARIO_ENABLED` to "1" and push.
