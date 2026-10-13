@@ -4,6 +4,17 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### Pre-trial questionnaire backend (2026-10-13) — BRANCH `cuestionario`, NOT PUSHED, ships dark
+
+Every booked lead gets ONE WhatsApp link to mdcondesa.com/cuestionario/ (site page built separately); answers land on their Leads row. Spec + endpoints + fields + test steps: **docs/cuestionario.md**.
+
+- Public `GET/PATCH/OPTIONS /api/cuestionario?t=<HMAC token>` (14-day, record+version bound, 120 req/token/h, per-version column whitelist, CORS for mdcondesa.com / Pages previews / localhost:4173) and Bearer-keyed `POST /api/cuestionario/send` (Airtable automation — optional, off). Owner trigger `POST /admin/api/cuestionario/send` (resend, ignores the flag).
+- Sends: `afterBookingConfirmed` replaced the booking-video call at all four confirmation sites (brain, approvals incl. best-bet, registerBooking, web-form trial_confirm) → video, then the invite. Plus the Airtable booking sync for records no confirmation will cover. No template on a closed window (one #bot-ops note). Stamps `Cuestionario enviado` / `versión`.
+- Completion → 4-line summary in #wa-leads. Day-before reminder quotes `Motivo principal` / `Meta 6 meses` (free-form first on WA, template fallback unchanged).
+- Tests 1185 → **1205**.
+- [ ] **Evan:** create the Airtable fields (docs/cuestionario.md), `wrangler secret put CUESTIONARIO_SECRET` (+ `CUESTIONARIO_SEND_KEY` only if the automation is used), deploy, test with one phone via the admin trigger, then set `CUESTIONARIO_ENABLED` = "1" in wrangler.jsonc and push.
+- [ ] Copy check: the kids/bfc invite keeps "Es lo que hace que tu primera clase sea para ti" verbatim from the brief — tweak in client.mjs if it should talk about the child.
+
 ### Student kit: QR + responsiva after "Se inscribió" (2026-10-13) — NOT PUSHED (lead engineer verifies)
 
 When the front desk marks a lead "Se inscribió", the welcome already went out; now the new student ALSO gets, ~90 s later, their personal **check-in QR as an image** and, if Airtable says the waiver is unsigned, the **responsiva signing link**. Owner, 2026-10-13.
