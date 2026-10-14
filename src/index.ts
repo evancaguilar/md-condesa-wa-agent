@@ -6,7 +6,8 @@ import { handleAdminUi, handleMigrateUi } from "./routes/admin-ui.js";
 import { handleAdminApi } from "./routes/admin-api.js";
 import { handleGoogleClickBeacon } from "./routes/google-click.js";
 import { handleCuestionario } from "./routes/cuestionario.js";
-import { runCron, setCronDeps } from "./cron/dispatcher.js";
+import { HOOK_PATH, handleEnrolledHook, makeEnrolledHookDeps } from "./routes/airtable-hooks.js";
+import { getCronDeps, runCron, setCronDeps } from "./cron/dispatcher.js";
 import { runBrainTurn, runOverrideChecks } from "./pipeline/inbound.js";
 import { staleReplyFor } from "./cron/redrive.js";
 import { createBrainWithKb, makeOverlayLoader } from "./brain/index.js";
@@ -144,6 +145,14 @@ export default {
     // reads/saves answers over CORS; /send is the Bearer-keyed trigger.
     if (pathname === "/api/cuestionario" || pathname === "/api/cuestionario/send") {
       return handleCuestionario(req, env, ctx);
+    }
+
+    // "Se inscribió" push hook (docs/airtable-enrolled-hook.md): the Airtable
+    // automation's last action, so the welcome + student kit go out in seconds
+    // instead of waiting for the cron. makePorts installs the cron's Slack deps.
+    if (pathname === HOOK_PATH) {
+      makePorts(env);
+      return handleEnrolledHook(req, makeEnrolledHookDeps(env, ctx, getCronDeps()));
     }
 
     // Admin dashboard: SPA shell + JSON API (W3 owns the handler bodies).

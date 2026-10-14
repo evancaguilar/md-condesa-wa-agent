@@ -88,6 +88,12 @@ export interface Env {
   /** "1" ⇒ the bot sends the questionnaire link right after every booking
    *  confirmation. Var (wrangler.jsonc), default "0" — ships dark. */
   CUESTIONARIO_ENABLED?: string;
+  /** X-Hook-Key for POST /hooks/airtable/enrolled (the "Se inscribió"
+   *  automation's last action, docs/airtable-enrolled-hook.md). Secret, also
+   *  pasted into the Airtable script. Anti-spam only: the hook re-reads the
+   *  Leads record and acts only if Airtable itself says "Se inscribió". Unset ⇒
+   *  the endpoint refuses every call (the cron still handles enrolments). */
+  AIRTABLE_HOOK_KEY?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;

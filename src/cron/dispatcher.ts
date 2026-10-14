@@ -72,6 +72,13 @@ export function setCronDeps(deps: CronDeps): void {
   cronDeps = deps;
 }
 
+/** The installed cron deps (index.ts makePorts installs the real Slack wiring),
+ *  for request-time callers that must behave exactly like a tick — the
+ *  "Se inscribió" push hook (src/routes/airtable-hooks.ts). */
+export function getCronDeps(): CronDeps {
+  return cronDeps;
+}
+
 export async function runCron(env: Env, _ports: Ports): Promise<void> {
   const nowEpoch = Math.floor(Date.now() / 1000);
   const safe = (label: string, fn: () => Promise<unknown>): Promise<void> =>

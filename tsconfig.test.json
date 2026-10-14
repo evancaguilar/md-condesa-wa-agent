@@ -24,6 +24,7 @@
     "src/routes/webhook-parse.ts",
     "src/routes/admin-auth.ts",
     "src/routes/google-click.ts",
+    "src/routes/airtable-hooks.ts",
     "src/services/slack-timeouts.ts",
     "src/services/slack.ts",
     "src/services/status-line.ts",

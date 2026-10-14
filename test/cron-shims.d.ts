@@ -25,6 +25,7 @@ declare const console: {
 };
 
 declare function setTimeout(cb: () => void, ms?: number): unknown;
+declare function clearTimeout(id: unknown): void;
 
 declare function fetch(
   input: string,
@@ -50,6 +51,7 @@ declare var Response: {
 };
 interface Request {
   method: string;
+  headers: { get(name: string): string | null };
   text(): Promise<string>;
 }
 declare var Request: { new (url: string, init?: RequestInit): Request };

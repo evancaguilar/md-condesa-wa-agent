@@ -27,6 +27,7 @@ import {
   cancelFollowups,
   lastBotMessage,
   kvSetIfAbsent,
+  kvClaimIfAbsentOrOlder,
   recentMessages,
   cancelReminderRowsForRecord,
 } from "../db/queries.js";
@@ -81,6 +82,7 @@ import {
   isLostResult,
   getBookingRecord,
   type BookingRecord,
+  type TrialResult,
 } from "../services/airtable.js";
 import {
   processNudge,
@@ -136,6 +138,19 @@ const ATTENDANCE_NOTE = "attendance_check";
 /** How long after the trial a late-marked Airtable result still sends its message. */
 export const RESULT_NO_SHOW_MAX_AGE = 7 * 86400;
 export const RESULT_ENROLLED_MAX_AGE = 14 * 86400;
+/** Claim window of processResult's enrolment lock (cron vs push hook race). */
+export const RESULT_LOCK_SEC = 120;
+
+/**
+ * What processResult did. Only the enrolled values are meaningful to callers
+ * (the push hook reports them); the cron ignores the return value.
+ *  - "sent": welcome sent (free-form, template, or the IG/FB Slack hand-off)
+ *  - "skipped": enrolled but silent (Baja, or the trial is outside the window)
+ *  - "already": this record+value was handled before (kv marker)
+ *  - "busy": another caller holds the enrolment claim right now
+ *  - "none": no actionable value; "other": a non-enrolment branch ran
+ */
+export type ResultOutcome = "sent" | "skipped" | "already" | "busy" | "none" | "other";
 const MAX_SEND_ATTEMPTS = 3;
 
 // ---- scheduling ----
@@ -768,6 +783,81 @@ async function processOne(
   }
 }
 
+/** What runStudentKitNow did with the lead's student_kit row. */
+export type KitNowOutcome =
+  | "sent" // kit delivered (row 'sent')
+  | "scheduled" // row still pending (Alumno not linked yet, or a retry) — the cron finishes it
+  | "failed" // gave up; the kit already posted its own Slack note
+  | "cancelled" // nothing owed / already sent to this Alumno / IG-FB hand-off / Baja
+  | "none" // no scheduled student_kit row for this lead
+  | "cron"; // the row is already due (or claimed): the cron owns it this time
+
+/** How far a push-hook claim pushes a kit row's due_at (crash ⇒ cron retries then). */
+export const KIT_CLAIM_LEASE_SEC = 10 * 60;
+/** A row due within this margin is left to the cron (it may be selecting it). */
+const KIT_CLAIM_MARGIN_SEC = 10;
+
+/**
+ * Run the lead's scheduled `student_kit` row NOW, through the exact path a cron
+ * tick uses (processOne → runStudentKit, same failure handling), for the
+ * "Se inscribió" push hook. Never runs a row the cron could also run:
+ *
+ *  - runDueFollowups only SELECTs rows with `status='scheduled' AND due_at <=
+ *    now`; there is no other claim. A row already due (or due within a few
+ *    seconds) may be in a tick's batch right now, so it is left to the cron.
+ *  - Otherwise the row is CLAIMED with a compare-and-set on due_at (pushed out
+ *    by KIT_CLAIM_LEASE_SEC): exactly one caller wins, and no tick selects it
+ *    while it runs. The kit then writes its own final state (mark / reschedule
+ *    with a real due_at). If the worker dies mid-run, the lease simply expires
+ *    and the next tick runs it — the row is never stranded.
+ */
+export async function runStudentKitNow(
+  env: Env,
+  deps: FollowupDeps,
+  phone: string,
+  recordId: string,
+): Promise<KitNowOutcome> {
+  const row = await env.DB.prepare(
+    `SELECT * FROM followups
+     WHERE phone = ?1 AND kind = ?2 AND airtable_record_id = ?3 AND status = 'scheduled'
+     LIMIT 1`,
+  )
+    .bind(phone, STUDENT_KIT_KIND, recordId)
+    .first<Followup>();
+  if (!row) return "none";
+  const now = nowSec();
+  if (row.due_at <= now + KIT_CLAIM_MARGIN_SEC) return "cron";
+  const leased = now + KIT_CLAIM_LEASE_SEC;
+  const claim = await env.DB.prepare(
+    `UPDATE followups SET due_at = ?2
+     WHERE id = ?1 AND status = 'scheduled' AND due_at = ?3`,
+  )
+    .bind(row.id, leased, row.due_at)
+    .run();
+  if ((claim.meta.changes ?? 0) === 0) return "cron";
+  const f: Followup = { ...row, due_at: leased };
+  try {
+    await processOne(env, deps, f);
+  } catch (err) {
+    // Same as a cron tick: count the attempt, row stays scheduled (its leased
+    // due_at = retried by the cron in ≤ KIT_CLAIM_LEASE_SEC).
+    await handleSendFailure(env, f, err);
+  }
+  const after = await env.DB.prepare(`SELECT status FROM followups WHERE id = ?1`)
+    .bind(row.id)
+    .first<{ status: Followup["status"] }>();
+  switch (after?.status) {
+    case "sent":
+      return "sent";
+    case "failed":
+      return "failed";
+    case "scheduled":
+      return "scheduled";
+    default:
+      return "cancelled";
+  }
+}
+
 /** The kit's copy for `lang`, or null when this client has none (kit off). */
 function studentKitCopy(lang: string): { qr: string; responsiva: string } | null {
   const c = CLIENT.copy;
@@ -1359,7 +1449,7 @@ export function syncDateAction(
  * months-old results here — those still get status/cancel/marker treatment,
  * silently, so no ghost welcomes.
  */
-async function processResult(
+export async function processResult(
   env: Env,
   deps: { slack: ResultSlackDeps },
   recordId: string,
@@ -1369,7 +1459,7 @@ async function processResult(
   trialDateTimeIso: string | null,
   /** `Pago Inicial` from the Airtable row — only used as the CAPI Purchase value. */
   initialPayment: number | null = null,
-): Promise<void> {
+): Promise<ResultOutcome> {
   // ---- Meta CAPI hook (docs/meta-capi.md) — BEGIN ----
   // Attended / Purchase for Meta's ad optimization. Deliberately SELF-CONTAINED
   // and above every branch below: it reads the raw Airtable value itself
@@ -1394,12 +1484,51 @@ async function processResult(
   // record+value; without the suffix, "Asistió" → "Asistió, Perdido" would look
   // like the same value and the cancellation below would never run.
   const lost = isLostResult(rawResult);
-  if (!action && !lost) return;
+  if (!action && !lost) return "none";
 
   const kvKey = `resultado:${recordId}`;
   const already = await kvGet(env.DB, kvKey);
   const marker = `${action ?? "none"}${lost ? "+lost" : ""}`;
-  if (already === marker) return; // acted on this record+value already
+  if (already === marker) return "already"; // acted on this record+value already
+
+  // Two callers can race on the same enrolment: the cron's syncBookings and
+  // the "Se inscribió" push hook (src/routes/airtable-hooks.ts), seconds
+  // apart. The kv marker above is read-then-write, so without this atomic
+  // claim both could send the welcome. The loser returns WITHOUT writing the
+  // marker; the winner writes it (or releases the claim if it throws, below).
+  const lockKey = `resultado_lock:${recordId}`;
+  if (
+    action === "enrolled" &&
+    !(await kvClaimIfAbsentOrOlder(env.DB, lockKey, nowSec(), RESULT_LOCK_SEC))
+  ) {
+    return "busy";
+  }
+  try {
+    return await reactToResult(env, deps, {
+      recordId, phone, name, trialDateTimeIso, action, lost, kvKey, marker,
+    });
+  } catch (err) {
+    if (action === "enrolled") await kvDelete(env.DB, lockKey).catch(() => {});
+    throw err;
+  }
+}
+
+/** The side effects of processResult, once the marker/lock checks passed. */
+async function reactToResult(
+  env: Env,
+  deps: { slack: ResultSlackDeps },
+  a: {
+    recordId: string;
+    phone: string;
+    name: string | null;
+    trialDateTimeIso: string | null;
+    action: TrialResult | null;
+    lost: boolean;
+    kvKey: string;
+    marker: string;
+  },
+): Promise<ResultOutcome> {
+  const { recordId, phone, name, trialDateTimeIso, action, lost, kvKey, marker } = a;
 
   const trialEpoch = trialDateTimeIso
     ? Math.floor(Date.parse(trialDateTimeIso) / 1000)
@@ -1437,11 +1566,11 @@ async function processResult(
       ...POST_TRIAL_ALL_KINDS,
     ]);
     await kvSet(env.DB, kvKey, marker);
-    return;
+    return "other";
   }
   // Unreachable (a null action is either returned above or carries `lost`), but
   // it is what narrows `action` for the branches below.
-  if (!action) return;
+  if (!action) return "other";
 
   // "Reprogramó" next to "No asistió", or a record simply moved to a new date:
   // a live anti-no-show sequence means they ALREADY rebooked. syncBookings arms
@@ -1467,7 +1596,7 @@ async function processResult(
       // Rebooked: the new anti-no-show sequence owns them, and the post-trial
       // chain would only cancel itself at send time anyway.
       await kvSet(env.DB, kvKey, marker);
-      return;
+      return "other";
     }
     // ONE chain per phone: a second Airtable row for the same family (two
     // kids, a staff copy row — …9448 got two chains) finds the first one
@@ -1507,7 +1636,7 @@ async function processResult(
       }
     }
     await kvSet(env.DB, kvKey, marker);
-    return;
+    return "other";
   }
 
   if (action === "no_show") {
@@ -1515,7 +1644,7 @@ async function processResult(
       // They missed one class and already have the next one on the calendar.
       // Leave that sequence standing and say nothing about the one they missed.
       await kvSet(env.DB, kvKey, marker);
-      return;
+      return "other";
     }
     // Drip + pre-class rows go; the no-show chain itself stays (the first
     // touch may already be armed from the booking).
@@ -1526,7 +1655,7 @@ async function processResult(
     ]);
     if (optedOut || !sendReaction) {
       await kvSet(env.DB, kvKey, marker);
-      return;
+      return "other";
     }
     // Arm the chain (no_show_hoy at class + 2 h, d2, d7 at 11:00), keyed per
     // phone + trial date: rows the booking already armed are left as they
@@ -1547,7 +1676,7 @@ async function processResult(
     await cancelFollowups(env.DB, phone); // all kinds; student stops marketing
     if (optedOut || !sendReaction) {
       await kvSet(env.DB, kvKey, marker);
-      return;
+      return "skipped";
     }
     // Student kit (QR + responsiva, src/cron/student-kit.ts), ~90 s after the
     // welcome. Armed AFTER the cancelFollowups above (which would kill it) and
@@ -1601,6 +1730,7 @@ async function processResult(
   }
 
   await kvSet(env.DB, kvKey, marker);
+  return action === "enrolled" ? "sent" : "other";
 }
 
 /**
