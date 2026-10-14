@@ -4,6 +4,16 @@
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
+### "Se inscribió" push hook: welcome + student kit in seconds (2026-10-13) — NOT PUSHED
+
+The welcome and the student kit (QR + responsiva) used to wait for two */5 cron polls (up to ~10 min). New `POST /hooks/airtable/enrolled` (src/routes/airtable-hooks.ts), called by the "Se inscribió" automation as its last action. Spec, script, setup: **docs/airtable-enrolled-hook.md**.
+
+- Header `X-Hook-Key` = new secret `AIRTABLE_HOOK_KEY` (unset ⇒ 401 always), body `{recordId}`, 60/min. Re-reads the Leads record and acts only if Airtable says "Se inscribió" (forged calls do nothing). Replies `{ok, welcome, kit, ms}` within 15 s; slower work finishes via waitUntil.
+- Welcome = the cron's `processResult` (now exported, returns an outcome) with the cron's Slack deps (`getCronDeps()`). New atomic claim `resultado_lock:<recordId>` (120 s) on the enrolled branch so hook + cron can never both send it.
+- Kit = new `runStudentKitNow`: same `processOne` path as a tick, but only on a row that is not yet due, claimed by a compare-and-set on `due_at` (+10 min lease) — the cron (which only selects due rows) can never run it concurrently; a crashed run is retried by the cron after the lease.
+- Cron behaviour unchanged; it stays the fallback. Slack: only failure notes from the hook. Tests 1217 → **1236**.
+- [ ] **Evan:** add Cloudflare secret `AIRTABLE_HOOK_KEY`, deploy, paste the script into automation `wflEwWirVlvaGQrDB` as the LAST action (same key), then confirm on one enrolment that the 🎟️ note lands within seconds.
+
 ### Pre-trial questionnaire backend (2026-10-13) — BRANCH `cuestionario`, NOT PUSHED, ships dark
 
 Every booked lead gets ONE WhatsApp link to mdcondesa.com/cuestionario/ (site page built separately); answers land on their Leads row. Spec + endpoints + fields + test steps: **docs/cuestionario.md**.
