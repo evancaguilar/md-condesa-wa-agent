@@ -36,10 +36,11 @@ test("chain seeder: placeholder shapes, examples, footer, category; no leftover 
     assert.equal(/\{(who|kid|day|cta|link)\}/.test(t.body), false, t.body);
     assert.equal(t.body.endsWith("}}"), false, t.body); // Meta rejects a trailing variable
     const two = t.body.includes("{{2}}");
-    const wantsTwo = /^(post_trial_d3|post_trial_d6|no_show_hoy|no_show_d2)/.test(t.name);
+    const wantsTwo = /^(no_show_hoy|no_show_d2)/.test(t.name);
     assert.equal(two, wantsTwo, t.name);
     assert.equal(t.bodyExamples?.length, wantsTwo ? 2 : 1, t.name);
-    if (t.name.startsWith("post_trial_d6")) assert.ok(/^https?:\/\//.test(t.bodyExamples![1]!), t.name);
+    if (t.name.startsWith("no_show_hoy")) assert.ok(/^https?:\/\//.test(t.bodyExamples![1]!), t.name);
+    if (t.name.startsWith("no_show_d2")) assert.equal(/^https?:/.test(t.bodyExamples![1]!), false, t.name);
     if (t.name.includes("_baby")) {
       assert.ok(t.body.includes("Baby Fight Club"), t.body);
       assert.equal(/cuerpo|body/i.test(t.body), false, t.body);

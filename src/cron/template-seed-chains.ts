@@ -21,6 +21,7 @@ import {
   type CreateTemplateInput,
 } from "../services/blast-templates.js";
 import { templateBodyFromCopy } from "./template-sync.js";
+import { programLink } from "./nudges.js";
 
 export const SEED_KEY = "tpl_seed:chains:2026-10-15";
 export const SEED_PROGRESS_KEY = `${SEED_KEY}:progress`;
@@ -47,9 +48,9 @@ const STEP_KEY: Record<Step, string> = {
 /** What {{2}} carries per step (none ⇒ the template has only {{1}}). */
 const PARAM2: Record<Step, "slot" | "link" | null> = {
   post_trial_d0: null,
-  post_trial_d3: "slot",
-  post_trial_d6: "link",
-  no_show_hoy: "slot",
+  post_trial_d3: null,
+  post_trial_d6: null,
+  no_show_hoy: "link",
   no_show_d2: "slot",
   no_show_d7: null,
 };
@@ -91,7 +92,7 @@ export function chainTemplateBody(copy: string, step: Step, variant: Variant, la
 /** Pure. Every chain template, in submission order (34 for md-condesa). */
 export function chainTemplateInputs(): CreateTemplateInput[] {
   const c = CLIENT.copy as unknown as Record<string, string | undefined>;
-  const link = CLIENT.links.schedule ?? CLIENT.links.booking;
+
   const out: CreateTemplateInput[] = [];
   const steps = Object.keys(STEP_KEY) as Step[];
   for (const step of steps) {
@@ -109,7 +110,7 @@ export function chainTemplateInputs(): CreateTemplateInput[] {
           language: lang,
           category: "MARKETING",
           body: chainTemplateBody(copy, step, variant, lang),
-          bodyExamples: ["Ana", ...(p2 === "slot" ? [SLOT_EXAMPLE[variant][lang]] : p2 === "link" ? [link] : [])],
+          bodyExamples: ["Ana", ...(p2 === "slot" ? [SLOT_EXAMPLE[variant][lang]] : p2 === "link" ? [programLink(variant)] : [])],
           footer: FOOTER[lang],
         });
       }

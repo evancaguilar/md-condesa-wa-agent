@@ -270,16 +270,16 @@ test("computeNoShowRebook: nothing left to schedule when the moment has passed",
 
 // ---- copy -----------------------------------------------------------------
 
-test("post-trial copy: d0 asks how it felt, legacy d2 reads the d3 line, d5 links the schedule", () => {
+test("post-trial copy: d0 asks how it felt, legacy d2 reads the d3 line, d5 the d6 feedback ask", () => {
   const c = contact({ name: "Ana" });
   const d0 = postTrialCopy(c, "post_trial_d0");
   assert.ok(d0.startsWith("¡Hola Ana!"), d0);
   assert.ok(/¿Qué te pareció la experiencia\?/.test(d0), d0);
   assert.ok(/inscripción/.test(d0), d0); // d0 closes on enrollment, not another trial
   const d2 = postTrialCopy(c, "post_trial_d2");
-  assert.ok(/Te gustaría venir otra vez/.test(d2), d2); // legacy d2 → d3 copy (2026-10-15)
+  assert.ok(/¿Te animas a dar el paso/.test(d2), d2); // legacy d2 → d3 copy (2026-10-15)
   const d5 = postTrialCopy(c, "post_trial_d5");
-  assert.ok(/https?:\/\//.test(d5), d5); // the goodbye links to the schedule
+  assert.ok(/podríamos mejorar/.test(d5) && !/https?:\/\//.test(d5), d5); // d6: feedback, no link
 });
 
 test("post-trial copy names NO price, discount or deadline, in either language", () => {

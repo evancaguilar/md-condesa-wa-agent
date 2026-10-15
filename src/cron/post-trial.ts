@@ -819,16 +819,19 @@ export async function processPostTrial(
       console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, not the class day — skipped`);
       return finish(false);
     }
-    if (step === "hoy" || step === "d2" || base.startsWith("post_trial_d3")) {
+    if (step === "hoy") {
+      // {{2}} = the program's booking page (adults vs kids / baby), 2026-10-15.
+      params = [name, withAttribution(programLink(bandProgram(band)), attributionFor(contact, campaign))];
+    } else if (step === "d2") {
       const slot = slotParam(bandSlot(contact, campaign, band, nowEpoch), nowEpoch, lang);
       if (!slot) {
         console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, no slot for {{2}} — skipped`);
         return finish(false);
       }
       params = [name, slot];
-    } else if (base.startsWith("post_trial_d6")) {
-      params = [name, CLIENT.links.schedule ?? CLIENT.links.booking];
     }
+    // post_trial_d3 / d6 (and kids / baby legacy d2 / d5): name only since
+    // 2026-10-15 — no slot offer, no schedule link.
   }
   const template = deps.templateName(base, lang);
   try {

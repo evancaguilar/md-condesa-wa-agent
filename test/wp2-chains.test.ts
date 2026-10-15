@@ -528,6 +528,7 @@ async function runChainRow(
   insertContact(raw, opts.c ?? contact({}));
   const sent: string[] = [];
   const armed: string[] = [];
+  const params: string[] = [];
   class Closed extends Error {}
   const res = await processPostTrial(
     envWith(db),
@@ -543,9 +544,10 @@ async function runChainRow(
         sent.push(body);
         return "w";
       },
-      async sendTemplate(_e, _p, name) {
+      async sendTemplate(_e, _p, name, _l, components) {
         if (opts.templateFails) throw new Error("WA send failed (404) [132001]: template does not exist");
         sent.push(`[template:${name}]`);
+        params.push(JSON.stringify(components ?? []));
         return "w";
       },
       templateName: (b, l) => `${b}_${l}`,
@@ -557,7 +559,7 @@ async function runChainRow(
     },
     opts.now,
   );
-  return { res, sent, armed };
+  return { res, sent, armed, params };
 }
 
 test("no_show_hoy: Resultado still empty → sends day-aware copy and hands over to d2 / d7", async () => {
@@ -578,11 +580,12 @@ test("no_show_hoy: the front desk marked Asistió (or moved the date) → nothin
   assert.deepEqual(moved.res, { outcome: "cancelled", stopChain: true });
 });
 
-test("no_show_hoy: window closed on the class day → no_show_hoy template with name + slot", async () => {
+test("no_show_hoy: window closed on the class day → no_show_hoy template with name + booking link", async () => {
   const t = cdmxToEpoch(2026, 10, 6, 11, 0);
   const r = await runChainRow("no_show_hoy", { trial: t, now: t + 2 * H, windowClosed: true });
   assert.deepEqual(r.res, { outcome: "sent" });
   assert.deepEqual(r.sent, ["[template:no_show_hoy_es]"]);
+  assert.ok(/https?:\/\//.test(r.params[0]!) && !/sábado|lunes|martes|am"|pm"/.test(r.params[0]!), r.params[0]);
 });
 
 test("no_show_hoy: window closed the NEXT day → skipped silently (never a 'hoy'/'ayer' template on the wrong day)", async () => {
@@ -625,10 +628,10 @@ test("post-trial copy per band: parents read '¿Cómo les fue?', adults stay sin
   const d0kid = postTrialCopy(kid, "post_trial_d0", null, false, { trialEpoch: t, now });
   assert.ok(d0kid.includes("¿Cómo les fue?") && d0kid.includes("Leo") && d0kid.includes("hoy"), d0kid);
   const d3kid = postTrialCopy(kid, "post_trial_d3", null, false, { trialEpoch: t, now: cdmxToEpoch(2026, 10, 9, 11, 0) });
-  assert.ok(!/amaneció el cuerpo/.test(d3kid) && /Les gustaría/.test(d3kid), d3kid);
+  assert.ok(!/amaneció el cuerpo/.test(d3kid) && /¿Se animan/.test(d3kid), d3kid);
   const adult = contact({});
   const d3 = postTrialCopy(adult, "post_trial_d3", null, false, { trialEpoch: t, now: cdmxToEpoch(2026, 10, 9, 11, 0) });
-  assert.ok(/Te gustaría/.test(d3), d3);
+  assert.ok(/¿Te animas/.test(d3), d3);
   const en = postTrialCopy(contact({ lang: "en", qualification: JSON.stringify({ child_age_months: 30 }) }), "post_trial_d6", null, false, { trialEpoch: t, now });
   assert.ok(/your baby/.test(en), en);
 });
@@ -767,16 +770,16 @@ test("chain copy per program: baby names Baby Fight Club and never 'cuerpo'/'bod
     ];
     for (const b of bodies) {
       assert.ok(b.includes("Baby Fight Club"), b);
-      assert.equal(/cuerpo|body|te pareció|le pareció|think/i.test(b), false, b);
+      assert.equal(/cuerpo|body|te pareció|le pareció|think of/i.test(b), false, b);
       assert.ok(!b.includes("{"), b);
     }
   }
   const kidD3 = postTrialCopy(kidLead(), "post_trial_d3", null, false, { trialEpoch: t, now });
-  assert.ok(/Les gustaría/.test(kidD3) && !kidD3.includes("Baby Fight Club"), kidD3);
+  assert.ok(/¿Se animan/.test(kidD3) && !kidD3.includes("Baby Fight Club"), kidD3);
   const kidNs = noShowTouchCopy(kidLead(), "d2", t, now);
   assert.ok(/Les seguimos/.test(kidNs) && !kidNs.includes("Baby Fight Club"), kidNs);
   const adultD3 = postTrialCopy(contact({}), "post_trial_d3", null, false, { trialEpoch: t, now });
-  assert.ok(/Te gustaría/.test(adultD3), adultD3);
+  assert.ok(/¿Te animas/.test(adultD3), adultD3);
   assert.ok(/Te seguimos/.test(noShowTouchCopy(contact({}), "d2", t, now)));
 });
 
@@ -790,7 +793,7 @@ test("legacy post_trial_d2 / d5 rows of a baby lead render baby copy and, window
   const t = cdmxToEpoch(2026, 10, 6, 11, 0);
   const d2 = await runChainRow("post_trial_d2", { trial: t, now: cdmxToEpoch(2026, 10, 8, 11, 0), c: babyLead() });
   assert.equal(d2.res.outcome, "sent");
-  assert.ok(d2.sent[0]!.includes("coordinación") && !/cuerpo/.test(d2.sent[0]!), d2.sent[0]);
+  assert.ok(d2.sent[0]!.includes("Baby Fight Club") && !/cuerpo/.test(d2.sent[0]!), d2.sent[0]);
   const d5 = await runChainRow("post_trial_d5", {
     trial: t,
     now: cdmxToEpoch(2026, 10, 11, 11, 0),
@@ -798,6 +801,8 @@ test("legacy post_trial_d2 / d5 rows of a baby lead render baby copy and, window
     c: babyLead(),
   });
   assert.deepEqual(d5.sent, ["[template:post_trial_d6_baby_es]"]);
+  // d6 carries the name only (no schedule link since 2026-10-15).
+  assert.equal(/https?:/.test(d5.params[0]!), false, d5.params[0]);
   // A pending _baby twin is skipped quietly (never template_missing).
   const quiet = await runChainRow("post_trial_d5", {
     trial: t,
