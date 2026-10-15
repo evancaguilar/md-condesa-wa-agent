@@ -378,13 +378,13 @@ export default {
     postTrialD6En:
       "Hi{who}! I noticed you haven't signed up yet. Is there anything in particular we could improve that would have made you want to sign up? Your feedback helps us a lot 🙏",
     postTrialD6KidsEs:
-      "¡Hola{who}! Vi que todavía no han inscrito a {kid}. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribir a {kid}? Su opinión nos ayuda mucho 🙏",
+      "¡Hola{who}! Vi que todavía no han inscrito a {kid}. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribirse? Su opinión nos ayuda mucho 🙏",
     postTrialD6KidsEn:
-      "Hi{who}! I noticed you haven't enrolled {kid} yet. Is there anything in particular we could improve that would have made you want to enroll {kid}? Your feedback helps us a lot 🙏",
+      "Hi{who}! I noticed you haven't enrolled {kid} yet. Is there anything in particular we could improve that would have made you want to sign up? Your feedback helps us a lot 🙏",
     postTrialD6BabyEs:
-      "¡Hola{who}! Vi que todavía no han inscrito a {kid} en Baby Fight Club. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribir a {kid}? Su opinión nos ayuda mucho 🙏",
+      "¡Hola{who}! Vi que todavía no han inscrito a {kid} en Baby Fight Club. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribirse? Su opinión nos ayuda mucho 🙏",
     postTrialD6BabyEn:
-      "Hi{who}! I noticed you haven't enrolled {kid} in Baby Fight Club yet. Is there anything in particular we could improve that would have made you want to enroll {kid}? Your feedback helps us a lot 🙏",
+      "Hi{who}! I noticed you haven't enrolled {kid} in Baby Fight Club yet. Is there anything in particular we could improve that would have made you want to sign up? Your feedback helps us a lot 🙏",
     // No-show — class start + 2 h ({day} = hoy, or ayer/el sábado when it
     // lands later), then +2 days and +7 days at 11:00. hoy carries the
     // program booking link ({link}); d2 one real slot ({cta}).

@@ -542,16 +542,16 @@ use the twin here. Since 2026-10-15: "what could we improve?", no link.
 > Hi {{1}}! I noticed you haven't signed up yet. Is there anything in particular we could improve that would have made you want to sign up? Your feedback helps us a lot 🙏
 
 **ES kids — mini / kids / teens, to the parent (`post_trial_d6_kids_es`)**
-> ¡Hola {{1}}! Vi que todavía no han inscrito a su peque. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribir a su peque? Su opinión nos ayuda mucho 🙏
+> ¡Hola {{1}}! Vi que todavía no han inscrito a su peque. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribirse? Su opinión nos ayuda mucho 🙏
 
 **EN kids — mini / kids / teens, to the parent (`post_trial_d6_kids_en`)**
-> Hi {{1}}! I noticed you haven't enrolled your little one yet. Is there anything in particular we could improve that would have made you want to enroll your little one? Your feedback helps us a lot 🙏
+> Hi {{1}}! I noticed you haven't enrolled your little one yet. Is there anything in particular we could improve that would have made you want to sign up? Your feedback helps us a lot 🙏
 
 **ES baby — Baby Fight Club, to the parent (`post_trial_d6_baby_es`)**
-> ¡Hola {{1}}! Vi que todavía no han inscrito a su bebé en Baby Fight Club. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribir a su bebé? Su opinión nos ayuda mucho 🙏
+> ¡Hola {{1}}! Vi que todavía no han inscrito a su bebé en Baby Fight Club. ¿Hay algo en particular que podríamos mejorar para que se hubieran animado a inscribirse? Su opinión nos ayuda mucho 🙏
 
 **EN baby — Baby Fight Club, to the parent (`post_trial_d6_baby_en`)**
-> Hi {{1}}! I noticed you haven't enrolled your baby in Baby Fight Club yet. Is there anything in particular we could improve that would have made you want to enroll your baby? Your feedback helps us a lot 🙏
+> Hi {{1}}! I noticed you haven't enrolled your baby in Baby Fight Club yet. Is there anything in particular we could improve that would have made you want to sign up? Your feedback helps us a lot 🙏
 
 Variables: {{1}} name.
 
