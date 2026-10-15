@@ -62,7 +62,7 @@ const KID_NOUN: Record<Exclude<Variant, "adults">, Record<Language, string>> = {
 const SLOT_EXAMPLE: Record<Variant, Record<Language, string>> = {
   adults: { es: "Muay Thai el sábado 10:00 am", en: "Muay Thai Saturday 10:00 am" },
   kids: { es: "Kids el sábado 10:00 am", en: "Kids Saturday 10:00 am" },
-  baby: { es: "Baby Fight Club el sábado 11:00 am", en: "Baby Fight Club Saturday 11:00 am" },
+  baby: { es: "Baby Fight Club el sábado 2:00 pm", en: "Baby Fight Club Saturday 2:00 pm" },
 };
 
 /**
