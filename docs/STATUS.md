@@ -1,8 +1,17 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-13**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-15**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### Post-trial/no-show chains per program + template seeder, 2026-10-15 — NOT PUSHED
+
+A mother who took her 11-month-old to Baby Fight Club got the adult "¿Cómo amaneció el cuerpo después de tu clase?" (legacy `post_trial_d2` rows used adult-only copy for everyone). The chains now have THREE sequences, picked by `bandProgram(band)`: **adults** (singular), **kids** (mini / kids / teens → plural to the parent) and **baby** (Baby Fight Club → plural, parent moves with the baby; never "cuerpo" / "what did the baby think").
+
+- client.mjs: `*Fam*` keys renamed `*Kids*`, new `*Baby*` twins for post_trial d0/d3/d6 and no_show hoy/d2/d7 × es/en (no price / discount / deadline).
+- src/cron/post-trial.ts: `chainVariant()`; template names `<base>` / `_kids` / `_baby` (d0 kids/baby: `post_trial_d0_kids` / `_baby`, no `_ayer` twin). Legacy `post_trial_d2` / `_d5` rows render the d3 / d6 copy of the lead's program; window closed → adults keep the approved v1 `post_trial_d2` / `_d5`, minors get the d3 / d6 twin. Pending twins skip quietly.
+- New one-shot seeder src/cron/template-seed-chains.ts (kv `tpl_seed:chains:2026-10-15`, wired in the dispatcher): submits the 34 chain templates (Marketing, BAJA footer, examples), bodies derived from client.mjs. Until now every out-of-window v2 touch was silently skipped because none of these names existed on the WABA. docs/templates.md §11–§15 regenerated. Tests 1236 → **1243**.
+- [ ] **Evan, after deploy:** look for the 📝 Slack note "Plantillas de seguimiento post-clase / no-show (adultos, kids, baby)" in #bot-ops (⚠️ = some failed — read the errors); then in WhatsApp Manager confirm the 34 names reach **APPROVED** (any REJECTED → reword in client.mjs and bump `SEED_KEY`).
 
 ### "Se inscribió" push hook: welcome + student kit in seconds (2026-10-13) — NOT PUSHED
 

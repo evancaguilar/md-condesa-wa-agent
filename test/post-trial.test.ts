@@ -270,14 +270,14 @@ test("computeNoShowRebook: nothing left to schedule when the moment has passed",
 
 // ---- copy -----------------------------------------------------------------
 
-test("post-trial copy: d0 asks how it felt, d2 asks what's missing, d5 links the schedule", () => {
+test("post-trial copy: d0 asks how it felt, legacy d2 reads the d3 line, d5 links the schedule", () => {
   const c = contact({ name: "Ana" });
   const d0 = postTrialCopy(c, "post_trial_d0");
   assert.ok(d0.startsWith("¡Hola Ana!"), d0);
   assert.ok(/¿Qué te pareció la experiencia\?/.test(d0), d0);
   assert.ok(/inscripción/.test(d0), d0); // d0 closes on enrollment, not another trial
   const d2 = postTrialCopy(c, "post_trial_d2");
-  assert.ok(/¿Qué te falta saber/.test(d2), d2);
+  assert.ok(/Te gustaría venir otra vez/.test(d2), d2); // legacy d2 → d3 copy (2026-10-15)
   const d5 = postTrialCopy(c, "post_trial_d5");
   assert.ok(/https?:\/\//.test(d5), d5); // the goodbye links to the schedule
 });
@@ -324,12 +324,23 @@ test("no-show copy: the two touches differ and both close with a CTA + link", ()
   }
 });
 
-test("postTrialTemplateName: v2 kinds, _fam for parents, legacy no_show_d3 → no_show_d2 (never the 'ayer' template)", () => {
+test("postTrialTemplateName: v2 kinds, _kids / _baby per program, legacy no_show_d3 → no_show_d2 (never the 'ayer' template)", () => {
   assert.equal(postTrialTemplateName("post_trial_d0"), "post_trial_d0");
   assert.equal(postTrialTemplateName("post_trial_d5"), "post_trial_d5");
+  assert.equal(postTrialTemplateName("post_trial_d2"), "post_trial_d2");
   assert.equal(postTrialTemplateName("post_trial_d3"), "post_trial_d3");
-  assert.equal(postTrialTemplateName("post_trial_d6", null, "kids"), "post_trial_d6_fam");
-  assert.equal(postTrialTemplateName("no_show_hoy", null, "baby"), "no_show_hoy_fam");
+  assert.equal(postTrialTemplateName("post_trial_d6", null, "kids"), "post_trial_d6_kids");
+  assert.equal(postTrialTemplateName("post_trial_d6", null, "teens"), "post_trial_d6_kids");
+  assert.equal(postTrialTemplateName("post_trial_d3", null, "mini"), "post_trial_d3_kids");
+  assert.equal(postTrialTemplateName("no_show_hoy", null, "baby"), "no_show_hoy_baby");
+  assert.equal(postTrialTemplateName("no_show_d2", null, "baby"), "no_show_d2_baby");
+  assert.equal(postTrialTemplateName("no_show_d7", null, "kids"), "no_show_d7_kids");
+  // d0: kids / baby have no _ayer twin; adults keep it.
+  assert.equal(postTrialTemplateName("post_trial_d0", null, "baby"), "post_trial_d0_baby");
+  assert.equal(postTrialTemplateName("post_trial_d0", null, "kids"), "post_trial_d0_kids");
+  // legacy d2 / d5: adults keep the approved v1 templates, minors get d3 / d6.
+  assert.equal(postTrialTemplateName("post_trial_d2", null, "baby"), "post_trial_d3_baby");
+  assert.equal(postTrialTemplateName("post_trial_d5", null, "kids"), "post_trial_d6_kids");
   assert.equal(postTrialTemplateName("no_show_d7"), "no_show_d7");
   assert.equal(postTrialTemplateName("no_show_d3"), "no_show_d2");
 });

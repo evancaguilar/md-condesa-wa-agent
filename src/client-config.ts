@@ -76,33 +76,46 @@ export interface ClientCopy {
   postTrialD5En: string;
   /**
    * v2 chains (src/cron/post-trial.ts, 2026-10-11). Optional: a client without
-   * them falls back to the v1 lines. `Fam` = plural copy to a parent (baby /
-   * mini / kids / teens). Extra placeholders, filled by post-trial.ts:
+   * them falls back to the v1 lines. `Kids` = plural copy to a parent (mini /
+   * kids / teens); `Baby` = plural to a parent who takes the class WITH the
+   * baby (Baby Fight Club — never "tu cuerpo" or "what did the baby think"). Extra placeholders, filled by post-trial.ts:
    * {day} → "hoy" / "ayer" / "el sábado" (computed at send time) and
    * {kid} → the child's name or "su peque" / "su bebé".
    */
   noShowHoyEs?: string;
   noShowHoyEn?: string;
-  noShowHoyFamEs?: string;
-  noShowHoyFamEn?: string;
+  noShowHoyKidsEs?: string;
+  noShowHoyBabyEs?: string;
+  noShowHoyKidsEn?: string;
+  noShowHoyBabyEn?: string;
   noShowD2Es?: string;
   noShowD2En?: string;
-  noShowD2FamEs?: string;
-  noShowD2FamEn?: string;
+  noShowD2KidsEs?: string;
+  noShowD2BabyEs?: string;
+  noShowD2KidsEn?: string;
+  noShowD2BabyEn?: string;
   noShowD7Es?: string;
   noShowD7En?: string;
-  noShowD7FamEs?: string;
-  noShowD7FamEn?: string;
-  postTrialD0FamEs?: string;
-  postTrialD0FamEn?: string;
+  noShowD7KidsEs?: string;
+  noShowD7BabyEs?: string;
+  noShowD7KidsEn?: string;
+  noShowD7BabyEn?: string;
+  postTrialD0KidsEs?: string;
+  postTrialD0BabyEs?: string;
+  postTrialD0KidsEn?: string;
+  postTrialD0BabyEn?: string;
   postTrialD3Es?: string;
   postTrialD3En?: string;
-  postTrialD3FamEs?: string;
-  postTrialD3FamEn?: string;
+  postTrialD3KidsEs?: string;
+  postTrialD3BabyEs?: string;
+  postTrialD3KidsEn?: string;
+  postTrialD3BabyEn?: string;
   postTrialD6Es?: string;
   postTrialD6En?: string;
-  postTrialD6FamEs?: string;
-  postTrialD6FamEn?: string;
+  postTrialD6KidsEs?: string;
+  postTrialD6BabyEs?: string;
+  postTrialD6KidsEn?: string;
+  postTrialD6BabyEn?: string;
   /**
    * Student kit after "Se inscribió" (src/cron/student-kit.ts): the check-in QR
    * caption, and the responsiva nudge ({link} = the Alumno's signing link).

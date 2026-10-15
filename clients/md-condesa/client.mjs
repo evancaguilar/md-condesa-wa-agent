@@ -345,56 +345,83 @@ export default {
     // ---- v2 chains (2026-10-11, src/cron/post-trial.ts) ----
     // {day} = "hoy" / "ayer" / "el sábado", computed when the message is SENT
     // (never "ayer" two hours after a 7 am class). {kid} = the child's name, or
-    // "su peque" / "su bebé" / "su hijo o hija". *Fam* = plural, to the parent.
+    // "su peque" / "su bebé" / "su hijo o hija". *Kids* = plural, to the parent
+    // (mini / kids / teens). *Baby* = Baby Fight Club (6–36 months): plural, the
+    // parent moves WITH the baby the whole class — never "tu cuerpo", never ask
+    // what the baby "thought"; movement / coordination / confidence framing.
     // Same no-price rule as above. Template twins: docs/templates.md §11–§16.
     // Attended, did not sign up — same evening (parents; adults keep D0 above).
-    postTrialD0FamEs:
+    postTrialD0KidsEs:
       "¡Hola{who}! Qué gusto tenerlos {day} en la academia 🥋 ¿Cómo les fue? ¿Qué le pareció la clase a {kid}? Si se quedaron con ganas de más, les ayudo a dejar lista su inscripción.",
-    postTrialD0FamEn:
+    postTrialD0KidsEn:
       "Hi{who}! So good to have you at the academy {day} 🥋 How did it go? What did {kid} think of the class? If you'd like to keep going, I can help you get enrolled.",
+    postTrialD0BabyEs:
+      "¡Hola{who}! Qué gusto tenerlos {day} en Baby Fight Club 🥋 ¿Cómo les fue a {kid} y a ustedes moviéndose juntos? Si se quedaron con ganas de más, les ayudo a dejar lista su inscripción.",
+    postTrialD0BabyEn:
+      "Hi{who}! So good to have you at Baby Fight Club {day} 🥋 How did it go for {kid} and you, moving together? If you'd like to keep going, I can help you get enrolled.",
     // +3 days, 11:00 — one more class before deciding, ONE real slot ({cta}).
     postTrialD3Es:
       "¡Hola{who}! ¿Cómo sigue el cuerpo después de tu clase? 😄 Tu clase de prueba ya cuenta como primera clase. ¿Te gustaría venir otra vez esta semana antes de decidir? {cta}",
     postTrialD3En:
       "Hi{who}! How's the body feeling after your class? 😄 Your trial already counts as your first class. Would you like to come once more this week before deciding? {cta}",
-    postTrialD3FamEs:
+    postTrialD3KidsEs:
       "¡Hola{who}! 👋 La clase de prueba de {kid} ya cuenta como primera clase. ¿Les gustaría venir otra vez esta semana antes de decidir? {cta}",
-    postTrialD3FamEn:
+    postTrialD3KidsEn:
       "Hi{who}! 👋 {kid}'s trial already counts as a first class. Would you like to come once more this week before deciding? {cta}",
+    postTrialD3BabyEs:
+      "¡Hola{who}! 👋 ¿Cómo siguió {kid} después de su clase de Baby Fight Club? A esta edad la constancia es lo que más se nota: cada semana más coordinación y confianza. ¿Les gustaría venir otra vez antes de decidir? {cta}",
+    postTrialD3BabyEn:
+      "Hi{who}! 👋 How has {kid} been since the Baby Fight Club class? At this age consistency is what shows the most: more coordination and confidence every week. Would you like to come once more before deciding? {cta}",
     // +6 days, 11:00 — the goodbye.
     postTrialD6Es:
       "¡Hola{who}! Cerramos la semana 🙂 Si decides inscribirte, aquí seguimos para ayudarte con horario y paquete; si prefieres más adelante, también está bien. ¡Gracias por venir! Horarios: {link}",
     postTrialD6En:
       "Hi{who}! Wrapping up the week 🙂 If you decide to sign up, we're here to help with schedule and plan; if later works better, that's fine too. Thanks for coming! Schedule: {link}",
-    postTrialD6FamEs:
+    postTrialD6KidsEs:
       "¡Hola{who}! Cerramos la semana 🙂 Si deciden inscribir a {kid}, aquí seguimos para ayudarles con horario y paquete; si prefieren más adelante, sin bronca. ¡Gracias por venir! Horarios: {link}",
-    postTrialD6FamEn:
+    postTrialD6KidsEn:
       "Hi{who}! Wrapping up the week 🙂 If you decide to enroll {kid}, we're here to help with schedule and plan; if later works better, no problem. Thanks for coming! Schedule: {link}",
+    postTrialD6BabyEs:
+      "¡Hola{who}! Cerramos la semana 🙂 Si deciden que {kid} siga en Baby Fight Club, aquí seguimos para ayudarles con el horario; si prefieren más adelante, sin bronca. ¡Gracias por venir a moverse con nosotros! Horarios: {link}",
+    postTrialD6BabyEn:
+      "Hi{who}! Wrapping up the week 🙂 If you decide to keep {kid} in Baby Fight Club, we're here to help with the schedule; if later works better, no problem. Thanks for coming to move with us! Schedule: {link}",
     // No-show — class start + 2 h ({day} = hoy, or ayer/el sábado when it
     // lands later), then +2 days and +7 days at 11:00.
     noShowHoyEs:
       "¡Hola{who}! Parece que {day} no pudiste llegar a tu clase de prueba 🙏 Sin bronca, pasa seguido. ¿La reagendamos? {cta}",
     noShowHoyEn:
       "Hi{who}! Looks like you couldn't make it to your trial class {day} 🙏 No worries, it happens. Want to reschedule? {cta}",
-    noShowHoyFamEs:
+    noShowHoyKidsEs:
       "¡Hola{who}! Parece que {day} no pudieron llegar a la clase de prueba de {kid} 🙏 Sin bronca, pasa seguido. ¿Se la reagendamos? {cta}",
-    noShowHoyFamEn:
+    noShowHoyKidsEn:
       "Hi{who}! Looks like you couldn't make it to {kid}'s trial class {day} 🙏 No worries, it happens. Want to reschedule? {cta}",
+    noShowHoyBabyEs:
+      "¡Hola{who}! Parece que {day} no pudieron llegar a la clase de prueba de {kid} en Baby Fight Club 🙏 Sin bronca, pasa seguido. ¿Se la reagendamos? {cta}",
+    noShowHoyBabyEn:
+      "Hi{who}! Looks like you couldn't make it to {kid}'s Baby Fight Club trial class {day} 🙏 No worries, it happens. Want to reschedule? {cta}",
     noShowD2Es:
       "¡Hola{who}! Te seguimos guardando tu clase de prueba gratis en MD Condesa 🥋 {cta}",
     noShowD2En:
       "Hi{who}! We're still holding your free trial class at MD Condesa 🥋 {cta}",
-    noShowD2FamEs:
+    noShowD2KidsEs:
       "¡Hola{who}! Les seguimos guardando la clase de prueba gratis de {kid} en MD Condesa 🥋 {cta}",
-    noShowD2FamEn:
+    noShowD2KidsEn:
       "Hi{who}! We're still holding {kid}'s free trial class at MD Condesa 🥋 {cta}",
+    noShowD2BabyEs:
+      "¡Hola{who}! Les seguimos guardando la clase de prueba gratis de {kid} en Baby Fight Club 🥋 {cta}",
+    noShowD2BabyEn:
+      "Hi{who}! We're still holding {kid}'s free Baby Fight Club trial class 🥋 {cta}",
     noShowD7Es:
       "¡Hola{who}! Es la última vez que te escribimos por aquí 🙂 Si más adelante quieres probar una clase gratis en MD Condesa, mándanos un mensaje y te agendamos. ¡Que estés muy bien!",
     noShowD7En:
       "Hi{who}! This is the last time we'll write here 🙂 If later on you'd like to try a free class at MD Condesa, just message us and we'll book you in. Take care!",
-    noShowD7FamEs:
+    noShowD7KidsEs:
       "¡Hola{who}! Es la última vez que les escribimos por aquí 🙂 Si más adelante quieren que {kid} pruebe una clase gratis en MD Condesa, mándennos un mensaje y les agendamos. ¡Que estén muy bien!",
-    noShowD7FamEn:
+    noShowD7KidsEn:
       "Hi{who}! This is the last time we'll write here 🙂 If later on you'd like {kid} to try a free class at MD Condesa, just message us and we'll book you in. Take care!",
+    noShowD7BabyEs:
+      "¡Hola{who}! Es la última vez que les escribimos por aquí 🙂 Si más adelante quieren que {kid} pruebe una clase gratis en Baby Fight Club, mándennos un mensaje y les agendamos. ¡Que estén muy bien!",
+    noShowD7BabyEn:
+      "Hi{who}! This is the last time we'll write here 🙂 If later on you'd like {kid} to try a free Baby Fight Club class, just message us and we'll book you in. Take care!",
   },
 };

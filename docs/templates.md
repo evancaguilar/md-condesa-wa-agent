@@ -14,8 +14,8 @@ Template name mapping (base → sent name):
 - `no_show_followup` → `no_show_followup_es` / `_en`  (**retired 2026-10-11**:
   replaced by `no_show_hoy` / `no_show_d2` / `no_show_d7`, §11–§13)
 - 2026-10-11 v2 chain drafts (§11–§16, pending owner review): `no_show_hoy`,
-  `no_show_d2`, `no_show_d7`, `post_trial_d3`, `post_trial_d6` (each with a
-  `_fam` plural twin for parents) and `reschedule_offer`
+  `no_show_d2`, `no_show_d7`, `post_trial_d3`, `post_trial_d6` (each with `_kids` and
+  `_baby` twins since 2026-10-15, submitted by src/cron/template-seed-chains.ts) and `reschedule_offer`
 - `reengage_lead` → `reengage_lead_es` / `_en`
 - `human_followup` → `human_followup_es` / `_en`  (owned/sent by C's late-approval
   path; copy included here for convenience)
@@ -394,7 +394,7 @@ are plain body text so the template needs no URL-button sample.
 # v2 chains — DRAFTS for owner review (2026-10-11, NOT submitted)
 
 Added by the post-trial / no-show chain v2 (src/cron/post-trial.ts, audit
-2026-10-09). **Nothing here is submitted to Meta yet** — Evan reviews first.
+2026-10-09). Submitted by the worker since 2026-10-15 (see below).
 Until a template is approved the code only sends the free-form twin
 (`CLIENT.copy.*` in clients/md-condesa/client.mjs) inside the 24h window; with
 the window closed and the template unknown it **skips silently** (a console
@@ -409,9 +409,21 @@ code as "<class> <when>", e.g. `Muay Thai el sábado 10:00 am`,
 Kids for a mini/baby lead). If the code has no slot to offer, the template is
 not sent.
 
-**Two bodies per step:** the base name is the adult (singular) text; the `_fam`
-name is the parent (plural) text used for baby / mini / kids / teens leads.
-Sent names append `_es` / `_en`: e.g. `no_show_hoy_es`, `no_show_hoy_fam_en`.
+**Three bodies per step (2026-10-15):** the base name is the adult (singular)
+text; `_kids` is the parent (plural) text for mini / kids / teens leads;
+`_baby` is the Baby Fight Club text (plural, the parent takes the class WITH
+the baby — never "tu cuerpo", never "what did the baby think"). Sent names
+append `_es` / `_en`: e.g. `no_show_hoy_es`, `no_show_hoy_kids_en`,
+`post_trial_d3_baby_es`. The old `_fam` names were never submitted and are gone.
+
+**Submitted by the worker** (src/cron/template-seed-chains.ts, one-shot, kv
+`tpl_seed:chains:2026-10-15`, once `WA_WABA_ID` is set): the 34 names below
+(§11–§15 × 3 programs + `post_trial_d0_kids` / `_baby`, × es / en) are created
+when the WABA does not already hold them, with footer + examples, and one Slack
+note lists what went to review. The bodies are DERIVED from the client.mjs
+free-form copy ({kid} → "su peque" / "su bebé", {cta} → "Tenemos {{2}}."), so
+edit client.mjs — not this file — and bump the seed key to resubmit new names.
+The bodies below are the generated output (2026-10-15).
 
 `no_show_followup` (§4) is **retired** by these: it said "Te extrañamos ayer"
 whatever the day was (…9340 got it two hours after a 7 am class, and again
@@ -420,35 +432,46 @@ three days later).
 ## 11. no_show_hoy — Marketing (class start + 2 h, ONLY on the class day)
 
 The code never sends this template on a later day (its text says "hoy").
-Quick-reply buttons: `Sí, reagendar` · `Luego les aviso` (EN: `Yes, reschedule` · `I'll let you know`).
 
-**ES (`no_show_hoy_es`)**
-> Hola {{1}}, parece que hoy no pudiste llegar a tu clase de prueba en MD Condesa 🙏 Sin bronca, pasa seguido. ¿Te la reagendamos? Tenemos {{2}} — contéstame y te aparto lugar.
+**ES adults (`no_show_hoy_es`)**
+> ¡Hola {{1}}! Parece que hoy no pudiste llegar a tu clase de prueba 🙏 Sin bronca, pasa seguido. ¿La reagendamos? Tenemos {{2}}.
 
-**ES familia (`no_show_hoy_fam_es`)**
-> Hola {{1}}, parece que hoy no pudieron llegar a su clase de prueba en MD Condesa 🙏 Sin bronca, pasa seguido. ¿Se la reagendamos? Tenemos {{2}} — contéstenme y les aparto lugar.
+**EN adults (`no_show_hoy_en`)**
+> Hi {{1}}! Looks like you couldn't make it to your trial class today 🙏 No worries, it happens. Want to reschedule? We have {{2}}.
 
-**EN (`no_show_hoy_en`)**
-> Hi {{1}}, looks like you couldn't make it to your trial class at MD Condesa today 🙏 No worries, it happens. Want to reschedule? We have {{2}} — reply and I'll save your spot.
+**ES kids — mini / kids / teens, to the parent (`no_show_hoy_kids_es`)**
+> ¡Hola {{1}}! Parece que hoy no pudieron llegar a la clase de prueba de su peque 🙏 Sin bronca, pasa seguido. ¿Se la reagendamos? Tenemos {{2}}.
 
-**EN family (`no_show_hoy_fam_en`)**
-> Hi {{1}}, looks like you couldn't make it to the trial class at MD Condesa today 🙏 No worries, it happens. Want to reschedule? We have {{2}} — reply and I'll save the spot.
+**EN kids — mini / kids / teens, to the parent (`no_show_hoy_kids_en`)**
+> Hi {{1}}! Looks like you couldn't make it to your little one's trial class today 🙏 No worries, it happens. Want to reschedule? We have {{2}}.
+
+**ES baby — Baby Fight Club, to the parent (`no_show_hoy_baby_es`)**
+> ¡Hola {{1}}! Parece que hoy no pudieron llegar a la clase de prueba de su bebé en Baby Fight Club 🙏 Sin bronca, pasa seguido. ¿Se la reagendamos? Tenemos {{2}}.
+
+**EN baby — Baby Fight Club, to the parent (`no_show_hoy_baby_en`)**
+> Hi {{1}}! Looks like you couldn't make it to your baby's Baby Fight Club trial class today 🙏 No worries, it happens. Want to reschedule? We have {{2}}.
 
 Variables: {{1}} name, {{2}} slot.
 
 ## 12. no_show_d2 — Marketing (11:00 CDMX, two days after the missed class)
 
-**ES (`no_show_d2_es`)**
-> ¡Hola {{1}}! Te seguimos guardando tu clase de prueba gratis en MD Condesa 🥋 La próxima opción es {{2}}. ¿Te la aparto?
+**ES adults (`no_show_d2_es`)**
+> ¡Hola {{1}}! Te seguimos guardando tu clase de prueba gratis en MD Condesa 🥋 Tenemos {{2}}.
 
-**ES familia (`no_show_d2_fam_es`)**
-> ¡Hola {{1}}! Les seguimos guardando la clase de prueba gratis en MD Condesa 🥋 La próxima opción es {{2}}. ¿Se la aparto?
+**EN adults (`no_show_d2_en`)**
+> Hi {{1}}! We're still holding your free trial class at MD Condesa 🥋 We have {{2}}.
 
-**EN (`no_show_d2_en`)**
-> Hi {{1}}! We're still holding your free trial class at MD Condesa 🥋 The next option is {{2}}. Shall I save it for you?
+**ES kids — mini / kids / teens, to the parent (`no_show_d2_kids_es`)**
+> ¡Hola {{1}}! Les seguimos guardando la clase de prueba gratis de su peque en MD Condesa 🥋 Tenemos {{2}}.
 
-**EN family (`no_show_d2_fam_en`)**
-> Hi {{1}}! We're still holding the free trial class at MD Condesa 🥋 The next option is {{2}}. Shall I save it for you?
+**EN kids — mini / kids / teens, to the parent (`no_show_d2_kids_en`)**
+> Hi {{1}}! We're still holding your little one's free trial class at MD Condesa 🥋 We have {{2}}.
+
+**ES baby — Baby Fight Club, to the parent (`no_show_d2_baby_es`)**
+> ¡Hola {{1}}! Les seguimos guardando la clase de prueba gratis de su bebé en Baby Fight Club 🥋 Tenemos {{2}}.
+
+**EN baby — Baby Fight Club, to the parent (`no_show_d2_baby_en`)**
+> Hi {{1}}! We're still holding your baby's free Baby Fight Club trial class 🥋 We have {{2}}.
 
 Variables: {{1}} name, {{2}} slot. (Legacy `no_show_d3` rows still pending
 at deploy are sent with this template too.)
@@ -458,57 +481,97 @@ at deploy are sent with this template too.)
 After this step the bot posts a Slack TASK "Marcar Perdido: <nombre> · <tel>"
 — a human writes Perdido; the bot never does.
 
-**ES (`no_show_d7_es`)**
-> Hola {{1}}, es la última vez que te escribimos por aquí 🙂 Si más adelante quieres probar una clase gratis en MD Condesa, mándanos un mensaje y te agendamos. ¡Que estés muy bien!
+**ES adults (`no_show_d7_es`)**
+> ¡Hola {{1}}! Es la última vez que te escribimos por aquí 🙂 Si más adelante quieres probar una clase gratis en MD Condesa, mándanos un mensaje y te agendamos. ¡Que estés muy bien!
 
-**ES familia (`no_show_d7_fam_es`)**
-> Hola {{1}}, es la última vez que les escribimos por aquí 🙂 Si más adelante quieren probar una clase gratis en MD Condesa, mándennos un mensaje y les agendamos. ¡Que estén muy bien!
+**EN adults (`no_show_d7_en`)**
+> Hi {{1}}! This is the last time we'll write here 🙂 If later on you'd like to try a free class at MD Condesa, just message us and we'll book you in. Take care!
 
-**EN (`no_show_d7_en`)**
-> Hi {{1}}, this is the last time we'll write here 🙂 If later on you'd like to try a free class at MD Condesa, just message us and we'll book you in. Take care!
+**ES kids — mini / kids / teens, to the parent (`no_show_d7_kids_es`)**
+> ¡Hola {{1}}! Es la última vez que les escribimos por aquí 🙂 Si más adelante quieren que su peque pruebe una clase gratis en MD Condesa, mándennos un mensaje y les agendamos. ¡Que estén muy bien!
 
-**EN family (`no_show_d7_fam_en`)**
-> Hi {{1}}, this is the last time we'll write here 🙂 If later on you'd like your kid to try a free class at MD Condesa, just message us and we'll book you in. Take care!
+**EN kids — mini / kids / teens, to the parent (`no_show_d7_kids_en`)**
+> Hi {{1}}! This is the last time we'll write here 🙂 If later on you'd like your little one to try a free class at MD Condesa, just message us and we'll book you in. Take care!
+
+**ES baby — Baby Fight Club, to the parent (`no_show_d7_baby_es`)**
+> ¡Hola {{1}}! Es la última vez que les escribimos por aquí 🙂 Si más adelante quieren que su bebé pruebe una clase gratis en Baby Fight Club, mándennos un mensaje y les agendamos. ¡Que estén muy bien!
+
+**EN baby — Baby Fight Club, to the parent (`no_show_d7_baby_en`)**
+> Hi {{1}}! This is the last time we'll write here 🙂 If later on you'd like your baby to try a free Baby Fight Club class, just message us and we'll book you in. Take care!
 
 Variables: {{1}} name.
 
 ## 14. post_trial_d3 — Marketing (11:00 CDMX, three days after an attended trial)
 
-Replaces `post_trial_d2` (§8) for chains armed from 2026-10-11 on. No price,
-no discount, no deadline (same rule as §7–§9).
+Replaces `post_trial_d2` (§8) for chains armed from 2026-10-11 on — and since
+2026-10-15 legacy `post_trial_d2` rows of kids / baby leads use the `_kids` /
+`_baby` twin here (adults keep the approved §8 template). No price, no
+discount, no deadline (same rule as §7–§9).
 
-**ES (`post_trial_d3_es`)**
-> ¡Hola {{1}}! Tu clase de prueba ya cuenta como primera clase 🥋 ¿Te gustaría venir otra vez esta semana antes de decidir? Tenemos {{2}}.
+**ES adults (`post_trial_d3_es`)**
+> ¡Hola {{1}}! ¿Cómo sigue el cuerpo después de tu clase? 😄 Tu clase de prueba ya cuenta como primera clase. ¿Te gustaría venir otra vez esta semana antes de decidir? Tenemos {{2}}.
 
-**ES familia (`post_trial_d3_fam_es`)**
-> ¡Hola {{1}}! 👋 Su clase de prueba ya cuenta como primera clase. ¿Les gustaría venir otra vez esta semana antes de decidir? Tenemos {{2}}.
+**EN adults (`post_trial_d3_en`)**
+> Hi {{1}}! How's the body feeling after your class? 😄 Your trial already counts as your first class. Would you like to come once more this week before deciding? We have {{2}}.
 
-**EN (`post_trial_d3_en`)**
-> Hi {{1}}! Your trial already counts as your first class 🥋 Would you like to come once more this week before deciding? We have {{2}}.
+**ES kids — mini / kids / teens, to the parent (`post_trial_d3_kids_es`)**
+> ¡Hola {{1}}! 👋 La clase de prueba de su peque ya cuenta como primera clase. ¿Les gustaría venir otra vez esta semana antes de decidir? Tenemos {{2}}.
 
-**EN family (`post_trial_d3_fam_en`)**
-> Hi {{1}}! 👋 The trial already counts as a first class. Would you like to come once more this week before deciding? We have {{2}}.
+**EN kids — mini / kids / teens, to the parent (`post_trial_d3_kids_en`)**
+> Hi {{1}}! 👋 Your little one's trial already counts as a first class. Would you like to come once more this week before deciding? We have {{2}}.
+
+**ES baby — Baby Fight Club, to the parent (`post_trial_d3_baby_es`)**
+> ¡Hola {{1}}! 👋 ¿Cómo siguió su bebé después de su clase de Baby Fight Club? A esta edad la constancia es lo que más se nota: cada semana más coordinación y confianza. ¿Les gustaría venir otra vez antes de decidir? Tenemos {{2}}.
+
+**EN baby — Baby Fight Club, to the parent (`post_trial_d3_baby_en`)**
+> Hi {{1}}! 👋 How has your baby been since the Baby Fight Club class? At this age consistency is what shows the most: more coordination and confidence every week. Would you like to come once more before deciding? We have {{2}}.
 
 Variables: {{1}} name, {{2}} slot.
 
 ## 15. post_trial_d6 — Marketing (11:00 CDMX, six days after; the goodbye)
 
-Replaces `post_trial_d5` (§9). `{{2}}` = the public schedule link
-(`links.schedule`, today https://mdcondesa.com/#horarios).
+Replaces `post_trial_d5` (§9); legacy `post_trial_d5` rows of kids / baby leads
+use the twin here. `{{2}}` = the public schedule link (`links.schedule`, today
+https://mdcondesa.com/#horarios).
 
-**ES (`post_trial_d6_es`)**
-> ¡Hola {{1}}! Cerramos la semana 🙂 Si decides inscribirte, aquí seguimos para ayudarte con horario y paquete; si prefieres más adelante, también está bien. ¡Gracias por venir! Horarios: {{2}}
+**ES adults (`post_trial_d6_es`)**
+> ¡Hola {{1}}! Cerramos la semana 🙂 Si decides inscribirte, aquí seguimos para ayudarte con horario y paquete; si prefieres más adelante, también está bien. ¡Gracias por venir! Horarios: {{2}} 🥋
 
-**ES familia (`post_trial_d6_fam_es`)**
-> ¡Hola {{1}}! Cerramos la semana 🙂 Si deciden inscribirse, aquí seguimos para ayudarles con horario y paquete; si prefieren más adelante, sin bronca. ¡Gracias por venir! Horarios: {{2}}
+**EN adults (`post_trial_d6_en`)**
+> Hi {{1}}! Wrapping up the week 🙂 If you decide to sign up, we're here to help with schedule and plan; if later works better, that's fine too. Thanks for coming! Schedule: {{2}} 🥋
 
-**EN (`post_trial_d6_en`)**
-> Hi {{1}}! Wrapping up the week 🙂 If you decide to sign up, we're here to help with schedule and plan; if later works better, that's fine too. Thanks for coming! Schedule: {{2}}
+**ES kids — mini / kids / teens, to the parent (`post_trial_d6_kids_es`)**
+> ¡Hola {{1}}! Cerramos la semana 🙂 Si deciden inscribir a su peque, aquí seguimos para ayudarles con horario y paquete; si prefieren más adelante, sin bronca. ¡Gracias por venir! Horarios: {{2}} 🥋
 
-**EN family (`post_trial_d6_fam_en`)**
-> Hi {{1}}! Wrapping up the week 🙂 If you decide to enroll, we're here to help with schedule and plan; if later works better, no problem. Thanks for coming! Schedule: {{2}}
+**EN kids — mini / kids / teens, to the parent (`post_trial_d6_kids_en`)**
+> Hi {{1}}! Wrapping up the week 🙂 If you decide to enroll your little one, we're here to help with schedule and plan; if later works better, no problem. Thanks for coming! Schedule: {{2}} 🥋
+
+**ES baby — Baby Fight Club, to the parent (`post_trial_d6_baby_es`)**
+> ¡Hola {{1}}! Cerramos la semana 🙂 Si deciden que su bebé siga en Baby Fight Club, aquí seguimos para ayudarles con el horario; si prefieren más adelante, sin bronca. ¡Gracias por venir a moverse con nosotros! Horarios: {{2}} 🥋
+
+**EN baby — Baby Fight Club, to the parent (`post_trial_d6_baby_en`)**
+> Hi {{1}}! Wrapping up the week 🙂 If you decide to keep your baby in Baby Fight Club, we're here to help with the schedule; if later works better, no problem. Thanks for coming to move with us! Schedule: {{2}} 🥋
 
 Variables: {{1}} name, {{2}} schedule link.
+
+### post_trial_d0_kids / post_trial_d0_baby — Marketing (same evening; kids / baby d0)
+
+No `_ayer` twin: these bodies carry no day word (free-form copy keeps
+"hoy" / "ayer"). Adults keep §7 / §7b.
+
+**ES kids — mini / kids / teens, to the parent (`post_trial_d0_kids_es`)**
+> ¡Hola {{1}}! Qué gusto tenerlos en la academia 🥋 ¿Cómo les fue? ¿Qué le pareció la clase a su peque? Si se quedaron con ganas de más, les ayudo a dejar lista su inscripción.
+
+**EN kids — mini / kids / teens, to the parent (`post_trial_d0_kids_en`)**
+> Hi {{1}}! So good to have you at the academy 🥋 How did it go? What did your little one think of the class? If you'd like to keep going, I can help you get enrolled.
+
+**ES baby — Baby Fight Club, to the parent (`post_trial_d0_baby_es`)**
+> ¡Hola {{1}}! Qué gusto tenerlos en Baby Fight Club 🥋 ¿Cómo les fue a su bebé y a ustedes moviéndose juntos? Si se quedaron con ganas de más, les ayudo a dejar lista su inscripción.
+
+**EN baby — Baby Fight Club, to the parent (`post_trial_d0_baby_en`)**
+> Hi {{1}}! So good to have you at Baby Fight Club 🥋 How did it go for your baby and you, moving together? If you'd like to keep going, I can help you get enrolled.
+
+Variables: {{1}} name.
 
 ## 16. reschedule_offer — Marketing (WP3: "Necesito reagendar" out of window)
 

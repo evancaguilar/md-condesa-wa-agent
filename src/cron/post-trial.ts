@@ -12,8 +12,10 @@
 //     time — the record is re-read), then no_show_d2 / no_show_d7 at 11:00,
 //     then a Slack TASK "Marcar Perdido" (the bot never writes Perdido).
 //
-// Copy is per program BAND (baby / mini / kids / teens → plural, to the
-// parent; adults → singular) and per contact language, and every day word is
+// Copy is per PROGRAM (2026-10-15): adults → singular; kids (mini / kids /
+// teens) → plural, to the parent; baby (Baby Fight Club, 6–36 months) → plural,
+// to a parent who takes the class WITH the baby (never "tu cuerpo", never "what
+// did the baby think" — a mother of an 11-month-old got the adult line) and per contact language, and every day word is
 // computed at SEND time against the trial date ("hoy" / "ayer" / "el sábado"),
 // so a row that a quiet-hours re-check pushed to the next morning can never
 // say "hoy" again (post_trial_d0 "verte hoy" went out the next morning; the
@@ -43,7 +45,6 @@ import {
   bandProgram,
   bandSlot,
   bookingMarkerLive,
-  isMinorBand,
   parseQualification,
   programLink,
   slotCta,
@@ -344,10 +345,35 @@ function langOf(contact: Contact | null): "es" | "en" {
 
 type CopyKey = keyof typeof CLIENT.copy;
 
-/** CLIENT.copy[key] with a fallback key (a client without the v2 lines). */
-function line(key: string, fallback: CopyKey): string {
+/** CLIENT.copy[key] — the first key present — with a fallback key (a client
+ *  without the v2 / per-program lines). */
+function line(key: string | string[], fallback: CopyKey): string {
   const c = CLIENT.copy as unknown as Record<string, string | undefined>;
-  return c[key] ?? (CLIENT.copy[fallback] as string);
+  for (const k of Array.isArray(key) ? key : [key]) {
+    if (c[k]) return c[k]!;
+  }
+  return CLIENT.copy[fallback] as string;
+}
+
+/** The three copy sequences of the post-trial / no-show chains. */
+export type ChainVariant = "adults" | "kids" | "baby";
+
+/** Pure. baby → Baby Fight Club copy; mini / kids / teens → kids; adults. */
+export function chainVariant(band: ProgramBand): ChainVariant {
+  const p = bandProgram(band);
+  return p === "baby" ? "baby" : p === "adults" ? "adults" : "kids";
+}
+
+/** client.mjs copy keys to try, most specific first: base + Baby → Kids → base. */
+function variantKeys(base: string, v: ChainVariant, sfx: "Es" | "En"): string[] {
+  if (v === "adults") return [`${base}${sfx}`];
+  if (v === "kids") return [`${base}Kids${sfx}`];
+  return [`${base}Baby${sfx}`, `${base}Kids${sfx}`];
+}
+
+/** Template name suffix per variant: post_trial_d3 / _kids / _baby. */
+export function variantTemplateSuffix(v: ChainVariant): string {
+  return v === "adults" ? "" : `_${v}`;
 }
 
 /**
@@ -365,7 +391,7 @@ export function postTrialCopy(
   const lang = langOf(contact);
   const en = lang === "en";
   const band = opts.band ?? bandForContact(contact, campaignName);
-  const fam = isMinorBand(band);
+  const v = chainVariant(band);
   const who = nameSuffix(postTrialName(contact));
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   const trial = opts.trialEpoch ?? null;
@@ -380,26 +406,23 @@ export function postTrialCopy(
   let template: string;
   switch (kind) {
     case "post_trial_d0":
-      template = fam
-        ? line(`postTrialD0Fam${sfx}`, en ? "postTrialD0En" : "postTrialD0Es")
+      template = v !== "adults"
+        ? line(variantKeys("postTrialD0", v, sfx), en ? "postTrialD0En" : "postTrialD0Es")
         : isAyer
           ? (en ? CLIENT.copy.postTrialD0AyerEn : CLIENT.copy.postTrialD0AyerEs)
           : (en ? CLIENT.copy.postTrialD0En : CLIENT.copy.postTrialD0Es);
       break;
+    // Legacy d2 / d5 rows (armed before v2) read the d3 / d6 copy of the lead's
+    // program — the old lines were adult-only ("¿cómo amaneció el cuerpo?").
     case "post_trial_d3":
-      template = line(`postTrialD3${fam ? "Fam" : ""}${sfx}`, en ? "postTrialD2En" : "postTrialD2Es");
-      break;
-    case "post_trial_d6":
-      template = line(`postTrialD6${fam ? "Fam" : ""}${sfx}`, en ? "postTrialD5En" : "postTrialD5Es");
-      break;
     case "post_trial_d2":
-      template = en ? CLIENT.copy.postTrialD2En : CLIENT.copy.postTrialD2Es;
+      template = line(variantKeys("postTrialD3", v, sfx), en ? "postTrialD2En" : "postTrialD2Es");
       break;
     default:
-      template = en ? CLIENT.copy.postTrialD5En : CLIENT.copy.postTrialD5Es;
+      template = line(variantKeys("postTrialD6", v, sfx), en ? "postTrialD5En" : "postTrialD5Es");
   }
   const cta =
-    kind === "post_trial_d3"
+    kind === "post_trial_d3" || kind === "post_trial_d2"
       ? slotCta(
           bandProgram(band),
           lang,
@@ -426,7 +449,7 @@ export function noShowTouchCopy(
   band: ProgramBand = bandForContact(contact, campaignName),
 ): string {
   const lang = langOf(contact);
-  const fam = isMinorBand(band) ? "Fam" : "";
+  const v = chainVariant(band);
   const sfx = lang === "en" ? "En" : "Es";
   const who = nameSuffix(postTrialName(contact));
   const day = trialEpoch !== null ? dayWord(trialEpoch, now, lang) : lang === "en" ? "recently" : "el otro día";
@@ -435,8 +458,8 @@ export function noShowTouchCopy(
   const cta =
     step === "d7" ? "" : slotCta(program, lang, bandSlot(contact, campaignName, band, now), link, now);
   const fallback: CopyKey = lang === "en" ? "noShowEn" : "noShowEs";
-  const key = step === "hoy" ? `noShowHoy${fam}${sfx}` : step === "d2" ? `noShowD2${fam}${sfx}` : `noShowD7${fam}${sfx}`;
-  return renderCopy(fill(line(key, fallback), { day, kid: kidNoun(contact, band, lang) }), { who, cta, link }).trim();
+  const base = step === "hoy" ? "noShowHoy" : step === "d2" ? "noShowD2" : "noShowD7";
+  return renderCopy(fill(line(variantKeys(base, v, sfx), fallback), { day, kid: kidNoun(contact, band, lang) }), { who, cta, link }).trim();
 }
 
 /** "Muay Thai el sábado 10:00 am" — the {{2}} of the slot templates. */
@@ -455,14 +478,18 @@ function nameSuffix(name: string): string {
   return name ? ` ${name}` : "";
 }
 
-/** Template base name for a kind (the sender appends _es / _en). Minors take
- *  the plural `_fam` body of the v2 templates (docs/templates.md §11–§16). */
+/** Template base name for a kind (the sender appends _es / _en). Kids and baby
+ *  leads take the `_kids` / `_baby` twins (docs/templates.md §11–§15, submitted
+ *  by cron/template-seed-chains.ts). d0 for kids / baby has no `_ayer` twin
+ *  (those bodies carry no day word). Legacy d2 / d5: adults keep the approved
+ *  v1 templates; kids / baby get the d3 / d6 twin of their program. */
 export function postTrialTemplateName(
   kind: FollowUpKindHere,
   note: string | null = null,
   band: ProgramBand = "adults",
 ): string {
-  const fam = isMinorBand(band) ? "_fam" : "";
+  const v = chainVariant(band);
+  const fam = variantTemplateSuffix(v);
   switch (kind) {
     case NO_SHOW_KIND:
     case "no_show_d2":
@@ -476,7 +503,12 @@ export function postTrialTemplateName(
     case "post_trial_d6":
       return `post_trial_d6${fam}`;
     case "post_trial_d0":
+      if (v !== "adults") return `post_trial_d0${fam}`;
       return isAyerNote(note) ? "post_trial_d0_ayer" : "post_trial_d0";
+    case "post_trial_d2":
+      return v === "adults" ? "post_trial_d2" : `post_trial_d3${fam}`;
+    case "post_trial_d5":
+      return v === "adults" ? "post_trial_d5" : `post_trial_d6${fam}`;
     default:
       return kind;
   }
@@ -768,11 +800,16 @@ export async function processPostTrial(
   }
 
   // ---- window closed: template fallback ----
-  const legacy = row.kind === "post_trial_d2" || row.kind === "post_trial_d5";
+  const variant = chainVariant(band);
+  // v1 templates Meta approved long ago: a failure there is loud. Everything
+  // else is a v2 / per-program twin that may still be pending → quiet skip.
+  const v1 =
+    variant === "adults" &&
+    (row.kind === "post_trial_d2" || row.kind === "post_trial_d5" || row.kind === "post_trial_d0");
   const name = templateFirstName(postTrialName(contact), lang);
   let base: string;
   let params: string[] = [name];
-  if (row.kind === "post_trial_d0") {
+  if (row.kind === "post_trial_d0" && variant === "adults") {
     const later = chain.trial !== null ? !sameCdmxDate(chain.trial, nowEpoch) : isAyerNote(row.note);
     base = later ? "post_trial_d0_ayer" : "post_trial_d0";
   } else {
@@ -782,14 +819,14 @@ export async function processPostTrial(
       console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, not the class day — skipped`);
       return finish(false);
     }
-    if (step === "hoy" || step === "d2" || row.kind === "post_trial_d3") {
+    if (step === "hoy" || step === "d2" || base.startsWith("post_trial_d3")) {
       const slot = slotParam(bandSlot(contact, campaign, band, nowEpoch), nowEpoch, lang);
       if (!slot) {
         console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, no slot for {{2}} — skipped`);
         return finish(false);
       }
       params = [name, slot];
-    } else if (row.kind === "post_trial_d6") {
+    } else if (base.startsWith("post_trial_d6")) {
       params = [name, CLIENT.links.schedule ?? CLIENT.links.booking];
     }
   }
@@ -805,7 +842,7 @@ export async function processPostTrial(
     return await finish(true);
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    if (legacy || row.kind === "post_trial_d0") {
+    if (v1) {
       return { outcome: "template_missing", template, missing: isTemplateMissingError(error), error };
     }
     // v2 templates are drafts until Meta approves them (docs/templates.md):

@@ -514,7 +514,7 @@ test("chain notes + keys: per phone + date, round-trip, tolerant of the retry su
 
 /** processPostTrial against real SQLite with fake senders. */
 async function runChainRow(
-  kind: "no_show_hoy" | "no_show_d2" | "no_show_d7" | "post_trial_d3" | "post_trial_d6",
+  kind: "no_show_hoy" | "no_show_d2" | "no_show_d7" | "post_trial_d2" | "post_trial_d3" | "post_trial_d5" | "post_trial_d6",
   opts: {
     trial: number;
     now: number;
@@ -650,7 +650,7 @@ test("post_trial_d3 / d6: free-form in window; unknown template skipped silently
     windowClosed: true,
     c: contact({ qualification: JSON.stringify({ child_age_months: 90 }) }),
   });
-  assert.deepEqual(tpl.sent, ["[template:post_trial_d6_fam_es]"]);
+  assert.deepEqual(tpl.sent, ["[template:post_trial_d6_kids_es]"]);
 });
 
 test("computePostTrialSequence v2: d0 same evening, d3 / d6 at 11:00", () => {
@@ -745,4 +745,66 @@ test("booking recon: an unbacked claim repeats daily until its class day is well
   assert.equal(stillActionable({ phone: "521", ts: now - 8 * DAY, snippet: "x" }, now), false);
   assert.equal(slotLabel(m), "sáb 2026-10-10 14:00");
   assert.equal(slotLabel({}), "");
+});
+
+// ---- three sequences: adults / kids / baby (2026-10-15) --------------------------------
+
+const babyLead = (extra: Record<string, unknown> = {}, lang?: "en") =>
+  contact({ ...(lang ? { lang } : {}), qualification: JSON.stringify({ child_age_months: 11, ...extra }) });
+const kidLead = (lang?: "en") =>
+  contact({ ...(lang ? { lang } : {}), qualification: JSON.stringify({ child_age_months: 8 * 12 }) });
+
+test("chain copy per program: baby names Baby Fight Club and never 'cuerpo'/'body'; kids plural; adults singular", () => {
+  const t = cdmxToEpoch(2026, 10, 6, 11, 0);
+  const now = cdmxToEpoch(2026, 10, 9, 11, 0);
+  for (const lang of [undefined, "en"] as const) {
+    const baby = babyLead({}, lang);
+    const bodies = [
+      ...(["post_trial_d0", "post_trial_d3", "post_trial_d6", "post_trial_d2", "post_trial_d5"] as const).map((k) =>
+        postTrialCopy(baby, k, null, false, { trialEpoch: t, now }),
+      ),
+      ...(["hoy", "d2", "d7"] as const).map((st) => noShowTouchCopy(baby, st, t, now)),
+    ];
+    for (const b of bodies) {
+      assert.ok(b.includes("Baby Fight Club"), b);
+      assert.equal(/cuerpo|body|te pareció|le pareció|think/i.test(b), false, b);
+      assert.ok(!b.includes("{"), b);
+    }
+  }
+  const kidD3 = postTrialCopy(kidLead(), "post_trial_d3", null, false, { trialEpoch: t, now });
+  assert.ok(/Les gustaría/.test(kidD3) && !kidD3.includes("Baby Fight Club"), kidD3);
+  const kidNs = noShowTouchCopy(kidLead(), "d2", t, now);
+  assert.ok(/Les seguimos/.test(kidNs) && !kidNs.includes("Baby Fight Club"), kidNs);
+  const adultD3 = postTrialCopy(contact({}), "post_trial_d3", null, false, { trialEpoch: t, now });
+  assert.ok(/Te gustaría/.test(adultD3), adultD3);
+  assert.ok(/Te seguimos/.test(noShowTouchCopy(contact({}), "d2", t, now)));
+});
+
+test("baby d0: uses the child's name and the moving-together line (the …11-month-old case)", () => {
+  const t = cdmxToEpoch(2026, 10, 6, 11, 0);
+  const d0 = postTrialCopy(babyLead({ child_name: "Emilia" }), "post_trial_d0", null, false, { trialEpoch: t, now: t + 4 * H });
+  assert.ok(d0.includes("Emilia") && /moviéndose juntos/.test(d0) && d0.includes("hoy"), d0);
+});
+
+test("legacy post_trial_d2 / d5 rows of a baby lead render baby copy and, window closed, the _baby d3 / d6 template", async () => {
+  const t = cdmxToEpoch(2026, 10, 6, 11, 0);
+  const d2 = await runChainRow("post_trial_d2", { trial: t, now: cdmxToEpoch(2026, 10, 8, 11, 0), c: babyLead() });
+  assert.equal(d2.res.outcome, "sent");
+  assert.ok(d2.sent[0]!.includes("coordinación") && !/cuerpo/.test(d2.sent[0]!), d2.sent[0]);
+  const d5 = await runChainRow("post_trial_d5", {
+    trial: t,
+    now: cdmxToEpoch(2026, 10, 11, 11, 0),
+    windowClosed: true,
+    c: babyLead(),
+  });
+  assert.deepEqual(d5.sent, ["[template:post_trial_d6_baby_es]"]);
+  // A pending _baby twin is skipped quietly (never template_missing).
+  const quiet = await runChainRow("post_trial_d5", {
+    trial: t,
+    now: cdmxToEpoch(2026, 10, 11, 11, 0),
+    windowClosed: true,
+    templateFails: true,
+    c: babyLead(),
+  });
+  assert.deepEqual(quiet.res, { outcome: "cancelled" });
 });
