@@ -39,8 +39,7 @@ test("chain seeder: placeholder shapes, examples, footer, category; no leftover 
     const wantsTwo = /^(no_show_hoy|no_show_d2)/.test(t.name);
     assert.equal(two, wantsTwo, t.name);
     assert.equal(t.bodyExamples?.length, wantsTwo ? 2 : 1, t.name);
-    if (t.name.startsWith("no_show_hoy")) assert.ok(/^https?:\/\//.test(t.bodyExamples![1]!), t.name);
-    if (t.name.startsWith("no_show_d2")) assert.equal(/^https?:/.test(t.bodyExamples![1]!), false, t.name);
+    if (wantsTwo) assert.ok(/^https?:\/\//.test(t.bodyExamples![1]!), t.name);
     if (t.name.includes("_baby")) {
       assert.ok(t.body.includes("Baby Fight Club"), t.body);
       assert.equal(/cuerpo|body/i.test(t.body), false, t.body);

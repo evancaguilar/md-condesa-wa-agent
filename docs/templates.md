@@ -457,24 +457,24 @@ Variables: {{1}} name, {{2}} booking link.
 ## 12. no_show_d2 — Marketing (11:00 CDMX, two days after the missed class)
 
 **ES adults (`no_show_d2_es`)**
-> ¡Hola {{1}}! Te seguimos guardando tu día de prueba gratis en MD Condesa 🥋 Tenemos {{2}}.
+> ¡Hola {{1}}! Te seguimos guardando tu día de prueba gratis en MD Condesa 🥋 Elige el día que te quede mejor aquí: {{2}} 🥋
 
 **EN adults (`no_show_d2_en`)**
-> Hi {{1}}! We're still holding your free trial day at MD Condesa 🥋 We have {{2}}.
+> Hi {{1}}! We're still holding your free trial day at MD Condesa 🥋 Pick the day that works best for you here: {{2}} 🥋
 
 **ES kids — mini / kids / teens, to the parent (`no_show_d2_kids_es`)**
-> ¡Hola {{1}}! Les seguimos guardando el día de prueba gratis de su peque en MD Condesa 🥋 Tenemos {{2}}.
+> ¡Hola {{1}}! Les seguimos guardando el día de prueba gratis de su peque en MD Condesa 🥋 Elijan el día que les quede mejor aquí: {{2}} 🥋
 
 **EN kids — mini / kids / teens, to the parent (`no_show_d2_kids_en`)**
-> Hi {{1}}! We're still holding your little one's free trial day at MD Condesa 🥋 We have {{2}}.
+> Hi {{1}}! We're still holding your little one's free trial day at MD Condesa 🥋 Pick the day that works best for you here: {{2}} 🥋
 
 **ES baby — Baby Fight Club, to the parent (`no_show_d2_baby_es`)**
-> ¡Hola {{1}}! Les seguimos guardando el día de prueba gratis de su bebé en Baby Fight Club 🥋 Tenemos {{2}}.
+> ¡Hola {{1}}! Les seguimos guardando el día de prueba gratis de su bebé en Baby Fight Club 🥋 Elijan el día que les quede mejor aquí: {{2}} 🥋
 
 **EN baby — Baby Fight Club, to the parent (`no_show_d2_baby_en`)**
-> Hi {{1}}! We're still holding your baby's free Baby Fight Club trial day 🥋 We have {{2}}.
+> Hi {{1}}! We're still holding your baby's free Baby Fight Club trial day 🥋 Pick the day that works best for you here: {{2}} 🥋
 
-Variables: {{1}} name, {{2}} slot. (Legacy `no_show_d3` rows still pending
+Variables: {{1}} name, {{2}} the program booking page. (Legacy `no_show_d3` rows still pending
 at deploy are sent with this template too.)
 
 ## 13. no_show_d7 — Marketing (11:00 CDMX, seven days after; the goodbye)

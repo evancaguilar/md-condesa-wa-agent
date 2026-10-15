@@ -455,6 +455,8 @@ export function noShowTouchCopy(
   const day = trialEpoch !== null ? dayWord(trialEpoch, now, lang) : lang === "en" ? "recently" : "el otro día";
   const program = bandProgram(band);
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
+  // Since 2026-10-15 every no-show touch points at the booking page ({link});
+  // {cta} stays only for a client whose copy still uses the slot proposal.
   const cta =
     step === "d7" ? "" : slotCta(program, lang, bandSlot(contact, campaignName, band, now), link, now);
   const fallback: CopyKey = lang === "en" ? "noShowEn" : "noShowEs";
@@ -819,16 +821,9 @@ export async function processPostTrial(
       console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, not the class day — skipped`);
       return finish(false);
     }
-    if (step === "hoy") {
+    if (step === "hoy" || step === "d2") {
       // {{2}} = the program's booking page (adults vs kids / baby), 2026-10-15.
       params = [name, withAttribution(programLink(bandProgram(band)), attributionFor(contact, campaign))];
-    } else if (step === "d2") {
-      const slot = slotParam(bandSlot(contact, campaign, band, nowEpoch), nowEpoch, lang);
-      if (!slot) {
-        console.log(`[post-trial] ${row.kind} ${row.phone}: window closed, no slot for {{2}} — skipped`);
-        return finish(false);
-      }
-      params = [name, slot];
     }
     // post_trial_d3 / d6 (and kids / baby legacy d2 / d5): name only since
     // 2026-10-15 — no slot offer, no schedule link.

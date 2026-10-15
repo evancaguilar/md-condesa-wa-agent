@@ -51,7 +51,7 @@ const PARAM2: Record<Step, "slot" | "link" | null> = {
   post_trial_d3: null,
   post_trial_d6: null,
   no_show_hoy: "link",
-  no_show_d2: "slot",
+  no_show_d2: "link",
   no_show_d7: null,
 };
 

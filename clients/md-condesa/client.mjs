@@ -401,17 +401,17 @@ export default {
     noShowHoyBabyEn:
       "Hi{who}! Looks like you couldn't make it to {kid}'s Baby Fight Club trial class {day} 🙏 No worries, it happens. Want to reschedule? You can pick another day here: {link}",
     noShowD2Es:
-      "¡Hola{who}! Te seguimos guardando tu día de prueba gratis en MD Condesa 🥋 {cta}",
+      "¡Hola{who}! Te seguimos guardando tu día de prueba gratis en MD Condesa 🥋 Elige el día que te quede mejor aquí: {link}",
     noShowD2En:
-      "Hi{who}! We're still holding your free trial day at MD Condesa 🥋 {cta}",
+      "Hi{who}! We're still holding your free trial day at MD Condesa 🥋 Pick the day that works best for you here: {link}",
     noShowD2KidsEs:
-      "¡Hola{who}! Les seguimos guardando el día de prueba gratis de {kid} en MD Condesa 🥋 {cta}",
+      "¡Hola{who}! Les seguimos guardando el día de prueba gratis de {kid} en MD Condesa 🥋 Elijan el día que les quede mejor aquí: {link}",
     noShowD2KidsEn:
-      "Hi{who}! We're still holding {kid}'s free trial day at MD Condesa 🥋 {cta}",
+      "Hi{who}! We're still holding {kid}'s free trial day at MD Condesa 🥋 Pick the day that works best for you here: {link}",
     noShowD2BabyEs:
-      "¡Hola{who}! Les seguimos guardando el día de prueba gratis de {kid} en Baby Fight Club 🥋 {cta}",
+      "¡Hola{who}! Les seguimos guardando el día de prueba gratis de {kid} en Baby Fight Club 🥋 Elijan el día que les quede mejor aquí: {link}",
     noShowD2BabyEn:
-      "Hi{who}! We're still holding {kid}'s free Baby Fight Club trial day 🥋 {cta}",
+      "Hi{who}! We're still holding {kid}'s free Baby Fight Club trial day 🥋 Pick the day that works best for you here: {link}",
     noShowD7Es:
       "¡Hola{who}! Es la última vez que te escribimos por aquí 🙂 Si todavía quieres agendar tu clase de prueba gratis en MD Condesa, mándanos un mensaje y te agendamos. ¡Que estés muy bien!",
     noShowD7En:

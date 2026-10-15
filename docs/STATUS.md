@@ -66,7 +66,7 @@ When the front desk marks a lead "Se inscribió", the welcome already went out; 
 - **Nudges:** claim-before-send, max one per phone per CDMX day (kv `nudge_day:`); never armed/sent while a `booking_recorded` marker points at a class ahead (…6197); copy + slot by AGE band (mini → Mini Muay Thai slots, teens → Teens slots; a baby lead with no campaign gets baby copy, …0442).
 - **Quiet hours 08:00–21:00** for every unsolicited send (was 21:30; 7 nudges went out at exactly 21:30). Nudge-3 evening pull target 20:55. Trial reminders keep their 06:00 floor for 7/8/9 am classes.
 - **Booking recon:** unbacked chat bookings repeat in the daily alert for 14 days until Airtable has them (drop once the promised class day is >1 day past) and the line names the slot ("sáb 2026-10-10 14:00").
-- [ ] **Evan:** review + submit the v2 template drafts (docs/templates.md §11–§16; `_fam` plural twins). Until approved, those touches go free-form inside the 24h window only and skip silently outside it.
+- [ ] **Evan:** review + submit the v2 template drafts (docs/templates.md §11–§16; `_kids` / `_baby` twins). Until approved, those touches go free-form inside the 24h window only and skip silently outside it.
 - [ ] **Evan:** OK that "at most one nudge per CDMX day" also drops the same-day closing nudge (nudge_8h) when nudge_1h already went out that day.
 
 ### Sábado 12 pm = Blindaje 8 everywhere, not just one rule line (2026-10-10) — ON BRANCH `claude/gracious-clarke-y0c16e`
