@@ -143,7 +143,7 @@ export default {
 
     // Pre-trial questionnaire (docs/cuestionario.md): the mdcondesa.com page
     // reads/saves answers over CORS; /send is the Bearer-keyed trigger.
-    if (pathname === "/api/cuestionario" || pathname === "/api/cuestionario/send") {
+    if (pathname === "/api/cuestionario" || pathname === "/api/cuestionario/send" || pathname === "/api/cuestionario/ics") {
       return handleCuestionario(req, env, ctx);
     }
 

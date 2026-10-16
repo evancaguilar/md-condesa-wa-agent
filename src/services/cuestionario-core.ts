@@ -522,3 +522,92 @@ export function inviteTemplateComponents(
     { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: token }] },
   ];
 }
+
+// ---- calendar file (.ics) -------------------------------------------------------
+
+/** iCalendar text escaping (RFC 5545 §3.3.11). */
+function icsEscape(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+
+function icsUtc(epoch: number): string {
+  const d = new Date(epoch * 1000);
+  const p = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+}
+
+/** RFC 5545 content lines are at most 75 octets; longer ones fold with CRLF + space. */
+function icsFold(line: string): string {
+  const out: string[] = [];
+  let cur = "";
+  let bytes = 0;
+  for (const ch of line) {
+    const b = new TextEncoder().encode(ch).length;
+    if (bytes + b > 73) {
+      out.push(cur);
+      cur = " ";
+      bytes = 1;
+    }
+    cur += ch;
+    bytes += b;
+  }
+  out.push(cur);
+  return out.join("\r\n");
+}
+
+export const ICS_LOCATION = "Av. México 49, 1º piso, Condesa, CDMX";
+export const ICS_MAPS_URL = "https://maps.app.goo.gl/CFsQeXTGNjYbd2fE7";
+export const ICS_WA_URL = "https://wa.me/525641992274";
+
+export interface IcsInput {
+  recordId: string;
+  version: CuestionarioVersion;
+  /** Class start (epoch seconds, UTC instant). */
+  trialEpoch: number;
+  /** Child's name for kids/bfc, when known. */
+  kid: string | null;
+  nowSec: number;
+}
+
+/**
+ * Pure. The "Clase de prueba — MD Condesa" event: 60 min, address + Maps link
+ * + the bot's WhatsApp link in the description, alarms 24 h and 2 h before.
+ * UID is stable per record so re-importing updates instead of duplicating.
+ */
+export function icsText(i: IcsInput): string {
+  const who = i.version === "adultos" ? "" : ` de ${i.kid?.trim() || "tu peque"}`;
+  const summary = i.version === "bfc" ? "Clase de prueba Baby Fight Club — MD Condesa" : "Clase de prueba — MD Condesa";
+  const desc =
+    `Tu clase de prueba${who} en MD Condesa. Llega 10 minutos antes; es en el primer piso.\n` +
+    `Cómo llegar: ${ICS_MAPS_URL}\n` +
+    `Dudas: ${ICS_WA_URL}`;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//MD Condesa//Primera clase//ES",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:clase-prueba-${i.recordId}@mdcondesa.com`,
+    `DTSTAMP:${icsUtc(i.nowSec)}`,
+    `DTSTART:${icsUtc(i.trialEpoch)}`,
+    `DTEND:${icsUtc(i.trialEpoch + 3600)}`,
+    `SUMMARY:${icsEscape(summary)}`,
+    `LOCATION:${icsEscape(ICS_LOCATION)}`,
+    `DESCRIPTION:${icsEscape(desc)}`,
+    `URL:${ICS_MAPS_URL}`,
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Mañana es tu clase de prueba en MD Condesa",
+    "TRIGGER:-P1D",
+    "END:VALARM",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Tu clase de prueba en MD Condesa es en 2 horas",
+    "TRIGGER:-PT2H",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return lines.map(icsFold).join("\r\n") + "\r\n";
+}

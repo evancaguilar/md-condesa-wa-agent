@@ -35,7 +35,7 @@ import { parseQualification } from "../cron/nudge-copy.js";
 import { bandFromQualification } from "./age-band.js";
 import { cdmxDateStr } from "../cron/time.js";
 import { postNote as slackOpsNote } from "./slack.js";
-import { signToken, tokenId, type CuestionarioVersion } from "./cuestionario-token.js";
+import { TOKEN_TTL_SEC, signToken, tokenId, type CuestionarioVersion } from "./cuestionario-token.js";
 import {
   F_SENT,
   F_VERSION,
@@ -49,8 +49,33 @@ import {
   isoToEpoch,
 } from "./cuestionario-core.js";
 
-/** Public page the links point at (md-condesa-site /cuestionario/). */
+/** Legacy questionnaire page (still served; the confirmation page links to it). */
 export const CUESTIONARIO_URL = "https://mdcondesa.com/cuestionario/";
+
+/**
+ * THE page the one link points at: the personalized "tu primera clase"
+ * confirmation on mdcondesa.com (name, day, time, calendar, questionnaire
+ * card). One page per version — the kids and baby pages already carry their
+ * own "qué traer / así va a ser" copy, so the token picks the page instead of
+ * swapping blocks inside the adults page.
+ */
+export function firstClassUrl(version: CuestionarioVersion): string {
+  return version === "bfc"
+    ? "https://mdcondesa.com/tu-primera-clase-bebes/"
+    : version === "kids"
+      ? "https://mdcondesa.com/tu-primera-clase-ninos/"
+      : "https://mdcondesa.com/tu-primera-clase/";
+}
+
+/**
+ * Token lifetime: 14 days, or 3 days past the class when the trial is booked
+ * further out — a link that dies before the class it confirms is useless.
+ */
+export function tokenTtlFor(nowSec: number, trialEpoch: number | null): number {
+  const base = TOKEN_TTL_SEC;
+  if (trialEpoch === null) return base;
+  return Math.max(base, trialEpoch + 3 * 86400 - nowSec);
+}
 
 /** kv backstop for the "already sent" check while the Airtable column is missing. */
 export function sentKey(recordId: string): string {
@@ -235,12 +260,17 @@ export async function sendCuestionario(
   const version =
     input.version ?? deriveVersion(f, m, bandFromQualification(qual), qual.child_name ?? null);
 
-  const token = await signToken(env.CUESTIONARIO_SECRET, { recordId: rec.id, version }, now);
-  const link = `${CUESTIONARIO_URL}?t=${token}`;
+  const trialEpoch = isoToEpoch(cellText(f[m.trialDateTime]));
+  const token = await signToken(
+    env.CUESTIONARIO_SECRET,
+    { recordId: rec.id, version },
+    now,
+    tokenTtlFor(now, trialEpoch),
+  );
+  const link = `${firstClassUrl(version)}?t=${token}`;
   const name = greetingName(cellText(f[m.name]) ?? contact?.name ?? null);
   const kid =
     version === "adultos" ? null : greetingName(cellText(f[m.childName]) ?? qual.child_name ?? null) || null;
-  const trialEpoch = isoToEpoch(cellText(f[m.trialDateTime]));
   const text = inviteText({ version, lang, name, kid, trialEpoch, link });
   if (!text) return { ok: false, reason: "no_copy" };
 

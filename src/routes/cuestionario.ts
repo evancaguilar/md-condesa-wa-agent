@@ -2,6 +2,7 @@
 //
 //   GET    /api/cuestionario?t=<token>  → greeting data + current answers
 //   PATCH  /api/cuestionario?t=<token>  → save answers (whitelisted), `__complete`
+//   GET    /api/cuestionario/ics?t=<token> → the class as a .ics file (calendar button)
 //   OPTIONS                              → CORS preflight
 //   POST   /api/cuestionario/send        → send the link (Bearer CUESTIONARIO_SEND_KEY)
 //
@@ -32,6 +33,7 @@ import {
   completionFields,
   completionSummary,
   corsHeaders,
+  icsText,
   isoToEpoch,
   sanitizeAnswers,
 } from "../services/cuestionario-core.js";
@@ -65,6 +67,8 @@ export async function handleCuestionario(req: Request, env: Env, ctx: ExecutionC
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
+  const wantsIcs = url.pathname === "/api/cuestionario/ics";
+  if (wantsIcs && req.method !== "GET") return json({ error: "method_not_allowed" }, 405, origin);
   if (req.method !== "GET" && req.method !== "PATCH") {
     return json({ error: "method_not_allowed" }, 405, origin);
   }
@@ -84,6 +88,7 @@ export async function handleCuestionario(req: Request, env: Env, ctx: ExecutionC
   }
 
   try {
+    if (wantsIcs) return await handleIcs(env, claims.recordId, claims.version, nowSec);
     if (req.method === "GET") return await handleGet(env, claims.recordId, claims.version, origin);
     return await handlePatch(req, env, ctx, claims.recordId, claims.version, origin, nowSec);
   } catch (err) {
@@ -117,6 +122,30 @@ async function handleGet(
     200,
     origin,
   );
+}
+
+/**
+ * GET /api/cuestionario/ics — a navigation, not an XHR: the page's "Guardar en
+ * mi calendario" button points straight here so iOS (incl. WhatsApp's in-app
+ * browser) hands the file to Calendar instead of choking on a blob: URL.
+ */
+async function handleIcs(env: Env, recordId: string, version: CuestionarioVersion, nowSec: number): Promise<Response> {
+  const rec = await getLeadRecord(env, recordId);
+  if (!rec) return json({ error: "not_found" }, 404, null);
+  const m = leadsMap();
+  const f = rec.fields;
+  const epoch = isoToEpoch(cellText(f[m.trialDateTime]));
+  if (epoch === null) return json({ error: "no_date" }, 404, null);
+  const body = icsText({ recordId, version, trialEpoch: epoch, kid: cellText(f[m.childName]), nowSec });
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="clase-de-prueba-md-condesa.ics"',
+      "Cache-Control": "private, no-store",
+      "X-Robots-Tag": "noindex",
+    },
+  });
 }
 
 async function handlePatch(

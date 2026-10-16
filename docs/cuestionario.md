@@ -1,10 +1,13 @@
 # Pre-trial questionnaire (cuestionario)
 
-Every lead who books a trial class gets ONE WhatsApp message with a link to a
-one-question-per-screen questionnaire on the site
-(`https://mdcondesa.com/cuestionario/?t=<token>`, built in md-condesa-site).
-The page talks to this Worker over CORS and the answers land on the lead's
-EXISTING Airtable `Leads` record. The coach reads them before the class; the
+Every lead who books a trial class gets ONE WhatsApp message with ONE link: their
+personalized confirmation page on the site
+(`https://mdcondesa.com/tu-primera-clase/?t=<token>`, or `-ninos/` / `-bebes/`
+for kids / bfc — `firstClassUrl(version)`). That page shows their name, day and
+time, a "Guardar en mi calendario" button (this Worker's `/api/cuestionario/ics`)
+and a card that opens the one-question-per-screen questionnaire
+(`/cuestionario/?t=<same token>`). Both pages talk to this Worker over CORS and
+the answers land on the lead's EXISTING Airtable `Leads` record. The coach reads them before the class; the
 day-before reminder quotes the lead's goal back to them.
 
 Code: `src/services/cuestionario-token.ts` (token), `src/services/cuestionario-core.ts`
@@ -19,7 +22,8 @@ Code: `src/services/cuestionario-token.ts` (token), `src/services/cuestionario-c
 v1.<base64url(JSON {r:<recordId>, v:"adultos"|"kids"|"bfc", e:<unix exp sec>})>.<base64url(first 16 bytes of HMAC-SHA256(CUESTIONARIO_SECRET, "<payloadB64>"))>
 ```
 
-- Expires 14 days after issue. Constant-time signature check, done BEFORE the
+- Expires 14 days after issue, or 3 days after the class when the trial is
+  booked further out (`tokenTtlFor`). Constant-time signature check, done BEFORE the
   expiry check (a forged token is always `invalid`, never `expired`).
 - Bound to one record + one version. Rotating `CUESTIONARIO_SECRET` kills every
   outstanding link.
@@ -30,6 +34,7 @@ v1.<base64url(JSON {r:<recordId>, v:"adultos"|"kids"|"bfc", e:<unix exp sec>})>.
 |---|---|---|---|
 | `GET` | `/api/cuestionario?t=<token>` | token | `{version, nombre, hijo, dia, hora, trialIso, answers}` |
 | `PATCH` | `/api/cuestionario?t=<token>` | token | body `{answers:{"<field>":value,…}}` (+ `"__complete": true`) → `{ok:true}` |
+| `GET` | `/api/cuestionario/ics?t=<token>` | token | `text/calendar` attachment: the class as a 60-min event (CDMX instant in UTC), address + Maps + wa.me in the description, alarms 24 h and 2 h before, UID stable per record. 404 `no_date` without `Fecha Clase Prueba`. A plain navigation (the button's href), so iOS and WhatsApp's in-app browser hand it to Calendar. |
 | `OPTIONS` | `/api/cuestionario` | — | CORS preflight (204) |
 | `POST` | `/api/cuestionario/send` | `Authorization: Bearer <CUESTIONARIO_SEND_KEY>` | body `{recordId, version?, resend?}` → send result |
 | `POST` | `/admin/api/cuestionario/send` | owner session | body `{recordId}` or `{phone}` (+ `version?`, `resend?`); `resend` defaults to true. Dashboard: Chats → a conversation → **📋 Enviar cuestionario** |

@@ -19,6 +19,7 @@ import {
   corsHeaders,
   dayBeforeMotivoText,
   deriveVersion,
+  icsText,
   inviteText,
   motivoPhrase,
   sanitizeAnswers,
@@ -26,12 +27,14 @@ import {
 import {
   cuestionarioEnabled,
   doneKey,
+  firstClassUrl,
   patchLeadAnswers,
   postCompletionOnce,
   rateKey,
   sendCuestionario,
   sentKey,
   syncCuestionario,
+  tokenTtlFor,
 } from "../src/services/cuestionario.js";
 import { reminderAudience } from "../src/cron/followups.js";
 import { WindowClosedError } from "../src/services/send.js";
@@ -711,4 +714,56 @@ test("sanitizeAnswers: enum columns take only their options; multi-selects take 
     "Rápido o permanente": "Permanentes",
   });
   assert.deepEqual(sanitizeAnswers("kids", { answers: { "Días por semana": null } }).fields, { "Días por semana": null });
+});
+
+// ---- one link: the confirmation page, token alive past the class, .ics ----------
+
+test("firstClassUrl: one page per version", () => {
+  assert.equal(firstClassUrl("adultos"), "https://mdcondesa.com/tu-primera-clase/");
+  assert.equal(firstClassUrl("kids"), "https://mdcondesa.com/tu-primera-clase-ninos/");
+  assert.equal(firstClassUrl("bfc"), "https://mdcondesa.com/tu-primera-clase-bebes/");
+});
+
+test("tokenTtlFor: 14 days, or 3 days past a class booked further out", () => {
+  assert.equal(tokenTtlFor(NOW, null), TOKEN_TTL_SEC);
+  assert.equal(tokenTtlFor(NOW, FRI_7PM), TOKEN_TTL_SEC);
+  const farOut = NOW + 20 * 86400;
+  assert.equal(tokenTtlFor(NOW, farOut), 23 * 86400);
+});
+
+test("sendCuestionario: the link points at the confirmation page and its token outlives the class", async () => {
+  const { db } = fakeKvDb();
+  const env = { DB: db, CUESTIONARIO_SECRET: SECRET } as unknown as Env;
+  const farOut = NOW + 20 * 86400;
+  const iso = new Date(farOut * 1000).toISOString();
+  const d = sendDeps({ getRecord: async (_e, id) => ({ id, fields: { ...LEAD_FIELDS, "Fecha Clase Prueba": iso } }) });
+  const r = await sendCuestionario(env, d.deps, { recordId: REC });
+  assert.equal(r.ok, true);
+  const link = (r as { link: string }).link;
+  assert.match(link, /^https:\/\/mdcondesa\.com\/tu-primera-clase\/\?t=v1\./);
+  assert.ok(d.sent[0]!.includes(link));
+  const token = link.split("?t=")[1]!;
+  const claims = await verifyToken(SECRET, token, farOut + 2 * 86400);
+  assert.equal((claims as { recordId: string }).recordId, REC, "still valid two days after the class");
+  assert.deepEqual(await verifyToken(SECRET, token, farOut + 4 * 86400), { error: "expired" });
+});
+
+test("icsText: 60-min event in UTC, escaped location, two alarms, stable UID, folded lines", () => {
+  const ics = icsText({ recordId: REC, version: "adultos", trialEpoch: FRI_7PM, kid: null, nowSec: NOW });
+  const lines = ics.split("\r\n");
+  assert.equal(lines[0], "BEGIN:VCALENDAR");
+  assert.ok(lines.includes("DTSTART:20261017T010000Z"), "viernes 7 PM CDMX = 01:00Z next day");
+  assert.ok(lines.includes("DTEND:20261017T020000Z"));
+  assert.ok(lines.includes(`UID:clase-prueba-${REC}@mdcondesa.com`));
+  assert.ok(lines.includes("SUMMARY:Clase de prueba — MD Condesa"));
+  assert.ok(lines.includes("LOCATION:Av. México 49\\, 1º piso\\, Condesa\\, CDMX"));
+  assert.equal(lines.filter((l) => l === "BEGIN:VALARM").length, 2);
+  assert.ok(lines.includes("TRIGGER:-P1D") && lines.includes("TRIGGER:-PT2H"));
+  for (const l of lines) assert.ok(new TextEncoder().encode(l).length <= 75, `line too long: ${l}`);
+  assert.ok(ics.endsWith("END:VCALENDAR\r\n"));
+  // Folded DESCRIPTION unfolds to one line naming the child for bfc.
+  const bfc = icsText({ recordId: REC, version: "bfc", trialEpoch: WED_1PM, kid: "Sofi", nowSec: NOW });
+  const unfolded = bfc.replace(/\r\n /g, "");
+  assert.match(unfolded, /SUMMARY:Clase de prueba Baby Fight Club — MD Condesa/);
+  assert.match(unfolded, /DESCRIPTION:Tu clase de prueba de Sofi en MD Condesa/);
 });
