@@ -140,6 +140,24 @@ export interface ClientCopy {
   cuestionarioBfcEs?: string;
   cuestionarioBfcEn?: string;
   /**
+   * THE trial-booking confirmation (docs/cuestionario.md, owner copy
+   * 2026-10-16): one text with the personalized /tu-primera-clase/ link, then
+   * the booking video. Same placeholders as cuestionario* ({cuando} → " el
+   * jueves 16 de octubre a las 7:00 PM" / " on Friday, October 16 at 7:00 PM";
+   * {link} → the signed first-class page). The closing paragraph
+   * (confirmClosing*) is appended after a blank line by the code — and to the
+   * brain's own confirmation when it lacks it. Closed window → the
+   * primera_clase* Utility templates generated from these (docs/templates.md §20).
+   */
+  primeraClaseEs?: string;
+  primeraClaseEn?: string;
+  primeraClaseKidsEs?: string;
+  primeraClaseKidsEn?: string;
+  primeraClaseBfcEs?: string;
+  primeraClaseBfcEn?: string;
+  confirmClosingEs?: string;
+  confirmClosingEn?: string;
+  /**
    * Day-before reminder (free-form path only) when the lead's questionnaire
    * gave a `Motivo principal` / `Meta 6 meses`. Placeholders: {who},
    * {hora} ("7:00 PM"), {motivo} (lowercased, no final period). Optional:

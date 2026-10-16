@@ -1,8 +1,17 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-15**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-16**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+
+### One-message booking confirmation with the first-class link (2026-10-16) — COMMITTED, NOT PUSHED (needs Evan's OK)
+
+A trial booking now sends ONE text — the owner-approved copy (adultos / kids / Baby Fight Club, closing "Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏") carrying the lead's SIGNED `/tu-primera-clase(-ninos|-bebes)/?t=` link — then the booking video. No separate questionnaire invite. Spec: docs/cuestionario.md "The booking confirmation".
+
+- Brain path: intake.md template updated; `personalizeBookingConfirmation` swaps the brain's generic link (or adds it) and appends the closing BEFORE send/queue, so approve / edit / best-bet all send the link. `afterBookingConfirmed` then sees the token in the sent text → video + stamps `Cuestionario enviado/versión` + kv marker (sync loop stays quiet). Signing fails → generic link, never blocked; a text without a signed link (human rewrite, old drafts, registerBooking) → the old separate invite.
+- Web-form path: `sendFirstClassConfirmation` (free-form copy; closed window → new `primera_clase[_kids|_bfc]_es/_en` Utility templates, button "Ver mi primera clase", self-submitted, kv `tpl_seed:primera_clase:2026-10-16`, docs/templates.md §20). Until those are APPROVED: trial_confirm + cuestionario_invite as before.
+- KB token limit 11750 → 12100 (KB now ~11 989).
+- [ ] **Evan:** OK to push. After the deploy, watch #bot-ops for "📝 Plantillas de confirmación de clase de prueba (primera_clase)" and check the six get APPROVED.
 
 ### Post-trial/no-show chains per program + template seeder, 2026-10-15 — NOT PUSHED
 

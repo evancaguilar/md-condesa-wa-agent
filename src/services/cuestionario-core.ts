@@ -366,6 +366,172 @@ export function inviteText(i: InviteInput, copy: Partial<typeof CLIENT.copy> = C
   return en ? text : fixSpanishOne(text);
 }
 
+// ---- the booking confirmation (ONE text + the video; owner copy 2026-10-16) -----
+
+/**
+ * THE page the one link points at: the personalized "tu primera clase"
+ * confirmation on mdcondesa.com (name, day, time, calendar, questionnaire
+ * card). One page per version — the kids and baby pages already carry their
+ * own "qué traer / así va a ser" copy, so the token picks the page instead of
+ * swapping blocks inside the adults page.
+ */
+export function firstClassUrl(version: CuestionarioVersion): string {
+  return version === "bfc"
+    ? "https://mdcondesa.com/tu-primera-clase-bebes/"
+    : version === "kids"
+      ? "https://mdcondesa.com/tu-primera-clase-ninos/"
+      : "https://mdcondesa.com/tu-primera-clase/";
+}
+
+/** Any first-class page link in a text: with or without scheme / www, any of
+ *  the three pages, an existing `?t=` included (the brain writes the bare one). */
+const FIRST_CLASS_URL_RE =
+  /(?:https?:\/\/)?(?:www\.)?mdcondesa\.com\/tu-primera-clase(?:-ninos|-bebes)?\/?(?:\?t=[A-Za-z0-9._-]*)?/giu;
+
+/** The signed token inside a first-class link, or null. */
+export function firstClassTokenIn(text: string | null | undefined): string | null {
+  const m = /mdcondesa\.com\/tu-primera-clase(?:-ninos|-bebes)?\/\?t=(v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/iu.exec(text ?? "");
+  return m ? m[1]! : null;
+}
+
+/** The required closing paragraph (friend invite + "cualquier duda"). */
+export function confirmClosing(lang: Language, copy: Partial<typeof CLIENT.copy> = CLIENT.copy): string {
+  return (lang === "en" ? copy.confirmClosingEn : copy.confirmClosingEs) ?? "";
+}
+
+/** The closing is there when the text already invites a friend. */
+const CLOSING_RE = /invitar a (?:un |una |tu )?amig|invite a friend/iu;
+
+/** The confirmation copy for a version (free-form text and template seeding). */
+export function confirmationCopy(
+  version: CuestionarioVersion,
+  lang: Language,
+  copy: Partial<typeof CLIENT.copy> = CLIENT.copy,
+): string | undefined {
+  const en = lang === "en";
+  return version === "adultos"
+    ? en ? copy.primeraClaseEn : copy.primeraClaseEs
+    : version === "kids"
+      ? en ? copy.primeraClaseKidsEn : copy.primeraClaseKidsEs
+      : en ? copy.primeraClaseBfcEn : copy.primeraClaseBfcEs;
+}
+
+/**
+ * Pure. The whole booking confirmation (web-form path): the version's copy
+ * with name, day/time, child and link filled, a blank line, the closing.
+ * Null when the client has no copy for it (caller keeps its old text).
+ */
+export function confirmationText(i: InviteInput, copy: Partial<typeof CLIENT.copy> = CLIENT.copy): string | null {
+  const tpl = confirmationCopy(i.version, i.lang, copy);
+  if (!tpl) return null;
+  const en = i.lang === "en";
+  const cuando =
+    i.trialEpoch === null
+      ? ""
+      : en
+        ? ` on ${cdmxDia(i.trialEpoch, "en")} at ${cdmxHora(i.trialEpoch)}`
+        : ` el ${cdmxDia(i.trialEpoch, "es")} a las ${cdmxHora(i.trialEpoch)}`;
+  const kid = i.kid?.trim() || (en ? "your little one" : "tu peque");
+  const closing = confirmClosing(i.lang, copy);
+  const text = fill(tpl, { who: i.name ? ` ${i.name}` : "", cuando, kid, link: i.link }) + (closing ? `\n\n${closing}` : "");
+  return en ? text : fixSpanishOne(text);
+}
+
+/**
+ * Pure. The brain's (or a human-edited) booking confirmation, made to carry
+ * `link` — the signed first-class page:
+ *  - every mdcondesa.com/tu-primera-clase(-ninos|-bebes)/ link in it becomes
+ *    `link` (the record's version picks the page, not the brain's choice);
+ *  - no such link at all → `link` goes at the end of the paragraph before the
+ *    closing (or at the end);
+ *  - the closing paragraph is appended when missing; an old "súper 💪" → 👊.
+ * `link` null (signing failed / feature off) ⇒ the text keeps whatever link
+ * it had; only the closing is ensured.
+ */
+export function personalizeConfirmation(
+  text: string,
+  link: string | null,
+  lang: Language,
+  copy: Partial<typeof CLIENT.copy> = CLIENT.copy,
+): string {
+  let out = text.trim();
+  if (link) {
+    const replaced = out.replace(FIRST_CLASS_URL_RE, () => link);
+    if (replaced !== out) {
+      out = replaced;
+    } else {
+      const lines = out.split("\n");
+      const at = lines.findIndex((l) => CLOSING_RE.test(l));
+      if (at > 0) {
+        const head = lines.slice(0, at).join("\n").trimEnd();
+        out = `${head} ${link}\n\n${lines.slice(at).join("\n").trim()}`;
+      } else {
+        out = `${out} ${link}`;
+      }
+    }
+  }
+  out = out.replace(/(estaría súper|that'd be awesome|that would be awesome) 💪/gu, "$1 👊");
+  const closing = confirmClosing(lang, copy);
+  if (closing && !CLOSING_RE.test(out)) out = `${out}\n\n${closing}`;
+  return lang === "en" ? out : fixSpanishOne(out);
+}
+
+// ---- closed-window confirmation template (primera_clase[_kids|_bfc]_es/_en) ----
+
+/** One template per page (the URL button's base differs per version). */
+export function confirmTemplateBase(version: CuestionarioVersion): string {
+  return version === "adultos" ? "primera_clase" : version === "kids" ? "primera_clase_kids" : "primera_clase_bfc";
+}
+
+/** URL button of a version's template: its page + the token suffix. */
+export function confirmButtonUrl(version: CuestionarioVersion): string {
+  return `${firstClassUrl(version)}?t={{1}}`;
+}
+
+export type ConfirmTemplateParam = "cuando" | "kid";
+
+/**
+ * Pure. A template body from the confirmation copy: NO name ({who} → "", so
+ * "Listo, ya tienes tu lugar!" — Meta rejects an empty parameter and no filler
+ * reads right in that slot), no link (it is the button), {cuando} → " el
+ * {{n}}" / " on {{n}}", each {kid} → {{n}} in order, then the closing.
+ * `params` = what each {{n}} carries, in order.
+ */
+export function confirmTemplateBody(
+  copy: string,
+  lang: Language,
+  closing: string,
+): { body: string; params: ConfirmTemplateParam[] } {
+  const params: ConfirmTemplateParam[] = [];
+  let body = copy
+    .replaceAll("{who}", "")
+    .replace(/\s*\{link\}\s*$/u, "")
+    .replaceAll("{link}", "");
+  body = body.replace(/\{(cuando|kid)\}/g, (_m, k: ConfirmTemplateParam) => {
+    params.push(k);
+    const v = `{{${params.length}}}`;
+    return k === "cuando" ? (lang === "en" ? ` on ${v}` : ` el ${v}`) : v;
+  });
+  body = body.replace(/ {2,}/g, " ").trim();
+  return { body: closing ? `${body}\n\n${closing}` : body, params };
+}
+
+/** Pure. Graph components for a primera_clase* send (body params + URL button suffix). */
+export function confirmTemplateComponents(
+  lang: Language,
+  trialEpoch: number,
+  kid: string | null,
+  token: string,
+  params: readonly ConfirmTemplateParam[],
+): unknown[] {
+  const kidText = kid?.trim() || (lang === "en" ? "your little one" : "tu peque");
+  const values = params.map((p) => (p === "cuando" ? inviteWhenParam(trialEpoch, lang) : kidText));
+  return [
+    { type: "body", parameters: values.map((text) => ({ type: "text", text })) },
+    { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: token }] },
+  ];
+}
+
 // ---- day-before reminder ------------------------------------------------------
 
 /**

@@ -1,11 +1,12 @@
 # Pre-trial questionnaire (cuestionario)
 
-Every lead who books a trial class gets ONE WhatsApp message with ONE link: their
-personalized confirmation page on the site
+Every lead who books a trial class gets ONE WhatsApp message — the booking
+confirmation itself (owner copy 2026-10-16, see "The booking confirmation"
+below) — carrying ONE link: their personalized confirmation page on the site
 (`https://mdcondesa.com/tu-primera-clase/?t=<token>`, or `-ninos/` / `-bebes/`
-for kids / bfc — `firstClassUrl(version)`). That page shows their name, day and
-time, a "Guardar en mi calendario" button (this Worker's `/api/cuestionario/ics`)
-and a card that opens the one-question-per-screen questionnaire
+for kids / bfc — `firstClassUrl(version)`), then the booking video. That page
+shows their name, day and time, a "Guardar en mi calendario" button (this
+Worker's `/api/cuestionario/ics`) and a card that opens the one-question-per-screen questionnaire
 (`/cuestionario/?t=<same token>`). Both pages talk to this Worker over CORS and
 the answers land on the lead's EXISTING Airtable `Leads` record. The coach reads them before the class; the
 day-before reminder quotes the lead's goal back to them.
@@ -78,6 +79,52 @@ v1.<base64url(JSON {r:<recordId>, v:"adultos"|"kids"|"bfc", e:<unix exp sec>})>.
 - Tokens: only the canonical base64url signature is accepted (the rate limit
   is keyed on it).
 
+## The booking confirmation (one message, 2026-10-16)
+
+Copy (`clients/md-condesa/client.mjs` `copy.primeraClase*` + the REQUIRED
+closing `copy.confirmClosing*`; the brain's twin is intake.md "Después de
+agendar"). Adultos ES:
+
+> Listo {Nombre}, ya tienes tu lugar! 🙌🔥 Te esperamos el {día} a las {hora} en MD Condesa para tu primera clase. Aquí está todo lo que necesitas saber, y 3 minutos de preguntas para que tu coach te reciba sabiendo qué buscas y prepare tu clase pensando en ti 💪 {link}
+>
+> Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏
+
+Kids: "Listo {Nombre}, {hijo} ya tiene su lugar! 🙌🔥 Los esperamos … para su
+primera clase. Aquí está todo lo que necesitan saber, y 3 minutos de preguntas
+para que su coach reciba a {hijo} sabiendo qué buscan ustedes 💪 {link}" + the
+closing. Baby Fight Club: "Listo {Nombre}, {hijo} ya tiene su lugar en Baby
+Fight Club! 🙌 Los esperamos a los dos el … en MD Condesa. Aquí está todo lo que
+necesitan saber para su primera clase, y 2 minutos de preguntas para que el
+coach los conozca antes de llegar 🥋 {link}" + the closing. No clear first name
+→ "Listo, ya tienes tu lugar!" / "Listo, {hijo} ya tiene…"; no child name → "tu
+peque"; "a la 1:00". EN versions in the same spirit.
+
+Paths:
+
+- **Brain booking** (`pipeline/inbound.ts` routeResult): the brain writes the
+  confirmation from intake.md with the generic page link;
+  `personalizeBookingConfirmation` (record = the booking result, else the
+  phone's Leads record) replaces any `mdcondesa.com/tu-primera-clase(-ninos|
+  -bebes)/` link with the record's SIGNED link (the record's version picks the
+  page), adds it when the brain left it out, and appends the closing when
+  missing (an old "súper 💪" becomes 👊) — BEFORE sending or queueing, so an
+  approval draft, an edit and the best-bet timeout all carry it. Feature off,
+  no secret, no record or Airtable down → the generic link stays: the
+  confirmation is never blocked.
+- **Web form** (`cron/followups.sendTrialConfirm`): `sendFirstClassConfirmation`
+  sends `confirmationText` free-form; closed window → `primera_clase[_kids|_bfc]
+  _es/_en` (docs/templates.md §20, self-submitted, kv
+  `tpl_seed:primera_clase:2026-10-16`). Not possible (feature off, no record,
+  template not approved yet, IG/FB) → the old warm text / `trial_confirm`
+  template, then video + the separate invite as before.
+- **After it lands** (`afterBookingConfirmed`): the booking video, then — when
+  the sent text carries a valid signed link (or the template went out) — only
+  the stamp: `Cuestionario enviado` / `Cuestionario versión` + kv
+  `cuestionario_sent:<rec>`, so the 15-min sync never sends an invite on top.
+  A confirmation WITHOUT a signed link (human registration, a human rewrite of
+  the draft, drafts queued before the change) still gets the separate invite
+  below.
+
 ## When the link is sent
 
 `sendCuestionario(env, deps, {recordId, version?, resend?, phone?})` — reads the
@@ -103,9 +150,10 @@ send fails). It sends ONE message, then stamps `Cuestionario enviado` = today
 Automatic triggers (all gated by `CUESTIONARIO_ENABLED === "1"`, best-effort,
 never block or break the confirmation):
 
-1. **Right after a booking confirmation lands** — `afterBookingConfirmed`
-   replaced the booking-video call at every confirmation site (the video still
-   goes first): brain direct send (`pipeline/inbound.ts` routeResult), approved /
+1. **Right after a booking confirmation lands that did NOT carry the signed
+   link** (see above — since 2026-10-16 the confirmation itself normally is
+   the link) — `afterBookingConfirmed` replaced the booking-video call at
+   every confirmation site (the video still goes first): brain direct send (`pipeline/inbound.ts` routeResult), approved /
    edited / best-bet booking drafts (`approvals.runPostSendEffects`), human
    registration (`booking-core.registerBooking`) and the web-form `trial_confirm`
    (`cron/followups.sendTrialConfirm`). The video call IS the "confirmation just

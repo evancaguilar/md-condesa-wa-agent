@@ -6,6 +6,11 @@
 // status) is skipped, a catalog read failure retries next tick silently, a
 // failed creation retries up to MAX_TRIES ticks and THEN posts one summary.
 // Bump SEED_KEY to force a fresh pass.
+//
+// Second set (2026-10-16): the primera_clase[_kids|_bfc]_es/_en booking
+// confirmations (docs/templates.md §20) — the closed-window twin of the ONE
+// confirmation text with the signed first-class link. Own kv key
+// (CONFIRM_SEED_KEY), same mechanics.
 
 import type { Env, Language } from "../types.js";
 import { kvGet, kvSet } from "../db/queries.js";
@@ -16,11 +21,23 @@ import {
   findTemplate,
   type CreateTemplateInput,
 } from "../services/blast-templates.js";
-import { INVITE_BUTTON_URL, inviteTemplateBody, inviteWhenParam } from "../services/cuestionario-core.js";
+import {
+  INVITE_BUTTON_URL,
+  confirmButtonUrl,
+  confirmClosing,
+  confirmTemplateBody,
+  confirmationCopy,
+  firstClassUrl,
+  inviteTemplateBody,
+  inviteWhenParam,
+} from "../services/cuestionario-core.js";
+import type { CuestionarioVersion } from "../services/cuestionario-token.js";
 
 export const SEED_KEY = "tpl_seed:cuestionario_invite:2026-10-13";
 export const SEED_PROGRESS_KEY = `${SEED_KEY}:progress`;
 export const MAX_TRIES = 3;
+
+export const CONFIRM_SEED_KEY = "tpl_seed:primera_clase:2026-10-16";
 
 /** A realistic token (signed with a throwaway key) for Meta's URL-button sample. */
 export const INVITE_TOKEN_EXAMPLE =
@@ -53,6 +70,39 @@ export function cuestionarioTemplateInputs(): CreateTemplateInput[] {
   return out;
 }
 
+/** Pure. The six confirmation templates: one per version (page) × es/en. */
+export function confirmTemplateInputs(): CreateTemplateInput[] {
+  const out: CreateTemplateInput[] = [];
+  const versions: [CuestionarioVersion, string][] = [
+    ["adultos", "primera_clase"],
+    ["kids", "primera_clase_kids"],
+    ["bfc", "primera_clase_bfc"],
+  ];
+  for (const [version, base] of versions) {
+    for (const lang of ["es", "en"] as Language[]) {
+      const copy = confirmationCopy(version, lang);
+      if (!copy) continue;
+      const { body, params } = confirmTemplateBody(copy, lang, confirmClosing(lang));
+      out.push({
+        name: `${base}_${lang}`,
+        language: lang,
+        category: "UTILITY",
+        body,
+        bodyExamples: params.map((p) => (p === "cuando" ? inviteWhenParam(SAMPLE_EPOCH, lang) : "Mateo")),
+        buttons: [
+          {
+            type: "URL",
+            text: lang === "en" ? "See my first class" : "Ver mi primera clase",
+            url: confirmButtonUrl(version),
+            example: [`${firstClassUrl(version)}?t=${INVITE_TOKEN_EXAMPLE}`],
+          },
+        ],
+      });
+    }
+  }
+  return out;
+}
+
 interface Progress {
   tries: number;
   created: string[];
@@ -72,18 +122,45 @@ export async function seedCuestionarioTemplates(
   deps: { postNote: (t: string) => Promise<void> },
   doFetch: typeof fetch = fetch,
 ): Promise<void> {
-  if (await kvGet(env.DB, SEED_KEY)) return;
+  await seedSet(env, deps, doFetch, {
+    key: SEED_KEY,
+    inputs: cuestionarioTemplateInputs,
+    label: "Plantillas del cuestionario pre-clase (cuestionario_invite)",
+  });
+}
+
+/** primera_clase* (the booking confirmation with the first-class link button). */
+export async function seedConfirmTemplates(
+  env: Env,
+  deps: { postNote: (t: string) => Promise<void> },
+  doFetch: typeof fetch = fetch,
+): Promise<void> {
+  await seedSet(env, deps, doFetch, {
+    key: CONFIRM_SEED_KEY,
+    inputs: confirmTemplateInputs,
+    label: "Plantillas de confirmación de clase de prueba (primera_clase)",
+  });
+}
+
+async function seedSet(
+  env: Env,
+  deps: { postNote: (t: string) => Promise<void> },
+  doFetch: typeof fetch,
+  set: { key: string; inputs: () => CreateTemplateInput[]; label: string },
+): Promise<void> {
+  const progressKey = `${set.key}:progress`;
+  if (await kvGet(env.DB, set.key)) return;
   if (!env.WA_WABA_ID?.trim()) return; // nothing to submit to yet; retry next tick
-  const inputs = cuestionarioTemplateInputs();
-  if (!inputs.length) return; // this client has no questionnaire
+  const inputs = set.inputs();
+  if (!inputs.length) return; // this client has no such copy
 
   const catalog = await fetchTemplateCatalog(env, doFetch);
   if (!catalog.ok) {
-    console.warn(`[tpl-seed] cuestionario: catalog unavailable, retrying next tick: ${catalog.error}`);
+    console.warn(`[tpl-seed] ${set.key}: catalog unavailable, retrying next tick: ${catalog.error}`);
     return;
   }
   const exists = (name: string, lang: string) => !!findTemplate(catalog.templates, name, lang);
-  const progress = readProgress(await kvGet(env.DB, SEED_PROGRESS_KEY));
+  const progress = readProgress(await kvGet(env.DB, progressKey));
   const createdNames = new Set(progress.created.map((c) => c.split(" ")[0]!));
   const failed: string[] = [];
   const skipped: string[] = [];
@@ -99,20 +176,20 @@ export async function seedCuestionarioTemplates(
 
   progress.tries += 1;
   if (failed.length && progress.tries < MAX_TRIES) {
-    await kvSet(env.DB, SEED_PROGRESS_KEY, JSON.stringify(progress));
+    await kvSet(env.DB, progressKey, JSON.stringify(progress));
     return;
   }
-  await kvSet(env.DB, SEED_KEY, failed.length ? "error" : "ok");
-  await kvSet(env.DB, SEED_PROGRESS_KEY, JSON.stringify(progress));
+  await kvSet(env.DB, set.key, failed.length ? "error" : "ok");
+  await kvSet(env.DB, progressKey, JSON.stringify(progress));
   const parts = [
     progress.created.length ? `enviadas a revisión: ${progress.created.join(", ")}` : "",
     skipped.length ? `ya existían: ${skipped.join(", ")}` : "",
     failed.length ? `fallaron: ${failed.join(" · ")}` : "",
   ].filter(Boolean);
   await deps.postNote(
-    `${failed.length ? "⚠️" : "📝"} Plantillas del cuestionario pre-clase (cuestionario_invite) — ${parts.join(" — ") || "nada que hacer"}.` +
+    `${failed.length ? "⚠️" : "📝"} ${set.label} — ${parts.join(" — ") || "nada que hacer"}.` +
       (failed.length
-        ? " Revisa WhatsApp Manager; para reintentar hay que cambiar SEED_KEY en src/cron/template-seed-cuestionario.ts."
+        ? " Revisa WhatsApp Manager; para reintentar hay que cambiar la llave del seed en src/cron/template-seed-cuestionario.ts."
         : " Meta las revisa (suele tardar minutos); el bot las usa con la ventana cerrada en cuanto queden APPROVED."),
   );
 }

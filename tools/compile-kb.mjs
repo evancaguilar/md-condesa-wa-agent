@@ -37,7 +37,10 @@ const REPO = join(__dirname, "..");
 // Raised 11000 → 11750 (2026-10-03): the new poster schedule is wordier
 // (MMA Striking, Open Mat, Teens Gi/No-Gi, BFC niveles) and HEAD already sat
 // at ~11 005.
-const TOKEN_LIMIT = 11750;
+// Raised 11750 → 12100 (2026-10-16): the one-message booking confirmation
+// carries the owner-approved copy for adults / kids / Baby Fight Club (HEAD
+// sat at ~11 749).
+const TOKEN_LIMIT = 12100;
 
 async function main() {
   const clientId = process.env.CLIENT || "md-condesa";

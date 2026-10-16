@@ -41,7 +41,7 @@ import { syncPostTrialD0Templates } from "./template-sync.js";
 import { applyCampaignTriggerUpdates, seedCampaigns } from "./seed-campaigns.js";
 import { seedStudentKitTemplates } from "./template-seed-student.js";
 import { seedChainTemplates } from "./template-seed-chains.js";
-import { seedCuestionarioTemplates } from "./template-seed-cuestionario.js";
+import { seedConfirmTemplates, seedCuestionarioTemplates } from "./template-seed-cuestionario.js";
 import { runRedrive } from "./redrive.js";
 import { gcGoogleRefs } from "../routes/google-click.js";
 import { gcCuestionarioRate } from "../services/cuestionario.js";
@@ -129,6 +129,11 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // fallback of sendCuestionario; src/cron/template-seed-cuestionario.ts).
   await safe("seedCuestionarioTemplates", () =>
     seedCuestionarioTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+  );
+  // …and the primera_clase* booking confirmations (closed-window twin of the
+  // one-message confirmation with the first-class link).
+  await safe("seedConfirmTemplates", () =>
+    seedConfirmTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
   );
 
   // One-shot post-switch delta (2026-10-06 D1 migration): DB_TARGET is the OLD

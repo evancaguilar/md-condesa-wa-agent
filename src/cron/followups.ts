@@ -55,7 +55,7 @@ import {
   OptedOutError,
 } from "../services/send.js";
 import { channelOf, displayContact } from "../services/channel.js";
-import { afterBookingConfirmed, syncCuestionario } from "../services/cuestionario.js";
+import { afterBookingConfirmed, sendFirstClassConfirmation, syncCuestionario } from "../services/cuestionario.js";
 import { cellText, dayBeforeMotivoText } from "../services/cuestionario-core.js";
 import { isCuestionarioVersion, type CuestionarioVersion } from "../services/cuestionario-token.js";
 import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
@@ -973,8 +973,15 @@ async function postAttendedCard(
   }
 }
 
-/** trial_confirm: warm free-form text (address + what to bring); fallback template.
- *  After the confirmation lands, fire the booking video (best-effort; R4). */
+/**
+ * trial_confirm (web-form booker): THE confirmation — one text with the
+ * lead's signed /tu-primera-clase/?t= link (owner copy 2026-10-16), closed
+ * window → the primera_clase* template — then the booking video
+ * (afterBookingConfirmed, which stamps the link on the record; no invite).
+ * Fallback when that can't go (feature off, no record, template not approved
+ * yet): the old warm text / trial_confirm template, then video + the separate
+ * questionnaire invite, exactly as before.
+ */
 async function sendTrialConfirm(
   env: Env,
   phone: string,
@@ -983,10 +990,20 @@ async function sendTrialConfirm(
   recordId: string,
   slack: Pick<CronSlackDeps, "postNote">,
 ): Promise<void> {
+  const postNote = (t: string): Promise<void> => slack.postNote(t);
+  const first = await sendFirstClassConfirmation(env, {}, { recordId, phone });
+  if (first.ok) {
+    await afterBookingConfirmed(env, phone, {
+      recordId,
+      postNote,
+      linkSent: { recordId: first.recordId, version: first.version },
+    });
+    return;
+  }
+  if (first.reason !== "disabled") console.warn(`[followups] trial_confirm ${phone}: old copy (${first.reason}${first.detail ? ` ${first.detail}` : ""})`);
   // Booking video + (when enabled) the questionnaire invite, after the
   // confirmation landed — services/cuestionario.afterBookingConfirmed.
-  const after = (): Promise<void> =>
-    afterBookingConfirmed(env, phone, { recordId, postNote: (t) => slack.postNote(t) });
+  const after = (): Promise<void> => afterBookingConfirmed(env, phone, { recordId, postNote });
   const text = confirmText(name, lang);
   try {
     await sendText(env, phone, text);

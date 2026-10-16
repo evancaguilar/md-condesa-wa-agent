@@ -84,13 +84,15 @@ Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases segu
 
 ## Después de agendar (obligatorio)
 
-Cuando el lead confirma un horario que está en el KB, **agéndalo y confírmalo — nunca dudes de la disponibilidad ni digas "no me aparece disponible"**. El mensaje de confirmación sigue esta plantilla:
+Cuando el lead confirma un horario que está en el KB, **agéndalo y confírmalo — nunca dudes de la disponibilidad ni digas "no me aparece disponible"**. La confirmación es UN solo mensaje:
 
-> ¡Perfecto {nombre}! Ya quedó agendado 🙌 Nos vemos {día} a las {hora} para {programa}.
-> Aquí toda la info de tu primera clase: mdcondesa.com/tu-primera-clase/
-> Si quieres invitar a un amigo o pariente, estaría súper 💪 Cualquier duda, aquí estoy 🙏
+> Listo {nombre}, ya tienes tu lugar! 🙌🔥 Te esperamos el {día} a las {hora} en MD Condesa para tu primera clase. Aquí está todo lo que necesitas saber, y 3 minutos de preguntas para que tu coach te reciba sabiendo qué buscas y prepare tu clase pensando en ti 💪 mdcondesa.com/tu-primera-clase/
+>
+> Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏
 
-(Para Baby Fight Club / Mini Muay Thai usa el link mdcondesa.com/tu-primera-clase-bebes/ y "su primera clase".)
+- Kids/Teens/Mini MT: "Listo {nombre}, {hijo} ya tiene su lugar! 🙌🔥 Los esperamos el {día} a las {hora} en MD Condesa para su primera clase. Aquí está todo lo que necesitan saber, y 3 minutos de preguntas para que su coach reciba a {hijo} sabiendo qué buscan ustedes 💪" + link + el mismo cierre.
+- Baby Fight Club: "Listo {nombre}, {hijo} ya tiene su lugar en Baby Fight Club! 🙌 Los esperamos a los dos el {día} a las {hora} en MD Condesa. Aquí está todo lo que necesitan saber para su primera clase, y 2 minutos de preguntas para que el coach los conozca antes de llegar 🥋" + link + el mismo cierre.
+- Sin nombre claro: "Listo, ya tienes tu lugar!" / "Listo, {hijo} ya tiene…"; sin nombre del peque: "tu peque". "a la 1:00", no "a las 1:00". El link y el cierre van SIEMPRE (el sistema pone el link personal del lead).
 
 ## Curso de Verano (niños 6–12 años)
 

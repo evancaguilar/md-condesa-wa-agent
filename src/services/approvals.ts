@@ -190,10 +190,13 @@ export async function runPostSendEffects(
   sentText: string,
   source: HumanSendSource,
 ): Promise<void> {
-  // Booking-confirmation draft → booking video right after (R4) + the
-  // questionnaire invite when enabled (services/cuestionario.afterBookingConfirmed).
+  // Booking-confirmation draft → booking video right after (R4). The draft
+  // already carries the signed first-class link (pipeline/inbound personalizes
+  // it before queueing) → stamped on the record; a text without one (a human
+  // rewrote it, a draft from before 2026-10-16) → the separate invite
+  // (services/cuestionario.afterBookingConfirmed).
   const bookingOrigin = await isBookingApproval(env, id);
-  if (bookingOrigin) await afterBookingConfirmed(env, phone);
+  if (bookingOrigin) await afterBookingConfirmed(env, phone, { sentText });
   // Bot reply landed → arm/re-arm the lead-nudge drip (no-op unless the contact
   // is a lead with no active booking/override, under the cap).
   await armNudges(env, phone);

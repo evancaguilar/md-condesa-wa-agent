@@ -678,6 +678,62 @@ copy change needs a new SEED_KEY + Meta re-review).
 
 ---
 
+## 20. primera_clase / primera_clase_kids / primera_clase_bfc — Utility (URL button with dynamic suffix)
+
+THE trial-booking confirmation for a lead whose 24 h window is closed (web-form
+bookers; owner copy 2026-10-16, docs/cuestionario.md). Open window → the same
+copy free-form with the signed link inline (`CLIENT.copy.primeraClase*` +
+`confirmClosing*`); closed → this template, then the booking video. Replaces
+`trial_confirm(_v2)` + `cuestionario_invite*` for these leads once APPROVED
+(until then the code falls back to those). One template per page because the
+URL button's base differs. Body = the copy WITHOUT the name (Meta rejects an
+empty parameter and no filler reads right in "Listo ___,") and WITHOUT the
+link (it is the button); variables in order of appearance. **Submitted by the
+worker** (src/cron/template-seed-cuestionario.ts `seedConfirmTemplates`,
+one-shot, kv `tpl_seed:primera_clase:2026-10-16`).
+
+**ES (`primera_clase_es`)** — `{{1}}` = day + time
+> Listo, ya tienes tu lugar! 🙌🔥 Te esperamos el {{1}} en MD Condesa para tu primera clase. Aquí está todo lo que necesitas saber, y 3 minutos de preguntas para que tu coach te reciba sabiendo qué buscas y prepare tu clase pensando en ti 💪
+>
+> Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏
+
+**EN (`primera_clase_en`)** — `{{1}}` = day + time
+> All set, your spot is saved! 🙌🔥 We'll see you on {{1}} at MD Condesa for your first class. Here's everything you need to know, plus 3 minutes of questions so your coach meets you knowing what you're after and plans your class around you 💪
+>
+> If you'd like to invite a friend or family member, that'd be awesome 👊 Any questions, I'm here 🙏
+
+**ES (`primera_clase_kids_es`)** — `{{1}}`/`{{3}}` = child, `{{2}}` = day + time
+> Listo, {{1}} ya tiene su lugar! 🙌🔥 Los esperamos el {{2}} en MD Condesa para su primera clase. Aquí está todo lo que necesitan saber, y 3 minutos de preguntas para que su coach reciba a {{3}} sabiendo qué buscan ustedes 💪
+>
+> Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏
+
+**EN (`primera_clase_kids_en`)** — `{{1}}`/`{{3}}` = child, `{{2}}` = day + time
+> All set, {{1}} has a spot! 🙌🔥 We'll see you on {{2}} at MD Condesa for the first class. Here's everything you need to know, plus 3 minutes of questions so the coach meets {{3}} already knowing what you're looking for 💪
+>
+> If you'd like to invite a friend or family member, that'd be awesome 👊 Any questions, I'm here 🙏
+
+**ES (`primera_clase_bfc_es`)** — `{{1}}` = child, `{{2}}` = day + time
+> Listo, {{1}} ya tiene su lugar en Baby Fight Club! 🙌 Los esperamos a los dos el {{2}} en MD Condesa. Aquí está todo lo que necesitan saber para su primera clase, y 2 minutos de preguntas para que el coach los conozca antes de llegar 🥋
+>
+> Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏
+
+**EN (`primera_clase_bfc_en`)** — `{{1}}` = child, `{{2}}` = day + time
+> All set, {{1}} has a spot in Baby Fight Club! 🙌 We'll see you both on {{2}} at MD Condesa. Here's everything you need to know for the first class, plus 2 minutes of questions so the coach gets to know you before you arrive 🥋
+>
+> If you'd like to invite a friend or family member, that'd be awesome 👊 Any questions, I'm here 🙏
+
+Samples: day + time "viernes 16 de octubre a las 7:00 PM" / "Friday, October 16
+at 7:00 PM" ("a la 1:00 PM" for 1 PM); child "Mateo" (sent as the child's name,
+else "tu peque" / "your little one").
+
+Button (URL): **Ver mi primera clase** / **See my first class** →
+`https://mdcondesa.com/tu-primera-clase/?t={{1}}` (adultos),
+`…/tu-primera-clase-ninos/?t={{1}}` (kids), `…/tu-primera-clase-bebes/?t={{1}}`
+(bfc); `{{1}}` = the signed token. No footer. Bodies are generated from
+client.mjs copy — a copy change needs a new seed key + Meta re-review.
+
+---
+
 # Blast templates (bulk sends, docs/blasts.md) — Marketing
 
 The dashboard's **Envíos** tab sends ANY approved template on the live WABA

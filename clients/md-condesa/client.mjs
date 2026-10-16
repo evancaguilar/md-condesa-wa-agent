@@ -306,6 +306,27 @@ export default {
       "Listo{who}, quedó tu clase{cuando}. Una cosa más - contéstanos esto en 2 minutos para que tu coach reciba a {kid} sabiendo qué buscan ustedes. Es lo que hace que su primera clase sea para {kid} y no una clase genérica: {link}",
     cuestionarioBfcEn:
       "All set{who}, the class is booked{cuando}. One more thing - answer this in 2 minutes so the coach meets {kid} already knowing what you're looking for as a family. It's what makes the first class about {kid} instead of a generic class: {link}",
+    // THE trial-booking confirmation (owner copy 2026-10-16, docs/cuestionario.md):
+    // ONE text + the booking video. {who}/{cuando}/{kid} as above, {link} = the
+    // signed /tu-primera-clase(-ninos|-bebes)/?t= page. The code appends
+    // "\n\n" + confirmClosing*. Closed window → primera_clase* templates built
+    // from these (src/cron/template-seed-cuestionario.ts) — a copy change needs
+    // a new seed key + Meta re-review.
+    primeraClaseEs:
+      "Listo{who}, ya tienes tu lugar! 🙌🔥 Te esperamos{cuando} en MD Condesa para tu primera clase. Aquí está todo lo que necesitas saber, y 3 minutos de preguntas para que tu coach te reciba sabiendo qué buscas y prepare tu clase pensando en ti 💪 {link}",
+    primeraClaseEn:
+      "All set{who}, your spot is saved! 🙌🔥 We'll see you{cuando} at MD Condesa for your first class. Here's everything you need to know, plus 3 minutes of questions so your coach meets you knowing what you're after and plans your class around you 💪 {link}",
+    primeraClaseKidsEs:
+      "Listo{who}, {kid} ya tiene su lugar! 🙌🔥 Los esperamos{cuando} en MD Condesa para su primera clase. Aquí está todo lo que necesitan saber, y 3 minutos de preguntas para que su coach reciba a {kid} sabiendo qué buscan ustedes 💪 {link}",
+    primeraClaseKidsEn:
+      "All set{who}, {kid} has a spot! 🙌🔥 We'll see you{cuando} at MD Condesa for the first class. Here's everything you need to know, plus 3 minutes of questions so the coach meets {kid} already knowing what you're looking for 💪 {link}",
+    primeraClaseBfcEs:
+      "Listo{who}, {kid} ya tiene su lugar en Baby Fight Club! 🙌 Los esperamos a los dos{cuando} en MD Condesa. Aquí está todo lo que necesitan saber para su primera clase, y 2 minutos de preguntas para que el coach los conozca antes de llegar 🥋 {link}",
+    primeraClaseBfcEn:
+      "All set{who}, {kid} has a spot in Baby Fight Club! 🙌 We'll see you both{cuando} at MD Condesa. Here's everything you need to know for the first class, plus 2 minutes of questions so the coach gets to know you before you arrive 🥋 {link}",
+    // REQUIRED closing of every confirmation (owner, 2026-10-16) — 👊, not 💪.
+    confirmClosingEs: "Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏",
+    confirmClosingEn: "If you'd like to invite a friend or family member, that'd be awesome 👊 Any questions, I'm here 🙏",
     // Day-before reminder when the questionnaire told us what they want
     // (free-form path only; the WA template fallback is unchanged).
     // {motivo} = Motivo principal (or Meta 6 meses), lowercased, no final period.

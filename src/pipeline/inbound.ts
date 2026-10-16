@@ -85,7 +85,7 @@ import { requestRetoLogin } from "../services/reto-login.js";
 import { hasBuyIntent } from "../cron/nudge-signals.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, WindowClosedError } from "../services/send.js";
-import { afterBookingConfirmed } from "../services/cuestionario.js";
+import { afterBookingConfirmed, personalizeBookingConfirmation } from "../services/cuestionario.js";
 import { channelOf } from "../services/channel.js";
 import {
   bookingApprovalKey,
@@ -1039,6 +1039,15 @@ async function routeResult(
         skipLeadSync: i > 0,
       });
     }
+    // ONE confirmation message (owner, 2026-10-16): the brain's text carries
+    // the lead's signed /tu-primera-clase/?t= link (its generic link swapped,
+    // or added) and the closing paragraph. Done BEFORE queueing, so the
+    // approval draft, an edit and the best-bet timeout all send the link.
+    // Signing failures keep the generic link — never blocks the confirmation.
+    const confirmation = await personalizeBookingConfirmation(env, phone, result.followupMessage, {
+      recordId: result.recordId ?? list[0]?.recordId,
+      lang: ctx.contact.lang,
+    });
     if (ctx.trainingWheels || opts?.forceReview) {
       // Booking confirmation routes through approval; mark it booking-origin so
       // approve/edit fires the booking video after sending (R4). Confidence
@@ -1052,7 +1061,7 @@ async function routeResult(
         env,
         ports,
         ctx,
-        result.followupMessage,
+        confirmation,
         history,
         undefined,
         true,
@@ -1065,16 +1074,18 @@ async function routeResult(
         env,
         ports,
         ctx,
-        result.followupMessage,
+        confirmation,
         "high",
         history,
         true,
       );
-      // Confirmation text landed → booking video (R4) + the questionnaire
-      // invite when enabled (services/cuestionario.afterBookingConfirmed).
+      // Confirmation landed → booking video (R4); the link it carried is
+      // stamped on the record (services/cuestionario.afterBookingConfirmed —
+      // the separate invite only when the text had no signed link).
       if (delivered) {
         await afterBookingConfirmed(env, phone, {
           recordId: result.recordId,
+          sentText: confirmation,
           postNote: (t) => ports.slack.postNote(t),
         });
       }
