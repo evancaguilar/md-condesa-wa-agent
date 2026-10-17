@@ -123,6 +123,8 @@ function meta(over: Partial<BlastRunMeta> = {}): BlastRunMeta {
     dailyCap: 250,
     by: "Evan",
     pausedReason: null,
+    expiresAt: null,
+    expiredUnsent: null,
     updatedAt: NOON - 100,
     ...over,
   };
@@ -275,4 +277,63 @@ test("drain: with no active run the tick reads only the kv flag", async () => {
   assert.equal(r.idle, "no_active_run");
   assert.equal(w.sends.length, 0);
   assert.equal(w.rows[0]!.status, "scheduled");
+});
+
+// ---- per-run expiry (2026-10-17; src/services/blast-expiry.ts) ----------------
+
+const FRI_2100 = cdmxToEpoch(2026, 9, 16, 21, 0, 0);
+
+test("drain: an expired run has its queued rows cancelled, status expired, one Slack note, flag cleared", async () => {
+  const w = world(3, { expiresAt: NOON + 600 });
+  w.rows[0]!.status = "sent";
+  // Window still open, but the expiry passed: nothing more goes out.
+  const r = await runBlastBatch(fakeEnv(w), deps(w), NOON + 601);
+  assert.deepEqual(r.expiredRuns, ["r1"]);
+  assert.equal(w.sends.length, 0);
+  assert.deepEqual(w.rows.map((x) => x.status), ["sent", "cancelled", "cancelled"]);
+  assert.match(w.kv.get("blast_run:r1") ?? "", /"status":"expired"/);
+  assert.match(w.kv.get("blast_run:r1") ?? "", /"expiredUnsent":2/);
+  assert.equal(w.kv.get("blast_active"), "0");
+  assert.equal(w.notes.length, 1);
+  assert.match(w.notes[0]!, /⏱️ Envío masivo \*Promo\* expiró \(12:10 CDMX\): 2 sin enviar/);
+});
+
+test("drain: leftovers die at the 21:00 tick the same evening, not at 09:00 next day", async () => {
+  const w = world(2, { expiresAt: FRI_2100 });
+  // 20:58 tick: still sending.
+  await runBlastBatch(fakeEnv(w), deps(w), FRI_2100 - 120);
+  assert.equal(w.sends.length, 2);
+  const w2 = world(2, { expiresAt: FRI_2100 });
+  // 21:00 tick: the window is closed (idle "window"), yet the sweep ran first.
+  const r = await runBlastBatch(fakeEnv(w2), deps(w2), FRI_2100 + 30);
+  assert.equal(r.idle, "window");
+  assert.deepEqual(r.expiredRuns, ["r1"]);
+  assert.equal(w2.sends.length, 0);
+  assert.deepEqual(w2.rows.map((x) => x.status), ["cancelled", "cancelled"]);
+  assert.match(w2.notes[0]!, /2 sin enviar/);
+  // Next morning: nothing left to send, no second note.
+  const r2 = await runBlastBatch(fakeEnv(w2), deps(w2), FRI_2100 + 12 * 3600);
+  assert.equal(r2.idle, "no_active_run");
+  assert.equal(w2.sends.length, 0);
+  assert.equal(w2.notes.length, 1);
+});
+
+test("drain: a paused run past its expiry is expired too (resuming it tomorrow would be the same bug)", async () => {
+  const w = world(2, { status: "paused", expiresAt: FRI_2100 });
+  w.rows.forEach((x) => (x.status = "paused"));
+  const r = await runBlastBatch(fakeEnv(w), deps(w), FRI_2100 + 30);
+  assert.deepEqual(r.expiredRuns, ["r1"]);
+  assert.deepEqual(w.rows.map((x) => x.status), ["cancelled", "cancelled"]);
+  assert.match(w.kv.get("blast_run:r1") ?? "", /"status":"expired"/);
+});
+
+test("drain: expiresAt null never expires; a future expiry does not touch the run", async () => {
+  const w = world(2, { expiresAt: null });
+  const r = await runBlastBatch(fakeEnv(w), deps(w), FRI_2100 + 12 * 3600 + 3600);
+  assert.deepEqual(r.expiredRuns, []);
+  assert.equal(w.sends.length, 2);
+  const w2 = world(2, { expiresAt: NOON + 3600 });
+  const r2 = await runBlastBatch(fakeEnv(w2), deps(w2), NOON);
+  assert.deepEqual(r2.expiredRuns, []);
+  assert.equal(w2.sends.length, 2);
 });

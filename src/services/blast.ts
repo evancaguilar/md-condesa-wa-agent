@@ -416,7 +416,7 @@ export function buildListAudience(
 
 // ---- run registry (kv `blast_run:<runId>`) ---------------------------------------
 
-export type BlastRunStatus = "active" | "paused" | "cancelled" | "done";
+export type BlastRunStatus = "active" | "paused" | "cancelled" | "done" | "expired";
 
 export interface BlastRunMeta {
   id: string;
@@ -442,6 +442,13 @@ export interface BlastRunMeta {
   pausedReason: string | null;
   /** Epoch of the last status change. */
   updatedAt: number;
+  /** Stop sending at this epoch (blast-expiry.ts): whatever is still queued is
+   *  cancelled and the run becomes `expired`. null = never (evergreen copy).
+   *  Defaults to 21:00 CDMX of the first sending day so day-specific copy can
+   *  never spill into the next morning (2026-10-16 incident). */
+  expiresAt: number | null;
+  /** Rows cancelled by the expiry (set once, when the run expires). */
+  expiredUnsent: number | null;
 }
 
 export const RUN_KEY_PREFIX = "blast_run:";
@@ -476,13 +483,17 @@ export function parseRunMeta(id: string, value: string | null): BlastRunMeta | n
       by: "",
       pausedReason: null,
       updatedAt: start,
+      expiresAt: null,
+      expiredUnsent: null,
     };
   }
   try {
     const p = JSON.parse(value) as Partial<BlastRunMeta>;
     if (typeof p.total !== "number") return null;
     const status: BlastRunStatus =
-      p.status === "paused" || p.status === "cancelled" || p.status === "done" ? p.status : "active";
+      p.status === "paused" || p.status === "cancelled" || p.status === "done" || p.status === "expired"
+        ? p.status
+        : "active";
     return {
       id,
       name: typeof p.name === "string" && p.name ? p.name : id,
@@ -501,6 +512,9 @@ export function parseRunMeta(id: string, value: string | null): BlastRunMeta | n
       by: typeof p.by === "string" ? p.by : "",
       pausedReason: typeof p.pausedReason === "string" ? p.pausedReason : null,
       updatedAt: typeof p.updatedAt === "number" ? p.updatedAt : 0,
+      // Runs queued before 2026-10-17 carry no expiry: they never expire.
+      expiresAt: typeof p.expiresAt === "number" && p.expiresAt > 0 ? p.expiresAt : null,
+      expiredUnsent: typeof p.expiredUnsent === "number" ? p.expiredUnsent : null,
     };
   } catch {
     return null;
@@ -660,7 +674,7 @@ export async function contactsByPhone(
 }
 
 export interface QueueBlastSpec {
-  meta: Omit<BlastRunMeta, "total" | "status" | "updatedAt" | "pausedReason">;
+  meta: Omit<BlastRunMeta, "total" | "status" | "updatedAt" | "pausedReason" | "expiredUnsent">;
   candidates: BlastCandidate[];
   payload: BlastPayload;
 }
@@ -677,6 +691,7 @@ export async function queueBlast(env: Env, spec: QueueBlastSpec): Promise<number
     status: "active",
     pausedReason: null,
     updatedAt: spec.meta.createdAt,
+    expiredUnsent: null,
   };
   if (!(await kvSetIfAbsent(env.DB, RUN_KEY_PREFIX + meta.id, encodeRunMeta(meta)))) {
     return null;

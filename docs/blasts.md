@@ -53,9 +53,18 @@ checkbox; the code refuses to queue a template Meta has not approved.
 4. **Prueba** — one real send to the phone you type (any phone, opt-out check
    bypassed on purpose). This is the moment Meta tells you if the name,
    language code, variable count or header link are wrong.
-5. **Programar** — start time (empty = next tick inside the window) and the
-   daily cap (default 250 = Meta's starting tier for a new WABA; it auto-grows
-   to 1K/10K/100K with quality — raise the cap only after Meta raises yours).
+5. **Programar** — start time (empty = next tick inside the window), the
+   **Expira** instant and the daily cap (default 250 = Meta's starting tier for
+   a new WABA; it auto-grows to 1K/10K/100K with quality — raise the cap only
+   after Meta raises yours).
+   - **Expira** (2026-10-17) is prefilled with **21:00 CDMX of the day the run
+     starts sending**. At that instant every row still queued is cancelled and
+     the run shows "Expiró · N sin enviar" — so copy that says "mañana sábado"
+     can never go out on Saturday morning (on 2026-10-16 three runs queued at
+     16:25 did not finish by 21:00 and ~900 wrong-day messages went out at
+     09:00 the next day; same thing on 2026-09-25). Clear the field only for
+     copy that is valid any day (the form asks you to confirm). The API default
+     is the same; `expiresAt: null` (or `0`) = never expire.
 6. Tick **Confirmo…** → **Poner en cola**. Slack gets a note; the run appears
    at the top with a progress bar and ⏸ Pausar / ▶ Reanudar / ⛔ Cancelar.
 
@@ -78,6 +87,14 @@ checkbox; the code refuses to queue a template Meta has not approved.
 - A lead who replies **BAJA** at any point is opted out by the inbound pipeline
   and every queued row for them is skipped (`skipped_optout`).
 - When the last row goes out, Slack gets a completion note with the totals.
+- **Expiry** (`expiresAt` on the run; src/services/blast-expiry.ts): on every
+  tick while a run is live — including the ticks after 21:00, before the
+  window gate — the drain cancels the queued (and paused) rows of any run whose
+  `expiresAt` has passed, marks the run `expired` with `expiredUnsent = N`,
+  posts one Slack note ("⏱️ Envío masivo X expiró (21:00 CDMX): N sin enviar,
+  cancelados") and refreshes the idle flag. Leftovers therefore die at the
+  21:00 tick the same evening, never at 09:00 the next day. An expired run
+  cannot be resumed; queue a new one with a new expiry.
 
 ## 4. Where the state lives (no D1 migration)
 
@@ -85,7 +102,10 @@ checkbox; the code refuses to queue a template Meta has not approved.
   (UNIQUE per phone+run), `note` = JSON payload {t,l,v,h,nm,err,a}. Statuses:
   `scheduled` → `sent` | `failed` | `skipped_optout` | `paused` | `cancelled`.
 - Run = kv `blast_run:<runId>` (JSON: name, template, params, total, status,
-  cap, who, pausedReason). Counts are computed from the rows.
+  cap, who, pausedReason, `expiresAt` (epoch | null = never), `expiredUnsent`).
+  Statuses: `active` | `paused` | `cancelled` | `done` | `expired`. Runs queued
+  before 2026-10-17 carry no `expiresAt` and never expire. Counts are computed
+  from the rows.
 - Run meta also carries `category` (the template's Meta category at queue time)
   — that is what the message costs (§6).
 - kv `blast_sent:<YYYY-MM-DD>` = sends today (all runs), kv
@@ -97,12 +117,12 @@ checkbox; the code refuses to queue a template Meta has not approved.
 | Call | What |
 |---|---|
 | `GET /admin/api/blast/templates` | WABA template catalog (name, language, status, category, body, variables, header, buttons) + `pricing` (the rate card). |
-| `GET /admin/api/blast/runs` | Runs with progress + per-run `cost {sent, estCostUsd, rate, category, knownCategory}` + `monthToDate {sent, estCostUsd, …}` + `pricing` + today's count + window state. |
+| `GET /admin/api/blast/runs` | Runs with progress (each with `expiresAt`, `expiredUnsent`) + per-run `cost {sent, estCostUsd, rate, category, knownCategory}` + `monthToDate {sent, estCostUsd, …}` + `pricing` + today's count + window state + `defaultExpiresAt` (what a run queued now would get). |
 | `POST /admin/api/blast/runs/:id/pause` · `/resume` · `/cancel` | Run controls (Slack note each). |
 | `GET /admin/api/blast/runs/:id/failures` | Failed rows with the error text. |
 | `POST /admin/api/blast/preview {audience}` | Counts + samples, no sends. |
 | `POST /admin/api/blast/test {phone, template, lang, params[], header?, name?}` | One real send. |
-| `POST /admin/api/blast/queue {confirm:true, name, template:{name,lang,params,header?}, audience, startAt?, dailyCap?}` | Queue a run. `skipCheck:true` bypasses the Meta catalog check. |
+| `POST /admin/api/blast/queue {confirm:true, name, template:{name,lang,params,header?}, audience, startAt?, dailyCap?, expiresAt?}` | Queue a run. `expiresAt` omitted = 21:00 CDMX of the first sending day (the response says `expiresDefaulted:true`); `null`/`0` = never; must be after `startAt`. `skipCheck:true` bypasses the Meta catalog check. |
 
 `audience`: `{source:"crm", since (epoch seconds), excludePhones:[…] (any format, e.g. Airtable Asistió), groups:["adults","kids","baby"], includeBooked, excludeBlastedDays, limit}`
 or `{source:"list", list:"<pasted text>", excludeStudents, excludeBlastedDays, limit}`.

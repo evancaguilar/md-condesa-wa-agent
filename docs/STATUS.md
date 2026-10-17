@@ -1,6 +1,10 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-16**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-17**.
+
+### Blast expiry: day-specific copy can no longer spill into the next morning (2026-10-17) — SHIPPED
+
+On 2026-10-16 three "mañana sábado" runs queued at 16:25 did not drain by 21:00 and resumed at 09:00 Saturday (~900 wrong-day sends; same mode on 2026-09-25). Every run now carries `expiresAt` (default **21:00 CDMX of its first sending day**; `null` = never): the drain (src/cron/blasts.ts `expireDueRuns`, pure rules in src/services/blast-expiry.ts) sweeps on every tick while a run is live — before the window gate, so leftovers are cancelled at the 21:00 tick the same evening — marks the run `expired`, posts one ⏱️ Slack note and refreshes the idle flag. Envíos shows an **Expira** field prefilled with today 21:00 (clearing it asks for confirmation) and an "Expiró · N sin enviar" chip; `GET /admin/api/blast/runs` returns `expiresAt` per run. Runs queued before today never expire. docs/blasts.md §2–§4. Tests 1243 → **1254**.
 
 > **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 

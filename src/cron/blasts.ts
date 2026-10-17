@@ -22,6 +22,7 @@ import {
   classifySendError,
   decodeBlastNote,
   getRunMeta,
+  listRunMetas,
   loadRunCounts,
   markRowFailed,
   saveRunMeta,
@@ -40,6 +41,7 @@ import {
   type DayCost,
 } from "../services/blast-cost.js";
 import { cdmxDateStr } from "./time.js";
+import { cdmxHm, expiredRuns, runExpired } from "../services/blast-expiry.js";
 
 /** Transient (rate-limit / 5xx) retries before a row is given up as failed. */
 export const MAX_RETRY_ATTEMPTS = 3;
@@ -62,6 +64,8 @@ export interface BlastBatchResult {
   retried: number;
   pausedRun: string | null;
   finishedRuns: string[];
+  /** Runs whose expiry passed this tick (their queued rows were cancelled). */
+  expiredRuns: string[];
   /** Why nothing ran (window closed, nothing due, cap reached). */
   idle: string | null;
 }
@@ -93,15 +97,20 @@ export async function runBlastBatch(
     retried: 0,
     pausedRun: null,
     finishedRuns: [],
+    expiredRuns: [],
     idle: null,
   };
-  if (!blastWindowOpen(nowEpoch)) {
-    result.idle = "window";
-    return result;
-  }
-  // Idle gate: one kv read. Missing/"0" ⇒ no active run ⇒ no followups query.
+  // Idle gate: one kv read. Missing/"0" ⇒ no active run ⇒ nothing to do.
   if ((await kvGet(env.DB, KV_BLAST_ACTIVE)) !== "1") {
     result.idle = "no_active_run";
+    return result;
+  }
+  // Expiry sweep BEFORE the window gate: it runs on every tick while a run is
+  // live (one kv list), so leftovers die at the 21:00 tick the same evening —
+  // not at 09:00 when the window reopens with yesterday's copy.
+  result.expiredRuns = await expireDueRuns(env, deps, nowEpoch);
+  if (!blastWindowOpen(nowEpoch)) {
+    result.idle = "window";
     return result;
   }
   const limit = await perTickLimit(env);
@@ -140,6 +149,7 @@ export async function runBlastBatch(
     const meta = metas.get(runId) ?? null;
     if (meta && meta.status !== "active") continue; // rows should already be paused/cancelled
     if (meta && meta.startAt > nowEpoch) continue; // scheduled for later (due_at was clamped)
+    if (meta && runExpired(meta.expiresAt, nowEpoch)) continue; // belt and braces: the sweep above cancels these
     touched.add(runId);
 
     const payload = decodeBlastNote(row.note);
@@ -280,6 +290,32 @@ export async function runBlastBatch(
     }
   }
   return result;
+}
+
+/**
+ * Cancel every still-queued row of each run whose `expiresAt` has passed, mark
+ * the run `expired`, tell Slack once per run, refresh the idle flag. Returns
+ * the expired run ids. Exported for the dispatcher-level tests.
+ */
+export async function expireDueRuns(env: Env, deps: BlastDrainDeps, nowEpoch: number): Promise<string[]> {
+  const due = expiredRuns(await listRunMetas(env), nowEpoch);
+  if (due.length === 0) return [];
+  const out: string[] = [];
+  for (const meta of due) {
+    const n = await setRunRowsStatus(env, meta.id, ["scheduled", "paused"], "cancelled");
+    meta.status = "expired";
+    meta.expiredUnsent = n;
+    meta.pausedReason = null;
+    meta.updatedAt = nowEpoch;
+    await saveRunMeta(env, meta);
+    out.push(meta.id);
+    await deps.slack.postNote(
+      `⏱️ Envío masivo *${meta.name}* expiró (${cdmxHm(meta.expiresAt ?? nowEpoch)} CDMX): ${n} sin enviar, cancelados. ` +
+        `Si el texto sigue vigente, encola un envío nuevo con otra fecha de expiración.`,
+    );
+  }
+  await refreshActiveFlag(env);
+  return out;
 }
 
 /** For the dashboard: today's sent count under the cap. */

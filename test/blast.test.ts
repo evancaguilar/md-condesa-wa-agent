@@ -248,6 +248,8 @@ function meta(over: Partial<BlastRunMeta> = {}): BlastRunMeta {
     dailyCap: DEFAULT_DAILY_CAP,
     by: "Evan",
     pausedReason: null,
+    expiresAt: null,
+    expiredUnsent: null,
     updatedAt: NOW,
     ...over,
   };
@@ -261,6 +263,11 @@ test("run meta: JSON round-trip, legacy epoch value, garbage", () => {
   assert.equal(legacy?.startAt, 1_787_000_000);
   assert.equal(legacy?.name, "aug28");
   assert.equal(parseRunMeta("x", "{}"), null);
+  // Runs queued before the expiry shipped (2026-10-17) never expire; `expired` survives the round-trip.
+  const old = parseRunMeta(m.id, encodeRunMeta(m).replace(/,"expiresAt":null,"expiredUnsent":null/, ""));
+  assert.equal(old?.expiresAt, null);
+  const ex = meta({ status: "expired", expiresAt: NOW + 3600, expiredUnsent: 7 });
+  assert.deepEqual(parseRunMeta(ex.id, encodeRunMeta(ex)), ex);
   assert.equal(parseRunMeta("x", null), null);
 });
 

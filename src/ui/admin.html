@@ -2064,10 +2064,18 @@ VIEWS.envios=function(){
   renderBlastForm();
   startPoll(loadBlastRuns,30000);
 };
+var blastDefaultExpiresAt=0; // epoch from /blast/runs (21:00 CDMX of the next sending day)
+function blastExpiresDefaultLocal(){
+  // datetime-local wants local wall-clock "YYYY-MM-DDTHH:mm". Browser local ≈ CDMX for Evan.
+  var ms=blastDefaultExpiresAt?blastDefaultExpiresAt*1000:(function(){ var d=new Date(); if(d.getHours()>=21) d.setDate(d.getDate()+1); d.setHours(21,0,0,0); return d.getTime(); })();
+  var d=new Date(ms), p=function(n){ return (n<10?"0":"")+n; };
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());
+}
 function blastStatusChip(st){
   if(st==="active") return '<span class="chip green">Enviando</span>';
   if(st==="paused") return '<span class="chip amber">Pausado</span>';
   if(st==="done") return '<span class="chip blue">Terminado</span>';
+  if(st==="expired") return '<span class="chip amber">Expiró</span>';
   return '<span class="chip red">Cancelado</span>';
 }
 async function loadBlastRuns(){
@@ -2077,6 +2085,7 @@ async function loadBlastRuns(){
   catch(e){ body.innerHTML='<div class="card muted">No se pudieron cargar los envíos.</div>'; return; }
   if(!el("blastRuns")) return;
   if(d.pricing) blastPricing=d.pricing;
+  if(d.defaultExpiresAt) blastDefaultExpiresAt=d.defaultExpiresAt;
   var items=d.items||[];
   var mtd=d.monthToDate;
   var head='<div class="muted sm" style="margin-bottom:8px">Hoy: '+d.sentToday+' enviados · '+(d.windowOpen?'ventana abierta':'fuera de horario ('+esc(d.hours)+')')+' · '+d.perTick+' por tanda'
@@ -2096,12 +2105,15 @@ function blastRunCard(r){
   if(c.failed>0) btns+='<button class="btn sm" data-bf="1">Ver fallos ('+c.failed+')</button>';
   var reason=r.pausedReason?'<div class="chip amber" style="margin-top:6px;white-space:normal">⚠ '+esc(r.pausedReason)+'</div>':"";
   var when=r.startAt>Math.floor(Date.now()/1000)?' · inicia '+esc(fmtDate(r.startAt))+' '+new Date(r.startAt*1000).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}):"";
+  var expires="";
+  if(r.status==="expired") expires='<div class="chip amber" style="margin-top:6px;white-space:normal">⏱ Expiró '+(r.expiresAt?esc(fmtDate(r.expiresAt))+' '+esc(clockTime(r.expiresAt)):'')+' · '+(r.expiredUnsent!=null?r.expiredUnsent:c.cancelled)+' sin enviar</div>';
+  else if(r.status==="active"||r.status==="paused") expires='<div class="muted sm" style="margin-top:4px">'+(r.expiresAt?'⏱ Expira '+esc(fmtDate(r.expiresAt))+' '+esc(clockTime(r.expiresAt))+' — lo que siga en cola se cancela':'♾ No expira')+'</div>';
   return '<div class="card" id="brun-'+esc(r.id)+'">'
     +'<div class="between"><b>'+esc(r.name)+'</b>'+blastStatusChip(r.status)+'</div>'
     +'<div class="muted sm" style="margin-top:4px">'+what+' · '+r.total+' destinatarios · por '+esc(r.by||"?")+' · '+esc(fmtDate(r.createdAt))+when+'</div>'
     +'<div style="height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;margin-top:10px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--gold)"></div></div>'
     +'<div class="muted sm" style="margin-top:6px">✅ '+c.sent+' enviados'+(r.cost&&r.cost.rate>0?' · '+esc(blastCostStr(c.sent,r.category)):'')+' · ⏳ '+r.remaining+' pendientes · ❌ '+c.failed+' fallidos · 🚫 '+c.skipped+' baja · ⛔ '+c.cancelled+' cancelados</div>'
-    +reason
+    +reason+expires
     +'<div class="row" style="flex-wrap:wrap;margin-top:10px">'+btns+'</div><div class="bfail hidden muted sm" style="margin-top:8px"></div></div>';
 }
 function wireBlastRun(r){
@@ -2171,8 +2183,8 @@ async function renderBlastForm(){
     +'<div class="row" style="margin-top:6px"><input id="bTestPhone" class="field" placeholder="tu número (5215…)" style="margin:0"><input id="bTestName" class="field" placeholder="nombre de prueba" style="margin:0;max-width:160px"><button id="bTest" class="btn sm">Enviar prueba</button></div>'
     +'<div id="bTestOut" class="muted sm" style="margin-top:6px"></div>'
     +'<hr class="sep"><div style="font-weight:700">Programar</div>'
-    +'<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:16px"><label class="lab" style="margin:0">Inicio <input id="bStart" type="datetime-local" class="field" style="width:auto"></label><label class="lab" style="margin:0">Tope por día <input id="bCap" type="number" min="1" value="250" class="field" style="width:90px"></label></div>'
-    +'<div class="muted sm" style="margin-top:4px">Vacío = empieza en la próxima tanda dentro del horario. El tope diario protege el límite de Meta (250/día en una cuenta nueva; sube solo con buena calidad).</div>'
+    +'<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:16px"><label class="lab" style="margin:0">Inicio <input id="bStart" type="datetime-local" class="field" style="width:auto"></label><label class="lab" style="margin:0">Expira <input id="bExpires" type="datetime-local" class="field" style="width:auto" value="'+esc(blastExpiresDefaultLocal())+'"></label><label class="lab" style="margin:0">Tope por día <input id="bCap" type="number" min="1" value="250" class="field" style="width:90px"></label></div>'
+    +'<div class="muted sm" style="margin-top:4px">Inicio vacío = empieza en la próxima tanda dentro del horario. <b>Expira</b> viene con las 21:00 del día en que empieza: lo que siga en cola a esa hora se cancela (así un texto de «mañana sábado» nunca sale el sábado). Bórralo solo si el texto sirve cualquier día. El tope diario protege el límite de Meta (250/día en una cuenta nueva; sube solo con buena calidad).</div>'
     +'<label style="display:block;margin-top:12px"><input type="checkbox" id="bConfirm"> Confirmo que quiero enviar esta plantilla a <b id="bConfirmN">?</b> contactos</label>'
     +'<button id="bQueue" class="btn gold" style="margin-top:10px;width:100%" disabled>Poner en cola</button>'
     +'<div id="bQueueOut" class="muted sm" style="margin-top:6px"></div>';
@@ -2269,12 +2281,14 @@ function wireBlastForm(cat){
     if(!confirm("¿Poner en cola "+lastPreview+" envíos de "+spec.name+"? Esto manda mensajes reales"+(qCost?" y cuesta "+qCost:"")+".")) return;
     var body={confirm:true,name:el("bName").value.trim(),template:spec,audience:blastAudienceSpec()};
     var st=el("bStart").value; if(st){ body.startAt=Math.floor(new Date(st).getTime()/1000); }
+    var ex=el("bExpires").value; body.expiresAt=ex?Math.floor(new Date(ex).getTime()/1000):null;
+    if(!ex && !confirm("Sin fecha de expiración: si no termina hoy, sigue mañana desde las 09:00 con el mismo texto. ¿Seguro?")) { return; }
     var cap=Number(el("bCap").value); if(cap>0) body.dailyCap=cap;
     var man=blastSelectedTpl(cat); if(man&&man.manual) body.skipCheck=true;
     el("bQueue").disabled=true; el("bQueueOut").textContent="Encolando…";
     try{
       var d=await api("/blast/queue",{method:"POST",body:body});
-      el("bQueueOut").textContent="✅ "+d.queued+" en cola ("+d.runId+").";
+      el("bQueueOut").textContent="✅ "+d.queued+" en cola ("+d.runId+")"+(d.expiresAt?" · expira "+fmtDate(d.expiresAt)+" "+clockTime(d.expiresAt):" · no expira")+".";
       toast("Envío en cola","ok"); lastPreview=0; el("bConfirm").checked=false; loadBlastRuns();
     }catch(e){ el("bQueueOut").textContent="❌ "+((e.data&&e.data.error)||"no se pudo encolar"); el("bQueue").disabled=false; }
   };

@@ -195,6 +195,7 @@ import {
   type UpdateTemplateInput,
 } from "../services/blast-templates.js";
 import { monthCost, runCost } from "../services/blast-cost.js";
+import { cdmxHm, defaultExpiresAt, resolveExpiresAt } from "../services/blast-expiry.js";
 import { KV_PER_TICK, sentTodayCount } from "../cron/blasts.js";
 import { normalizeMxPhone } from "../services/airtable.js";
 import { cdmxParts } from "../cron/time.js";
@@ -2247,6 +2248,8 @@ async function handleBlastRuns(env: Env): Promise<Response> {
     perTick: Math.min(BLAST_PER_TICK_MAX, Math.max(1, Number(perTickRaw) || BLAST_PER_TICK)),
     windowOpen: blastWindowOpen(now),
     hours: `${BLAST_HOUR_START}:00–${BLAST_HOUR_END}:00`,
+    // What a run queued right now would expire at unless the form says otherwise.
+    defaultExpiresAt: defaultExpiresAt(now),
     catalog: !!env.WA_WABA_ID,
   });
 }
@@ -2282,7 +2285,7 @@ async function handleBlastRunAction(
     return { response: json({ ok: true, affected: n, status: meta.status }), note: `▶️ Envío masivo *${meta.name}* reanudado por ${by} (${n} pendientes).` };
   }
   if (action === "cancel") {
-    if (meta.status === "cancelled" || meta.status === "done") return { response: json({ error: `ya terminó (estado ${meta.status})` }, 409) };
+    if (meta.status === "cancelled" || meta.status === "done" || meta.status === "expired") return { response: json({ error: `ya terminó (estado ${meta.status})` }, 409) };
     const n = await setRunRowsStatus(env, id, ["scheduled", "paused"], "cancelled");
     meta.status = "cancelled";
     meta.updatedAt = now;
@@ -2393,6 +2396,9 @@ async function handleBlastQueue(
     audience?: AudienceSpec;
     startAt?: number;
     dailyCap?: number;
+    /** Stop sending at this epoch (docs/blasts.md §2.5). Omitted = 21:00 CDMX of
+     *  the first sending day; null / 0 = never (evergreen copy). */
+    expiresAt?: number | null;
     /** Skip the Meta catalog check (catalog unreachable). Owner's call. */
     skipCheck?: boolean;
   }>(req);
@@ -2449,6 +2455,8 @@ async function handleBlastQueue(
   const startAt = typeof body.startAt === "number" && body.startAt > now ? Math.floor(body.startAt) : now;
   const dailyCap = typeof body.dailyCap === "number" && body.dailyCap > 0 ? Math.floor(body.dailyCap) : DEFAULT_DAILY_CAP;
   const name = (body.name ?? "").trim().slice(0, 80) || (templateName || "mensaje libre");
+  const expiry = resolveExpiresAt(body.expiresAt, now, startAt);
+  if (!expiry.ok) return { response: json({ error: expiry.error }, 400) };
   const queued = await queueBlast(env, {
     meta: {
       id: runId,
@@ -2464,18 +2472,30 @@ async function handleBlastQueue(
       startAt,
       dailyCap,
       by,
+      expiresAt: expiry.expiresAt,
     },
     candidates: r.candidates,
     payload,
   });
   if (queued === null) return { response: json({ error: "runId ya usado (envío duplicado)" }, 409) };
   const when = startAt > now ? ` a partir de ${cdmxDateStr(startAt)} ${String(cdmxParts(startAt).hour).padStart(2, "0")}:${String(cdmxParts(startAt).minute).padStart(2, "0")}` : "";
+  const expiresNote = expiry.expiresAt
+    ? ` Expira ${cdmxDateStr(expiry.expiresAt)} ${cdmxHm(expiry.expiresAt)}${expiry.defaulted ? " (por defecto)" : ""}: lo que siga en cola se cancela.`
+    : " No expira.";
   return {
-    response: json({ ok: true, runId, queued, groups: r.groups, excluded: r.excluded }),
+    response: json({
+      ok: true,
+      runId,
+      queued,
+      groups: r.groups,
+      excluded: r.excluded,
+      expiresAt: expiry.expiresAt,
+      expiresDefaulted: expiry.defaulted,
+    }),
     note:
       `📣 Envío masivo *${name}* encolado por ${by}: ${queued} destinatarios` +
       (mode === "template" ? ` · plantilla ${templateName} (${lang})` : " · texto libre") +
-      `${when}. Sale en tandas cada 5 min, ${BLAST_HOUR_START}:00–${BLAST_HOUR_END}:00 CDMX, tope ${dailyCap}/día. Pausa o cancela en /admin → Envíos.`,
+      `${when}. Sale en tandas cada 5 min, ${BLAST_HOUR_START}:00–${BLAST_HOUR_END}:00 CDMX, tope ${dailyCap}/día.${expiresNote} Pausa o cancela en /admin → Envíos.`,
   };
 }
 
