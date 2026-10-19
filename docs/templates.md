@@ -759,11 +759,11 @@ supports and what Meta needs:
 - Naming: lowercase + underscores, e.g. `promo_octubre_es`, `reto_noviembre_es`,
   `bfc_regreso_es`. Avoid names that look like the system's utility templates.
 
-**`bfc_nivel0_viernes_es` (Marketing, es) — proposed 2026-10-19, NOT yet submitted.** For
+**`bfc_nivel0_viernes_es` (Marketing, es) — proposed 2026-10-19, submitted by the worker (src/cron/template-seed-nivel0.ts); v1 rejected 2026-10-19 for ending on a variable.** For
 every lead who told us their baby is 6–12 months (and the ones who are now 12+): Nivel 0
 is every Friday 12 pm from 2026-10-23.
 
-> ¡Hola {{1}}! 👋 Ya podemos recibir a tu bebé en Baby Fight Club 🥋 Si sigue entre los 6 y 12 meses, el nuevo grupo Nivel 0 es todos los viernes a las 12 pm; y si ya cumplió el año, le toca Nivel 1 (miércoles 1 pm o sábado 2 pm). Los papás participan toda la clase y la primera es gratis. ¿Les aparto su lugar este {{2}}?
+> ¡Hola {{1}}! 👋 Ya podemos recibir a tu bebé en Baby Fight Club 🥋 Si sigue entre los 6 y 12 meses, el nuevo grupo Nivel 0 es todos los viernes a las 12 pm; y si ya cumplió el año, le toca Nivel 1 (miércoles 1 pm o sábado 2 pm). Los papás participan toda la clase y la primera es gratis. ¿Les aparto su lugar este {{2}}? Contéstanos por aquí y lo dejamos listo 🙌
 >
 > Footer: Responde BAJA para dejar de recibir mensajes.
 > Quick replies: «Sí, apártanos» · «Otro día»

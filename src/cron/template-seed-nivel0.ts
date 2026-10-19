@@ -12,7 +12,8 @@ import type { Env } from "../types.js";
 import type { CreateTemplateInput } from "../services/blast-templates.js";
 import { seedSet } from "./template-seed-cuestionario.js";
 
-export const SEED_KEY = "tpl_seed:bfc_nivel0:2026-10-19";
+// v2: Meta rejected v1 ("Variables can't be at the start or end of the template").
+export const SEED_KEY = "tpl_seed:bfc_nivel0:2026-10-19b";
 
 export const FOOTER_ES = "Responde BAJA para dejar de recibir mensajes.";
 export const FOOTER_EN = "Reply BAJA to stop receiving messages.";
@@ -28,7 +29,7 @@ export function nivel0TemplateInputs(): CreateTemplateInput[] {
         "¡Hola {{1}}! 👋 Ya podemos recibir a tu bebé en Baby Fight Club 🥋 Si sigue entre los 6 y 12 meses, " +
         "el nuevo grupo Nivel 0 es todos los viernes a las 12 pm; y si ya cumplió el año, le toca Nivel 1 " +
         "(miércoles 1 pm o sábado 2 pm). Los papás participan toda la clase y la primera es gratis. " +
-        "¿Les aparto su lugar este {{2}}?",
+        "¿Les aparto su lugar este {{2}}? Contéstanos por aquí y lo dejamos listo 🙌",
       bodyExamples: ["Ana", "viernes 23 de octubre a las 12 pm"],
       footer: FOOTER_ES,
       buttons: [
@@ -43,7 +44,7 @@ export function nivel0TemplateInputs(): CreateTemplateInput[] {
       body:
         "Hi {{1}}! 👋 We can now take your baby at Baby Fight Club 🥋 If they're still 6–12 months, " +
         "the new Level 0 group is every Friday at 12 pm; if they've turned one, Level 1 is Wednesday 1 pm " +
-        "or Saturday 2 pm. Parents join the whole class and the first one is free. Shall I save your spot this {{2}}?",
+        "or Saturday 2 pm. Parents join the whole class and the first one is free. Shall I save your spot this {{2}}? Just reply here and we'll set it up 🙌",
       bodyExamples: ["Ana", "Friday, October 23 at 12 pm"],
       footer: FOOTER_EN,
       buttons: [

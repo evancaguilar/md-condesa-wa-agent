@@ -14,9 +14,11 @@ test("Nivel 0 announcement templates: es + en, Marketing, 2 variables with sampl
     assert.match(i.footer ?? "", /BAJA/);
     assert.equal(i.buttons?.length, 2);
     assert.match(i.body, /12 pm/);
+    // Meta: "Variables can't be at the start or end of the template".
+    assert.doesNotMatch(i.body.trim(), /^\{\{\d\}\}|\{\{\d\}\}[\s.,!?¿¡]*$/);
     assert.doesNotMatch(i.body, /\{nombre\}|https?:/);
     const payload = buildCreateTemplatePayload(i) as { components: { type: string }[] };
     assert.deepEqual(payload.components.map((c) => c.type), ["BODY", "FOOTER", "BUTTONS"]);
   }
-  assert.match(SEED_KEY, /^tpl_seed:bfc_nivel0:/);
+  assert.match(SEED_KEY, /^tpl_seed:bfc_nivel0:2026-10-19b$/);
 });
