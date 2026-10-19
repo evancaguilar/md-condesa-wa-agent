@@ -142,7 +142,7 @@ export async function seedConfirmTemplates(
   });
 }
 
-async function seedSet(
+export async function seedSet(
   env: Env,
   deps: { postNote: (t: string) => Promise<void> },
   doFetch: typeof fetch,

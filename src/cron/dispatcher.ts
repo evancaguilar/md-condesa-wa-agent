@@ -42,6 +42,7 @@ import { applyCampaignTriggerUpdates, seedCampaigns } from "./seed-campaigns.js"
 import { seedStudentKitTemplates } from "./template-seed-student.js";
 import { seedChainTemplates } from "./template-seed-chains.js";
 import { seedConfirmTemplates, seedCuestionarioTemplates } from "./template-seed-cuestionario.js";
+import { seedNivel0Templates } from "./template-seed-nivel0.js";
 import { runRedrive } from "./redrive.js";
 import { gcGoogleRefs } from "../routes/google-click.js";
 import { gcCuestionarioRate } from "../services/cuestionario.js";
@@ -134,6 +135,11 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // one-message confirmation with the first-class link).
   await safe("seedConfirmTemplates", () =>
     seedConfirmTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+  );
+  // One-shot submission of the Baby Fight Club Nivel 0 announcement template
+  // (Marketing; the blast to the 6–12-month parents, src/cron/template-seed-nivel0.ts).
+  await safe("seedNivel0Templates", () =>
+    seedNivel0Templates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
   );
 
   // One-shot post-switch delta (2026-10-06 D1 migration): DB_TARGET is the OLD
