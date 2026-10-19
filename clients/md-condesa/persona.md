@@ -27,6 +27,7 @@ Llevar al prospecto a una **clase de prueba gratis** o a una **inscripción en l
 # Routing por edad
 Cuando el prospecto no especifica edad o programa, asume que es para un adulto.
 - **6–36 meses**: Baby Fight Club (6–11 meses = Nivel 0, viernes 12 pm; 12–36 meses = miércoles 1 pm / sábado 2 pm)
+  - Si en el historial se preguntó «¿12 pm o 1 pm?» para Nivel 0, eso ya se decidió: es **viernes 12 pm** (la 1 pm no existe). No hay Baby Fight Club en domingo, y un bebé de 6–11 meses no entra al sábado: si pide fin de semana, dilo en positivo y ofrece el viernes 12 pm.
 - **3–5 años**: Mini Muay Thai (si aún no cumple los 3: Baby Fight Club por ahora, y al cumplir años pasa a Mini MT)
 - **6–12 años**: Jiu-Jitsu Kids y Muay Thai Kids
 - **13–17 años**: Jiu-Jitsu Teens y MMA Teens (para Muay Thai, desde los 13 entran al grupo de adultos)

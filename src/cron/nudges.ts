@@ -132,10 +132,21 @@ export function isMinorBand(band: ProgramBand): boolean {
  * baby pick — stripping the flag here lets them be proposed to exactly the
  * band they belong to, and nobody else ever sees them through this list. Pure.
  */
-export function bandSchedule(band: ProgramBand, schedule: readonly Slot[] = SLOTS): Slot[] {
+export function bandSchedule(
+  band: ProgramBand,
+  schedule: readonly Slot[] = SLOTS,
+  ageMonths?: number | null,
+): Slot[] {
+  const ageKnown = typeof ageMonths === "number" && Number.isFinite(ageMonths);
   return schedule
-    .filter((s) => s.trial !== false && slotMatchesBand(s, band))
+    .filter((s) => s.trial !== false && slotMatchesBand(s, band, ageMonths))
     .map((s) => {
+      // Already filtered by the child's age (Nivel 0 Friday vs Wed / Sat):
+      // drop the window so next-slot does not re-hide Nivel 0 as "age unknown".
+      if (ageKnown && s.months) {
+        const { months: _m, ...rest } = s;
+        s = rest;
+      }
       if (band !== "mini" || !s.pp) return s;
       const { pp: _pp, ...rest } = s;
       // …and say the program's own name ("Mini Muay Thai"), not "Muay Thai".
@@ -179,7 +190,7 @@ export function copyInputsForBand(
     contact: contact ? { ...contact, qualification: JSON.stringify(q2) } : null,
     campaignName: campaign,
     program: bandProgram(band),
-    schedule: bandSchedule(band, schedule),
+    schedule: bandSchedule(band, schedule, q.child_age_months),
   };
 }
 
@@ -200,7 +211,7 @@ export function bandSlot(
     band === "baby" ? "baby" : band === "mini" ? "muay" : (q.discipline ?? null);
   const excludeWeekdays = weekdaySet(q.declined_days);
   const slot = nextBandSlot(band, discipline, nowEpoch, {
-    schedule: bandSchedule(band, schedule),
+    schedule: bandSchedule(band, schedule, q.child_age_months),
     ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
   });
   void campaignName;

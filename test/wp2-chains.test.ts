@@ -813,3 +813,21 @@ test("legacy post_trial_d2 / d5 rows of a baby lead render baby copy and, window
   });
   assert.deepEqual(quiet.res, { outcome: "cancelled" });
 });
+
+// 2026-10-19 (Rocio Mir): a 9-month-old's day-2 nudge offered "miércoles 1 pm"
+// (the 12–36-month class) because the nudge slot pick ignored the stored age.
+test("nudge slot pick uses the baby's stored age: 9 months → Nivel 0 Friday 12 pm, 24 months → never Friday", () => {
+  const thu = cdmxToEpoch(2026, 10, 22, 9, 0, 0);
+  const nine = contact({ qualification: JSON.stringify({ program: "baby", child_age_months: 9 }) });
+  const s9 = bandSlot(nine, "baby fight club", "baby", thu);
+  assert.equal(s9?.weekday, 4);
+  assert.equal(s9?.time, "12:00");
+  const sched9 = copyInputsForBand(nine, "baby fight club", "baby").schedule;
+  assert.ok(sched9.length > 0 && sched9.every((s) => s.weekday === 4));
+  const two = contact({ qualification: JSON.stringify({ program: "baby", child_age_months: 24 }) });
+  const s24 = bandSlot(two, "baby fight club", "baby", thu);
+  assert.ok(s24 && s24.weekday !== 4);
+  assert.ok(copyInputsForBand(two, "baby fight club", "baby").schedule.every((s) => s.weekday !== 4));
+  const unknown = contact({ qualification: JSON.stringify({ program: "baby" }) });
+  assert.notEqual(bandSlot(unknown, "baby fight club", "baby", thu)?.weekday, 4);
+});
