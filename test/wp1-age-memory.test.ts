@@ -389,3 +389,15 @@ test("guard keeps false positives low", () => {
   assert.equal(findSlotClaimIssues("el domingo a las 11 am Muay Thai", 0, { band: "adults", discipline: "muay" }).length, 0);
   assert.equal(findSlotClaimIssues("el domingo a las 9 am", 0, { band: "adults", discipline: "muay" }).length, 1);
 });
+
+test("validateSlotBand: a 2-year-old cannot book Nivel 0 Friday 12 pm, a 7-month-old cannot book Wed 1 pm", () => {
+  const big = validateSlotBand("2026-10-23", "12:00", "baby", "baby", undefined, 24);
+  assert.equal(big.ok, false);
+  assert.match(big.reason ?? "", /6–11 meses/);
+  assert.match(big.reason ?? "", /mié 13:00|sáb 14:00/);
+  const small = validateSlotBand("2026-10-21", "13:00", "baby", "baby", undefined, 7);
+  assert.equal(small.ok, false);
+  assert.match(small.reason ?? "", /vie 12:00/);
+  assert.equal(validateSlotBand("2026-10-23", "12:00", "baby", "baby", undefined, 7).ok, true);
+  assert.equal(validateSlotBand("2026-10-23", "12:00", "baby", "baby").ok, true); // unknown age → band only
+});

@@ -170,6 +170,8 @@ export interface BandSlotOpts {
   leadSeconds?: number;
   /** Weekdays (0=Mon … 6=Sun) the lead declined — never listed. */
   excludeWeekdays?: ReadonlySet<number>;
+  /** Child's age in months when known (Nivel 0 vs regular Baby Fight Club). */
+  ageMonths?: number | null;
 }
 
 /**
@@ -193,6 +195,7 @@ export function upcomingBandSlots(
       ...(opts.closedDates ? { closedDates: opts.closedDates } : {}),
       ...(opts.leadSeconds !== undefined ? { leadSeconds: opts.leadSeconds } : {}),
       ...(opts.excludeWeekdays ? { excludeWeekdays: opts.excludeWeekdays } : {}),
+      ...(typeof opts.ageMonths === "number" ? { ageMonths: opts.ageMonths } : {}),
       band,
       limit: Math.max(limit, 1) * 6,
     })) {
@@ -302,6 +305,9 @@ function collectSlots(
     /** Age band (2026-10-11): when set it REPLACES the audience/pp filter —
      *  only rows whose `group` is this band (slotMatchesBand). */
     band?: ProgramBand;
+    /** Child's age in months when known: rows with a `months` window outside
+     *  it are skipped (Nivel 0 vs regular Baby Fight Club). */
+    ageMonths?: number | null;
     /** 0=Mon … 6=Sun weekdays the lead said don't work: never proposed. */
     excludeWeekdays?: ReadonlySet<number>;
     limit: number;
@@ -325,12 +331,17 @@ function collectSlots(
     if (opts.excludeWeekdays?.has(wd)) continue; // the lead said this day doesn't work
 
     const band = opts.band;
+    const ageKnown = typeof opts.ageMonths === "number";
     const candidates = schedule
       .filter((s) =>
-        band !== undefined
+        // Nivel 0 (Baby Fight Club 6–11 months, Friday 12 pm) is only PROPOSED
+        // when the baby's age is known to fit: with the age unknown the regular
+        // Wed / Sat class is the default (most BFC babies are 12–36 months).
+        !(s.months && s.months[1] <= 12 && !ageKnown) &&
+        (band !== undefined
           ? s.weekday === wd &&
             s.trial !== false &&
-            slotMatchesBand(s, band) &&
+            slotMatchesBand(s, band, opts.ageMonths) &&
             (wantKey === null || (s.discipline === wantKey && !s.name))
           :
           s.weekday === wd &&
@@ -346,7 +357,7 @@ function collectSlots(
             : (s.pp !== true || wantKey === "baby") &&
               // A renamed class (Blindaje 8 on the sáb 12:00 `jiu` row) is
               // not what a lead who asked for that program wants.
-              (wantKey === null || (s.discipline === wantKey && !s.name))),
+              (wantKey === null || (s.discipline === wantKey && !s.name)))),
       )
       .slice()
       .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));

@@ -654,7 +654,14 @@ export async function handleBookTrial(
   const check = band
     ? mergeChecks(
         validateSlot(trialDate, trialTime, audience, discipline),
-        validateSlotBand(trialDate, trialTime, discipline, band),
+        validateSlotBand(
+          trialDate,
+          trialTime,
+          discipline,
+          band,
+          undefined,
+          childAgeMonths ?? parseQualification(ctx.contact)?.child_age_months ?? null,
+        ),
       )
     : validateSlot(trialDate, trialTime, audience, discipline);
   if (!check.ok) {

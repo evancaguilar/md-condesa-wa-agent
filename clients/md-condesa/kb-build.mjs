@@ -384,9 +384,13 @@ function buildSlots(schedule) {
  * generated there instead of being hand-written twice.
  */
 function withBabyTrialSlots(slots) {
+  // `months` = [min, max) age window the row is for: the brain / book_trial
+  // reject a baby outside it (age-band.ts slotFitsAge). Nivel 0 (6–11 months)
+  // is Friday 12 pm from 2026-10-23 (Evan); 12–36 months keep Wed / Sat.
   const babyTrials = [
-    { weekday: 2, time: "13:00" }, // miércoles 1 pm (cambió de 11 am el 2026-09-18)
-    { weekday: 5, time: "14:00" }, // sábado 2 pm
+    { weekday: 2, time: "13:00", months: [12, 36] }, // miércoles 1 pm (cambió de 11 am el 2026-09-18)
+    { weekday: 4, time: "12:00", months: [6, 12] }, // viernes 12 pm — Nivel 0 (desde 2026-10-23)
+    { weekday: 5, time: "14:00", months: [12, 36] }, // sábado 2 pm
   ];
   const out = slots.filter((s) => s.discipline !== "baby");
   for (const t of babyTrials) {
@@ -398,6 +402,7 @@ function withBabyTrialSlots(slots) {
       discipline: "baby",
       audience: "adult",
       group: "baby",
+      months: t.months,
       dual: true,
     });
   }

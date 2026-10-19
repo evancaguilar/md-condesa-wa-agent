@@ -150,7 +150,7 @@ function renderSlotsTs(slots, version) {
   const rows = slots
     .map(
       (s) =>
-        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)}${s.trial === false ? ", trial: false" : ""}${s.pp ? ", pp: true" : ""}${s.group ? `, group: ${JSON.stringify(s.group)}` : ""}${s.name ? `, name: ${JSON.stringify(s.name)}` : ""} },`,
+        `  { weekday: ${s.weekday}, time: ${JSON.stringify(s.time)}, discipline: ${JSON.stringify(s.discipline)}, audience: ${JSON.stringify(s.audience)}${s.trial === false ? ", trial: false" : ""}${s.pp ? ", pp: true" : ""}${s.group ? `, group: ${JSON.stringify(s.group)}` : ""}${s.months ? `, months: [${s.months[0]}, ${s.months[1]}]` : ""}${s.name ? `, name: ${JSON.stringify(s.name)}` : ""} },`,
     )
     .join("\n");
   return (
@@ -169,6 +169,9 @@ function renderSlotsTs(slots, version) {
     `  /** Age group the class is for: adult | kids (6–12) | teens (13–17) |\n` +
     `   *  mini (Mini Muay Thai, 3–5) | baby (Baby Fight Club, 12–36 m). */\n` +
     `  group?: "adult" | "kids" | "teens" | "mini" | "baby";\n` +
+    `  /** Age window [min, max) in MONTHS the row is for, when the group splits\n` +
+    `   *  by age (Baby Fight Club: Nivel 0 = [6, 12), regular = [12, 36)). */\n` +
+    `  months?: [number, number];\n` +
     `  /** Client-facing class name when it differs from the program's (e.g. a\n` +
     `   *  renamed course booked under \`jiu\`). Never offered as \`discipline\`. */\n` +
     `  name?: string;\n` +

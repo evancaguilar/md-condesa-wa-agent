@@ -759,6 +759,19 @@ supports and what Meta needs:
 - Naming: lowercase + underscores, e.g. `promo_octubre_es`, `reto_noviembre_es`,
   `bfc_regreso_es`. Avoid names that look like the system's utility templates.
 
+**`bfc_nivel0_viernes_es` (Marketing, es) — proposed 2026-10-19, NOT yet submitted.** For
+every lead who told us their baby is 6–12 months (and the ones who are now 12+): Nivel 0
+is every Friday 12 pm from 2026-10-23.
+
+> ¡Hola {{1}}! 👋 Ya podemos recibir a tu bebé en Baby Fight Club 🥋 Si sigue entre los 6 y 12 meses, el nuevo grupo Nivel 0 es todos los viernes a las 12 pm; y si ya cumplió el año, le toca Nivel 1 (miércoles 1 pm o sábado 2 pm). Los papás participan toda la clase y la primera es gratis. ¿Les aparto su lugar este {{2}}?
+>
+> Footer: Responde BAJA para dejar de recibir mensajes.
+> Quick replies: «Sí, apártanos» · «Otro día»
+> Samples: {{1}} = Ana · {{2}} = viernes 23 de octubre a las 12 pm
+
+Variables at send time: `{{1}}` = `{nombre}`, `{{2}}` = the concrete day/hour (so the
+expiry rule applies: 21:00 CDMX same day).
+
 Suggested first three (copy TBD by Evan): a monthly promo (adults), a kids /
 Baby Fight Club invitation, and a "te esperamos de vuelta" reactivation for
 leads who never booked.

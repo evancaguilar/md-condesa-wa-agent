@@ -377,9 +377,13 @@ function groupLabel(g: NonNullable<Slot["group"]>): string {
  * Every trial row of a band across the week, as "lun 15:15 muay" strings in
  * weekday/clock order (deduped over the dual-audience pp mirrors). Pure.
  */
-export function bandWeekOptions(band: ProgramBand, schedule: readonly Slot[] = SLOTS): string[] {
+export function bandWeekOptions(
+  band: ProgramBand,
+  schedule: readonly Slot[] = SLOTS,
+  ageMonths?: number | null,
+): string[] {
   const rows = schedule
-    .filter((s) => s.trial !== false && slotMatchesBand(s, band))
+    .filter((s) => s.trial !== false && slotMatchesBand(s, band, ageMonths))
     .slice()
     .sort((a, b) => a.weekday - b.weekday || (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   const out: string[] = [];
@@ -404,6 +408,7 @@ export function validateSlotBand(
   discipline: string,
   band: ProgramBand,
   schedule: readonly Slot[] = SLOTS,
+  ageMonths?: number | null,
 ): ValidateResult {
   const wd = weekdayIndex(trialDate);
   if (wd === null) return { ok: true };
@@ -413,17 +418,22 @@ export function validateSlotBand(
     (s) => s.weekday === wd && s.time === time && s.discipline === disc && s.trial !== false,
   );
   if (rows.length === 0) return { ok: true };
-  if (rows.some((s) => slotMatchesBand(s, band))) return { ok: true };
+  if (rows.some((s) => slotMatchesBand(s, band, ageMonths))) return { ok: true };
 
-  const booked = groupLabel(slotGroup(rows[0]!));
+  // Same group, wrong age window (a 2-year-old into Nivel 0, a 7-month-old
+  // into the regular Wed / Sat class): say so by age, not by group.
+  const ageOnly = rows.some((s) => slotMatchesBand(s, band));
+  const booked = ageOnly
+    ? `${groupLabel(slotGroup(rows[0]!))} ${rows[0]!.months ? `(${rows[0]!.months[0]}–${rows[0]!.months[1] - 1} meses)` : ""}`.trim()
+    : groupLabel(slotGroup(rows[0]!));
   const sameDay = [
     ...new Set(
       schedule
-        .filter((s) => s.weekday === wd && s.trial !== false && slotMatchesBand(s, band))
+        .filter((s) => s.weekday === wd && s.trial !== false && slotMatchesBand(s, band, ageMonths))
         .map((s) => s.time),
     ),
   ].sort();
-  const week = bandWeekOptions(band, schedule);
+  const week = bandWeekOptions(band, schedule, ageMonths);
   const tail = sameDay.length
     ? ` Same-day ${bandLabel(band)} options: ${sameDay.join(", ")} CDMX.`
     : "";

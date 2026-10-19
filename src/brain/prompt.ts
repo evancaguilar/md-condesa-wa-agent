@@ -26,7 +26,7 @@ import {
   type BandDay,
   type NextSlot,
 } from "../cron/next-slot.js";
-import { bandLabel, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
+import { bandLabel, isNivel0, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
 import { SLOTS } from "./slots.gen.js";
 import { isKnownDiscipline, normalizeDiscipline } from "./tools.js";
 import { cdmxToEpoch } from "../cron/time.js";
@@ -212,15 +212,18 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
   const q = parseQualification(ctx.contact.qualification);
   const disc = bandDiscipline(q.discipline, band);
   const excludeWeekdays = weekdaySet(q.declined_days);
+  const ageMonths = typeof q.child_age_months === "number" ? q.child_age_months : null;
   const opts = {
     leadSeconds: TODAY_BUFFER_SECONDS,
     ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
+    ...(ageMonths !== null ? { ageMonths } : {}),
   };
-  const ageKnown = typeof q.child_age_months === "number" || q.program !== undefined;
+  const ageKnown = ageMonths !== null || q.program !== undefined;
 
   const lines: string[] = [];
+  const label = band === "baby" && isNivel0(ageMonths) ? "Baby Fight Club Nivel 0 (6–11 meses)" : bandLabel(band);
   const bandWords =
-    band === "adults" ? "adultos" : `${bandLabel(band)}${ageKnown ? "" : " — edad aún no confirmada: pregúntala antes de agendar"}`;
+    band === "adults" ? "adultos" : `${label}${ageKnown ? "" : " — edad aún no confirmada: pregúntala antes de agendar"}`;
   lines.push(`programa por edad: ${bandWords}`);
 
   // One entry per hour (two disciplines at 7 am are ONE option to the lead).

@@ -1,6 +1,19 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-17**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-19**.
+
+### Baby Fight Club Nivel 0 = every Friday 12 pm + MMA leads offered the 7 pm class (2026-10-19) — ON BRANCH `claude/bfc-level-1-friday-schedule-q2kp0f`, needs Evan's merge
+
+**Findings (Slack #wa-leads since the 10-09 "¿12 pm o 1 pm?" update, two independent reads):** 17 parents of 6–11-month-olds were asked; 3 said 12 pm (Ximena Flores, Gabs, abii ayla), 0 said 1 pm, Lucero said Fridays don't work, 13 never answered. Evan confirmed **Friday 12 pm**. Bugs seen on the way: the bot kept saying "posiblemente el 16 de octubre" through 10-19 (Editor proposal 16→23 never applied); the slot validator flagged "viernes 12:00 no existe para BFC (12–36 meses)"; Hugo's Nivel 0 question was parsed as a booking; Gabs/abii gave an answer but no human task was opened. Full report + phone list: scratchpad `bfc-nivel0-findings-2026-10-19.md`.
+
+- **Slots now carry an age window** (`months: [min, max)` in slots.gen.ts, emitted by compile-kb from kb-build `withBabyTrialSlots`): **vie 12:00 = [6, 12)** (Nivel 0), **mié 13:00 / sáb 14:00 = [12, 36)**. `slotMatchesBand(slot, band, ageMonths)` / `slotFitsAge` (age-band.ts) apply it wherever the child's age is known: `validateSlotBand` (book_trial rejects a 2-year-old on Friday or a 7-month-old on Wednesday, naming the right rows), the per-turn "próximos horarios" list and `upcomingBandSlots` (opts.ageMonths). With the age UNKNOWN the Friday row is never proposed (regular BFC stays the default) but a booking that names it is accepted. Context label becomes "Baby Fight Club Nivel 0 (6–11 meses)" for a known 6–11-month-old.
+- **KB:** intake.md Nivel 0 bullet = trial every Friday 12 pm from 2026-10-23, book with `book_trial` (baby, 12:00, child_age in months), never Friday for 12+ months, never Wed/Sat for 6–11; persona age routing line updated; BFC price reply mentions the Friday slot for 6–11 months; Nivel 0 price still "por confirmar, escala" (Evan never gave one). KB 11,989 → **12,089** tokens (limit 12,100 — the next KB edit must trim).
+- **MMA leads try 2 classes** (Evan): intake.md rule — when proposing MMA 8 pm (lun/mar/jue) the bot invites them in the same message to arrive at 7 pm for Jiu-Jitsu or Muay Thai ("son la base del MMA…"); MMA Striking 9 am → arrive 8 am. Asked BEFORE book_trial; invitation, not a requirement.
+- Tests 1263 → **1267**.
+- [ ] **Evan**: merge the branch (push to main = deploy), then probe `/health` kbVersion and sandbox a "mi bebé tiene 7 meses" lead → the bot must offer viernes 12 pm and book it.
+- [ ] **Evan**: D1 overlay / campaign «baby fight club» first_reply + info still say "Nivel 0 … ¿12 pm o 1 pm?" if they were edited by hand — check /admin → Campañas and the KB overlay and drop the question.
+- [ ] **Evan**: the 13 unanswered + 3 "12 pm" parents need the confirmation (template `bfc_nivel0_viernes_es`, docs/templates.md) — nothing queued; audience list in the scratchpad `blast-nivel0-draft.md`. Also Fer: Francesca Berrondo got a "sábado 3 pm" (not a trial slot) on 10-15 — fix by hand.
+- [ ] **Evan**: campaign «fw mma» welcome in /admin → Campañas — if it offers "8 pm" alone, add the 7 pm invitation there too (the canned welcome bypasses the brain).
 
 ### Blast expiry: day-specific copy can no longer spill into the next morning (2026-10-17) — SHIPPED
 

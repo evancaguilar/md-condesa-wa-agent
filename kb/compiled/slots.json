@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-17+bcdffeaa3edd",
+  "version": "2026-10-19+571423312912",
   "slots": [
     {
       "weekday": 0,
@@ -657,6 +657,22 @@
       "discipline": "baby",
       "audience": "adult",
       "group": "baby",
+      "months": [
+        12,
+        36
+      ],
+      "pp": true
+    },
+    {
+      "weekday": 4,
+      "time": "12:00",
+      "discipline": "baby",
+      "audience": "adult",
+      "group": "baby",
+      "months": [
+        6,
+        12
+      ],
       "pp": true
     },
     {
@@ -665,6 +681,10 @@
       "discipline": "baby",
       "audience": "adult",
       "group": "baby",
+      "months": [
+        12,
+        36
+      ],
       "pp": true
     },
     {
@@ -697,6 +717,22 @@
       "discipline": "baby",
       "audience": "kid",
       "group": "baby",
+      "months": [
+        12,
+        36
+      ],
+      "pp": true
+    },
+    {
+      "weekday": 4,
+      "time": "12:00",
+      "discipline": "baby",
+      "audience": "kid",
+      "group": "baby",
+      "months": [
+        6,
+        12
+      ],
       "pp": true
     },
     {
@@ -705,6 +741,10 @@
       "discipline": "baby",
       "audience": "kid",
       "group": "baby",
+      "months": [
+        12,
+        36
+      ],
       "pp": true
     }
   ]

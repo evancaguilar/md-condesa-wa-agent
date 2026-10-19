@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 
 import {
   nextTrialSlot,
+  upcomingBandSlots,
   upcomingTrialSlots,
   inPreferredBlock,
   formatSlotLabel,
@@ -365,4 +366,20 @@ test("nextTrialSlot: a Jiu-Jitsu lead is never offered the renamed sáb 12:00 cl
   assert.notEqual(`${slot!.weekday}|${slot!.time}`, "5|12:00");
   const many = upcomingTrialSlots("jiu", "adult", SAT(6), 10);
   assert.ok(many.every((s) => s.name === undefined));
+});
+
+// Nivel 0 (2026-10-19): the Friday 12 pm Baby Fight Club row is for 6–11
+// months only. It is proposed when the age fits, never when the age is
+// unknown or 12+ months (those get the regular Wed / Sat class).
+test("upcomingBandSlots: Nivel 0 Friday 12 pm only for a known 6–11-month-old", () => {
+  const thu = cdmxToEpoch(2026, 10, 22, 12, 0, 0);
+  const sevenMonths = upcomingBandSlots("baby", null, thu, 3, { ageMonths: 7 });
+  assert.equal(sevenMonths[0]?.date, "2026-10-23");
+  assert.equal(sevenMonths[0]?.time, "12:00");
+  assert.ok(sevenMonths.every((s) => s.weekday === 4));
+  const twoYears = upcomingBandSlots("baby", null, thu, 3, { ageMonths: 24 });
+  assert.ok(twoYears.length > 0 && twoYears.every((s) => s.weekday !== 4));
+  assert.equal(twoYears[0]?.date, "2026-10-24"); // Saturday 2 pm
+  const unknown = upcomingBandSlots("baby", null, thu, 3, {});
+  assert.ok(unknown.every((s) => s.weekday !== 4));
 });

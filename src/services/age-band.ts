@@ -14,8 +14,8 @@ import type { Slot } from "../brain/slots.gen.js";
 
 export type { ProgramBand };
 
-/** Months of age → band. <12 months = Nivel 0 (no trial slot; treated as baby
- *  for copy/links, the brain escalates). */
+/** Months of age → band. 6–11 months = Baby Fight Club Nivel 0 (its own
+ *  Friday row, see slotFitsAge); still the baby band for copy/links. */
 export function bandFromAgeMonths(months: number): ProgramBand {
   if (!Number.isFinite(months) || months < 0) return "adults";
   if (months < 36) return "baby";
@@ -40,10 +40,23 @@ export function slotGroup(slot: Slot): NonNullable<Slot["group"]> {
 /** Does a slot belong to the band? Adults may also take any kid-free class;
  *  the grid has no "adult" band entries for minors, so kids/teens/mini/baby
  *  must match exactly. */
-export function slotMatchesBand(slot: Slot, band: ProgramBand): boolean {
+export function slotMatchesBand(slot: Slot, band: ProgramBand, ageMonths?: number | null): boolean {
   const g = slotGroup(slot);
   if (band === "adults") return g === "adult";
-  return g === band;
+  return g === band && slotFitsAge(slot, ageMonths);
+}
+
+/** Rows with a `months` window (Baby Fight Club: Nivel 0 Friday 12 pm is
+ *  [6, 12), Wed / Sat are [12, 36)) fit only a known age inside it. An
+ *  unknown age fits every row — the persona asks before booking. */
+export function slotFitsAge(slot: Slot, ageMonths?: number | null): boolean {
+  if (!slot.months || typeof ageMonths !== "number" || !Number.isFinite(ageMonths)) return true;
+  return ageMonths >= slot.months[0] && ageMonths < slot.months[1];
+}
+
+/** True for a baby the Nivel 0 window covers (6–11 months). */
+export function isNivel0(ageMonths?: number | null): boolean {
+  return typeof ageMonths === "number" && ageMonths >= 6 && ageMonths < 12;
 }
 
 /** Booking audience for book_trial / Airtable: everyone under 18 is "kid". */
@@ -55,7 +68,7 @@ export function bandAudience(band: ProgramBand): "adult" | "kid" {
 export function bandLabel(band: ProgramBand): string {
   switch (band) {
     case "baby":
-      return "Baby Fight Club (12–36 meses)";
+      return "Baby Fight Club (6–36 meses)";
     case "mini":
       return "Mini Muay Thai (3–5 años)";
     case "kids":
