@@ -2,6 +2,19 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-19**.
 
+### Day-of confirmation from the bot number: chat deep links + voice notes / video from the composer (2026-10-19) — ON BRANCH `day-of-confirm`, NOT PUSHED (needs Evan's OK)
+
+Staff used to send the day-of confirmation from the SUPPORT number (their own phone); now it goes from the bot number while the 24h window is open. Spec: docs/dashboard-plan.md §10.
+
+- **Deep link `/admin#chats/<digits>`:** SPA resolves via `GET /admin/api/conversations/resolve?phone=` (`resolveContactPhone`: exact PK 521+10 / 52+10 / raw, then `substr(phone,-10)` backed by new `idx_contacts_last10`; 400 invalid, 404 not_found|ambiguous) and opens the chat directly. `INDEX_MIGRATION_KEY` migr_idx_2026_10_19 → the worker applies the index itself on first request. Airtable formula column **`Chat bot`** in Leads already created (2026-10-19). Slack: "💬 Abrir en el panel" on the approval card and the booking FYI (`dashboardChatUrl`, optional `DASHBOARD_URL`).
+- **🎤 voice notes / 🎥 camera video in the chat composer** (`send-media`, WhatsApp kind `audio`, owner-only `POST /admin/api/media/remux-check`). Voice order: WebCodecs Opus (iOS 26+/Chrome, "MDOP" envelope → Ogg) → MediaRecorder ogg (Firefox) → webm (server remuxes WebM→Ogg) → mp4 AAC (iOS ≤18, arrives as an audio FILE, no waveform). Video: mp4, 60 s, 1.5 Mbps; `video/quicktime` rejected. `voice:true` not sent to Graph yet (`SEND_AUDIO_VOICE_FLAG` in wa.ts). A staff send still pauses the bot on that chat. Window closed → buttons disabled, wa.me fallback stays.
+- Tests 1269 → **1287**.
+- [ ] **Evan:** OK to push. After the deploy probe `/admin/api/conversations/resolve?phone=<a known lead>` (logged in) → 200 with the phone.
+- [ ] **Evan:** test 🎤 from an iPhone on iOS 26 (expect waveform), from Chrome (expect waveform), from an older iPhone (expect an audio file); test 🎥 on an iPhone.
+- [ ] **Evan:** confirm the #bot-ops note "envió una nota de voz 🎤" appears after a voice send.
+- [ ] **Evan:** open a `Chat bot` cell from the Airtable mobile app on a logged-out phone → after login the chat must open.
+- [ ] **Evan:** if voice notes arrive WITHOUT waveform on iOS 26, report the device + browser version.
+
 ### Baby Fight Club Nivel 0 = every Friday 12 pm + MMA leads offered the 7 pm class (2026-10-19) — ON BRANCH `claude/bfc-level-1-friday-schedule-q2kp0f`, needs Evan's merge
 
 **Findings (Slack #wa-leads since the 10-09 "¿12 pm o 1 pm?" update, two independent reads):** 17 parents of 6–11-month-olds were asked; 3 said 12 pm (Ximena Flores, Gabs, abii ayla), 0 said 1 pm, Lucero said Fridays don't work, 13 never answered. Evan confirmed **Friday 12 pm**. Bugs seen on the way: the bot kept saying "posiblemente el 16 de octubre" through 10-19 (Editor proposal 16→23 never applied); the slot validator flagged "viernes 12:00 no existe para BFC (12–36 meses)"; Hugo's Nivel 0 question was parsed as a booking; Gabs/abii gave an answer but no human task was opened. Full report + phone list: scratchpad `bfc-nivel0-findings-2026-10-19.md`.

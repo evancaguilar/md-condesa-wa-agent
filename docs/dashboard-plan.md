@@ -144,3 +144,26 @@ wrangler.jsonc Text rule globs → ["**/*.md", "**/*.html"] (same rule; verify `
 2. Paste §2 migration SQL in D1 console (3 CREATEs + index + ALTER).
 3. Push → deploy → open /admin, log in on phone + desktop.
 4. Smoke: bot toggle syncs Slack panel; sandbox message; create campaign; KB edit via Editor visible in sandbox.
+
+## 10. Chat composer media + deep links (2026-10-19, branch `day-of-confirm`)
+
+Why: staff sent the day-of confirmation from the SUPPORT number (their own phone). Now it goes from the bot number while the 24h window is open; window closed → 🎤/🎥 disabled and the existing wa.me fallback stays (no "send reminder template now" button — Evan's call). A staff send still pauses the bot on that chat (existing takeover semantics).
+
+**Deep link `/admin#chats/<digits>`**
+- SPA calls `GET /admin/api/conversations/resolve?phone=` (registered BEFORE the `conversations/([^/]+)` matcher, which would swallow "resolve"). Impl: `resolveContactPhone` (src/db/queries-admin.ts) → exact PK candidates 521+10 / 52+10 / raw, then `substr(phone,-10)` fallback served by `idx_contacts_last10`.
+- Responses: 200 `{phone}`; 400 invalid; 404 `not_found` | `ambiguous`. Opens the chat directly even on phone numbers (`forceOpen`); logged-out users land on login, then the chat.
+- Index: `INDEX_MIGRATION_KEY` = `migr_idx_2026_10_19` — the worker applies it itself on first request (also mirrored in schema.sql INDEX_SQL).
+- Airtable: formula column **`Chat bot`** in Leads (created 2026-10-19) builds `…/admin#chats/` + digits of `# de Teléfono`. Slack: "💬 Abrir en el panel" on the approval card context line (`draftBlocks`) and `postBookingFyi`; URL from `dashboardChatUrl` (src/services/dashboard-link.ts), optional `DASHBOARD_URL` var.
+
+**Media from the composer** (admin.html: 🎤 / 🎥 buttons, `#recBox`, `sendChatBlob`)
+- Route: `POST /admin/api/conversations/<phone>/send-media` → `handleStaffSendMedia` → staff-send.ts → wa.ts (new kind `"audio"`). Server mime table tolerates `;codecs=` params; `video/quicktime` is rejected with a hint. Owner-only `POST /admin/api/media/remux-check` tests the remuxer.
+- Voice path order (first that the browser supports):
+  1. WebCodecs Opus (iOS 26+, Chrome) → envelope `application/x-md-opus-packets`: `"MDOP"` + u16 head length + OpusHead + repeated (u16 length + packet). Server wraps into Ogg Opus (src/services/ogg-opus.ts) → waveform voice note.
+  2. MediaRecorder `audio/ogg` (Firefox) → sent as is.
+  3. MediaRecorder `audio/webm` (older Chrome/Android) → server remuxes WebM→Ogg (no lacing support).
+  4. MediaRecorder `audio/mp4` AAC (iOS ≤ 18) → delivered as an audio FILE, not a waveform voice note.
+- `voice:true` is NOT sent to Graph (v21.0 docs unclear); flip `SEND_AUDIO_VOICE_FLAG` in wa.ts to try it.
+- Video: MediaRecorder `video/mp4` (Safari/iOS, Chrome ≥ 126), 60 s cap, 1.5 Mbps. Android fallback: native camera `<input capture>`. Desktop without mp4 support → toast, no send.
+- #bot-ops gets a note "envió una nota de voz 🎤" per voice send.
+
+Tests 1269 → 1287.
