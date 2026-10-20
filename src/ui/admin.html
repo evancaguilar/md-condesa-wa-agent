@@ -575,7 +575,15 @@ VIEWS.chats=function(){
   renderChatFilters();
   wireChatSearch();
   chatsCache.firstLoad=true;
-  loadChats();
+  var deep=(location.hash||"").replace(/^#chats\/?/,"").replace(/\D/g,"");
+  if(deep){
+    history.replaceState(null,"",location.pathname+location.search+"#chats");
+    api("/conversations/resolve?phone="+deep).then(function(r){
+      chatsCache.openPhone=r.phone; chatsCache.forceOpen=true;
+    }).catch(function(e){
+      toast(e&&(e.status===404||e.status===400)?"No hay chat con ese número":"No se pudo abrir el chat","err");
+    }).then(function(){ loadChats(); });
+  } else { loadChats(); }
   startPoll(chatsTick,5000);
 };
 function wireChatSearch(){
@@ -648,7 +656,8 @@ async function loadChats(){
   renderChatList();
   if(chatsCache.firstLoad){
     chatsCache.firstLoad=false;
-    if(window.matchMedia("(min-width:768px)").matches && chatsCache.items.length && !chatState.phone){
+    var force=!!chatsCache.forceOpen; chatsCache.forceOpen=false;
+    if((force || window.matchMedia("(min-width:768px)").matches) && chatsCache.items.length && !chatState.phone){
       openChat(chatsCache.openPhone || chatsCache.items[0].phone);
     }
   }

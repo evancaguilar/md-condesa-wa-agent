@@ -290,8 +290,8 @@ test("ensureIndexes: creates once, kv-guarded, memoized per isolate", async () =
 // batch, so a schema.sql-only index can never silently be missing in prod.
 test("worker-applied index batch covers every index the inbox plan relies on", () => {
   const applied = INDEX_SQL.map((s) => /INDEX IF NOT EXISTS (\w+)/.exec(s)?.[1]);
-  for (const name of ["idx_messages_phone_ts", "idx_pending_approvals_phone", "idx_pending_approvals_status"]) {
+  for (const name of ["idx_messages_phone_ts", "idx_pending_approvals_phone", "idx_pending_approvals_status", "idx_contacts_last10"]) {
     assert.ok(applied.includes(name), `${name} must be in INDEX_SQL (src/db/indexes.ts)`);
   }
-  assert.equal(INDEX_MIGRATION_KEY, "migr_idx_2026_09_17");
+  assert.equal(INDEX_MIGRATION_KEY, "migr_idx_2026_10_19");
 });

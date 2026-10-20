@@ -133,6 +133,7 @@ import {
   cancelStaffLater,
   listApprovalHistory,
   namesForPhones,
+  resolveContactPhone,
 } from "../db/queries-admin.js";
 import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
@@ -708,6 +709,12 @@ export async function handleAdminApi(
   // ---- conversations ----
   if (path === "/admin/api/conversations" && method === "GET") {
     return handleConversationsList(env, url);
+  }
+  // Must stay BEFORE convoMatch ([^/]+ would swallow "resolve").
+  if (path === "/admin/api/conversations/resolve" && method === "GET") {
+    const r = await resolveContactPhone(env.DB, url.searchParams.get("phone") ?? "");
+    if (r.ok) return json({ phone: r.phone, via: r.via });
+    return json({ error: r.reason }, r.reason === "invalid" ? 400 : 404);
   }
   // ---- media proxy (auth-gated; resolves Graph media ids to bytes) ----
   const mediaMatch = path.match(/^\/admin\/api\/media\/(\d+)$/);

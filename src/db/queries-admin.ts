@@ -16,6 +16,7 @@ import {
   type ApprovalHistoryQuery,
 } from "./approvals-history.js";
 import { cdmxMonthStr, cdmxParts, cdmxToEpoch, DAY } from "../cron/time.js";
+import { normalizeMxPhone } from "../services/airtable.js";
 import { isBotEnabled, kvGet } from "./queries.js";
 import { AUTO_MODE_KV, autoModeActive } from "../services/auto-mode.js";
 import { HOLDING_LINE } from "../services/slack-timeouts.js";
@@ -1330,3 +1331,49 @@ export async function getTrainingWheels(env: Env): Promise<boolean> {
 // Re-export read helpers the dashboard overview needs from the core layer, so
 // W3 imports a single admin surface.
 export { isBotEnabled };
+
+// ---- dashboard deep link: /admin#chats/<digits> ----
+
+/** Candidate contacts.phone values for a user-typed / Airtable phone. */
+export function resolveCandidates(raw: string): string[] {
+  const r = String(raw ?? "").trim();
+  if (/^(ig|fb):/i.test(r)) return [];
+  const digits = r.replace(/\D/g, "");
+  if (digits.length < 10) return [];
+  const last10 = digits.slice(-10);
+  const out: string[] = [];
+  for (const c of [normalizeMxPhone(r), digits, `521${last10}`, `52${last10}`]) {
+    if (c && !out.includes(c)) out.push(c);
+  }
+  return out;
+}
+
+export type ResolveResult =
+  | { ok: true; phone: string; via: "exact" | "last10" }
+  | { ok: false; reason: "invalid" | "not_found" | "ambiguous" };
+
+export async function resolveContactPhone(db: D1Database, raw: string): Promise<ResolveResult> {
+  const cands = resolveCandidates(raw);
+  if (!cands.length) return { ok: false, reason: "invalid" };
+  const marks = cands.map((_, i) => `?${i + 1}`).join(",");
+  const exact = await db
+    .prepare(`SELECT phone FROM contacts WHERE phone IN (${marks}) LIMIT 2`)
+    .bind(...cands)
+    .all<{ phone: string }>();
+  const hits = exact.results ?? [];
+  if (hits.length) {
+    // Prefer the canonical shape (first candidate) if several shapes exist.
+    const pick = hits.find((h) => h.phone === cands[0]) ?? hits[0]!;
+    return { ok: true, phone: pick.phone, via: "exact" };
+  }
+  // Index: idx_contacts_last10 ON contacts(substr(phone,-10)).
+  const last10 = cands[0]!.slice(-10);
+  const loose = await db
+    .prepare(`SELECT phone FROM contacts WHERE substr(phone,-10) = ?1 LIMIT 2`)
+    .bind(last10)
+    .all<{ phone: string }>();
+  const rows = loose.results ?? [];
+  if (rows.length === 1) return { ok: true, phone: rows[0]!.phone, via: "last10" };
+  if (rows.length > 1) return { ok: false, reason: "ambiguous" };
+  return { ok: false, reason: "not_found" };
+}

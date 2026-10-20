@@ -14,6 +14,7 @@ import {
   KV_STATUS_LINE_PING_AT,
   KV_STATUS_LINE_TS,
 } from "./status-line.js";
+import { dashboardChatUrl } from "./dashboard-link.js";
 import type {
   AutoSentFyi,
   BookTrialInput,
@@ -202,12 +203,13 @@ function statusChips(
 }
 
 /** Renders the last ~6 conversation lines already embedded in contextText. */
-function draftBlocks(
+export function draftBlocks(
   approval: PendingApproval & { contextText: string; sureness?: number },
   name: string | null,
   hoursLeft: number,
   reason: string | null,
   adLine: string | null,
+  chatUrl: string | null = null,
 ): unknown[] {
   const who = name ? `${name} · ${approval.phone}` : approval.phone;
   // The model's own 0–100 read of the draft. Shown so Evan can calibrate the
@@ -220,7 +222,10 @@ function draftBlocks(
       type: "header",
       text: { type: "plain_text", text: `📲 ${who}${seguridad}`, emoji: true },
     },
-    context(statusChips(approval, name, hoursLeft)),
+    context(
+      statusChips(approval, name, hoursLeft) +
+        (chatUrl ? `  •  <${chatUrl}|💬 Abrir en el panel>` : ""),
+    ),
   ];
   if (adLine) blocks.push(context(adLine));
   blocks.push(
@@ -342,7 +347,7 @@ export async function postDraft(
     }
   }
   const adLine = adAttributionLine(contact?.ad_ref ?? null, campaignName);
-  const blocks = draftBlocks(a, name, hoursLeft, reason, adLine);
+  const blocks = draftBlocks(a, name, hoursLeft, reason, adLine, dashboardChatUrl(env, a.phone));
   // <!here> so action-required cards ping even with the channel muted to
   // "Mentions only"; FYI posts (postNote/postBookingFyi) stay silent.
   blocks.unshift(context("<!here>"));
@@ -420,12 +425,14 @@ async function escalationSlaStep(env: Env, a: PendingApproval, now: number): Pro
 /** FYI card posted when the model's book_trial tool fires. */
 export async function postBookingFyi(env: Env, booking: BookTrialInput): Promise<void> {
   const when = `${booking.trialDate} ${booking.trialTime}`;
+  const chatUrl = dashboardChatUrl(env, booking.phone);
   const blocks = [
     section(
       `📅 *Clase de prueba agendada*\n*${booking.name}* · ${booking.phone}`,
     ),
     context(
-      `${booking.discipline} · ${booking.audience === "kid" ? "niños" : "adultos"} · ${when}`,
+      `${booking.discipline} · ${booking.audience === "kid" ? "niños" : "adultos"} · ${when}` +
+        (chatUrl ? `  •  <${chatUrl}|💬 Abrir en el panel>` : ""),
     ),
   ];
   await postMessage(env, blocks, `Clase de prueba agendada — ${booking.name}`, undefined, "ops");
