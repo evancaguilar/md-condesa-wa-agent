@@ -2,7 +2,7 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-19**.
 
-### Day-of confirmation from the bot number: chat deep links + voice notes / video from the composer (2026-10-19) — ON BRANCH `day-of-confirm`, NOT PUSHED (needs Evan's OK)
+### Day-of confirmation from the bot number: chat deep links + voice notes / video from the composer (2026-10-19) — SHIPPED (pushed 2026-10-19, rev 072c258b4dc5; team guide: Google Doc "Cómo confirmar la clase del día desde el número del bot")
 
 Staff used to send the day-of confirmation from the SUPPORT number (their own phone); now it goes from the bot number while the 24h window is open. Spec: docs/dashboard-plan.md §10.
 
