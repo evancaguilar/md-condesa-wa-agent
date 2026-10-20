@@ -32,6 +32,7 @@
     "src/services/d1-copy.ts",
     "src/services/infra-alert.ts",
     "src/services/staff-send.ts",
+    "src/services/ogg-opus.ts",
     "src/services/edit-tuner-core.ts",
     "src/db/queries-admin.ts",
     "src/db/indexes.ts",

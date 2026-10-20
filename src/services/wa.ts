@@ -175,7 +175,15 @@ export async function sendVideo(
 // ---- staff media (dashboard inbox attachments) ----
 
 /** Media kinds the dashboard can send. */
-export type OutboundMediaKind = "image" | "video" | "document";
+export type OutboundMediaKind = "image" | "video" | "document" | "audio";
+
+/**
+ * Graph `audio.voice` flag. Meta's audio-messages doc documents `voice: true`
+ * (examples on v26.0) but does not say which API versions accept it, and we
+ * pin GRAPH_VERSION v21.0 — so it is NOT sent. Flip this once GRAPH_VERSION is
+ * bumped to a version where the field is documented.
+ */
+const SEND_AUDIO_VOICE_FLAG = false;
 
 /**
  * Uploads a file to the number's Graph /media endpoint. Returns the media id.
@@ -185,9 +193,11 @@ export async function uploadMedia(
   env: Env,
   file: Blob,
   filename: string,
+  mimeType?: string,
 ): Promise<string> {
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
+  if (mimeType) form.append("type", mimeType);
   form.append("file", file, filename);
   const res = await fetch(graphUrl(env, "media"), {
     method: "POST",
@@ -204,7 +214,7 @@ export async function uploadMedia(
 }
 
 /**
- * Sends an uploaded media object (by id) as image/video/document. Same 24h
+ * Sends an uploaded media object (by id) as image/video/document/audio. Same 24h
  * window guard as sendText. Records the row with the caption (or a
  * placeholder) as body and {type, mediaId, caption, filename} meta.
  */
@@ -226,9 +236,13 @@ export async function sendMedia(
   if (nowSec - last >= WINDOW_SECONDS) {
     throw new WindowClosedError(phone);
   }
+  const isAudio = kind === "audio";
+  // Audio: id only — Graph accepts no caption/filename on audio objects.
+  const caption = isAudio ? undefined : opts?.caption;
   const mediaObj: Record<string, unknown> = { id: mediaId };
-  if (opts?.caption) mediaObj.caption = opts.caption;
+  if (caption) mediaObj.caption = caption;
   if (kind === "document" && opts?.filename) mediaObj.filename = opts.filename;
+  if (isAudio && SEND_AUDIO_VOICE_FLAG) mediaObj.voice = true;
   const wamid = await post(env, {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -237,19 +251,26 @@ export async function sendMedia(
     [kind]: mediaObj,
   });
   const placeholder =
-    kind === "image" ? "[imagen]" : kind === "video" ? "[video]" : "[documento]";
+    kind === "image"
+      ? "[imagen]"
+      : kind === "video"
+        ? "[video]"
+        : kind === "audio"
+          ? "[nota de voz]"
+          : "[documento]";
   const meta: Record<string, unknown> = {
     type: kind,
     mediaId,
+    ...(isAudio ? { voice: true } : {}),
     ...(opts?.metaExtra ?? {}),
   };
-  if (opts?.caption) meta.caption = opts.caption;
-  if (opts?.filename) meta.filename = opts.filename;
+  if (caption) meta.caption = caption;
+  if (opts?.filename && !isAudio) meta.filename = opts.filename;
   await recordOutbound(
     env,
     phone,
     wamid,
-    opts?.caption || placeholder,
+    caption || placeholder,
     meta,
     opts?.direction ?? "out_bot",
   );
