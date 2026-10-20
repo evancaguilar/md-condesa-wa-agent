@@ -180,7 +180,7 @@ export function parseStaffLaterNote(note: string | null): StaffLaterNote | null 
 // ---- staff media send (R2: dashboard attachments) ----
 
 export interface StaffMediaInput {
-  kind: "image" | "video" | "document";
+  kind: "image" | "video" | "document" | "audio";
   mediaId: string; // already uploaded via wa.uploadMedia
   caption?: string;
   filename?: string;
@@ -207,6 +207,7 @@ const KIND_LABEL: Record<StaffMediaInput["kind"], string> = {
   image: "una imagen 📷",
   video: "un video 🎬",
   document: "un documento 📄",
+  audio: "una nota de voz 🎤",
 };
 
 /**
@@ -222,7 +223,9 @@ export async function sendStaffMedia(
   deps: StaffMediaDeps,
   opts?: StaffSendOpts,
 ): Promise<StaffSendResult> {
-  const caption = (input.caption ?? "").trim();
+  // Voice notes carry no caption on WhatsApp — silently dropped, not an error.
+  const isAudio = input.kind === "audio";
+  const caption = isAudio ? "" : (input.caption ?? "").trim();
   if (caption.length > STAFF_TEXT_MAX) return { ok: false, reason: "too_long" };
 
   const contact = await getContact(env.DB, phone);
@@ -242,7 +245,7 @@ export async function sendStaffMedia(
   try {
     wamid = await deps.sendMedia(env, phone, input.kind, input.mediaId, {
       caption: caption || undefined,
-      filename: input.filename,
+      filename: isAudio ? undefined : input.filename,
       direction: "out_human",
       metaExtra: { by: byUsername },
     });
@@ -263,14 +266,21 @@ export async function sendStaffMedia(
   }
 
   const placeholder =
-    input.kind === "image" ? "[imagen]" : input.kind === "video" ? "[video]" : "[documento]";
+    input.kind === "image"
+      ? "[imagen]"
+      : input.kind === "video"
+        ? "[video]"
+        : isAudio
+          ? "[nota de voz]"
+          : "[documento]";
   const meta: Record<string, unknown> = {
     type: input.kind,
     mediaId: input.mediaId,
     by: byUsername,
   };
+  if (isAudio) meta.voice = true;
   if (caption) meta.caption = caption;
-  if (input.filename) meta.filename = input.filename;
+  if (input.filename && !isAudio) meta.filename = input.filename;
   return {
     ok: true,
     message: {

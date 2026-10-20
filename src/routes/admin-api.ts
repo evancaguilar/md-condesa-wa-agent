@@ -725,6 +725,9 @@ export async function handleAdminApi(
     return new Response(got.res.body, { status: 200, headers });
   }
 
+  if (path === "/admin/api/media/remux-check" && method === "POST") {
+    return handleMediaRemuxCheck(req, session);
+  }
   const convoMatch = path.match(
     /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-later|booking\/parse|booking))?$/,
   );
@@ -1183,13 +1186,60 @@ async function handleSendLater(
 }
 
 // ---- staff media send (multipart: file + token + caption?) ----
+// Voice notes (2026-10): audio/webm (Chrome) is remuxed to Ogg Opus,
+// application/x-md-opus-packets (WebCodecs envelope) is muxed to Ogg Opus,
+// audio/ogg|mp4|mpeg|aac pass through. Import kept next to its only users.
+import {
+  envelopeToOgg,
+  OpusEnvelopeError,
+  webmOpusToOgg,
+  WebmRemuxError,
+  type RemuxInfo,
+} from "../services/ogg-opus.js";
 
 const MEDIA_MAX_BYTES = 16 * 1024 * 1024; // WA image limit; videos/docs also capped here (v1)
-const MEDIA_KIND_BY_MIME: { re: RegExp; kind: OutboundMediaKind }[] = [
-  { re: /^image\/(jpeg|png|webp)$/i, kind: "image" },
-  { re: /^video\/(mp4|3gpp)$/i, kind: "video" },
-  { re: /^application\/pdf$/i, kind: "document" },
+/** How the upload is prepared before the Graph media upload. */
+type MediaPrep = "passthrough" | "webm" | "envelope";
+// MediaRecorder blobs carry parameters (`audio/webm;codecs=opus`,
+// `video/mp4;codecs=avc1…`), so every pattern tolerates a `;…` suffix.
+const MEDIA_KIND_BY_MIME: { re: RegExp; kind: OutboundMediaKind; prep: MediaPrep }[] = [
+  { re: /^image\/(jpeg|png|webp)(;.*)?$/i, kind: "image", prep: "passthrough" },
+  { re: /^video\/(mp4|3gpp)(;.*)?$/i, kind: "video", prep: "passthrough" },
+  { re: /^application\/pdf(;.*)?$/i, kind: "document", prep: "passthrough" },
+  { re: /^audio\/(ogg|mp4|mpeg|aac)(;.*)?$/i, kind: "audio", prep: "passthrough" },
+  { re: /^audio\/webm(;.*)?$/i, kind: "audio", prep: "webm" },
+  { re: /^application\/x-md-opus-packets(;.*)?$/i, kind: "audio", prep: "envelope" },
 ];
+const VOICE_NOTE_FILENAME = "nota-de-voz.ogg";
+
+type UploadFile = Blob & { name?: string; type: string; size: number };
+
+/** Duck-typed multipart file check (workers-types' FormDataEntryValue lacks File). */
+function formFile(form: FormData): UploadFile | null {
+  const entry = form.get("file") as unknown;
+  const isFileLike =
+    typeof entry === "object" &&
+    entry !== null &&
+    typeof (entry as Blob).arrayBuffer === "function";
+  return isFileLike ? (entry as UploadFile) : null;
+}
+
+/** webm/envelope → Ogg Opus; null for preps that need no conversion. */
+async function convertVoice(
+  file: UploadFile,
+  prep: MediaPrep,
+): Promise<{ ogg: Uint8Array; info: RemuxInfo } | null> {
+  if (prep === "passthrough") return null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return prep === "webm" ? webmOpusToOgg(bytes) : envelopeToOgg(bytes);
+}
+
+function remuxErrorResponse(err: unknown): Response | null {
+  if (err instanceof WebmRemuxError || err instanceof OpusEnvelopeError) {
+    return json({ error: "remux_failed", code: err.code }, 400);
+  }
+  return null;
+}
 
 async function handleStaffSendMedia(
   req: Request,
@@ -1206,28 +1256,42 @@ async function handleStaffSendMedia(
   }
   const token = String(form.get("token") ?? "").trim();
   if (!token || token.length > 128) return json({ error: "token_required" }, 400);
-  const caption = String(form.get("caption") ?? "");
-  // Duck-typed file check (workers-types' FormDataEntryValue lacks File).
-  const entry = form.get("file") as unknown;
-  const file = entry as Blob & { name?: string; type: string; size: number };
-  const isFileLike =
-    typeof entry === "object" &&
-    entry !== null &&
-    typeof (entry as Blob).arrayBuffer === "function";
-  if (!isFileLike) return json({ error: "file_required" }, 400);
+  const file = formFile(form);
+  if (!file) return json({ error: "file_required" }, 400);
   if (file.size > MEDIA_MAX_BYTES) return json({ error: "file_too_large" }, 400);
+  if (/^video\/quicktime(;.*)?$/i.test(file.type)) {
+    return json({ error: "unsupported_type", hint: "quicktime" }, 400);
+  }
   const match = MEDIA_KIND_BY_MIME.find((m) => m.re.test(file.type));
   if (!match) return json({ error: "unsupported_type" }, 400);
+  // Voice notes carry no caption — silently dropped.
+  const caption = match.kind === "audio" ? "" : String(form.get("caption") ?? "");
   // IG/FB contacts: media attachments are WA-only in v1 — reject before the
   // (WA-specific) Graph media upload burns a request.
   if (channelOf(phone) !== "wa") {
     return json({ error: "channel_unsupported" }, 400);
   }
 
-  const fname = file.name || "archivo";
+  let upload: Blob = file;
+  let fname = file.name || (match.kind === "audio" ? "audio" : "archivo");
+  let mime: string | undefined =
+    match.kind === "audio" ? file.type.split(";")[0]!.trim().toLowerCase() : undefined;
+  try {
+    const converted = await convertVoice(file, match.prep);
+    if (converted) {
+      upload = new Blob([converted.ogg], { type: "audio/ogg" });
+      fname = VOICE_NOTE_FILENAME;
+      mime = "audio/ogg";
+    }
+  } catch (err) {
+    const res = remuxErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
+
   let mediaId: string;
   try {
-    mediaId = await uploadMedia(env, file, fname);
+    mediaId = await uploadMedia(env, upload, fname, mime);
   } catch (err) {
     console.error("staff media upload failed", err);
     return json({ error: "upload_failed" }, 502);
@@ -1254,6 +1318,33 @@ async function handleStaffSendMedia(
     return json({ error: "too_long" }, 400);
   }
   return json(result);
+}
+
+/**
+ * Owner-only diagnostics: POST /admin/api/media/remux-check (multipart `file`,
+ * audio/webm or the opus-packets envelope) → {ok, info}. No upload, no send.
+ */
+async function handleMediaRemuxCheck(req: Request, session: Session): Promise<Response> {
+  if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return json({ error: "multipart_required" }, 400);
+  }
+  const file = formFile(form);
+  if (!file) return json({ error: "file_required" }, 400);
+  if (file.size > MEDIA_MAX_BYTES) return json({ error: "file_too_large" }, 400);
+  const match = MEDIA_KIND_BY_MIME.find((m) => m.re.test(file.type));
+  if (!match || match.prep === "passthrough") return json({ error: "unsupported_type" }, 400);
+  try {
+    const converted = await convertVoice(file, match.prep);
+    return json({ ok: true, info: converted!.info });
+  } catch (err) {
+    const res = remuxErrorResponse(err);
+    if (res) return res;
+    throw err;
+  }
 }
 
 // ---- booking gap closure (Slice 4) ----

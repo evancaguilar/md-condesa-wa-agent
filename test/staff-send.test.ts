@@ -2,9 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  sendStaffMedia,
   sendStaffText,
   STAFF_TAKEOVER_HOURS,
   STAFF_TEXT_MAX,
+  type StaffMediaDeps,
   type StaffSendDeps,
 } from "../src/services/staff-send.js";
 import type { Contact, Env } from "../src/types.js";
@@ -240,5 +242,69 @@ test("sendStaffText: slack note failure does not break the send", async () => {
     },
   });
   const r = await sendStaffText(envWith(db), "5215512345678", "hola", "evan", "tok-s", deps);
+  assert.equal(r.ok, true);
+});
+
+// ---- staff media: voice notes ----
+
+test("sendStaffMedia: audio drops caption, voice-note label, meta.voice", async () => {
+  const { db } = fakeDb((sql) => {
+    if (sql.includes("FROM contacts")) return { first: CONTACT };
+    return { changes: 1 };
+  });
+  const sends: { kind: string; opts: { caption?: string; filename?: string } }[] = [];
+  const notes: string[] = [];
+  const deps: StaffMediaDeps = {
+    async sendMedia(_env, _phone, kind, _id, opts) {
+      sends.push({ kind, opts });
+      return "wamid.VOICE1";
+    },
+    isWindowClosed: () => false,
+    async postNote(_env, text) {
+      notes.push(text);
+    },
+  };
+  const r = await sendStaffMedia(
+    envWith(db),
+    "5215512345678",
+    { kind: "audio", mediaId: "m-1", caption: "ignored caption", filename: "nota-de-voz.ogg" },
+    "fer",
+    "tok-voice",
+    deps,
+  );
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0]!.kind, "audio");
+  assert.equal(sends[0]!.opts.caption, undefined);
+  assert.equal(sends[0]!.opts.filename, undefined);
+  assert.equal(r.message.body, "[nota de voz]");
+  const meta = JSON.parse(r.message.meta ?? "{}");
+  assert.equal(meta.voice, true);
+  assert.equal(meta.type, "audio");
+  assert.equal(meta.caption, undefined);
+  assert.equal(meta.filename, undefined);
+  assert.equal(notes.length, 1);
+  assert.ok(notes[0]!.includes("una nota de voz 🎤"));
+  assert.ok(!notes[0]!.includes("ignored caption"));
+});
+
+test("sendStaffMedia: over-limit caption on audio is dropped, not an error", async () => {
+  const { db } = fakeDb((sql) => {
+    if (sql.includes("FROM contacts")) return { first: CONTACT };
+    return { changes: 1 };
+  });
+  const r = await sendStaffMedia(
+    envWith(db),
+    "5215512345678",
+    { kind: "audio", mediaId: "m-2", caption: "x".repeat(STAFF_TEXT_MAX + 10) },
+    "fer",
+    "tok-voice-2",
+    {
+      sendMedia: async () => "wamid.VOICE2",
+      isWindowClosed: () => false,
+      postNote: async () => {},
+    },
+  );
   assert.equal(r.ok, true);
 });
