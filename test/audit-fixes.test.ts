@@ -6,12 +6,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  armNudges,
   bandSlot,
+  BOOKING_KINDS,
+  bookingMarkerLive,
   copyInputsForBand,
   gateNudge,
   gateOnStaffReply,
+  hasBookingHistory,
+  PAST_BOOKING_KINDS,
+  processNudge,
   STAFF_REPLY_GUARD_SECONDS,
 } from "../src/cron/nudges.js";
+import { POST_TRIAL_ALL_KINDS } from "../src/cron/post-trial.js";
 import {
   classifyProgram,
   disciplineFromCampaign,
@@ -169,5 +176,68 @@ test("runDueFollowups: a due nudge right after a staff reply is rescheduled, nev
     assert.equal(sent, false);
   } finally {
     Date.now = realNow;
+  }
+});
+
+// ---- 4. no "todavía no has agendado" once the lead has booked, ever ----
+
+test("PAST_BOOKING_KINDS covers the reminders and both post-trial chains", () => {
+  const set = new Set<string>(PAST_BOOKING_KINDS);
+  for (const k of [...BOOKING_KINDS, ...POST_TRIAL_ALL_KINDS]) assert.ok(set.has(k), k);
+  assert.ok(!set.has("nudge_1h"));
+});
+
+test("hasBookingHistory: a marker of ANY age, or any booking-kind row", () => {
+  assert.equal(hasBookingHistory(null, false), false);
+  assert.equal(hasBookingHistory(null, true), true);
+  // A class long gone still counts (bookingMarkerLive would say false).
+  const past = JSON.stringify({ ts: 1_700_000_000, trialDate: "2026-10-01", trialTime: "18:00" });
+  assert.equal(hasBookingHistory(past, false), true);
+  assert.equal(bookingMarkerLive(past, cdmxToEpoch(2026, 10, 21, 12, 0, 0)), false);
+  assert.equal(hasBookingHistory("1700000000", false), true); // legacy bare epoch
+  assert.equal(hasBookingHistory("garbage", false), false);
+});
+
+/** A nudge-eligible lead whose ONLY booking signal is `signal`. */
+function historyDb(signal: "marker" | "row" | "none" | "probe_fails", sink: { inserted: number }) {
+  return fakeDb((sql) => {
+    if (sql.includes("SELECT * FROM contacts")) return { first: contact({ last_inbound_at: Math.floor(Date.now() / 1000) }) };
+    if (sql.includes("SELECT 1 AS n FROM followups") && sql.includes("status = 'scheduled'")) return { first: null };
+    if (sql.includes("SELECT 1 AS n FROM followups")) {
+      if (signal === "probe_fails") throw new Error("D1 overloaded");
+      return { first: signal === "row" ? { n: 1 } : null };
+    }
+    if (sql.includes("SELECT value FROM kv") && signal === "marker") {
+      return { first: { value: JSON.stringify({ ts: 1_700_000_000, trialDate: "2026-10-01", trialTime: "18:00" }) } };
+    }
+    if (sql.includes("SELECT value FROM kv")) return { first: null };
+    if (sql.includes("INSERT OR IGNORE INTO followups")) sink.inserted++;
+    return {};
+  });
+}
+
+test("armNudges: a past trial (old marker or an old reminder row) arms nothing; fails soft on a probe error", async () => {
+  for (const [signal, want] of [["marker", 0], ["row", 0], ["none", 2], ["probe_fails", 2]] as const) {
+    const sink = { inserted: 0 };
+    const { db } = historyDb(signal, sink);
+    await armNudges({ DB: db } as unknown as Env, "5215512345678");
+    // Day-1 plan may drop a step at night; what matters is none vs some.
+    assert.equal(sink.inserted > 0, want > 0, signal);
+  }
+});
+
+test("processNudge: a lead whose trial already passed is never told 'todavía no has agendado'", async () => {
+  for (const signal of ["marker", "row"] as const) {
+    let sent = false;
+    const { db } = historyDb(signal, { inserted: 0 });
+    const res = await processNudge({ DB: db } as unknown as Env, "5215512345678", "nudge_1h", {
+      sendText: async () => {
+        sent = true;
+        return "wamid";
+      },
+      isWindowClosed: () => false,
+    });
+    assert.equal(res, "cancelled", signal);
+    assert.equal(sent, false, signal);
   }
 });

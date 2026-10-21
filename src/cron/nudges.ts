@@ -29,6 +29,7 @@ import { nextBandSlot, type NextSlot } from "./next-slot.js";
 import { ageConflictsWithProgram, hasBuyIntent, isDuplicateSend } from "./nudge-signals.js";
 import {
   cancelFollowupsByKinds,
+  hasAnyFollowupOfKind,
   hasScheduledFollowupOfKind,
 } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
@@ -230,6 +231,56 @@ export function bookingMarkerLive(raw: string | null, now: number): boolean {
     if (Number.isFinite(at)) return at > now;
   }
   return now - m.ts < 72 * HOUR;
+}
+
+/**
+ * Every followup kind that only exists because this phone BOOKED a trial at
+ * some point: the anti-no-show reminders, the no-show chain, the attended
+ * chain and its card (src/cron/post-trial.ts POST_TRIAL_ALL_KINDS — listed
+ * literally here because post-trial imports this module). A row of any of
+ * these, in ANY status, means "todavía no has agendado" is false.
+ */
+export const PAST_BOOKING_KINDS = [
+  "trial_confirm",
+  "day_before",
+  "same_day",
+  "attendance_check",
+  "no_show_1",
+  "no_show_d3",
+  "no_show_hoy",
+  "no_show_d2",
+  "no_show_d7",
+  "post_trial_d0",
+  "post_trial_d2",
+  "post_trial_d3",
+  "post_trial_d5",
+  "post_trial_d6",
+  "post_trial_card",
+] as const;
+
+/**
+ * Pure. Booking history from the local signals: a `booking_recorded` marker of
+ * ANY age (a past class counts too — leads whose trial date had passed, or
+ * who had attended, kept getting "todavía no has agendado", audit 2026-10),
+ * or any booking-kind followup row (`hasBookingRow`).
+ */
+export function hasBookingHistory(markerRaw: string | null, hasBookingRow: boolean): boolean {
+  return hasBookingRow || parseBookingRecordedMarker(markerRaw) !== null;
+}
+
+/**
+ * DB side of hasBookingHistory: one kv read + one indexed followups probe
+ * (UNIQUE(phone, kind, …) autoindex). The followups probe fails SOFT — a
+ * lookup error falls back to the marker alone, never blocks the drip outright.
+ */
+async function bookedBefore(env: Env, phone: string): Promise<boolean> {
+  let row = false;
+  try {
+    row = await hasAnyFollowupOfKind(env.DB, phone, PAST_BOOKING_KINDS);
+  } catch (err) {
+    console.warn(`[nudges] booking-history lookup failed for ${phone}: ${String(err)}`);
+  }
+  return hasBookingHistory(await kvGet(env.DB, bookingRecordedKey(phone)), row);
 }
 
 /** kv claim: at most ONE nudge (day-1 or extended) per phone per CDMX day. */
@@ -457,7 +508,8 @@ function nowSec(): number {
 
 /**
  * Whether the day-1 drip may be armed for this contact now: status lead, no
- * active override, no active/future booking, and under the rolling cap.
+ * active override, never booked (no active/future booking AND no past one —
+ * see bookedBefore), and under the rolling cap.
  */
 async function canArm(env: Env, contact: Contact): Promise<boolean> {
   if (!CLIENT.features.nudges) return false;
@@ -472,7 +524,7 @@ async function canArm(env: Env, contact: Contact): Promise<boolean> {
     BOOKING_KINDS,
   );
   if (hasBooking) return false;
-  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(contact.phone)), now)) return false;
+  if (await bookedBefore(env, contact.phone)) return false;
   const kv = await kvGet(env.DB, nudgeCountKey(contact.phone));
   if (!underNudgeCap(kv, now)) return false;
   return true;
@@ -585,7 +637,9 @@ export async function processNudge(
   if (await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS)) {
     return "cancelled";
   }
-  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(phone)), now)) {
+  // Booked at any point (a passed trial, an attended one): "todavía no has
+  // agendado" would be false.
+  if (await bookedBefore(env, phone)) {
     return "cancelled";
   }
   const kvKey = nudgeCountKey(phone);
@@ -672,7 +726,7 @@ export async function processExtendedNudge(
   if (await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS)) {
     return { outcome: "cancelled" };
   }
-  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(phone)), now)) {
+  if (await bookedBefore(env, phone)) {
     return { outcome: "cancelled" };
   }
 
