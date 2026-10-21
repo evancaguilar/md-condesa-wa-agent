@@ -232,7 +232,7 @@ export async function setContactNameIfEmpty(
  * Body + ts of the newest BOT-sent message for a phone, or null. Feeds the
  * nudge open-question guard (src/cron/nudges.ts): a nudge must not stomp the
  * bot's own question while it's still fresh. Human sends are excluded on
- * purpose — those are covered by the human-override gate.
+ * purpose — see lastStaffMessageTs for those.
  */
 export async function lastBotMessage(
   db: D1Database,
@@ -245,6 +245,27 @@ export async function lastBotMessage(
     .bind(phone)
     .first<{ body: string; ts: number }>();
   return row ?? null;
+}
+
+/**
+ * Epoch of the newest STAFF message to a phone — a dashboard reply
+ * (`out_human`) or a WhatsApp-app echo (`out_human_echo`) — or null. Feeds the
+ * nudge staff-reply guard: the human override can be lifted ("Devolver al
+ * bot", override v2) while the human is still mid-conversation, and an
+ * automatic "todavía no has agendado" must not talk over them (audit 2026-10).
+ * Rides idx_messages_phone_ts.
+ */
+export async function lastStaffMessageTs(
+  db: D1Database,
+  phone: string,
+): Promise<number | null> {
+  const row = await db
+    .prepare(
+      `SELECT ts FROM messages WHERE phone = ?1 AND direction IN ('out_human', 'out_human_echo') ORDER BY ts DESC LIMIT 1`,
+    )
+    .bind(phone)
+    .first<{ ts: number }>();
+  return typeof row?.ts === "number" ? row.ts : null;
 }
 
 /** True if any non-inbound message (bot or human echo) has ever been sent to this phone. */

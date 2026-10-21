@@ -26,6 +26,7 @@ import {
   setContactStatus,
   cancelFollowups,
   lastBotMessage,
+  lastStaffMessageTs,
   kvSetIfAbsent,
   kvClaimIfAbsentOrOlder,
   recentMessages,
@@ -88,7 +89,7 @@ import {
   processNudge,
   processExtendedNudge,
   maybeArmExtended,
-  gateOnOpenQuestion,
+  gateNudge,
   ALL_NUDGE_KINDS,
   BOOKING_KINDS,
   slotCta,
@@ -1224,11 +1225,19 @@ async function handleSendFailure(
 
 /**
  * True when this nudge row was pushed back because the bot's last message to the
- * lead is a question less than 2h old — the row stays 'scheduled' and comes back
- * the moment the guard lifts (quiet-shifted), so nothing is ever cancelled here.
+ * lead is a question less than 2h old, or a STAFF message went out less than
+ * 60 min ago (never talk over a human) — the row stays 'scheduled' and comes
+ * back the moment the guard lifts (quiet-shifted), so nothing is cancelled here.
+ * A failed staff lookup fails soft to the bot-question guard alone.
  */
 async function deferForOpenQuestion(env: Env, f: Followup): Promise<boolean> {
-  const gate = gateOnOpenQuestion(await lastBotMessage(env.DB, f.phone), nowSec());
+  let staffTs: number | null = null;
+  try {
+    staffTs = await lastStaffMessageTs(env.DB, f.phone);
+  } catch (err) {
+    console.warn(`[followups] staff-reply lookup failed for ${f.phone}: ${String(err)}`);
+  }
+  const gate = gateNudge(await lastBotMessage(env.DB, f.phone), staffTs, nowSec());
   if (gate.send) return false;
   await rescheduleRow(env, f, shiftOutOfQuiet(gate.retryAt));
   return true;

@@ -296,6 +296,34 @@ export function gateOnOpenQuestion(
   return now >= until ? { send: true } : { send: false, retryAt: until };
 }
 
+/** A staff message younger than this holds every automatic nudge back. */
+export const STAFF_REPLY_GUARD_SECONDS = 1 * HOUR;
+
+/**
+ * Never talk over a human. A staff reply (dashboard `out_human` or WhatsApp-app
+ * echo `out_human_echo`) less than 60 min old defers the nudge to the moment
+ * the guard lifts — the human override does not always cover it (it can be
+ * lifted while staff is still in the chat; audit 2026-10). Pure.
+ */
+export function gateOnStaffReply(lastStaffTs: number | null, now: number): NudgeGate {
+  if (lastStaffTs === null) return { send: true };
+  const until = lastStaffTs + STAFF_REPLY_GUARD_SECONDS;
+  return now >= until ? { send: true } : { send: false, retryAt: until };
+}
+
+/** Both guards together: the LATER retry wins. Pure. */
+export function gateNudge(
+  lastBot: LastBotMessage | null,
+  lastStaffTs: number | null,
+  now: number,
+): NudgeGate {
+  const a = gateOnOpenQuestion(lastBot, now);
+  const b = gateOnStaffReply(lastStaffTs, now);
+  if (a.send && b.send) return { send: true };
+  const retryAt = Math.max(a.send ? 0 : a.retryAt, b.send ? 0 : b.retryAt);
+  return { send: false, retryAt };
+}
+
 export interface DayOnePlan {
   /** Nudges to insert (kind + quiet-adjusted dueAt), in order, all future. */
   scheduled: NudgeTime[];

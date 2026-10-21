@@ -5,15 +5,53 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { bandSlot, copyInputsForBand } from "../src/cron/nudges.js";
+import {
+  bandSlot,
+  copyInputsForBand,
+  gateNudge,
+  gateOnStaffReply,
+  STAFF_REPLY_GUARD_SECONDS,
+} from "../src/cron/nudges.js";
 import {
   classifyProgram,
   disciplineFromCampaign,
   isKidsCampaign,
   nudgeCopy,
 } from "../src/cron/nudge-copy.js";
+import { runDueFollowups } from "../src/cron/followups.js";
 import { cdmxToEpoch } from "../src/cron/time.js";
-import type { Contact } from "../src/types.js";
+import type { Contact, Env } from "../src/types.js";
+
+// ---- tiny scriptable fake D1 (mirrors nudges.test.ts) ----
+
+type Handler = (sql: string, binds: unknown[]) => { first?: unknown; all?: unknown[]; changes?: number };
+
+function fakeDb(handler: Handler): { db: D1Database; calls: { sql: string; binds: unknown[] }[] } {
+  const calls: { sql: string; binds: unknown[] }[] = [];
+  const make = (sql: string): D1PreparedStatement => {
+    let binds: unknown[] = [];
+    const stmt = {
+      bind(...v: unknown[]) {
+        binds = v;
+        return stmt;
+      },
+      async first<T>(): Promise<T | null> {
+        calls.push({ sql, binds });
+        return (handler(sql, binds).first ?? null) as T | null;
+      },
+      async run() {
+        calls.push({ sql, binds });
+        return { results: [], meta: { changes: handler(sql, binds).changes ?? 1 } };
+      },
+      async all<T>() {
+        calls.push({ sql, binds });
+        return { results: (handler(sql, binds).all ?? []) as T[], meta: {} };
+      },
+    } as unknown as D1PreparedStatement;
+    return stmt;
+  };
+  return { db: { prepare: make } as unknown as D1Database, calls };
+}
 
 function contact(over: Partial<Contact> = {}): Contact {
   return {
@@ -83,4 +121,53 @@ test("an adult Jiu-Jitsu lead never reads the Kids copy", () => {
   // copyInputsForBand keeps a mixed campaign for an adult (utm + discipline).
   assert.equal(copyInputsForBand(q({}), "Jiu-Jitsu niños y adultos", "adults").campaignName, "Jiu-Jitsu niños y adultos");
   assert.equal(copyInputsForBand(q({}), "Kids septiembre", "adults").campaignName, null);
+});
+
+// ---- 3. a staff reply defers the automatic nudge ----
+
+test("gateOnStaffReply / gateNudge: a staff message < 60 min old holds the nudge back", () => {
+  const now = 1_000_000;
+  assert.deepEqual(gateOnStaffReply(null, now), { send: true });
+  assert.deepEqual(gateOnStaffReply(now - 10 * 60, now), { send: false, retryAt: now + 50 * 60 });
+  assert.deepEqual(gateOnStaffReply(now - STAFF_REPLY_GUARD_SECONDS, now), { send: true });
+  // Both guards: the later retry wins.
+  const botQ = { body: "¿Te late mañana?", ts: now - 30 * 60 }; // lifts at +90 min
+  assert.deepEqual(gateNudge(botQ, now - 50 * 60, now), { send: false, retryAt: now + 90 * 60 });
+  assert.deepEqual(gateNudge(null, now - 50 * 60, now), { send: false, retryAt: now + 10 * 60 });
+  assert.deepEqual(gateNudge({ body: "Listo.", ts: now - 60 }, null, now), { send: true });
+});
+
+test("runDueFollowups: a due nudge right after a staff reply is rescheduled, never sent", async () => {
+  // Wed 2026-10-21 12:00 CDMX — daytime, so quiet hours don't interfere.
+  const now = cdmxToEpoch(2026, 10, 21, 12, 0, 0);
+  const realNow = Date.now;
+  Date.now = () => now * 1000;
+  try {
+    let rescheduledTo: unknown = null;
+    let sent = false;
+    (globalThis as { fetch: unknown }).fetch = async () => {
+      sent = true;
+      throw new Error("no network in tests");
+    };
+    const { db } = fakeDb((sql, binds) => {
+      if (sql.includes("SELECT * FROM followups WHERE status = 'scheduled'")) {
+        return {
+          all: [{ id: 7, phone: "5215512345678", kind: "nudge_1h", due_at: now - 60, status: "scheduled", airtable_record_id: "", note: null, created_at: now - 3600 }],
+        };
+      }
+      if (sql.includes("SELECT * FROM contacts")) return { first: contact({ last_inbound_at: now - 3600 }) };
+      if (sql.includes("direction IN ('out_human', 'out_human_echo')")) return { first: { ts: now - 10 * 60 } };
+      if (sql.includes("direction = 'out_bot'")) return { first: { body: "Claro, te explico.", ts: now - 70 * 60 } };
+      if (sql.startsWith("UPDATE followups SET due_at")) {
+        rescheduledTo = binds[1];
+        return {};
+      }
+      return {};
+    });
+    await runDueFollowups({ DB: db } as unknown as Env, { slack: { async postNote() {}, async postAttendanceCheck() {} } });
+    assert.equal(rescheduledTo, now + 50 * 60);
+    assert.equal(sent, false);
+  } finally {
+    Date.now = realNow;
+  }
 });
