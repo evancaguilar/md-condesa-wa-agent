@@ -71,6 +71,13 @@ import { nextTrialSlot } from "../cron/next-slot.js";
 import { greetingName } from "../cron/display-name.js";
 import { classifyReminderReply, reminderAckText } from "./reminder-reply.js";
 import {
+  detectLeadCancel,
+  recentCancelIntent,
+  trialCancelledKey,
+  type LeadCancelIntent,
+} from "./lead-cancel.js";
+import { applyLeadCancellation } from "../services/trial-cancel.js";
+import {
   OVERRIDE_CHECK_PREFIX,
   armOverrideCheck,
   decideOverrideCheck,
@@ -325,6 +332,25 @@ export async function processInbound(
   // fire-time last_inbound_at check in cron/followups is the race-proof twin.
   await cancelFollowupsByKinds(env.DB, msg.phone, ["staff_later"]);
 
+  // 1c. The lead calls off a booked trial ("ya no voy a poder ir", "lo
+  // dejamos para otro día"; audit 2026-10-14/21: reminders and the no-show
+  // touch kept going out). Not a gate — like 1b it runs before them, so the
+  // reminders stop even under kill switch / override, and the turn continues
+  // to the brain, which gets a <cancelacion> hint to offer a new date. Only a
+  // detector hit costs a query; no armed trial ⇒ nothing happens. Fail-soft.
+  let leadCancel: LeadCancelIntent | null = null;
+  const cancelIntent = detectLeadCancel(body);
+  if (cancelIntent) {
+    try {
+      const res = await applyLeadCancellation(env, msg.phone, body, cancelIntent, {
+        postTaskNote: (t) => taskNote(ports.slack, t),
+      });
+      if (res) leadCancel = cancelIntent;
+    } catch (err) {
+      console.warn("[inbound] lead cancellation failed", msg.phone, err);
+    }
+  }
+
   // 2. Global kill switch.
   if (!(await isBotEnabled(env.DB))) {
     await taskNote(ports.slack, 
@@ -551,8 +577,9 @@ export async function processInbound(
   // "te esperamos hoy a las 9 am" 6.5 h late, after the class). "Ahí estaré"
   // → no brain turn: silence, or CLIENT.copy.reminderAckEs/En when set.
   // "Necesito reagendar" → brain turn with a <reschedule> hint. Nothing is
-  // written to Airtable here (old reminders are cancelled only by the NEW
-  // booking's sequence).
+  // written to Airtable here; since 2026-10-21 step 1c already cancelled the
+  // old class's reminders (the phrase reads as a reschedule), and the NEW
+  // booking's sequence re-arms them for the new slot.
   let reschedule = false;
   try {
     const reminderReply = classifyReminderReply({
@@ -591,7 +618,7 @@ export async function processInbound(
   // brain is then told what the lead is already reading (see buildContextBlock's
   // <bienvenida_ya_enviada>) so this turn adds only what the welcome left out.
   let justSentWelcome: string | undefined;
-  if (matchedCampaign && contact.status === "lead" && !reschedule) {
+  if (matchedCampaign && contact.status === "lead" && !reschedule && !leadCancel) {
     // {{slot}} in the welcome → the concrete next bookable slot for the
     // campaign's grid (docs/welcomes-draft.md). No slot ⇒ no canned text.
     let slotLabel: string | null = null;
@@ -693,7 +720,20 @@ export async function processInbound(
 
   // A normal turn now owns this lead's reply: any armed override check is moot.
   await kvDelete(env.DB, overrideCheckKey(msg.phone)).catch(() => {});
-  await runBrainTurn(env, ports, msg, nowSec, justSentWelcome, reschedule ? { reschedule: true } : undefined);
+  // 1c's cancellation may have landed on an EARLIER message of this burst
+  // (debounce): a fresh marker still steers this turn. One kv read, fail-soft.
+  if (!leadCancel) {
+    try {
+      leadCancel = recentCancelIntent(await kvGet(env.DB, trialCancelledKey(msg.phone)), nowSec);
+    } catch {
+      leadCancel = null;
+    }
+  }
+  const turnOpts: BrainTurnOptions = {
+    ...(reschedule ? { reschedule: true } : {}),
+    ...(leadCancel ? { leadCancel } : {}),
+  };
+  await runBrainTurn(env, ports, msg, nowSec, justSentWelcome, reschedule || leadCancel ? turnOpts : undefined);
 }
 
 /**
@@ -708,6 +748,8 @@ export interface BrainTurnOptions {
   stale?: ConvoContext["staleReply"];
   /** "Necesito reagendar" reminder reply → <reschedule> hint in the context. */
   reschedule?: boolean;
+  /** The lead called off a booked trial (step 1c) → <cancelacion> hint. */
+  leadCancel?: "cancel" | "reschedule";
   /** Override v2 turn (runOverrideChecks): direct send only at sureness ≥ 70. */
   overrideCheck?: boolean;
 }
@@ -865,6 +907,7 @@ export async function runBrainTurn(
     recordedBooking,
     ...(opts?.stale ? { staleReply: opts.stale } : {}),
     ...(opts?.reschedule ? { reschedule: true } : {}),
+    ...(opts?.leadCancel ? { leadCancel: opts.leadCancel } : {}),
   };
 
   const result = await ports.brain.respond(brainCtx);

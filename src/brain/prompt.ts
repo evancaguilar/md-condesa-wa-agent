@@ -459,6 +459,17 @@ export function buildContextBlock(ctx: ConvoContext): string {
     );
   }
 
+  // The lead called off a booked trial in chat (pipeline/lead-cancel.ts).
+  if (ctx.leadCancel && !ctx.reschedule) {
+    lines.push(
+      "<cancelacion>",
+      ctx.leadCancel === "reschedule"
+        ? "El lead avisó que NO llegará a su clase de prueba agendada y quiere cambiarla. Ya cancelamos los recordatorios de esa clase (no la vuelvas a confirmar). Responde cálido y sin culpa, y ofrécele las 2 próximas opciones reales de SU programa (o el día que él mencionó, si es válido); cuando elija, agenda con book_trial."
+        : "El lead avisó que NO llegará a su clase de prueba agendada. Ya cancelamos los recordatorios de esa clase (no la vuelvas a confirmar ni le digas que lo esperamos). Responde cálido y sin culpa (\"¡sin problema!\") y ofrécele reagendar con UNA o dos opciones reales de SU programa; si dice que por ahora no, despídete amable sin insistir.",
+      "</cancelacion>",
+    );
+  }
+
   return lines.join("\n");
 }
 

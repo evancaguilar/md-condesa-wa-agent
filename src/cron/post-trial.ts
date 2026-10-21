@@ -51,6 +51,7 @@ import {
 } from "./nudges.js";
 import { slotPhrase, type NextSlot } from "./next-slot.js";
 import { bookingRecordedKey } from "../services/booking-core.js";
+import { isCancelledTrial, trialCancelledKey } from "../pipeline/lead-cancel.js";
 import { classifyResult, isLostResult, normalizeResult, type BookingRecord } from "../services/airtable.js";
 
 const HOUR = 3600;
@@ -738,6 +739,13 @@ export async function processPostTrial(
     return { outcome: "cancelled", stopChain: true };
   }
   if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(row.phone)), nowEpoch)) {
+    return { outcome: "cancelled", stopChain: true };
+  }
+  // The lead called THIS class off in chat (pipeline/lead-cancel.ts): never
+  // "te esperábamos" — even when the front desk later marks "No asistió" and
+  // the result watcher arms d2/d7 (audit 2026-10-14/21).
+  if (noShow && isCancelledTrial(await kvGet(env.DB, trialCancelledKey(row.phone)), chain.trial)) {
+    console.log(`[post-trial] ${row.kind} ${row.phone} stopped: lead cancelled that class in chat`);
     return { outcome: "cancelled", stopChain: true };
   }
   // No-show chain: Airtable is the truth about whether they came.

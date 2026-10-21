@@ -354,6 +354,18 @@ test("context block names the renamed sáb 12:00 class (Blindaje 8), 2026-10-10"
   assert.ok(line.includes("hoy a las 12:00 pm (Blindaje 8)"), line);
 });
 
+test("<cancelacion>: a lead who called off the trial gets an empathetic reschedule hint, once", () => {
+  const plain = buildContextBlock(ctx());
+  assert.ok(!plain.includes("<cancelacion>"));
+  const cancel = buildContextBlock(ctx({ leadCancel: "cancel" }));
+  assert.match(cancel, /<cancelacion>\nEl lead avisó que NO llegará/);
+  assert.match(cancel, /no la vuelvas a confirmar/);
+  assert.match(buildContextBlock(ctx({ leadCancel: "reschedule" })), /quiere cambiarla/);
+  // The reminder button already carries <reschedule>: no second hint.
+  const both = buildContextBlock(ctx({ leadCancel: "reschedule", reschedule: true }));
+  assert.ok(both.includes("<reschedule>") && !both.includes("<cancelacion>"));
+});
+
 test("kids Jiu-Jitsu lead: the per-turn hours never offer 5 pm as the arrival (audit 2026-10)", () => {
   const block = buildContextBlock(
     ctx({
