@@ -465,7 +465,7 @@ export function noShowTouchCopy(
   return renderCopy(fill(line(variantKeys(base, v, sfx), fallback), { day, kid: kidNoun(contact, band, lang) }), { who, cta, link }).trim();
 }
 
-/** "Muay Thai el sábado 18 a las 10:00 am" — the {{2}} of the slot templates. */
+/** "Muay Thai el sábado a las 10:00 am" — the {{2}} of the slot templates. */
 export function slotParam(slot: NextSlot | null, now: number, lang: "es" | "en"): string | null {
   if (!slot) return null;
   return slotPhrase(slot, now, lang);

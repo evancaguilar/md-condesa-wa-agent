@@ -7,12 +7,12 @@
 Review of 11 nightly Opus reports (Oct 8/10/11 header-only, Oct 20 missing) — most recurring errors already had a KB rule but no code enforcement. Shipped together with the entry below:
 
 - **KB (Evan's answers):** Promo Mañanas $999 never offered (honored only if asked; ad is down); BFC Nivel 0 = $1,996; metro Chilpancingo; MMA adultos 16–17 if capable, 13–15 → MMA Teens; 3 clases/sem and clase suelta/paquetes → no figures, escalate; "paquetes" dropped from the first-price script. Expired Cejudo/verano copy trimmed (KB 12,084/12,100 tok).
-- **Nudges:** Kids/Teens never proposed at the 5 pm second half (`collectSlots`, also the brain's per-turn hours; nudge copy "4:00 pm (y Jiu-Jitsu a las 5:00 pm)"); discipline falls back to the campaign name (`disciplineFromCampaign`); a staff reply (`out_human`/`out_human_echo`) defers nudges 60 min; no "todavía no has agendado" to anyone with a booking in the last **60 days** (marker or booking-kind followup row; older ⇒ fresh lead again). Slot labels carry the day of month ("mañana martes 13"). Mini MT first-class link → kids page.
+- **Nudges:** Kids/Teens never proposed at the 5 pm second half (`collectSlots`, also the brain's per-turn hours; nudge copy "4:00 pm (y Jiu-Jitsu a las 5:00 pm)"); discipline falls back to the campaign name (`disciplineFromCampaign`); a staff reply (`out_human`/`out_human_echo`) defers nudges 60 min; no "todavía no has agendado" to anyone with a booking in the last **60 days** (marker or booking-kind followup row; older ⇒ fresh lead again). Slot labels say "a las 4:00 pm" / "a la 1:00 pm" (no day of month — Evan: overkill). Mini MT first-class link → kids page. Kids/Teens may be offered 5 pm only when they can't arrive at 4 (KB).
+- **Teens Jiu-Jitsu 5 pm restored:** kb-build keyed slots by (day, time, discipline, audience), so the site's Teens 17:00 Jiu-Jitsu merged into the Kids row; the key now includes the age group (+4 teens rows, 105 slots).
+- **Suppressed duplicate turn with a question:** if the lead's burst asked something ("¿cuánto cuesta?"), the suppressed reply goes to Aprobar (⚠️-guarded, no best-bet) instead of vanishing; otherwise it's dropped (`burstHasQuestion`).
 - **Lead cancellations:** `pipeline/lead-cancel.ts` (pure detector, cancel vs reschedule) + `services/trial-cancel.ts` hooked at inbound step 1c (not a gate): cancels scheduled trial_confirm/day_before/same_day/no_show_hoy, kv `trial_cancelled:<phone>` so the no-show chain never chases that class, releases the confirm-once claim, #wa-leads task note to update Airtable, `<cancelacion>` hint for the brain. Send-time backstop checks every recent inbound, not just the last.
 - **Nightly audit:** day mark written only after success; ≤3 leased attempts in the 05:00 hour (kv `nightly_audit_try`); one #bot-ops note if the day is lost.
 - Tests → **1336** (both entries).
-- [ ] **Evan:** confirm "Reprogramó" is a real Airtable Resultado option (the cancel note suggests it).
-- [ ] **Evan:** Mañanas $999 campaign — turn it off in Campañas if still active (its welcome can still fire on keywords).
 - [ ] **Evan:** add BJJ Tue/Thu 3:15 pm to the KB once launch is confirmed.
 
 ### Duplicate booking confirmations, doubled invite closing, schedule checks on human sends (2026-10-21) — MERGED ON LOCAL main, NOT PUSHED
@@ -22,7 +22,7 @@ Review of 11 nightly Opus reports (Oct 8/10/11 header-only, Oct 20 missing) — 
 - **Schedule claims:** `findSlotClaimIssues` judges day ranges + parts of day / hours / spans, week-wide "cierra/empiezan a las…", "hay Teens el sábado", sparring (`trial:false`) slots and "12 pm Jiu-Jitsu" on Saturday (Blindaje 8); the KB's canonical summary no longer trips it. **New:** `services/slot-audit.ts` runs it after edited approvals, dashboard composer and scheduled staff sends → #wa-leads note (never blocks).
 - Tests 1287 → **1310**.
 - [ ] **Evan:** OK to push. Probe after deploy: Editar an approval with "mañana miércoles a las 8 pm MMA" on a test chat → #wa-leads "⚠️ Horario a revisar".
-- [ ] **Evan:** the grid has no Teens Jiu-Jitsu 5 pm row (17:00 jiu is `kids`) while intake.md says "MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm" — the checker flags "5 pm Jiu-Jitsu Teens". Add a teens row or confirm Teens join the Kids 5 pm.
+- [x] Teens Jiu-Jitsu 5 pm row restored (see entry above).
 
 ### Day-of confirmation from the bot number: chat deep links + voice notes / video from the composer (2026-10-19) — SHIPPED (pushed 2026-10-19, rev 072c258b4dc5; team guide: Google Doc "Cómo confirmar la clase del día desde el número del bot")
 

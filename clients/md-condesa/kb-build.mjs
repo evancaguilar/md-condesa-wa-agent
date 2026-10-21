@@ -336,7 +336,10 @@ function buildSlots(schedule) {
       for (const cls of slot.c) {
         const time = hhmm(slot);
         const audience = audienceOf(cls);
-        const key = `${idx}|${time}|${cls.n}|${audience}`;
+        // The age group is part of the key: Kids and Teens share hours (L–J
+        // 5 pm Jiu-Jitsu is both on the site) and must each get their own row,
+        // or Teens silently lose the class (2026-10-21).
+        const key = `${idx}|${time}|${cls.n}|${audience}|${groupOf(cls)}`;
         const prev = byKey.get(key);
         if (prev) {
           // Same (day, time, program, audience) twice: read it the permissive

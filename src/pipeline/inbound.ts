@@ -95,6 +95,7 @@ import { sendText, WindowClosedError } from "../services/send.js";
 import { afterBookingConfirmed, personalizeBookingConfirmation } from "../services/cuestionario.js";
 import {
   bookingSlot,
+  burstHasQuestion,
   claimBookingConfirmation,
   duplicateSuppressedNote,
   isStaleBookingRestatement,
@@ -949,12 +950,8 @@ export async function runBrainTurn(
       lastConfirmAt: await lastConfirmationAt(env.DB, msg.phone),
     })
   ) {
-    console.log(`[inbound] booking restatement dropped for ${msg.phone}: a parallel turn just confirmed`);
-    try {
-      await ports.slack.postNote(duplicateSuppressedNote(msg.phone, "repetición de la confirmación"));
-    } catch (err) {
-      console.error("[inbound] duplicate note failed", err);
-    }
+    console.log(`[inbound] booking restatement suppressed for ${msg.phone}: a parallel turn just confirmed`);
+    await suppressDuplicateReply(env, ports, brainCtx, result.message, history, "repetición de la confirmación");
     return;
   }
   // The welcome already said everything: the model asked us to stay quiet.
@@ -1153,11 +1150,7 @@ async function routeResult(
       const claimed = await claimBookingConfirmation(env.DB, phone, slot, Math.floor(Date.now() / 1000));
       if (!claimed) {
         console.log(`[routeResult] duplicate booking confirmation suppressed for ${phone} (${slot})`);
-        try {
-          await ports.slack.postNote(duplicateSuppressedNote(phone, "confirmación"));
-        } catch (err) {
-          console.error("[routeResult] duplicate note failed", err);
-        }
+        await suppressDuplicateReply(env, ports, ctx, confirmation, history, "confirmación");
         return;
       }
       let delivered = false;
@@ -1544,6 +1537,44 @@ async function escalationTask(
     console.error("[routeResult] escalation task failed; plain note", phone, err);
   }
   await taskNote(ports.slack, text);
+}
+
+/**
+ * A parallel turn already confirmed this class, so this turn's reply is not
+ * sent. If the lead's burst asked something else, the draft goes to Aprobar
+ * (no holding line, no auto-send) so a human answers it; otherwise it is
+ * dropped. Either way #bot-ops gets one line. Never throws.
+ */
+async function suppressDuplicateReply(
+  env: Env,
+  ports: Ports,
+  ctx: ConvoContext,
+  draft: string,
+  history: StoredMessage[],
+  what: "confirmación" | "repetición de la confirmación",
+): Promise<void> {
+  const toApproval = burstHasQuestion(history);
+  try {
+    if (toApproval) {
+      await queueApproval(
+        env,
+        ports,
+        ctx,
+        draft,
+        history,
+        "⚠️ Ya se le envió la confirmación — responde solo la pregunta extra",
+        false,
+        false,
+      );
+    }
+  } catch (err) {
+    console.error("[inbound] duplicate draft to Aprobar failed", ctx.phone, err);
+  }
+  try {
+    await ports.slack.postNote(duplicateSuppressedNote(ctx.phone, what, toApproval));
+  } catch (err) {
+    console.error("[inbound] duplicate note failed", err);
+  }
 }
 
 async function queueApproval(

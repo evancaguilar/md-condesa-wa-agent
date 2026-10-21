@@ -289,15 +289,10 @@ export function bandDayOptions(
   return out;
 }
 
-/**
- * "hoy lunes 12" / "mañana martes 13" / "jueves 15" — the day part of
- * formatSlotLabel. The day of the month rides along (2026-10-21 audit: the bot
- * and the nudges got weekdays wrong; "martes 13" can be checked against a
- * calendar, "martes" cannot).
- */
+/** "hoy sábado" / "mañana sábado" / "lunes" — the day part of formatSlotLabel. */
 export function dayLabel(slot: { weekday: number; date: string }, nowEpoch: number): string {
   const days = daysAhead(slot.date, nowEpoch);
-  const name = `${WEEKDAY_ES[slot.weekday] ?? ""} ${dayOfMonth(slot.date)}`.trim();
+  const name = WEEKDAY_ES[slot.weekday] ?? "";
   if (days <= 0) return `hoy ${name}`;
   if (days === 1) return `mañana ${name}`;
   return name;
@@ -455,10 +450,10 @@ function pickPreferred(
 }
 
 /**
- * "hoy a las 6:00 pm" / "mañana miércoles 13 a las 11:00 am" / "el sábado 16
- * a las 9:00 am" (and the English equivalents) for a slot, relative to
- * `nowEpoch` in CDMX. Every non-today label carries the day of the month (see
- * dayLabel). Pure — exported so the EN copy can relabel the same slot.
+ * "hoy a las 6:00 pm" / "mañana miércoles a las 11:00 am" / "el sábado a las
+ * 9:00 am" (and the English equivalents) for a slot, relative to `nowEpoch`
+ * in CDMX. No day of the month — Evan, 2026-10-21: overkill in chat copy.
+ * Pure — exported so the EN copy can relabel the same slot.
  */
 export function formatSlotLabel(
   slot: { weekday: number; date: string; time: string },
@@ -467,21 +462,19 @@ export function formatSlotLabel(
 ): string {
   const days = daysAhead(slot.date, nowEpoch);
   const clock = time12h(slot.time);
-  const dom = dayOfMonth(slot.date);
   const name =
     lang === "en"
       ? (WEEKDAY_EN[slot.weekday] ?? "")
       : (WEEKDAY_ES[slot.weekday] ?? "");
-  const named = dom ? `${name} ${dom}` : name;
   if (lang === "en") {
     if (days <= 0) return `today at ${clock}`;
-    if (days === 1) return `tomorrow ${named} at ${clock}`;
-    return `on ${named} at ${clock}`;
+    if (days === 1) return `tomorrow ${name} at ${clock}`;
+    return `on ${name} at ${clock}`;
   }
   const at = atClockEs(slot.time);
   if (days <= 0) return `hoy ${at}`;
-  if (days === 1) return `mañana ${named} ${at}`;
-  return `el ${named} ${at}`;
+  if (days === 1) return `mañana ${name} ${at}`;
+  return `el ${name} ${at}`;
 }
 
 /**
@@ -554,12 +547,6 @@ function daysAhead(date: string, nowEpoch: number): number {
   const today = cdmxToEpoch(p.year, p.month, p.day, 0, 0, 0);
   const then = cdmxToEpoch(Number(m[1]), Number(m[2]), Number(m[3]), 0, 0, 0);
   return Math.round((then - today) / DAY);
-}
-
-/** "2026-10-13" → "13" ("" when unparseable). */
-function dayOfMonth(date: string): string {
-  const m = /^\d{4}-\d{2}-(\d{2})$/.exec(date);
-  return m ? String(Number(m[1])) : "";
 }
 
 function pad2(n: number): string {

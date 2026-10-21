@@ -42,7 +42,7 @@ test("nextTrialSlot: 2h lead time skips classes that are too close", () => {
   const slot = nextTrialSlot("muay", "kid", MON(14, 30));
   assert.equal(slot?.date, "2026-08-25");
   assert.equal(slot?.time, "16:00");
-  assert.equal(slot?.label, "mañana martes 25 a las 4:00 pm");
+  assert.equal(slot?.label, "mañana martes a las 4:00 pm");
 });
 
 test("nextTrialSlot: Thursday evening adult Muay Thai proposes the sparring hour", () => {
@@ -61,7 +61,7 @@ test("nextTrialSlot: Sunday kid lead never gets a Sunday slot", () => {
   assert.notEqual(slot?.weekday, 6); // 6 = Sunday
   assert.equal(slot?.date, "2026-08-31"); // the following Monday
   assert.equal(slot?.time, "16:00"); // Kids Muay Thai, never the pp Mini class
-  assert.equal(slot?.label, "mañana lunes 31 a las 4:00 pm");
+  assert.equal(slot?.label, "mañana lunes a las 4:00 pm");
 });
 
 test("nextTrialSlot: kid audience never returns an adult class", () => {
@@ -79,7 +79,7 @@ test("nextTrialSlot: baby leads get the Wed/Sat baby slots only", () => {
   assert.equal(slot?.discipline, "baby");
   assert.equal(slot?.date, "2026-08-29"); // Saturday
   assert.equal(slot?.time, "14:00");
-  assert.equal(slot?.label, "el sábado 29 a las 2:00 pm");
+  assert.equal(slot?.label, "el sábado a las 2:00 pm");
 });
 
 test("nextTrialSlot: unbookable discipline text falls back to any class", () => {
@@ -222,7 +222,7 @@ test("nextTrialSlot: a preferred block wins INSIDE the 24h horizon", () => {
   const slot = nextTrialSlot(null, "adult", FRI(7), undefined, [], SAT_EARLY);
   assert.equal(slot?.date, "2026-08-29");
   assert.equal(slot?.time, "09:00");
-  assert.equal(slot?.label, "mañana sábado 29 a las 9:00 am");
+  assert.equal(slot?.label, "mañana sábado a las 9:00 am");
 });
 
 test("nextTrialSlot: a preferred block NEVER wins beyond the 24h horizon", () => {
@@ -297,29 +297,28 @@ test("formatSlotLabel: hoy / mañana / el <día>, es + en", () => {
   assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 26, 8), "es"), "hoy a las 11:00 am");
   assert.equal(
     formatSlotLabel(slot, cdmxToEpoch(2026, 8, 25, 8), "es"),
-    "mañana miércoles 26 a las 11:00 am",
+    "mañana miércoles a las 11:00 am",
   );
-  assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 24, 8), "es"), "el miércoles 26 a las 11:00 am");
+  assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 24, 8), "es"), "el miércoles a las 11:00 am");
   assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 26, 8), "en"), "today at 11:00 am");
   assert.equal(
     formatSlotLabel(slot, cdmxToEpoch(2026, 8, 24, 8), "en"),
-    "on Wednesday 26 at 11:00 am",
+    "on Wednesday at 11:00 am",
   );
 });
 
-test("dayLabel / formatSlotLabel carry the day of the month (2026-10-21 audit)", async () => {
+test("dayLabel / formatSlotLabel: weekday only, no day of the month; a la 1 singular", async () => {
   const { dayLabel, atClockEs } = await import("../src/cron/next-slot.js");
   // Mon 2026-10-12 … Thu 2026-10-15.
   const now = cdmxToEpoch(2026, 10, 12, 9, 0, 0);
-  assert.equal(dayLabel({ weekday: 0, date: "2026-10-12" }, now), "hoy lunes 12");
-  assert.equal(dayLabel({ weekday: 1, date: "2026-10-13" }, now), "mañana martes 13");
-  assert.equal(dayLabel({ weekday: 3, date: "2026-10-15" }, now), "jueves 15");
-  // Month rollover: Sat Oct 31 → Sun Nov 1 reads "1", never "01".
+  assert.equal(dayLabel({ weekday: 0, date: "2026-10-12" }, now), "hoy lunes");
+  assert.equal(dayLabel({ weekday: 1, date: "2026-10-13" }, now), "mañana martes");
+  assert.equal(dayLabel({ weekday: 3, date: "2026-10-15" }, now), "jueves");
   const sat = cdmxToEpoch(2026, 10, 31, 9, 0, 0);
-  assert.equal(dayLabel({ weekday: 6, date: "2026-11-01" }, sat), "mañana domingo 1");
+  assert.equal(dayLabel({ weekday: 6, date: "2026-11-01" }, sat), "mañana domingo");
   assert.equal(
     formatSlotLabel({ weekday: 6, date: "2026-11-01", time: "11:00" }, sat, "es"),
-    "mañana domingo 1 a las 11:00 am",
+    "mañana domingo a las 11:00 am",
   );
   // "a la 1" (singular) — never "a las 1:00".
   assert.equal(atClockEs("13:15"), "a la 1:15 pm");
@@ -328,7 +327,7 @@ test("dayLabel / formatSlotLabel carry the day of the month (2026-10-21 audit)",
   assert.equal(formatSlotLabel({ weekday: 0, date: "2026-10-12", time: "13:00" }, now, "es"), "hoy a la 1:00 pm");
   assert.equal(
     formatSlotLabel({ weekday: 3, date: "2026-10-15", time: "16:00" }, now, "en"),
-    "on Thursday 15 at 4:00 pm",
+    "on Thursday at 4:00 pm",
   );
 });
 

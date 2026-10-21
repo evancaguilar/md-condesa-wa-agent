@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-21+38fdec201705",
+  "version": "2026-10-21+857142bff46e",
   "slots": [
     {
       "weekday": 0,
@@ -95,6 +95,13 @@
     },
     {
       "weekday": 0,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid",
+      "group": "teens"
+    },
+    {
+      "weekday": 0,
       "time": "18:00",
       "discipline": "jiu",
       "audience": "adult",
@@ -218,6 +225,13 @@
       "discipline": "jiu",
       "audience": "kid",
       "group": "kids"
+    },
+    {
+      "weekday": 1,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid",
+      "group": "teens"
     },
     {
       "weekday": 1,
@@ -348,6 +362,13 @@
     },
     {
       "weekday": 2,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid",
+      "group": "teens"
+    },
+    {
+      "weekday": 2,
       "time": "18:00",
       "discipline": "jiu",
       "audience": "adult",
@@ -472,6 +493,13 @@
       "discipline": "jiu",
       "audience": "kid",
       "group": "kids"
+    },
+    {
+      "weekday": 3,
+      "time": "17:00",
+      "discipline": "jiu",
+      "audience": "kid",
+      "group": "teens"
     },
     {
       "weekday": 3,

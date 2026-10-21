@@ -115,10 +115,10 @@ test("cancelTaskNote: names the class, quotes the lead, tells staff what to do i
     who: "Ana (5215512345678)",
     intent: "cancel",
     body: "Ya no voy a poder ir",
-    classes: ["mañana martes 13 a las 7:00 pm"],
+    classes: ["mañana martes a las 7:00 pm"],
     cancelledRows: 2,
   });
-  assert.match(note, /Ana \(5215512345678\) canceló su clase de prueba \(mañana martes 13 a las 7:00 pm\): «Ya no voy a poder ir»/);
+  assert.match(note, /Ana \(5215512345678\) canceló su clase de prueba \(mañana martes a las 7:00 pm\): «Ya no voy a poder ir»/);
   assert.match(note, /Cancelé 2 recordatorio/);
   assert.match(note, /En Airtable/);
   assert.match(note, /no lo marques «No asistió»/);
@@ -210,7 +210,7 @@ test("applyLeadCancellation: cancels the armed reminders + first no-show touch, 
   const marker = (raw.prepare(`SELECT value FROM kv WHERE key = ?`).get(trialCancelledKey(PHONE)) as { value: string }).value;
   assert.equal(isCancelledTrial(marker, CLASS), true);
   assert.equal(notes.length, 1);
-  assert.match(notes[0]!, /Ana \(5215512345678\) canceló su clase de prueba \(mañana miércoles 21 a las 7:00 pm\)/);
+  assert.match(notes[0]!, /Ana \(5215512345678\) canceló su clase de prueba \(mañana miércoles a las 7:00 pm\)/);
 
   // Airtable re-sync of the SAME record/slot (staff touches another field):
   // the cancelled rows stay cancelled — nothing resurrects them.

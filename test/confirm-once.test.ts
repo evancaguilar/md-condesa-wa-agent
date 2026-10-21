@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import {
   bookingConfirmKey,
   bookingSlot,
+  burstHasQuestion,
+  duplicateSuppressedNote,
   claimBookingConfirmation,
   CONFIRM_DEDUPE_WINDOW_SECONDS,
   isStaleBookingRestatement,
@@ -250,4 +252,21 @@ test("race 2, reverse order: a web-form trial_confirm that went first makes a la
     await claimBookingConfirmation(db, PHONE, bookingSlot("2026-10-21", "13:00"), Math.floor(Date.now() / 1000) + 30),
     false,
   );
+});
+
+test("burstHasQuestion: only the trailing inbound burst counts", () => {
+  const h = (rows: [string, string][]) => rows.map(([direction, body]) => ({ direction, body }));
+  // …6562: name, then a real question → Aprobar.
+  assert.equal(burstHasQuestion(h([["out_bot", "¿Me confirmas tu nombre?"], ["in", "Sofía"], ["in", "cuánto cuesta y qué necesito"]])), true);
+  assert.equal(burstHasQuestion(h([["in", "Ok"], ["in", "¿Llevo algo?"]])), true);
+  // Name + child's name only → nothing to answer, drop.
+  assert.equal(burstHasQuestion(h([["out_bot", "¿Su nombre?"], ["in", "Ana"], ["in", "y el niño se llama Leo"]])), false);
+  // A question BEFORE the bot's last reply was already answered.
+  assert.equal(burstHasQuestion(h([["in", "¿Hay clase el lunes?"], ["out_bot", "Sí, a las 4"], ["in", "Perfecto"]])), false);
+  assert.equal(burstHasQuestion([]), false);
+});
+
+test("duplicateSuppressedNote says where the reply went", () => {
+  assert.match(duplicateSuppressedNote("x", "confirmación", true), /quedó en Aprobar/);
+  assert.match(duplicateSuppressedNote("x", "confirmación"), /no hace falta responder/);
 });

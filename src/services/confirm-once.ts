@@ -165,10 +165,36 @@ export function isStaleBookingRestatement(input: {
   return claimsBooking(input.text);
 }
 
+/** Interrogatives that open a question even when the lead skips the "?". */
+const QUESTION_START =
+  /^(?:y\s+)?(?:cu[aá]nto|cu[aá]nta|qu[eé]|c[oó]mo|d[oó]nde|cu[aá]ndo|cu[aá]l|hay|tienen|puedo|podemos|se\s+puede|necesito|necesita)\b/iu;
+
+/**
+ * Pure. Did the burst of lead messages the turn answered (the inbound run at
+ * the END of its history) ask anything? A suppressed duplicate turn whose
+ * burst carried a question ("¿cuánto cuesta y qué necesito?", …6562) must not
+ * vanish — its draft goes to Aprobar instead of being dropped.
+ */
+export function burstHasQuestion(history: readonly { direction: string; body: string }[]): boolean {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]!;
+    if (m.direction !== "in") break;
+    const body = (m.body ?? "").trim();
+    if (/[?¿]/u.test(body) || QUESTION_START.test(body)) return true;
+  }
+  return false;
+}
+
 /** Slack ops line when a duplicate confirmation was suppressed. Pure. */
-export function duplicateSuppressedNote(phone: string, what: "confirmación" | "repetición de la confirmación"): string {
+export function duplicateSuppressedNote(
+  phone: string,
+  what: "confirmación" | "repetición de la confirmación",
+  toApproval = false,
+): string {
   return (
     `🔁 ${phone}: se evitó una ${what} duplicada — un turno paralelo ya le confirmó la clase hace segundos. ` +
-    `Si su último mensaje traía otra pregunta, contéstala desde el panel.`
+    (toApproval
+      ? `Su mensaje traía otra pregunta: la respuesta quedó en Aprobar (edítala para quitar la confirmación repetida).`
+      : `Su mensaje no traía otra pregunta, así que no hace falta responder.`)
   );
 }
