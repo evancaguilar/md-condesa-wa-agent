@@ -25,9 +25,8 @@ import { attributionFor, withAttribution } from "../services/booking-link.js";
 import type { Slot } from "../brain/slots.gen.js";
 import { SLOTS } from "../brain/slots.gen.js";
 import {
-  disciplineLabel,
-  formatSlotLabel,
   nextBandSlot,
+  slotPhrase,
   prettyDiscipline,
   type NextSlot,
 } from "./next-slot.js";
@@ -225,16 +224,17 @@ export function slotCta(
       ? `Pueden apartar su clase gratis aquí: ${link}`
       : `Puedes agendar tu día gratuito aquí: ${link}`;
   }
-  const what = slot.name ?? disciplineLabel(slot.discipline);
-  const when = formatSlotLabel(slot, nowEpoch, lang === "en" ? "en" : "es");
+  // "Muay Thai hoy a las 4:00 pm (y Jiu-Jitsu a las 5:00 pm)" — a kids
+  // two-class day names its second half, never proposes it as the arrival.
+  const phrase = slotPhrase(slot, nowEpoch, lang === "en" ? "en" : "es");
   if (lang === "en") {
     return plural
-      ? `I can save their spot in ${what} ${when} — does that work? Or pick another time here: ${link}`
-      : `I can save you a spot in ${what} ${when} — does that work? Or pick another time here: ${link}`;
+      ? `I can save their spot in ${phrase} — does that work? Or pick another time here: ${link}`
+      : `I can save you a spot in ${phrase} — does that work? Or pick another time here: ${link}`;
   }
   return plural
-    ? `Les puedo apartar lugar en ${what} ${when} — ¿les late? Si prefieren otro horario: ${link}`
-    : `Te puedo apartar lugar en ${what} ${when} — ¿te late? Si prefieres otro horario: ${link}`;
+    ? `Les puedo apartar lugar en ${phrase} — ¿les late? Si prefieren otro horario: ${link}`
+    : `Te puedo apartar lugar en ${phrase} — ¿te late? Si prefieres otro horario: ${link}`;
 }
 
 // ---- no-show rebook copy ----

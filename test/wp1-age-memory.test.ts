@@ -153,9 +153,11 @@ test("band listing never crosses groups", () => {
   for (const s of upcomingBandSlots("mini", null, mon9, 6)) assert.equal(s.time.endsWith(":15"), true, s.time);
   const days = bandDayOptions("kids", mon9, 2);
   assert.equal(days.length, 2);
+  // 17:00 Jiu-Jitsu Kids is the SECOND half of the 4 pm arrival — it rides on
+  // the 16:00 row, never listed as an hour of its own (audit 2026-10).
   assert.deepEqual(
-    days[0]!.slots.map((s) => `${s.time} ${s.discipline}`),
-    ["16:00 muay", "17:00 jiu"],
+    days[0]!.slots.map((s) => `${s.time} ${s.discipline}${s.then ? ` → ${s.then.time} ${s.then.discipline}` : ""}`),
+    ["16:00 muay → 17:00 jiu"],
   );
 });
 

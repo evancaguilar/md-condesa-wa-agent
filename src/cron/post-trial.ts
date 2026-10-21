@@ -49,7 +49,7 @@ import {
   programLink,
   slotCta,
 } from "./nudges.js";
-import { formatSlotLabel, disciplineLabel, type NextSlot } from "./next-slot.js";
+import { slotPhrase, type NextSlot } from "./next-slot.js";
 import { bookingRecordedKey } from "../services/booking-core.js";
 import { classifyResult, isLostResult, normalizeResult, type BookingRecord } from "../services/airtable.js";
 
@@ -467,7 +467,7 @@ export function noShowTouchCopy(
 /** "Muay Thai el sábado 18 a las 10:00 am" — the {{2}} of the slot templates. */
 export function slotParam(slot: NextSlot | null, now: number, lang: "es" | "en"): string | null {
   if (!slot) return null;
-  return `${slot.name ?? disciplineLabel(slot.discipline)} ${formatSlotLabel(slot, now, lang)}`;
+  return slotPhrase(slot, now, lang);
 }
 
 /** The v2 placeholders renderCopy does not know: {day} and {kid}. */

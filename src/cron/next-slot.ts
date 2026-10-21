@@ -21,7 +21,7 @@ import { CLIENT } from "../client.gen.js";
 import type { PreferredBlock } from "../client-config.js";
 import { isKnownDiscipline, normalizeDiscipline, weekdayIndex } from "../brain/tools.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "./time.js";
-import { slotMatchesBand, type ProgramBand } from "../services/age-band.js";
+import { slotGroup, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
 
 export interface NextSlot {
   /** 0=Mon … 6=Sun (the SLOTS convention). */
@@ -35,8 +35,42 @@ export interface NextSlot {
   /** The class's own name when it isn't the program's ("Blindaje 8", booked
    *  as `jiu`). Copy must say THIS, never disciplineLabel(discipline). */
   name?: string;
+  /** Kids/Teens two-class trial day: the class that follows this arrival
+   *  ("jiu" at "17:00" after the 4 pm Muay Thai Kids). It is never proposed
+   *  as an arrival itself — see isKidSecondHalf. */
+  then?: { discipline: string; time: string; name?: string };
   /** Human phrasing the copy splices in: "hoy a las 6:00 pm". */
   label: string;
+}
+
+/** Back-to-back window: a kids/teens class starting this soon after another
+ *  class of the same group is the second half of the trial day. */
+const KID_PAIR_GAP_MIN = 60;
+
+function clockMinutes(hhmm: string): number {
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm.trim());
+  return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+}
+
+/** True when `half` is the class right after `first` in the same kids/teens group. */
+function isPairedHalf(half: Slot, first: Slot): boolean {
+  const g = slotGroup(half);
+  if ((g !== "kids" && g !== "teens") || slotGroup(first) !== g) return false;
+  if (half.weekday !== first.weekday) return false;
+  const gap = clockMinutes(half.time) - clockMinutes(first.time);
+  return gap > 0 && gap <= KID_PAIR_GAP_MIN;
+}
+
+/**
+ * Pure. Is this kids/teens row the SECOND half of a two-class trial day (it
+ * starts ≤ 1 h after another trial row of the same group that day)? Kids and
+ * Teens always ARRIVE at the first class — L–J 4:00 pm (Muay Thai / MMA, then
+ * Jiu-Jitsu at 5), sábado 11 am (Jiu-Jitsu, then Muay Thai at 12) — so the
+ * second half is never proposed as an arrival (intake.md, "Kids 6–12").
+ * `dayRows` = the trial rows of that weekday the lead's band may take.
+ */
+export function isKidSecondHalf(s: Slot, dayRows: readonly Slot[]): boolean {
+  return dayRows.some((o) => o !== s && o.trial !== false && isPairedHalf(s, o));
 }
 
 /** A slot must be at least this far away to be proposed (no "in 20 minutes"). */
@@ -343,21 +377,19 @@ function collectSlots(
 
     const band = opts.band;
     const ageKnown = typeof opts.ageMonths === "number";
-    const candidates = schedule
-      .filter((s) =>
-        // Nivel 0 (Baby Fight Club 6–11 months, Friday 12 pm) is only PROPOSED
-        // when the baby's age is known to fit: with the age unknown the regular
-        // Wed / Sat class is the default (most BFC babies are 12–36 months).
-        !(s.months && s.months[1] <= 12 && !ageKnown) &&
-        (band !== undefined
-          ? s.weekday === wd &&
-            s.trial !== false &&
-            slotMatchesBand(s, band, opts.ageMonths) &&
-            (wantKey === null || (s.discipline === wantKey && !s.name))
-          :
-          s.weekday === wd &&
-          s.audience === audience &&
-          s.trial !== false &&
+    // Every row of this day the lead's band/audience may take (the discipline
+    // filter comes after, because the kids "second half" rule below needs the
+    // whole day of the group).
+    const dayRows = schedule.filter((s) =>
+      // Nivel 0 (Baby Fight Club 6–11 months, Friday 12 pm) is only PROPOSED
+      // when the baby's age is known to fit: with the age unknown the regular
+      // Wed / Sat class is the default (most BFC babies are 12–36 months).
+      !(s.months && s.months[1] <= 12 && !ageKnown) &&
+      s.weekday === wd &&
+      s.trial !== false &&
+      (band !== undefined
+        ? slotMatchesBand(s, band, opts.ageMonths)
+        : s.audience === audience &&
           // Parent-participation slots (baby / Mini Muay Thai) are dual-audience
           // so validateSlot accepts them, but proposing one to a generic lead is
           // wrong for BOTH audiences (an adult gets a toddler class; an
@@ -365,23 +397,39 @@ function collectSlots(
           // explicit baby pick may land on them.
           (opts.ppOnly
             ? s.pp === true && s.discipline !== "baby" // Mini MT, not the BFC mirror
-            : (s.pp !== true || wantKey === "baby") &&
-              // A renamed class (Blindaje 8 on the sáb 12:00 `jiu` row) is
-              // not what a lead who asked for that program wants.
-              (wantKey === null || (s.discipline === wantKey && !s.name)))),
-      )
+            : s.pp !== true || wantKey === "baby")),
+    );
+    // A renamed class (Blindaje 8 on the sáb 12:00 `jiu` row) is not what a
+    // lead who asked for that program wants. The ppOnly list is one program.
+    const discFiltered = band !== undefined || !opts.ppOnly;
+    const wants = (s: Slot): boolean =>
+      !discFiltered || wantKey === null || (s.discipline === wantKey && !s.name);
+    // Kids/Teens trial days are TWO classes back to back and the arrival is
+    // the FIRST one (intake: L–J always 4:00 pm, sábado 11 am). The second
+    // half (5 pm Jiu-Jitsu Kids) is never proposed as an arrival — arriving
+    // at 5 loses the 4 pm class (nightly audit 2026-10: nudges proposed it).
+    // A lead who came for the second half's discipline gets the first one,
+    // with the second half riding along as `then`.
+    const halves = dayRows.filter((s) => isKidSecondHalf(s, dayRows));
+    const candidates = dayRows
+      .filter((s) => !halves.includes(s))
+      .filter((s) => wants(s) || halves.some((h) => isPairedHalf(h, s) && wants(h)))
       .slice()
       .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
 
     for (const s of candidates) {
       const at = slotEpoch(dp.year, dp.month, dp.day, s.time);
       if (at === null || at < earliest) continue;
+      const half = halves.find((h) => isPairedHalf(h, s));
       const base = {
         weekday: wd,
         date,
         time: s.time,
         discipline: s.discipline,
         ...(s.name ? { name: s.name } : {}),
+        ...(half
+          ? { then: { discipline: half.discipline, time: half.time, ...(half.name ? { name: half.name } : {}) } }
+          : {}),
       };
       out.push({ slot: { ...base, label: formatSlotLabel(base, nowEpoch, "es") }, at });
       if (out.length >= opts.limit) return out;
@@ -434,6 +482,21 @@ export function formatSlotLabel(
   if (days <= 0) return `hoy ${at}`;
   if (days === 1) return `mañana ${named} ${at}`;
   return `el ${named} ${at}`;
+}
+
+/**
+ * "Muay Thai hoy a las 4:00 pm (y Jiu-Jitsu a las 5:00 pm)" — the class name +
+ * formatSlotLabel, plus the second half of a kids two-class day when the slot
+ * carries one. Pure; what every nudge / no-show CTA splices in.
+ */
+export function slotPhrase(slot: NextSlot, nowEpoch: number, lang: "es" | "en"): string {
+  const what = slot.name ?? disciplineLabel(slot.discipline);
+  const when = formatSlotLabel(slot, nowEpoch, lang);
+  if (!slot.then) return `${what} ${when}`;
+  const next = slot.then.name ?? disciplineLabel(slot.then.discipline);
+  return lang === "en"
+    ? `${what} ${when} (then ${next} at ${time12h(slot.then.time)})`
+    : `${what} ${when} (y ${next} ${atClockEs(slot.then.time)})`;
 }
 
 /** Client-facing name of a service key ("muay" → "Muay Thai"). */

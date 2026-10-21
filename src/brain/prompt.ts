@@ -163,7 +163,13 @@ function minutes(hhmm: string): number {
 function slotWhat(s: NextSlot, band: ProgramBand = "adults"): string {
   if (band === "mini") return "Mini Muay Thai";
   if (band === "baby") return "Baby Fight Club";
-  if (band === "kids" || band === "teens") return `${disciplineLabel(s.discipline)} ${band === "kids" ? "Kids" : "Teens"}`;
+  if (band === "kids" || band === "teens") {
+    const tag = band === "kids" ? "Kids" : "Teens";
+    // Two-class day: the arrival names its second half, which is never listed
+    // as an hour of its own (next-slot.isKidSecondHalf).
+    const then = s.then ? ` + ${disciplineLabel(s.then.discipline)} ${tag} ${time12h(s.then.time)}` : "";
+    return `${disciplineLabel(s.discipline)} ${tag}${then}`;
+  }
   return s.name ?? disciplineLabel(s.discipline);
 }
 
@@ -251,7 +257,9 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
       `todas las opciones de prueba de su grupo, próximos ${days.length} días con clase: ${days
         .map((d) => {
           // The lead's discipline leads each day; the rest keep clock order.
-          const mine = disc ? d.slots.filter((s) => s.discipline === disc && !s.name) : [];
+          const mine = disc
+            ? d.slots.filter((s) => (s.discipline === disc && !s.name) || s.then?.discipline === disc)
+            : [];
           const rest = d.slots.filter((s) => !mine.includes(s));
           return `${d.label} ${d.date}: ${[...mine, ...rest]
             .map((s) => `${time12h(s.time)} ${slotWhat(s, band)}`)
