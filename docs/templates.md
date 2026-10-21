@@ -404,8 +404,8 @@ All of them: **Category Marketing**, FOOTER component
 _Responde BAJA para dejar de recibir mensajes._ / _Reply BAJA to stop receiving
 messages._ `{{1}}` = first name (sender substitutes "qué tal" / "there" when
 unknown). `{{2}}` (no_show_d2 only; no_show_hoy carries the booking link) = ONE
-concrete slot of the lead's age band, rendered by the code as "<class> <when>", e.g. `Muay Thai el sábado 10:00 am`,
-`Mini Muay Thai mañana martes 3:15 pm` (never an adult slot for a minor, never
+concrete slot of the lead's age band, rendered by the code as "<class> <when>", e.g. `Muay Thai el sábado 18 a las 10:00 am`,
+`Mini Muay Thai mañana martes 13 a las 3:15 pm` (never an adult slot for a minor, never
 Kids for a mini/baby lead). If the code has no slot to offer, the template is
 not sent.
 

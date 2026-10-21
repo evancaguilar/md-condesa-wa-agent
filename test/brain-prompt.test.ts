@@ -267,7 +267,7 @@ test("context block lists the next valid hours, soonest first, with the 1h buffe
   const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
   assert.equal(line.split(" · ").length, 3, line);
   assert.ok(line.includes("hoy a las 8:00 pm"), "18:30 + 1h keeps the 8 pm class today: " + line);
-  assert.ok(line.includes("mañana martes 7:00 am"), line);
+  assert.ok(line.includes("mañana martes 7 a las 7:00 am"), line);
   assert.ok(line.indexOf("hoy a las") < line.indexOf("mañana"), "soonest first");
   // The hint must not license an unverified offer.
   assert.match(block, /Ofrece SOLO filas de su grupo de edad/);
@@ -278,7 +278,7 @@ test("slot hints follow the lead's program — a kids campaign never sees adult 
     ctx({ campaign: { name: "Kids septiembre", info: "clases para niños" } }),
   );
   assert.match(block, /programa por edad: Kids \(6–12 años\)/);
-  assert.ok(block.includes("mañana martes 4:00 pm"), block); // Kids Muay Thai
+  assert.ok(block.includes("mañana martes 7 a las 4:00 pm"), block); // Kids Muay Thai
   assert.ok(!block.includes("7:00 am"), "7 am is an adults-only hour");
 });
 

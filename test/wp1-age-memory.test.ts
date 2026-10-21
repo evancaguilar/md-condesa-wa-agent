@@ -231,10 +231,10 @@ test("jess_muay_9am: Muay Thai ad → Saturday lists 10:00 Muay Thai first + the
   assert.ok(sat.indexOf("10:00 am Muay Thai") < sat.indexOf("9:00 am Jiu-Jitsu"), sat);
   const combo = lines.find((l) => l.startsWith("combo"))!;
   assert.ok(combo, lines.join("\n"));
-  assert.match(combo, /llegada es Muay Thai mañana sábado 10:00 am/);
+  assert.match(combo, /llegada es Muay Thai mañana sábado \d+ a las 10:00 am/);
   assert.match(combo, /Jiu-Jitsu 9:00 am \(justo antes\) es OPCIONAL de pilón/);
   const soon = lines.find((l) => l.startsWith("próximos horarios"))!;
-  assert.match(soon, /^próximos horarios válidos de Muay Thai .*mañana sábado 10:00 am \(Muay Thai\)/);
+  assert.match(soon, /^próximos horarios válidos de Muay Thai .*mañana sábado \d+ a las 10:00 am \(Muay Thai\)/);
 });
 
 test("known facts: child name, age and declined days are visible", () => {

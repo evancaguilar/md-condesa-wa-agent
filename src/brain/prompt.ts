@@ -19,6 +19,7 @@ import type { ClosedDate } from "../client-config.js";
 import { classifyProgram, weekdaySet } from "../cron/nudge-copy.js";
 import {
   TODAY_BUFFER_SECONDS,
+  atClockEs,
   bandDayOptions,
   disciplineLabel,
   time12h,
@@ -186,7 +187,7 @@ export function comboLine(days: readonly BandDay[], disc: string): string | null
     );
     if (!addOn) continue;
     const when = minutes(addOn.time) < t ? "antes" : "después";
-    return `combo (llegó por ${disciplineLabel(disc)}): su hora de llegada es ${disciplineLabel(disc)} ${d.label} ${time12h(arrival.time)}; ${slotWhat(addOn)} ${time12h(addOn.time)} (justo ${when}) es OPCIONAL de pilón — una línea: "si quieres, ${time12h(addOn.time)} ${slotWhat(addOn)} de pilón y pruebas dos clases en una visita". Nunca propongas el pilón como hora de llegada.`;
+    return `combo (llegó por ${disciplineLabel(disc)}): su hora de llegada es ${disciplineLabel(disc)} ${d.label} ${atClockEs(arrival.time)}; ${slotWhat(addOn)} ${time12h(addOn.time)} (justo ${when}) es OPCIONAL de pilón — una línea: "si quieres, ${time12h(addOn.time)} ${slotWhat(addOn)} de pilón y pruebas dos clases en una visita". Nunca propongas el pilón como hora de llegada.`;
   }
   return null;
 }
