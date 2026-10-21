@@ -47,6 +47,91 @@ export interface AuditApprovalRow {
   resolved_at: number | null;
 }
 
+// ---- pure: when to run (retry-safe daily schedule) -------------------------
+//
+// 2026-10-20 had no report: the dispatcher wrote the day mark BEFORE the run,
+// so a thrown run was never retried. Now the mark is written only after a
+// successful run; attempts are tracked in kv `nightly_audit_try` with a lease
+// (a killed run — Worker wall time — can't be told from a slow one, so a new
+// attempt waits until the lease of the last one expires), at most
+// NIGHTLY_AUDIT_MAX_ATTEMPTS inside the 05:00 hour, and ONE #bot-ops note if
+// the day ends up with no report.
+
+export const NIGHTLY_AUDIT_MARK_KEY = "nightly_audit_mark";
+export const NIGHTLY_AUDIT_TRY_KEY = "nightly_audit_try";
+export const NIGHTLY_AUDIT_HOUR = 5;
+export const NIGHTLY_AUDIT_MAX_ATTEMPTS = 3;
+/** A started attempt blocks the next one for this long (cron ticks are 5 min). */
+export const NIGHTLY_AUDIT_LEASE_SECONDS = 15 * 60;
+
+export interface NightlyAuditTry {
+  /** CDMX date the attempts belong to. */
+  date: string;
+  /** Attempts started that day. */
+  n: number;
+  /** Epoch of the running attempt; 0 once it finished (ok or thrown). */
+  startedAt: number;
+  /** Last thrown error (capped), for the give-up note. */
+  lastError?: string;
+  /** The give-up note already went out. */
+  noted?: boolean;
+}
+
+export function parseNightlyAuditTry(raw: string | null): NightlyAuditTry | null {
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as Partial<NightlyAuditTry>;
+    if (typeof o.date !== "string" || typeof o.n !== "number") return null;
+    return {
+      date: o.date,
+      n: o.n,
+      startedAt: typeof o.startedAt === "number" ? o.startedAt : 0,
+      ...(typeof o.lastError === "string" ? { lastError: o.lastError } : {}),
+      ...(o.noted === true ? { noted: true } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export type NightlyAuditStep =
+  | { action: "skip" }
+  | { action: "run"; attempt: number }
+  | { action: "give_up"; attempts: number; lastError: string | null };
+
+/**
+ * Pure. What this tick does about today's audit. Runs only in the 05:00 CDMX
+ * hour; gives up (one note) once the attempts are spent or the hour is over
+ * (checked through 06:59) with no successful run.
+ */
+export function nightlyAuditStep(opts: {
+  hour: number;
+  today: string;
+  now: number;
+  mark: string | null;
+  state: NightlyAuditTry | null;
+}): NightlyAuditStep {
+  if (opts.hour !== NIGHTLY_AUDIT_HOUR && opts.hour !== NIGHTLY_AUDIT_HOUR + 1) return { action: "skip" };
+  if (opts.mark === opts.today) return { action: "skip" };
+  const st: NightlyAuditTry =
+    opts.state && opts.state.date === opts.today ? opts.state : { date: opts.today, n: 0, startedAt: 0 };
+  if (st.noted) return { action: "skip" };
+  if (st.startedAt > 0 && opts.now - st.startedAt < NIGHTLY_AUDIT_LEASE_SECONDS) return { action: "skip" };
+  if (opts.hour === NIGHTLY_AUDIT_HOUR && st.n < NIGHTLY_AUDIT_MAX_ATTEMPTS) {
+    return { action: "run", attempt: st.n + 1 };
+  }
+  return { action: "give_up", attempts: st.n, lastError: st.lastError ?? null };
+}
+
+/** The #bot-ops line when the day ends with no report. Pure. */
+export function nightlyAuditGiveUpNote(step: { attempts: number; lastError: string | null }, today: string): string {
+  const why =
+    step.attempts === 0
+      ? "no llegó a correr en la hora de las 05:00"
+      : `falló ${step.attempts} ${step.attempts === 1 ? "vez" : "veces"}${step.lastError ? ` — último error: ${step.lastError}` : " (sin error registrado: posible timeout del Worker)"}`;
+  return `⚠️ Auditor nocturno ${today}: no hay reporte hoy — ${why}. Se vuelve a intentar mañana a las 05:00 (revisar logs del Worker).`;
+}
+
 // ---- pure: compaction ------------------------------------------------------
 
 /**

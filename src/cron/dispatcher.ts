@@ -16,7 +16,16 @@ import { runDueFollowups, syncBookings, syncStudents } from "./followups.js";
 import { runBudgetReport } from "./budget.js";
 import { maybeRunEditTuning } from "../services/edit-tuner.js";
 import { runBookingRecon } from "./booking-recon.js";
-import { runNightlyAudit } from "./nightly-audit.js";
+import {
+  NIGHTLY_AUDIT_HOUR,
+  NIGHTLY_AUDIT_MARK_KEY,
+  NIGHTLY_AUDIT_TRY_KEY,
+  nightlyAuditGiveUpNote,
+  nightlyAuditStep,
+  parseNightlyAuditTry,
+  runNightlyAudit,
+  type NightlyAuditTry,
+} from "./nightly-audit.js";
 import { KB } from "../kb.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
 import type { CronDeps } from "./deps.js";
@@ -257,20 +266,41 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     );
   }
 
-  // Once daily at 05:00 CDMX (kv date mark): the OPUS nightly audit of the
-  // last 24h of conversations, posted to Slack before the team wakes up.
-  // Report-only — it never touches leads, campaigns, or code.
-  if (p.hour === 5) {
+  // Once daily at 05:00 CDMX: the OPUS nightly audit of the last 24h of
+  // conversations, posted to Slack before the team wakes up. Report-only — it
+  // never touches leads, campaigns, or code. The day mark is written only
+  // AFTER a successful run; a thrown/killed run is retried (≤3 attempts in the
+  // 05:00 hour, 15-min lease) and a day with no report gets one #bot-ops note
+  // (nightlyAuditStep; 2026-10-20 had no report and nobody knew).
+  if (p.hour === NIGHTLY_AUDIT_HOUR || p.hour === NIGHTLY_AUDIT_HOUR + 1) {
     const today = cdmxDateStr(nowEpoch);
-    if ((await kvGet(env.DB, "nightly_audit_mark")) !== today) {
-      await kvSet(env.DB, "nightly_audit_mark", today);
-      await safe("nightlyAudit", () =>
-        runNightlyAudit(env, {
-          postNote: async (_env, text) => cronDeps.slack.postNote(text),
-          kb: KB,
-          now: nowEpoch,
-        }),
-      );
+    const mark = await kvGet(env.DB, NIGHTLY_AUDIT_MARK_KEY);
+    if (mark !== today) {
+      const state = parseNightlyAuditTry(await kvGet(env.DB, NIGHTLY_AUDIT_TRY_KEY));
+      const step = nightlyAuditStep({ hour: p.hour, today, now: nowEpoch, mark, state });
+      if (step.action === "run") {
+        const attempt: NightlyAuditTry = { date: today, n: step.attempt, startedAt: nowEpoch };
+        await kvSet(env.DB, NIGHTLY_AUDIT_TRY_KEY, JSON.stringify(attempt));
+        await safe("nightlyAudit", async () => {
+          try {
+            await runNightlyAudit(env, {
+              postNote: async (_env, text) => cronDeps.slack.postNote(text),
+              kb: KB,
+              now: nowEpoch,
+            });
+          } catch (err) {
+            const failed: NightlyAuditTry = { ...attempt, startedAt: 0, lastError: String(err).slice(0, 300) };
+            await kvSet(env.DB, NIGHTLY_AUDIT_TRY_KEY, JSON.stringify(failed)).catch(() => {});
+            throw err;
+          }
+          await kvSet(env.DB, NIGHTLY_AUDIT_MARK_KEY, today);
+          await kvSet(env.DB, NIGHTLY_AUDIT_TRY_KEY, JSON.stringify({ ...attempt, startedAt: 0 }));
+        });
+      } else if (step.action === "give_up") {
+        const base: NightlyAuditTry = state && state.date === today ? state : { date: today, n: 0, startedAt: 0 };
+        await kvSet(env.DB, NIGHTLY_AUDIT_TRY_KEY, JSON.stringify({ ...base, noted: true }));
+        await safe("nightlyAuditGiveUp", () => cronDeps.slack.postNote(nightlyAuditGiveUpNote(step, today)));
+      }
     }
   }
 

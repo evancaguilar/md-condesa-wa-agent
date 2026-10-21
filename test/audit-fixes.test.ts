@@ -20,6 +20,12 @@ import {
 } from "../src/cron/nudges.js";
 import { POST_TRIAL_ALL_KINDS } from "../src/cron/post-trial.js";
 import {
+  nightlyAuditGiveUpNote,
+  nightlyAuditStep,
+  parseNightlyAuditTry,
+  type NightlyAuditTry,
+} from "../src/cron/nightly-audit.js";
+import {
   classifyProgram,
   disciplineFromCampaign,
   isKidsCampaign,
@@ -240,4 +246,51 @@ test("processNudge: a lead whose trial already passed is never told 'todavía no
     assert.equal(res, "cancelled", signal);
     assert.equal(sent, false, signal);
   }
+});
+
+// ---- 6. the nightly audit is retried, and a lost day is reported ----
+
+test("nightlyAuditStep: mark only after success, ≤3 leased attempts in the 05:00 hour, one give-up note", () => {
+  const today = "2026-10-20";
+  const at = (h: number, m = 0): number => cdmxToEpoch(2026, 10, 20, h, m, 0);
+  const step = (hour: number, now: number, state: NightlyAuditTry | null, mark: string | null = null) =>
+    nightlyAuditStep({ hour, today, now, mark, state });
+
+  // Outside 05–06 nothing happens; a marked day is done.
+  assert.deepEqual(step(4, at(4, 55), null), { action: "skip" });
+  assert.deepEqual(step(7, at(7), null), { action: "skip" });
+  assert.deepEqual(step(5, at(5), null, today), { action: "skip" });
+  // First tick of the hour runs attempt 1 (yesterday's state is ignored).
+  assert.deepEqual(step(5, at(5), { date: "2026-10-19", n: 3, startedAt: 0, noted: true }), { action: "run", attempt: 1 });
+  // A running attempt holds the next tick back (lease) — no double report.
+  const running: NightlyAuditTry = { date: today, n: 1, startedAt: at(5) };
+  assert.deepEqual(step(5, at(5, 5), running), { action: "skip" });
+  // It threw (startedAt cleared): the very next tick retries.
+  const threw: NightlyAuditTry = { date: today, n: 1, startedAt: 0, lastError: "Error: 529 overloaded" };
+  assert.deepEqual(step(5, at(5, 5), threw), { action: "run", attempt: 2 });
+  // It was killed (lease still set): retried once the lease expires.
+  assert.deepEqual(step(5, at(5, 15), running), { action: "run", attempt: 2 });
+  // Attempts spent → give up once, with the last error.
+  const spent: NightlyAuditTry = { date: today, n: 3, startedAt: 0, lastError: "Error: 529 overloaded" };
+  const g = step(5, at(5, 30), spent);
+  assert.deepEqual(g, { action: "give_up", attempts: 3, lastError: "Error: 529 overloaded" });
+  assert.deepEqual(step(5, at(5, 35), { ...spent, noted: true }), { action: "skip" });
+  // The 05:00 hour ended with an attempt left but no report (killed at 05:50).
+  assert.equal(step(6, at(6, 10), { date: today, n: 2, startedAt: at(5, 50) }).action, "give_up");
+  // …but never while that attempt's lease is still live.
+  assert.equal(step(6, at(6, 0), { date: today, n: 2, startedAt: at(5, 50) }).action, "skip");
+
+  const note = nightlyAuditGiveUpNote({ attempts: 3, lastError: "Error: 529 overloaded" }, today);
+  assert.match(note, /Auditor nocturno 2026-10-20: no hay reporte/);
+  assert.match(note, /falló 3 veces — último error: Error: 529 overloaded/);
+  assert.match(nightlyAuditGiveUpNote({ attempts: 0, lastError: null }, today), /no llegó a correr/);
+  assert.match(nightlyAuditGiveUpNote({ attempts: 1, lastError: null }, today), /falló 1 vez \(sin error registrado/);
+});
+
+test("parseNightlyAuditTry: round-trips and rejects junk", () => {
+  const s: NightlyAuditTry = { date: "2026-10-20", n: 2, startedAt: 5, lastError: "x", noted: true };
+  assert.deepEqual(parseNightlyAuditTry(JSON.stringify(s)), s);
+  assert.equal(parseNightlyAuditTry(null), null);
+  assert.equal(parseNightlyAuditTry("2026-10-20"), null);
+  assert.equal(parseNightlyAuditTry("{\"n\":1}"), null);
 });
