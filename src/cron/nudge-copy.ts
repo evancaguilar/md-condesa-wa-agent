@@ -151,12 +151,44 @@ export function classifyProgram(
   const fromQual = bandFromQualification(parseQualification(contact));
   if (fromQual) return fromQual;
   if (campaignName != null && /baby/i.test(campaignName)) return "baby";
-  if (campaignName != null && KIDS_CAMPAIGN_RE.test(campaignName)) return "kids";
+  if (isKidsCampaign(campaignName)) return "kids";
   return "adults";
 }
 
 /** Campaign names that mean "this lead is a parent", not an adult student. */
 const KIDS_CAMPAIGN_RE = /\bkids?\b|ni[ñn]os?|peques?|infantil/i;
+/** …unless the name ALSO speaks to adults ("Jiu-Jitsu niños y adultos"): a
+ *  mixed campaign says nothing about who is writing, and the kids copy
+ *  ("el día gratuito de tu peque") to an adult student reads as a mistake. */
+const ADULT_CAMPAIGN_RE = /\badult(?:o|a)?s?\b|\bmayores\b|\bpara\s+ti\b/i;
+
+/** True for a campaign name aimed only at parents (kids, not mixed). Pure. */
+export function isKidsCampaign(campaignName: string | null | undefined): boolean {
+  if (campaignName == null) return false;
+  return KIDS_CAMPAIGN_RE.test(campaignName) && !ADULT_CAMPAIGN_RE.test(campaignName);
+}
+
+/**
+ * The bookable discipline a campaign name names ("fw mma" → "mma", "Muay Thai
+ * octubre" → "muay"), or null when it names none or more than one ("MMA y
+ * Jiu-Jitsu"). Baby is left to the band (it is a program, not a discipline
+ * choice). The fallback when the lead never told us a discipline: an MMA ad
+ * lead was offered "Jiu-Jitsu 6 pm" by the nudges (audit 2026-10). Pure.
+ */
+export function disciplineFromCampaign(campaignName: string | null | undefined): string | null {
+  const name = (campaignName ?? "").trim().toLowerCase();
+  if (!name) return null;
+  const hits = CLIENT.services.filter(
+    (svc) => svc.key !== "baby" && svc.match && new RegExp(svc.match).test(name),
+  );
+  return hits.length === 1 ? hits[0]!.key : null;
+}
+
+/** The lead's own discipline, else the campaign's (see disciplineFromCampaign). */
+export function leadDiscipline(q: Qualification, campaignName: string | null | undefined): string | null {
+  const own = (q.discipline ?? "").trim();
+  return own ? own : disciplineFromCampaign(campaignName);
+}
 
 // ---- concrete-slot proposal ----
 
@@ -169,17 +201,19 @@ export function programAudience(program: Program): "adult" | "kid" {
  * The slot a nudge should propose: a row of the lead's age band ONLY (mini →
  * Mini Muay Thai rows, teens → Teens rows, baby → BFC rows), the lead's own
  * discipline first when the band has it, else the soonest class of the band.
- * Days the lead declined are never proposed. Pure over (contact, program,
- * now, schedule).
+ * Days the lead declined are never proposed. With no discipline of their own
+ * the campaign's is used (an MMA ad lead gets an MMA hour). Pure over
+ * (contact, program, now, schedule, campaignName).
  */
 export function nudgeSlot(
   contact: Contact | null,
   program: Program,
   nowEpoch: number,
   schedule: readonly Slot[] = SLOTS,
+  campaignName: string | null = null,
 ): NextSlot | null {
   const q = parseQualification(contact);
-  const discipline = program === "baby" ? "baby" : (q.discipline ?? null);
+  const discipline = program === "baby" ? "baby" : leadDiscipline(q, campaignName);
   const excludeWeekdays = weekdaySet(q.declined_days);
   return nextBandSlot(program, discipline, nowEpoch, {
     schedule,
@@ -299,10 +333,10 @@ export function nudgeCopy(
   const lang: Language = contact?.lang === "en" ? "en" : "es";
   const name = firstName(contact, q);
   const sp = nameSuffix(name);
-  const disc = prettyDiscipline(q.discipline ?? "");
+  const disc = prettyDiscipline(leadDiscipline(q, campaignName) ?? "");
   // utm on the link: the site prefills the booking form with the lead's ad.
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
-  const slot = opts.noSlot ? null : nudgeSlot(contact, program, nowEpoch, schedule);
+  const slot = opts.noSlot ? null : nudgeSlot(contact, program, nowEpoch, schedule, campaignName ?? null);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
 
   const copy = legacyProgram(program);
@@ -430,7 +464,7 @@ export function extendedCopy(
   const lang: Language = contact?.lang === "en" ? "en" : "es";
   const sp = nameSuffix(firstName(contact, q));
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
-  const slot = kind === "nudge_d5" ? null : nudgeSlot(contact, program, nowEpoch, schedule);
+  const slot = kind === "nudge_d5" ? null : nudgeSlot(contact, program, nowEpoch, schedule, campaignName);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
   const table = lang === "en" ? EXTENDED_EN : EXTENDED_ES;
   const line = table[legacyProgram(program)][kind];

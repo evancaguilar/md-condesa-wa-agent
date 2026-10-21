@@ -16,7 +16,7 @@
 import type { ConvoContext, Qualification } from "../types.js";
 import { CLIENT } from "../client.gen.js";
 import type { ClosedDate } from "../client-config.js";
-import { classifyProgram, weekdaySet } from "../cron/nudge-copy.js";
+import { classifyProgram, leadDiscipline, weekdaySet } from "../cron/nudge-copy.js";
 import {
   TODAY_BUFFER_SECONDS,
   atClockEs,
@@ -217,7 +217,8 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
   if (now === null) return [];
   const band = classifyProgram(ctx.contact, ctx.campaign?.name ?? null);
   const q = parseQualification(ctx.contact.qualification);
-  const disc = bandDiscipline(q.discipline, band);
+  // No discipline of their own ⇒ the campaign's ("fw mma" ⇒ MMA hours first).
+  const disc = bandDiscipline(leadDiscipline(q, ctx.campaign?.name) ?? undefined, band);
   const excludeWeekdays = weekdaySet(q.declined_days);
   const ageMonths = typeof q.child_age_months === "number" ? q.child_age_months : null;
   const opts = {

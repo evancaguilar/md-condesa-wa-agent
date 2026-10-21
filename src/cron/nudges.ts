@@ -56,7 +56,7 @@ import {
   type ExtendedKind,
   type Program,
 } from "./nudge-copy.js";
-import { weekdaySet } from "./nudge-copy.js";
+import { isKidsCampaign, leadDiscipline, weekdaySet } from "./nudge-copy.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -102,9 +102,6 @@ const HOUR = 3600;
 //                   Club), Mini Muay Thai slots only, never Kids
 //   kids / teens  → kids copy, slots of exactly that group
 //   adults        → adults copy, adult slots only
-
-/** Campaign names that mean "this lead is a parent" (mirror of nudge-copy's). */
-const KIDS_CAMPAIGN_RE = /\bkids?\b|ni[ñn]os?|peques?|infantil/i;
 
 /** The lead's band: stored age/program first, campaign-name guess second. Pure. */
 export function bandForContact(
@@ -185,7 +182,7 @@ export function copyInputsForBand(
   }
   let campaign = campaignName;
   if (campaign != null && band !== "baby" && /baby/i.test(campaign)) campaign = null;
-  if (campaign != null && band === "adults" && KIDS_CAMPAIGN_RE.test(campaign)) campaign = null;
+  if (campaign != null && band === "adults" && isKidsCampaign(campaign)) campaign = null;
   return {
     contact: contact ? { ...contact, qualification: JSON.stringify(q2) } : null,
     campaignName: campaign,
@@ -208,13 +205,12 @@ export function bandSlot(
   // "kids" row and got nothing (post-merge regression, 2026-10-11).
   const q = parseQualification(contact);
   const discipline =
-    band === "baby" ? "baby" : band === "mini" ? "muay" : (q.discipline ?? null);
+    band === "baby" ? "baby" : band === "mini" ? "muay" : leadDiscipline(q, campaignName);
   const excludeWeekdays = weekdaySet(q.declined_days);
   const slot = nextBandSlot(band, discipline, nowEpoch, {
     schedule: bandSchedule(band, schedule, q.child_age_months),
     ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
   });
-  void campaignName;
   return slot;
 }
 
