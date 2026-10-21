@@ -77,6 +77,8 @@ import {
   type LeadCancelIntent,
 } from "./lead-cancel.js";
 import { applyLeadCancellation } from "../services/trial-cancel.js";
+import { captureOriginAnswer, readOriginState } from "../services/origin-question.js";
+import { recentOriginAnswer } from "../services/origin-question-core.js";
 import {
   OVERRIDE_CHECK_PREFIX,
   armOverrideCheck,
@@ -359,6 +361,12 @@ export async function processInbound(
       console.warn("[inbound] lead cancellation failed", msg.phone, err);
     }
   }
+
+  // 1d. "¿Cómo nos encontraste?" answer (services/origin-question.ts). Not a
+  // gate: only reads a message while the question is open (one kv read), writes
+  // the answer to Leads.Canal, and the turn continues — the brain gets an
+  // <origen> hint so it just says thanks. Fail-soft (never throws).
+  let originAnswer = await captureOriginAnswer(env, msg.phone, body, Math.floor(Date.now() / 1000));
 
   // 2. Global kill switch.
   if (!(await isBotEnabled(env.DB))) {
@@ -738,11 +746,21 @@ export async function processInbound(
       leadCancel = null;
     }
   }
+  // Same for an origin answer sent in an EARLIER message of this burst.
+  if (!originAnswer) originAnswer = recentOriginAnswer(await readOriginState(env, msg.phone), nowSec);
   const turnOpts: BrainTurnOptions = {
     ...(reschedule ? { reschedule: true } : {}),
     ...(leadCancel ? { leadCancel } : {}),
+    ...(originAnswer ? { originAnswer } : {}),
   };
-  await runBrainTurn(env, ports, msg, nowSec, justSentWelcome, reschedule || leadCancel ? turnOpts : undefined);
+  await runBrainTurn(
+    env,
+    ports,
+    msg,
+    nowSec,
+    justSentWelcome,
+    reschedule || leadCancel || originAnswer ? turnOpts : undefined,
+  );
 }
 
 /**
@@ -761,6 +779,8 @@ export interface BrainTurnOptions {
   leadCancel?: "cancel" | "reschedule";
   /** Override v2 turn (runOverrideChecks): direct send only at sureness ≥ 70. */
   overrideCheck?: boolean;
+  /** The lead just answered "¿cómo nos encontraste?" → <origen> hint. */
+  originAnswer?: ConvoContext["originAnswer"];
 }
 
 /**
@@ -920,6 +940,7 @@ export async function runBrainTurn(
     ...(opts?.stale ? { staleReply: opts.stale } : {}),
     ...(opts?.reschedule ? { reschedule: true } : {}),
     ...(opts?.leadCancel ? { leadCancel: opts.leadCancel } : {}),
+    ...(opts?.originAnswer ? { originAnswer: opts.originAnswer } : {}),
   };
 
   const result = await ports.brain.respond(brainCtx);

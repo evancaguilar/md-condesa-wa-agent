@@ -126,6 +126,15 @@ export interface ClientCopy {
   studentResponsivaEs?: string;
   studentResponsivaEn?: string;
   /**
+   * "¿Cómo nos encontraste?" (src/services/origin-question.ts): asked once, a
+   * few minutes after the booking confirmation, to leads with no ad / Google
+   * click / campaign. Numbered options in ORIGIN_OPTIONS order (Anuncio, Post
+   * orgánico, Google Maps, Google, Referido, Local). Optional: a client
+   * without it never asks.
+   */
+  originQuestionEs?: string;
+  originQuestionEn?: string;
+  /**
    * Pre-trial questionnaire invite (src/services/cuestionario.ts), sent right
    * after a booking confirmation. Placeholders: {who} → " Nombre" or "",
    * {cuando} → " el jueves 16 de octubre a las 7:00 PM" or "" (no date on the
@@ -242,6 +251,10 @@ export interface AirtableLeadsMap {
    *  The site's booking forms prefill it; the bot writes it fill-if-empty from
    *  the WhatsApp prefill ref (src/services/google-click.ts). Absent = not synced. */
   gclid?: string;
+  /** Free-text "how did you find us" column, e.g. "Cómo nos encontró". The
+   *  origin question writes the lead's raw answer here fill-if-empty (the
+   *  classified value goes to `source`). Absent = raw answer not stored. */
+  howFound?: string;
   /** Click time of `gclid`, ISO with the CDMX offset, e.g. "gclid_time".
    *  Written only together with `gclid`. */
   gclidTime?: string;

@@ -130,6 +130,10 @@ export default {
     // prefill). Text columns; written fill-if-empty, id and time together.
     gclid: "gclid",
     gclidTime: "gclid_time",
+    // Raw answer to the bot's "¿cómo nos encontraste?" (fill-if-empty; the
+    // pre-trial questionnaire writes the same column). The classified value
+    // goes to Canal, which the Origen formula reads.
+    howFound: "Cómo nos encontró",
     booked: "Agendó",
     attended: "Asistió",
     closed: "Cerró",
@@ -289,6 +293,14 @@ export default {
       "Último paso: tu responsiva. Toma 2 minutos desde tu cel y la necesitamos firmada antes de tu siguiente clase 📝\n\n👉 {link}",
     studentResponsivaEn:
       "Last step: your waiver. It takes 2 minutes from your phone and we need it signed before your next class 📝\n\n👉 {link}",
+    // "¿Cómo nos encontraste?" — asked once, a few minutes AFTER the booking
+    // confirmation, only to leads with no ad / Google click / campaign
+    // (owner, 2026-10-21). Option order = ORIGIN_OPTIONS in
+    // src/services/origin-question-core.ts — keep both in sync.
+    originQuestionEs:
+      "Por cierto, una pregunta rápida que nos ayuda mucho 🙏 ¿Cómo nos encontraste?\n\n1️⃣ Un anuncio en Instagram/Facebook\n2️⃣ Una publicación en redes (no anuncio)\n3️⃣ Google Maps\n4️⃣ Google\n5️⃣ Me recomendaron\n6️⃣ Pasé por la academia\n\nCon el número basta 😊",
+    originQuestionEn:
+      "By the way, a quick question that helps us a lot 🙏 How did you find us?\n\n1️⃣ An Instagram/Facebook ad\n2️⃣ A social media post (not an ad)\n3️⃣ Google Maps\n4️⃣ Google\n5️⃣ Someone recommended us\n6️⃣ I walked by the academy\n\nJust the number is fine 😊",
     // Pre-trial questionnaire (docs/cuestionario.md, owner copy 2026-10-13).
     // Sent ONCE right after the booking confirmation (src/services/cuestionario.ts).
     // {who} = " Nombre" or "" (→ "Listo, quedó…"), {cuando} = " el jueves 16 de

@@ -130,6 +130,7 @@ import {
   tpl,
 } from "../services/template-params.js";
 import { checkinUrl, qrPng } from "../services/qr-png.js";
+import { sendOriginQuestion } from "../services/origin-question.js";
 import {
   ALUMNOS_TABLE,
   LEAD_ALUMNOS_FIELD,
@@ -546,6 +547,11 @@ async function processOne(
       // Never reached: dueFollowups excludes kind='blast'; the blast drain
       // (src/cron/blasts.ts) paces and caps those rows itself. Leave the row
       // alone so the drain picks it up.
+      return;
+
+    case "origin_ask":
+      // "¿Cómo nos encontraste?" (services/origin-question.ts): marks or defers the row itself.
+      await sendOriginQuestion(env, f);
       return;
 
     case "custom":

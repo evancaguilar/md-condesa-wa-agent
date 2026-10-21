@@ -2,6 +2,17 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-21**.
 
+### "¿Cómo nos encontraste?" after the booking confirmation (2026-10-21) — ON BRANCH `claude/wizardly-turing-m0eeub`, needs Evan's merge
+
+Leads that write to the bot with NO attribution (no click-to-WhatsApp ad referral, no Google click ref, no campaign tag — e.g. Landon, Alexis Luna) were landing as `Origen = Desconocido`, and their sales could not be credited to Meta ads or to organic. Owner rule: ask only AFTER the booking confirmation went out, never in a way that can stall a booking.
+
+- **Arm:** `afterBookingConfirmed` (the one hook every confirmation path ends in) → `armOriginQuestion`: eligible lead (`shouldAskOrigin`: status lead, no `ad_ref`, no `campaign_id`, no kv `gclick:`) → once-ever kv claim `origin_q_armed:<phone>` + followup `origin_ask` due +3 min (after the booking video; the cron tick adds 0–5 min).
+- **Send** (`sendOriginQuestion`, followups tick): re-checks eligibility; skips if the Leads row is already attributed (Canal not empty/WA/IG/FB, `Adquisición` set, `Vio anuncio` = Sí); never talks over a live exchange (`originSendGate`: lead wrote < 15 min ago, a bot question < 2 h old, staff < 60 min, pending approval → defer 10 min, max 24 defers); quiet hours → next 08:15; 24h window closed → dropped. Copy = `copy.originQuestionEs/En` in client.mjs (numbered: Anuncio, Post orgánico, Google Maps, Google, Me recomendaron, Pasé por la academia). No copy ⇒ feature off.
+- **Capture** (inbound step 1d, not a gate): the first 2 messages within 48 h after the question are classified (`classifyOriginAnswer`: digit 1–6 / keycap, else keywords; "anuncio" wins unless negated; a question back is never an answer; "Instagram" alone = answered, Canal left alone). Writes Leads `Canal` (only over empty/WA/IG/FB) + raw text in `Cómo nos encontró` (fill-if-empty, `airtableLeads.howFound`). The brain gets an `<origen>` hint: thank in one line, never ask again.
+- **Airtable (done 2026-10-21, no code):** `Origen` formula reads Canal (Anuncio/Pagado → Pagado; Post orgánico/Google/Google Maps/Referido/Local/Orgánico → Orgánico; Google Ads → "Google Ads"), plus new lookups `Pagado u Orgánico (alumno)` and `Campaña (alumno)` so tagging the STUDENT counts. A new select option "Post orgánico" is created by the first write (typecast) if nobody added it.
+- New `FollowupKind` `origin_ask` (no migration). Tests 1336 → **1351**.
+- [ ] **Evan:** merge (push to main = deploy). Probe: `/health` rev changes; then on the next unattributed booking watch the chat — question ~3–8 min after the confirmation, and the answer in Leads `Canal` / `Cómo nos encontró`.
+
 ### Auditor-nocturno review (Oct 7–21): nudge fixes, lead cancellations, audit retry, KB answers (2026-10-21) — MERGED ON LOCAL main, NOT PUSHED
 
 Review of 11 nightly Opus reports (Oct 8/10/11 header-only, Oct 20 missing) — most recurring errors already had a KB rule but no code enforcement. Shipped together with the entry below:

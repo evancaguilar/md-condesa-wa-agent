@@ -336,6 +336,10 @@ export type FollowupKind =
    *  link (src/cron/student-kit.ts). note = retry state ("alumno:N;tpl:N;…");
    *  airtable_record_id = the Leads record. */
   | "student_kit"
+  /** "¿Cómo nos encontraste?" a few minutes after a booking confirmation, for
+   *  leads with no ad / Google click / campaign (src/services/origin-question.ts).
+   *  note = "defers:N" while the conversation is still live. */
+  | "origin_ask"
   | "custom";
 
 /** `paused` is used by blast rows only (docs/blasts.md); `failed` by blast and
@@ -404,6 +408,10 @@ export interface ConvoContext {
   /** The lead called off a booked trial in chat (pipeline/lead-cancel.ts):
    *  its reminders were cancelled; the prompt asks to offer a new date. */
   leadCancel?: "cancel" | "reschedule";
+  /** The lead just answered "¿cómo nos encontraste?" (services/origin-question.ts):
+   *  already recorded → <origen> hint, thank briefly, never ask again.
+   *  canal null = they named a source we couldn't place (e.g. "Instagram"). */
+  originAnswer?: { canal: string | null };
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */

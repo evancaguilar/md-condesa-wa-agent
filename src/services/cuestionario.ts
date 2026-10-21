@@ -35,6 +35,7 @@ import { parseQualification } from "../cron/nudge-copy.js";
 import { bandFromQualification } from "./age-band.js";
 import { cdmxDateStr } from "../cron/time.js";
 import { postNote as slackOpsNote } from "./slack.js";
+import { armOriginQuestion } from "./origin-question.js";
 import { TOKEN_TTL_SEC, signToken, tokenId, verifyToken, type CuestionarioVersion } from "./cuestionario-token.js";
 import {
   F_SENT,
@@ -636,6 +637,10 @@ export async function afterBookingConfirmed(
   opts: AfterConfirmedOpts = {},
 ): Promise<void> {
   if (opts.video !== false) await sendBookingVideo(env, phone);
+  // "¿Cómo nos encontraste?" — armed only here, i.e. once a confirmation has
+  // reached the lead; it goes out minutes later as its own message (never part
+  // of the booking turn). Best-effort, never throws.
+  await armOriginQuestion(env, phone);
   if (!cuestionarioEnabled(env)) return;
   try {
     const now = Math.floor(Date.now() / 1000);

@@ -470,6 +470,15 @@ export function buildContextBlock(ctx: ConvoContext): string {
     );
   }
 
+  // The lead just answered our "¿cómo nos encontraste?" (services/origin-question.ts).
+  if (ctx.originAnswer) {
+    lines.push(
+      "<origen>",
+      `El lead acaba de responder a nuestra pregunta de cómo nos encontró${ctx.originAnswer.canal ? ` (${ctx.originAnswer.canal})` : ""}; ya quedó registrado. Si su mensaje es solo esa respuesta, agradece en UNA frase corta (sin repetir las opciones ni preguntar nada más). Si trae otra pregunta, agradece en media frase y contéstala. Nunca vuelvas a preguntar cómo nos encontró.`,
+      "</origen>",
+    );
+  }
+
   return lines.join("\n");
 }
 
