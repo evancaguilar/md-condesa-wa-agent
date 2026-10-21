@@ -96,12 +96,14 @@ export function programLink(program: Program): string {
   return program === "adults" ? ADULT_LINK : KIDS_LINK;
 }
 
-/** "Tu primera clase" info page for a band (sent after booking). */
+/** "Tu primera clase" info page for a band (sent after booking). Mini Muay
+ *  Thai (3–5) reads the KIDS page (Evan, 2026-10-21) — the baby page is Baby
+ *  Fight Club only; the cuestionario already maps mini → kids. */
 export function firstClassLink(band: ProgramBand): string {
   switch (band) {
     case "baby":
-    case "mini":
       return `${SITE_ORIGIN}/tu-primera-clase-bebes/`;
+    case "mini":
     case "kids":
     case "teens":
       return `${SITE_ORIGIN}/tu-primera-clase-ninos/`;

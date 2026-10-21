@@ -122,7 +122,7 @@ test("legacy mapping + links per band", () => {
   assert.match(programLink("teens"), /clase-prueba-ninos/);
   assert.match(programLink("adults"), /clase-prueba-adultos/);
   assert.match(firstClassLink("baby"), /\/tu-primera-clase-bebes\/$/);
-  assert.match(firstClassLink("mini"), /\/tu-primera-clase-bebes\/$/);
+  assert.match(firstClassLink("mini"), /\/tu-primera-clase-ninos\/$/); // Evan 2026-10-21: Mini → kids page
   assert.match(firstClassLink("kids"), /\/tu-primera-clase-ninos\/$/);
   assert.match(firstClassLink("teens"), /\/tu-primera-clase-ninos\/$/);
   assert.match(firstClassLink("adults"), /\/tu-primera-clase\/$/);
