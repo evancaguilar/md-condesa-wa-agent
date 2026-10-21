@@ -116,7 +116,12 @@ import {
 } from "./post-trial.js";
 import { captureCapiEvent, captureResultCapiEvents } from "../services/meta-capi.js";
 import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../services/staff-send.js";
-import { auditHumanSend } from "../services/booking-guard.js";
+import { auditStaffSend } from "../services/slot-audit.js";
+import {
+  claimBookingConfirmation,
+  releaseBookingConfirmation,
+  slotFromIso,
+} from "../services/confirm-once.js";
 import { CLIENT } from "../client.gen.js";
 import { detectLeadCancel } from "../pipeline/lead-cancel.js";
 import { renderCopy } from "../client-config.js";
@@ -464,10 +469,26 @@ async function processOne(
   const recordId = f.airtable_record_id ?? "";
 
   switch (f.kind) {
-    case "trial_confirm":
-      await sendTrialConfirm(env, f.phone, name, lang, recordId, deps.slack);
+    case "trial_confirm": {
+      // ONE confirmation per phone + slot (services/confirm-once.ts). A
+      // syncBookings pass that read a brain-made record before the chat
+      // marker existed armed this row; the chat confirmation (+ video) already
+      // went out (…9313, 2026-10-17: 20:45:59 chat, 20:50:50 trial_confirm).
+      const slot = await trialConfirmSlot(env, deps, recordId);
+      if (!(await claimBookingConfirmation(env.DB, f.phone, slot, nowSec()))) {
+        console.log(`[followups] trial_confirm #${f.id} ${f.phone}: ${slot} already confirmed — skipped`);
+        await markFollowup(env.DB, f.id, "cancelled");
+        return;
+      }
+      try {
+        await sendTrialConfirm(env, f.phone, name, lang, recordId, deps.slack);
+      } catch (err) {
+        await releaseBookingConfirmation(env.DB, f.phone, slot);
+        throw err; // handleSendFailure → retry next tick, which re-claims
+      }
       await markFollowup(env.DB, f.id, "sent");
       return;
+    }
 
     case "day_before":
     case "same_day": {
@@ -698,7 +719,8 @@ async function processOne(
           sendText: (e, p, b, opts) => sendText(e, p, b, opts),
           isWindowClosed: (err) => err instanceof WindowClosedError,
           postNote: (_e, text) => deps.slack.postNote(text),
-          auditSend: (e, p, t, by) => auditHumanSend(e, p, t, "staff_later", by),
+          // Booking-capture card + non-blocking schedule check (services/slot-audit).
+          auditSend: (e, p, t, by) => auditStaffSend(e, p, t, "staff_later", by),
         });
       } catch (err) {
         await kvDelete(env.DB, staffSendClaimKey(f.phone, token));
@@ -981,6 +1003,19 @@ async function postAttendedCard(
     await deps.slack.postPostTrialCard({ phone, name: who });
   } else {
     await deps.slack.postNote(attendedCardText(who, displayContact(phone)));
+  }
+}
+
+/** The CDMX slot ("YYYY-MM-DDTHH:mm") of a trial_confirm's record; null when unreadable. */
+async function trialConfirmSlot(env: Env, deps: FollowupDeps, recordId: string): Promise<string | null> {
+  const recId = airtableRecId(recordId);
+  if (!recId) return null;
+  try {
+    const rec = await (deps.getRecord ?? getBookingRecord)(env, recId);
+    return slotFromIso(rec?.trialDateTimeIso);
+  } catch (err) {
+    console.warn(`[followups] trial_confirm slot read failed for ${recId}: ${String(err)}`);
+    return null;
   }
 }
 

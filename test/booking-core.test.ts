@@ -337,6 +337,31 @@ test("registerBooking: books, marks booking_recorded, finalizes, sends the video
   assert.equal(log.notes.length, 0); // no `by` ⇒ no attribution note
 });
 
+test("registerBooking: the slot's confirmation + video already went out → registered, NO second video", async () => {
+  const { db } = fakeDb();
+  const claims: { phone: string; slot: string | null }[] = [];
+  let open = true;
+  const { deps, log, slack } = harness({
+    async claimConfirmation(_env, phone, slot) {
+      claims.push({ phone, slot });
+      const won = open;
+      open = false;
+      return won;
+    },
+  });
+  // First registration of the slot: claim won → video.
+  assert.deepEqual(await registerBooking(envWith(db), slack, VALID, undefined, deps), { ok: true, recordId: "recHUMAN1" });
+  // A second registration of the SAME class (capture card + dashboard, or
+  // after the brain confirmed it): still registered, but the clip isn't resent.
+  assert.deepEqual(await registerBooking(envWith(db), slack, VALID, undefined, deps), { ok: true, recordId: "recHUMAN1" });
+  assert.deepEqual(log.videos, [PHONE]);
+  assert.deepEqual(claims, [
+    { phone: PHONE, slot: "2026-08-24T19:00" },
+    { phone: PHONE, slot: "2026-08-24T19:00" },
+  ]);
+  assert.equal(log.booked.length, 2);
+});
+
 test("registerBooking: `by` adds the attribution note; sendVideo:false skips the video", async () => {
   const { db } = fakeDb();
   const { deps, log, slack } = harness();

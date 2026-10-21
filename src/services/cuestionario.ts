@@ -607,6 +607,9 @@ export interface AfterConfirmedOpts {
   sentText?: string | null;
   /** The confirmation went out as a primera_clase* template (no text to parse). */
   linkSent?: { recordId: string; version: CuestionarioVersion } | null;
+  /** false ⇒ the confirmation text went out but this slot's video already
+   *  did (services/confirm-once.ts): skip the clip, still stamp/invite. */
+  video?: boolean;
   /** Test seam. */
   patch?: CuestionarioDeps["patch"];
 }
@@ -632,7 +635,7 @@ export async function afterBookingConfirmed(
   phone: string,
   opts: AfterConfirmedOpts = {},
 ): Promise<void> {
-  await sendBookingVideo(env, phone);
+  if (opts.video !== false) await sendBookingVideo(env, phone);
   if (!cuestionarioEnabled(env)) return;
   try {
     const now = Math.floor(Date.now() / 1000);

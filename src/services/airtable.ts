@@ -11,6 +11,8 @@ import { kvGet, kvSet } from "../db/queries.js";
 import { channelOf } from "./channel.js";
 import { bandAirtableKey } from "./age-band.js";
 import { F_META, F_MOTIVO, F_SENT, F_VERSION } from "./cuestionario-core.js";
+// Function-level use only (booking-core imports bookTrial from here).
+import { bookingRecordedKey, bookingRecordedValue } from "./booking-core.js";
 
 const API = "https://api.airtable.com/v0";
 const MAX_429_RETRIES = 4;
@@ -911,5 +913,25 @@ function asString(v: unknown): string | null {
 export function makeAirtablePort(env: Env): {
   bookTrial(input: BookTrialInput): Promise<string>;
 } {
-  return { bookTrial: (input) => bookTrial(env, input) };
+  return {
+    bookTrial: async (input) => {
+      const recordId = await bookTrial(env, input);
+      // The "real chat booking" marker, written the moment the record EXISTS
+      // (finalizeBooking rewrites it after the turn). Until 2026-10-21 it only
+      // landed after the brain's whole turn, so a syncBookings pass reading
+      // the brand-new record in between saw "unknown record, no marker" ⇒ a
+      // web-form booker ⇒ armed trial_confirm ⇒ a second confirmation + video
+      // 5 min later (…9313, 2026-10-17). Best-effort: never fails the booking.
+      try {
+        await kvSet(
+          env.DB,
+          bookingRecordedKey(input.phone),
+          bookingRecordedValue(Math.floor(Date.now() / 1000), input.trialDate, input.trialTime),
+        );
+      } catch (err) {
+        console.error("[airtable] booking marker failed", input.phone, err);
+      }
+      return recordId;
+    },
+  };
 }

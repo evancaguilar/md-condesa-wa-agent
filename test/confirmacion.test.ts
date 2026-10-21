@@ -11,6 +11,7 @@ import {
   confirmTemplateComponents,
   firstClassTokenIn,
   personalizeConfirmation,
+  CLOSING_RE,
 } from "../src/services/cuestionario-core.js";
 import {
   afterBookingConfirmed,
@@ -129,6 +130,56 @@ test("personalizeConfirmation: the brain's generic link becomes the signed one; 
     personalizeConfirmation("Te esperamos a las 1:00 PM mdcondesa.com/tu-primera-clase-bebes/", null, "es"),
     `Te esperamos a la 1:00 PM mdcondesa.com/tu-primera-clase-bebes/\n\n${CLOSING}`,
   );
+});
+
+test("personalizeConfirmation: a paraphrased invite closing is NOT doubled (…4526, 2026-10-20)", () => {
+  // The exact shape …4526 received: the brain's own closing + the stock one.
+  const brain =
+    "¡Listo Cinthya, Dahin ya tiene su lugar en Baby Fight Club! 🙌 Los esperamos a los dos el sábado a las 2 pm en MD Condesa. " +
+    "Aquí está todo lo que necesitan saber 🥋 https://mdcondesa.com/tu-primera-clase-bebes/\n\n" +
+    "Si quieren invitar a otra familia, estaría súper 👊 Cualquier duda, aquí estoy 🙏";
+  const out = personalizeConfirmation(brain, L, "es");
+  assert.equal(out.match(/estaría súper/g)?.length, 1, "closing appended a second time");
+  assert.ok(!out.includes(CLOSING));
+  // No link written → it still goes before the (paraphrased) closing paragraph.
+  const noLink = "¡Listo Ana, ya tienes tu lugar!\n\nSi quieres traer a un amigo, bienvenido también 🙌";
+  assert.equal(
+    personalizeConfirmation(noLink, L, "es"),
+    `¡Listo Ana, ya tienes tu lugar! ${L}\n\nSi quieres traer a un amigo, bienvenido también 🙌`,
+  );
+});
+
+test("CLOSING_RE: real invite paraphrases count as the closing", () => {
+  for (const s of [
+    CLOSING,
+    "Si quieren invitar a otra familia, estaría súper 👊",
+    "Si quieres traer a un amigo, bienvenido también",
+    "Pueden traer a otro peque o a un amigo 🙌",
+    "Invita a tus amigos, la primera clase es gratis",
+    "Si te late, invítalo a alguien que quiera aprender",
+    "Compártelo con alguien que quiera entrenar 🙌",
+    "Puedes venir con tu pareja o traer a tu hermano",
+    "¿Quieres invitar amigos? ¡Bienvenidos!",
+    "Si conoces a alguien que quiera entrenar, ¡invítalo!",
+    "If you'd like to invite a friend or family member, that'd be awesome 👊",
+    "Feel free to bring a buddy!",
+  ]) {
+    assert.ok(CLOSING_RE.test(s), s);
+  }
+});
+
+test("CLOSING_RE: copy that invites NO ONE along is not mistaken for the closing", () => {
+  for (const s of [
+    "Te invitamos a ser parte de la familia MD 🥋",
+    "Bienvenido a la familia MD",
+    "Trae ropa cómoda, agua y chanclas",
+    "Te invito a tu clase de prueba el sábado a las 10 am",
+    "La clase es para toda la familia",
+    "Te esperamos el viernes a las 7 pm. Cualquier duda, aquí estoy 🙏",
+    "We'll see you Friday at 7 pm — bring water and comfy clothes",
+  ]) {
+    assert.ok(!CLOSING_RE.test(s), s);
+  }
 });
 
 test("firstClassTokenIn: only a ?t= token on a first-class page", () => {

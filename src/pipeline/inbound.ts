@@ -93,6 +93,14 @@ import { hasBuyIntent } from "../cron/nudge-signals.js";
 import { compileSafetyPatterns, matchesSafety } from "./safety.js";
 import { sendText, WindowClosedError } from "../services/send.js";
 import { afterBookingConfirmed, personalizeBookingConfirmation } from "../services/cuestionario.js";
+import {
+  bookingSlot,
+  claimBookingConfirmation,
+  duplicateSuppressedNote,
+  isStaleBookingRestatement,
+  lastConfirmationAt,
+  releaseBookingConfirmation,
+} from "../services/confirm-once.js";
 import { channelOf } from "../services/channel.js";
 import {
   bookingApprovalKey,
@@ -824,6 +832,9 @@ export async function runBrainTurn(
   opts?: BrainTurnOptions,
 ): Promise<void> {
   // 7. Brain → route.
+  // When this turn starts reading state: a confirmation a PARALLEL turn
+  // claims after this moment is not in the history the model sees.
+  const turnStartedAt = Math.floor(Date.now() / 1000);
   const fresh = await getContact(env.DB, msg.phone);
   if (!fresh) return;
   const history = await withTemplateText(
@@ -923,6 +934,28 @@ export async function runBrainTurn(
       console.log(`[inbound] turn superseded mid-brain for ${msg.phone}`);
       return;
     }
+  }
+  // The newest turn is not always the best-informed one: if a parallel book
+  // turn confirmed the class AFTER this one read its history, a reply that
+  // restates the booking ("Ya tienes tu lugar… nos vemos el viernes") is a
+  // second confirmation the lead doesn't need (…2064, 2026-10-20: three in
+  // 35 s). Escalation-flavored drafts are never dropped.
+  if (
+    (result.action === "send" || result.action === "draft") &&
+    !(result.action === "draft" && classifyEscalation(result.reason)) &&
+    isStaleBookingRestatement({
+      text: result.message,
+      turnStartedAt,
+      lastConfirmAt: await lastConfirmationAt(env.DB, msg.phone),
+    })
+  ) {
+    console.log(`[inbound] booking restatement dropped for ${msg.phone}: a parallel turn just confirmed`);
+    try {
+      await ports.slack.postNote(duplicateSuppressedNote(msg.phone, "repetición de la confirmación"));
+    } catch (err) {
+      console.error("[inbound] duplicate note failed", err);
+    }
+    return;
   }
   // The welcome already said everything: the model asked us to stay quiet.
   // Only honored on a welcome turn, and never for a booking/escalation (those
@@ -1113,15 +1146,36 @@ async function routeResult(
         opts?.forceReview ? undefined : surenessOf(undefined, "high"),
       );
     } else {
-      const delivered = await deliverOrDraft(
-        env,
-        ports,
-        ctx,
-        confirmation,
-        "high",
-        history,
-        true,
-      );
+      // ONE confirmation per phone + slot (services/confirm-once.ts): a
+      // parallel turn over the same burst of messages (debounce race) already
+      // confirmed this class seconds ago → this one sends nothing, no video.
+      const slot = bookingSlot(list[0]?.trialDate, list[0]?.trialTime);
+      const claimed = await claimBookingConfirmation(env.DB, phone, slot, Math.floor(Date.now() / 1000));
+      if (!claimed) {
+        console.log(`[routeResult] duplicate booking confirmation suppressed for ${phone} (${slot})`);
+        try {
+          await ports.slack.postNote(duplicateSuppressedNote(phone, "confirmación"));
+        } catch (err) {
+          console.error("[routeResult] duplicate note failed", err);
+        }
+        return;
+      }
+      let delivered = false;
+      try {
+        delivered = await deliverOrDraft(
+          env,
+          ports,
+          ctx,
+          confirmation,
+          "high",
+          history,
+          true,
+        );
+      } finally {
+        // Not delivered (send threw / window closed → a draft): give the claim
+        // back so the approval — or a retry — can still confirm.
+        if (!delivered) await releaseBookingConfirmation(env.DB, phone, slot);
+      }
       // Confirmation landed → booking video (R4); the link it carried is
       // stamped on the record (services/cuestionario.afterBookingConfirmed —
       // the separate invite only when the text had no signed link).

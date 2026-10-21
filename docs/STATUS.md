@@ -1,6 +1,15 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-19**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-21**.
+
+### Duplicate booking confirmations, doubled invite closing, schedule checks on human sends (2026-10-21) — COMMITTED ON A WORKTREE BRANCH, NOT PUSHED
+
+- **Duplicate confirmation + video (auditor 10-13/15/18/21) — two root causes, proven from transcripts:** (1) overlapping brain turns: the 8 s debounce is check-then-act and `book` results skip the mid-brain supersede, so name + child's name ~10 s apart → two book turns → two confirmations + two videos (…6562, …0711, …8321); variant: the parallel non-book turn restated the booking it hadn't seen (…2064). (2) `syncBookings` read the brain's brand-new record before `finalizeBooking` wrote `booking_recorded` → armed `trial_confirm` → signed-link confirmation + video again 5 min later (…9313: 20:45:59 chat, 20:50:50 with `meta.cuestionario`). **Fix** `src/services/confirm-once.ts`: atomic kv claim `booking_confirm:<phone>:<YYYY-MM-DDTHH:mm>` (2 h window, fail-open) on the brain direct send, `trial_confirm`, approved/edited booking drafts (video only) and `registerBooking` (video only); stale booking restatements from a parallel turn are dropped (Slack ops note); `makeAirtablePort.bookTrial` writes `booking_recorded` the moment the record exists.
+- **Doubled "invite a friend" closing:** `CLOSING_RE` (cuestionario-core) now recognises paraphrases (invitar/traer/compartir + a/con + amigo/familia/alguien/pareja…).
+- **Schedule claims:** `findSlotClaimIssues` judges day ranges + parts of day / hours / spans, week-wide "cierra/empiezan a las…", "hay Teens el sábado", sparring (`trial:false`) slots and "12 pm Jiu-Jitsu" on Saturday (Blindaje 8); the KB's canonical summary no longer trips it. **New:** `services/slot-audit.ts` runs it after edited approvals, dashboard composer and scheduled staff sends → #wa-leads note (never blocks).
+- Tests 1287 → **1310**.
+- [ ] **Evan:** OK to push. Probe after deploy: Editar an approval with "mañana miércoles a las 8 pm MMA" on a test chat → #wa-leads "⚠️ Horario a revisar".
+- [ ] **Evan:** the grid has no Teens Jiu-Jitsu 5 pm row (17:00 jiu is `kids`) while intake.md says "MMA Teens 4 pm + Jiu-Jitsu Teens 5 pm" — the checker flags "5 pm Jiu-Jitsu Teens". Add a teens row or confirm Teens join the Kids 5 pm.
 
 ### Day-of confirmation from the bot number: chat deep links + voice notes / video from the composer (2026-10-19) — SHIPPED (pushed 2026-10-19, rev 072c258b4dc5; team guide: Google Doc "Cómo confirmar la clase del día desde el número del bot")
 
