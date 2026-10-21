@@ -21,6 +21,8 @@ import {
 } from "../db/queries.js";
 import { sendText, WindowClosedError } from "../services/send.js";
 import { afterBookingConfirmed } from "./cuestionario.js";
+import { bookingSlot, claimBookingConfirmation } from "./confirm-once.js";
+import { bookingRecordedKey, parseBookingRecordedMarker } from "./booking-core.js";
 import { armNudges } from "../cron/nudges.js";
 import { auditHumanSend } from "./booking-guard.js";
 import type { HumanSendSource } from "./booking-claims.js";
@@ -117,6 +119,16 @@ async function isBookingApproval(env: Env, id: number): Promise<boolean> {
   return (await kvGet(env.DB, bookingApprovalKey(id))) === "1";
 }
 
+/** The slot of the phone's booking_recorded marker (finalizeBooking writes it), or null. */
+async function recordedSlot(env: Env, phone: string): Promise<string | null> {
+  try {
+    const m = parseBookingRecordedMarker(await kvGet(env.DB, bookingRecordedKey(phone)));
+    return m ? bookingSlot(m.trialDate, m.trialTime) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Loads any approval row by id (pending or resolved) for card rendering. */
 async function loadApproval(
   env: Env,
@@ -196,7 +208,19 @@ export async function runPostSendEffects(
   // rewrote it, a draft from before 2026-10-16) → the separate invite
   // (services/cuestionario.afterBookingConfirmed).
   const bookingOrigin = await isBookingApproval(env, id);
-  if (bookingOrigin) await afterBookingConfirmed(env, phone, { sentText });
+  if (bookingOrigin) {
+    // A human chose to send this text, so it went regardless — but if this
+    // slot's confirmation (+ video) already reached the lead inside the
+    // window (a web-form trial_confirm that raced the brain, a parallel turn),
+    // the clip is not sent twice (services/confirm-once.ts).
+    const video = await claimBookingConfirmation(
+      env.DB,
+      phone,
+      await recordedSlot(env, phone),
+      Math.floor(Date.now() / 1000),
+    );
+    await afterBookingConfirmed(env, phone, { sentText, video });
+  }
   // Bot reply landed → arm/re-arm the lead-nudge drip (no-op unless the contact
   // is a lead with no active booking/override, under the cap).
   await armNudges(env, phone);

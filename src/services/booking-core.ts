@@ -27,6 +27,7 @@ import { cdmxDateStr, cdmxIso } from "../cron/time.js";
 import { normalizeDiscipline, validateSlot } from "../brain/tools.js";
 import { bookTrial } from "./airtable.js";
 import { afterBookingConfirmed } from "./cuestionario.js";
+import { bookingSlot, claimBookingConfirmation } from "./confirm-once.js";
 import { captureCapiEvent } from "./meta-capi.js";
 
 /** A booking that already has its Airtable record id. */
@@ -189,6 +190,11 @@ export interface BookingCoreDeps {
   /** Runs after a human registration: booking video + (when enabled) the
    *  questionnaire invite — services/cuestionario.afterBookingConfirmed. */
   sendBookingVideo: (env: Env, phone: string, recordId?: string) => Promise<void>;
+  /** services/confirm-once.claimBookingConfirmation: false ⇒ this slot's
+   *  confirmation + video already reached the lead (the brain confirmed it,
+   *  then a human registered it too) → no second video. Optional so test
+   *  fakes stay small; absent ⇒ always send. */
+  claimConfirmation?: (env: Env, phone: string, slot: string | null) => Promise<boolean>;
   kvSet: typeof kvSet;
   now(): number;
 }
@@ -204,6 +210,8 @@ export function realBookingDeps(): BookingCoreDeps {
     bookTrial,
     validateSlot,
     sendBookingVideo: (env, phone, recordId) => afterBookingConfirmed(env, phone, { recordId: recordId ?? null }),
+    claimConfirmation: (env, phone, slot) =>
+      claimBookingConfirmation(env.DB, phone, slot, Math.floor(Date.now() / 1000)),
     kvSet,
     now: () => Math.floor(Date.now() / 1000),
   };
@@ -423,6 +431,11 @@ export async function registerBooking(
 
   if (opts?.sendVideo !== false) {
     try {
+      const slot = bookingSlot(booking.trialDate, booking.trialTime);
+      if (deps.claimConfirmation && !(await deps.claimConfirmation(env, booking.phone, slot))) {
+        console.log(`[booking] ${booking.phone} ${slot}: confirmation + video already sent — no second video`);
+        return { ok: true, recordId };
+      }
       await deps.sendBookingVideo(env, booking.phone, recordId);
     } catch (err) {
       console.error(`[booking] video failed for ${booking.phone}:`, err);
