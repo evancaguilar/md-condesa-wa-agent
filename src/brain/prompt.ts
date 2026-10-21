@@ -16,9 +16,10 @@
 import type { ConvoContext, Qualification } from "../types.js";
 import { CLIENT } from "../client.gen.js";
 import type { ClosedDate } from "../client-config.js";
-import { classifyProgram, weekdaySet } from "../cron/nudge-copy.js";
+import { classifyProgram, leadDiscipline, weekdaySet } from "../cron/nudge-copy.js";
 import {
   TODAY_BUFFER_SECONDS,
+  atClockEs,
   bandDayOptions,
   disciplineLabel,
   time12h,
@@ -162,7 +163,13 @@ function minutes(hhmm: string): number {
 function slotWhat(s: NextSlot, band: ProgramBand = "adults"): string {
   if (band === "mini") return "Mini Muay Thai";
   if (band === "baby") return "Baby Fight Club";
-  if (band === "kids" || band === "teens") return `${disciplineLabel(s.discipline)} ${band === "kids" ? "Kids" : "Teens"}`;
+  if (band === "kids" || band === "teens") {
+    const tag = band === "kids" ? "Kids" : "Teens";
+    // Two-class day: the arrival names its second half, which is never listed
+    // as an hour of its own (next-slot.isKidSecondHalf).
+    const then = s.then ? ` + ${disciplineLabel(s.then.discipline)} ${tag} ${time12h(s.then.time)}` : "";
+    return `${disciplineLabel(s.discipline)} ${tag}${then}`;
+  }
   return s.name ?? disciplineLabel(s.discipline);
 }
 
@@ -186,7 +193,7 @@ export function comboLine(days: readonly BandDay[], disc: string): string | null
     );
     if (!addOn) continue;
     const when = minutes(addOn.time) < t ? "antes" : "después";
-    return `combo (llegó por ${disciplineLabel(disc)}): su hora de llegada es ${disciplineLabel(disc)} ${d.label} ${time12h(arrival.time)}; ${slotWhat(addOn)} ${time12h(addOn.time)} (justo ${when}) es OPCIONAL de pilón — una línea: "si quieres, ${time12h(addOn.time)} ${slotWhat(addOn)} de pilón y pruebas dos clases en una visita". Nunca propongas el pilón como hora de llegada.`;
+    return `combo (llegó por ${disciplineLabel(disc)}): su hora de llegada es ${disciplineLabel(disc)} ${d.label} ${atClockEs(arrival.time)}; ${slotWhat(addOn)} ${time12h(addOn.time)} (justo ${when}) es OPCIONAL de pilón — una línea: "si quieres, ${time12h(addOn.time)} ${slotWhat(addOn)} de pilón y pruebas dos clases en una visita". Nunca propongas el pilón como hora de llegada.`;
   }
   return null;
 }
@@ -210,7 +217,8 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
   if (now === null) return [];
   const band = classifyProgram(ctx.contact, ctx.campaign?.name ?? null);
   const q = parseQualification(ctx.contact.qualification);
-  const disc = bandDiscipline(q.discipline, band);
+  // No discipline of their own ⇒ the campaign's ("fw mma" ⇒ MMA hours first).
+  const disc = bandDiscipline(leadDiscipline(q, ctx.campaign?.name) ?? undefined, band);
   const excludeWeekdays = weekdaySet(q.declined_days);
   const ageMonths = typeof q.child_age_months === "number" ? q.child_age_months : null;
   const opts = {
@@ -250,7 +258,9 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
       `todas las opciones de prueba de su grupo, próximos ${days.length} días con clase: ${days
         .map((d) => {
           // The lead's discipline leads each day; the rest keep clock order.
-          const mine = disc ? d.slots.filter((s) => s.discipline === disc && !s.name) : [];
+          const mine = disc
+            ? d.slots.filter((s) => (s.discipline === disc && !s.name) || s.then?.discipline === disc)
+            : [];
           const rest = d.slots.filter((s) => !mine.includes(s));
           return `${d.label} ${d.date}: ${[...mine, ...rest]
             .map((s) => `${time12h(s.time)} ${slotWhat(s, band)}`)
@@ -446,6 +456,17 @@ export function buildContextBlock(ctx: ConvoContext): string {
       "<reschedule>",
       "El lead pidió reagendar su clase de prueba (respondió al recordatorio). Ofrece las 2 próximas opciones reales de SU programa y, cuando elija, agenda con book_trial.",
       "</reschedule>",
+    );
+  }
+
+  // The lead called off a booked trial in chat (pipeline/lead-cancel.ts).
+  if (ctx.leadCancel && !ctx.reschedule) {
+    lines.push(
+      "<cancelacion>",
+      ctx.leadCancel === "reschedule"
+        ? "El lead avisó que NO llegará a su clase de prueba agendada y quiere cambiarla. Ya cancelamos los recordatorios de esa clase (no la vuelvas a confirmar). Responde cálido y sin culpa, y ofrécele las 2 próximas opciones reales de SU programa (o el día que él mencionó, si es válido); cuando elija, agenda con book_trial."
+        : "El lead avisó que NO llegará a su clase de prueba agendada. Ya cancelamos los recordatorios de esa clase (no la vuelvas a confirmar ni le digas que lo esperamos). Responde cálido y sin culpa (\"¡sin problema!\") y ofrécele reagendar con UNA o dos opciones reales de SU programa; si dice que por ahora no, despídete amable sin insistir.",
+      "</cancelacion>",
     );
   }
 

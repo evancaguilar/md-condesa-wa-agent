@@ -122,7 +122,7 @@ test("legacy mapping + links per band", () => {
   assert.match(programLink("teens"), /clase-prueba-ninos/);
   assert.match(programLink("adults"), /clase-prueba-adultos/);
   assert.match(firstClassLink("baby"), /\/tu-primera-clase-bebes\/$/);
-  assert.match(firstClassLink("mini"), /\/tu-primera-clase-bebes\/$/);
+  assert.match(firstClassLink("mini"), /\/tu-primera-clase-ninos\/$/); // Evan 2026-10-21: Mini → kids page
   assert.match(firstClassLink("kids"), /\/tu-primera-clase-ninos\/$/);
   assert.match(firstClassLink("teens"), /\/tu-primera-clase-ninos\/$/);
   assert.match(firstClassLink("adults"), /\/tu-primera-clase\/$/);
@@ -153,9 +153,11 @@ test("band listing never crosses groups", () => {
   for (const s of upcomingBandSlots("mini", null, mon9, 6)) assert.equal(s.time.endsWith(":15"), true, s.time);
   const days = bandDayOptions("kids", mon9, 2);
   assert.equal(days.length, 2);
+  // 17:00 Jiu-Jitsu Kids is the SECOND half of the 4 pm arrival — it rides on
+  // the 16:00 row, never listed as an hour of its own (audit 2026-10).
   assert.deepEqual(
-    days[0]!.slots.map((s) => `${s.time} ${s.discipline}`),
-    ["16:00 muay", "17:00 jiu"],
+    days[0]!.slots.map((s) => `${s.time} ${s.discipline}${s.then ? ` → ${s.then.time} ${s.then.discipline}` : ""}`),
+    ["16:00 muay → 17:00 jiu"],
   );
 });
 
@@ -231,10 +233,10 @@ test("jess_muay_9am: Muay Thai ad → Saturday lists 10:00 Muay Thai first + the
   assert.ok(sat.indexOf("10:00 am Muay Thai") < sat.indexOf("9:00 am Jiu-Jitsu"), sat);
   const combo = lines.find((l) => l.startsWith("combo"))!;
   assert.ok(combo, lines.join("\n"));
-  assert.match(combo, /llegada es Muay Thai mañana sábado 10:00 am/);
+  assert.match(combo, /llegada es Muay Thai mañana sábado \d+ a las 10:00 am/);
   assert.match(combo, /Jiu-Jitsu 9:00 am \(justo antes\) es OPCIONAL de pilón/);
   const soon = lines.find((l) => l.startsWith("próximos horarios"))!;
-  assert.match(soon, /^próximos horarios válidos de Muay Thai .*mañana sábado 10:00 am \(Muay Thai\)/);
+  assert.match(soon, /^próximos horarios válidos de Muay Thai .*mañana sábado \d+ a las 10:00 am \(Muay Thai\)/);
 });
 
 test("known facts: child name, age and declined days are visible", () => {

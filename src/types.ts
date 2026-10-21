@@ -401,6 +401,9 @@ export interface ConvoContext {
   staleReply?: { waitedHours: number; lastInboundCdmx: string };
   /** The lead tapped/wrote "Necesito reagendar" after a trial reminder (WP3). */
   reschedule?: boolean;
+  /** The lead called off a booked trial in chat (pipeline/lead-cancel.ts):
+   *  its reminders were cancelled; the prompt asks to offer a new date. */
+  leadCancel?: "cancel" | "reschedule";
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */

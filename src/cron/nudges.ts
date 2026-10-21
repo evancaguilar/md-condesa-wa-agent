@@ -29,6 +29,7 @@ import { nextBandSlot, type NextSlot } from "./next-slot.js";
 import { ageConflictsWithProgram, hasBuyIntent, isDuplicateSend } from "./nudge-signals.js";
 import {
   cancelFollowupsByKinds,
+  hasAnyFollowupOfKind,
   hasScheduledFollowupOfKind,
 } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
@@ -56,7 +57,7 @@ import {
   type ExtendedKind,
   type Program,
 } from "./nudge-copy.js";
-import { weekdaySet } from "./nudge-copy.js";
+import { isKidsCampaign, leadDiscipline, weekdaySet } from "./nudge-copy.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -102,9 +103,6 @@ const HOUR = 3600;
 //                   Club), Mini Muay Thai slots only, never Kids
 //   kids / teens  → kids copy, slots of exactly that group
 //   adults        → adults copy, adult slots only
-
-/** Campaign names that mean "this lead is a parent" (mirror of nudge-copy's). */
-const KIDS_CAMPAIGN_RE = /\bkids?\b|ni[ñn]os?|peques?|infantil/i;
 
 /** The lead's band: stored age/program first, campaign-name guess second. Pure. */
 export function bandForContact(
@@ -185,7 +183,7 @@ export function copyInputsForBand(
   }
   let campaign = campaignName;
   if (campaign != null && band !== "baby" && /baby/i.test(campaign)) campaign = null;
-  if (campaign != null && band === "adults" && KIDS_CAMPAIGN_RE.test(campaign)) campaign = null;
+  if (campaign != null && band === "adults" && isKidsCampaign(campaign)) campaign = null;
   return {
     contact: contact ? { ...contact, qualification: JSON.stringify(q2) } : null,
     campaignName: campaign,
@@ -208,13 +206,12 @@ export function bandSlot(
   // "kids" row and got nothing (post-merge regression, 2026-10-11).
   const q = parseQualification(contact);
   const discipline =
-    band === "baby" ? "baby" : band === "mini" ? "muay" : (q.discipline ?? null);
+    band === "baby" ? "baby" : band === "mini" ? "muay" : leadDiscipline(q, campaignName);
   const excludeWeekdays = weekdaySet(q.declined_days);
   const slot = nextBandSlot(band, discipline, nowEpoch, {
     schedule: bandSchedule(band, schedule, q.child_age_months),
     ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
   });
-  void campaignName;
   return slot;
 }
 
@@ -234,6 +231,56 @@ export function bookingMarkerLive(raw: string | null, now: number): boolean {
     if (Number.isFinite(at)) return at > now;
   }
   return now - m.ts < 72 * HOUR;
+}
+
+/**
+ * Every followup kind that only exists because this phone BOOKED a trial at
+ * some point: the anti-no-show reminders, the no-show chain, the attended
+ * chain and its card (src/cron/post-trial.ts POST_TRIAL_ALL_KINDS — listed
+ * literally here because post-trial imports this module). A row of any of
+ * these, in ANY status, means "todavía no has agendado" is false.
+ */
+export const PAST_BOOKING_KINDS = [
+  "trial_confirm",
+  "day_before",
+  "same_day",
+  "attendance_check",
+  "no_show_1",
+  "no_show_d3",
+  "no_show_hoy",
+  "no_show_d2",
+  "no_show_d7",
+  "post_trial_d0",
+  "post_trial_d2",
+  "post_trial_d3",
+  "post_trial_d5",
+  "post_trial_d6",
+  "post_trial_card",
+] as const;
+
+/**
+ * Pure. Booking history from the local signals: a `booking_recorded` marker of
+ * ANY age (a past class counts too — leads whose trial date had passed, or
+ * who had attended, kept getting "todavía no has agendado", audit 2026-10),
+ * or any booking-kind followup row (`hasBookingRow`).
+ */
+export function hasBookingHistory(markerRaw: string | null, hasBookingRow: boolean): boolean {
+  return hasBookingRow || parseBookingRecordedMarker(markerRaw) !== null;
+}
+
+/**
+ * DB side of hasBookingHistory: one kv read + one indexed followups probe
+ * (UNIQUE(phone, kind, …) autoindex). The followups probe fails SOFT — a
+ * lookup error falls back to the marker alone, never blocks the drip outright.
+ */
+async function bookedBefore(env: Env, phone: string): Promise<boolean> {
+  let row = false;
+  try {
+    row = await hasAnyFollowupOfKind(env.DB, phone, PAST_BOOKING_KINDS);
+  } catch (err) {
+    console.warn(`[nudges] booking-history lookup failed for ${phone}: ${String(err)}`);
+  }
+  return hasBookingHistory(await kvGet(env.DB, bookingRecordedKey(phone)), row);
 }
 
 /** kv claim: at most ONE nudge (day-1 or extended) per phone per CDMX day. */
@@ -298,6 +345,34 @@ export function gateOnOpenQuestion(
   if (!last || !endsWithQuestion(last.body)) return { send: true };
   const until = last.ts + OPEN_QUESTION_GUARD_SECONDS;
   return now >= until ? { send: true } : { send: false, retryAt: until };
+}
+
+/** A staff message younger than this holds every automatic nudge back. */
+export const STAFF_REPLY_GUARD_SECONDS = 1 * HOUR;
+
+/**
+ * Never talk over a human. A staff reply (dashboard `out_human` or WhatsApp-app
+ * echo `out_human_echo`) less than 60 min old defers the nudge to the moment
+ * the guard lifts — the human override does not always cover it (it can be
+ * lifted while staff is still in the chat; audit 2026-10). Pure.
+ */
+export function gateOnStaffReply(lastStaffTs: number | null, now: number): NudgeGate {
+  if (lastStaffTs === null) return { send: true };
+  const until = lastStaffTs + STAFF_REPLY_GUARD_SECONDS;
+  return now >= until ? { send: true } : { send: false, retryAt: until };
+}
+
+/** Both guards together: the LATER retry wins. Pure. */
+export function gateNudge(
+  lastBot: LastBotMessage | null,
+  lastStaffTs: number | null,
+  now: number,
+): NudgeGate {
+  const a = gateOnOpenQuestion(lastBot, now);
+  const b = gateOnStaffReply(lastStaffTs, now);
+  if (a.send && b.send) return { send: true };
+  const retryAt = Math.max(a.send ? 0 : a.retryAt, b.send ? 0 : b.retryAt);
+  return { send: false, retryAt };
 }
 
 export interface DayOnePlan {
@@ -433,7 +508,8 @@ function nowSec(): number {
 
 /**
  * Whether the day-1 drip may be armed for this contact now: status lead, no
- * active override, no active/future booking, and under the rolling cap.
+ * active override, never booked (no active/future booking AND no past one —
+ * see bookedBefore), and under the rolling cap.
  */
 async function canArm(env: Env, contact: Contact): Promise<boolean> {
   if (!CLIENT.features.nudges) return false;
@@ -448,7 +524,7 @@ async function canArm(env: Env, contact: Contact): Promise<boolean> {
     BOOKING_KINDS,
   );
   if (hasBooking) return false;
-  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(contact.phone)), now)) return false;
+  if (await bookedBefore(env, contact.phone)) return false;
   const kv = await kvGet(env.DB, nudgeCountKey(contact.phone));
   if (!underNudgeCap(kv, now)) return false;
   return true;
@@ -561,7 +637,9 @@ export async function processNudge(
   if (await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS)) {
     return "cancelled";
   }
-  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(phone)), now)) {
+  // Booked at any point (a passed trial, an attended one): "todavía no has
+  // agendado" would be false.
+  if (await bookedBefore(env, phone)) {
     return "cancelled";
   }
   const kvKey = nudgeCountKey(phone);
@@ -648,7 +726,7 @@ export async function processExtendedNudge(
   if (await hasScheduledFollowupOfKind(env.DB, phone, BOOKING_KINDS)) {
     return { outcome: "cancelled" };
   }
-  if (bookingMarkerLive(await kvGet(env.DB, bookingRecordedKey(phone)), now)) {
+  if (await bookedBefore(env, phone)) {
     return { outcome: "cancelled" };
   }
 

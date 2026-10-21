@@ -26,6 +26,7 @@ import {
   setContactStatus,
   cancelFollowups,
   lastBotMessage,
+  lastStaffMessageTs,
   kvSetIfAbsent,
   kvClaimIfAbsentOrOlder,
   recentMessages,
@@ -88,7 +89,7 @@ import {
   processNudge,
   processExtendedNudge,
   maybeArmExtended,
-  gateOnOpenQuestion,
+  gateNudge,
   ALL_NUDGE_KINDS,
   BOOKING_KINDS,
   slotCta,
@@ -117,6 +118,7 @@ import { captureCapiEvent, captureResultCapiEvents } from "../services/meta-capi
 import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../services/staff-send.js";
 import { auditHumanSend } from "../services/booking-guard.js";
 import { CLIENT } from "../client.gen.js";
+import { detectLeadCancel } from "../pipeline/lead-cancel.js";
 import { renderCopy } from "../client-config.js";
 import {
   nameParam,
@@ -294,8 +296,11 @@ export function reminderNote(trialEpoch: number): string {
 }
 
 /**
- * The lead called it off in chat ("no voy a poder", "ya no", "cancelo…").
- * Only a message AFTER the row was armed counts. Pure.
+ * The lead called it off in chat ("no voy a poder", "ya no", "cancelo…", and
+ * everything pipeline/lead-cancel.detectLeadCancel reads — "lo dejamos para
+ * otro día", "me surgió algo"…). Only a message AFTER the row was armed
+ * counts. Pure. The inbound pipeline already cancels the rows the moment the
+ * lead writes (step 1c); this is the send-time backstop.
  */
 export const CHAT_CANCEL_RE = /cancel|no\s+voy\s+a\s+poder|no\s+podr[eé]|\bya\s+no\b/i;
 export function leadCancelledInChat(
@@ -303,7 +308,7 @@ export function leadCancelledInChat(
   armedAt: number,
 ): boolean {
   if (!lastInbound || lastInbound.ts <= armedAt) return false;
-  return CHAT_CANCEL_RE.test(lastInbound.body);
+  return CHAT_CANCEL_RE.test(lastInbound.body) || detectLeadCancel(lastInbound.body) !== null;
 }
 
 export interface ReminderGuardExtra {
@@ -311,6 +316,9 @@ export interface ReminderGuardExtra {
   contactStatus?: string | null;
   /** The lead's newest inbound message. */
   lastInbound?: { body: string; ts: number } | null;
+  /** The lead's recent inbound messages (any order): a cancellation followed
+   *  by "gracias" still counts (audit 2026-10-14). */
+  recentInbound?: readonly { body: string; ts: number }[];
 }
 
 /**
@@ -335,7 +343,10 @@ export function shouldSendReminder(
   if (extra.contactStatus === "student" || extra.contactStatus === "opted_out") {
     return { send: false, why: `status_${extra.contactStatus}` };
   }
-  if (leadCancelledInChat(extra.lastInbound ?? null, row.created_at)) {
+  if (
+    leadCancelledInChat(extra.lastInbound ?? null, row.created_at) ||
+    (extra.recentInbound ?? []).some((m) => leadCancelledInChat(m, row.created_at))
+  ) {
     return { send: false, why: "cancelled_in_chat" };
   }
   const armed = decodeChainNote(row.note).trial;
@@ -1224,11 +1235,19 @@ async function handleSendFailure(
 
 /**
  * True when this nudge row was pushed back because the bot's last message to the
- * lead is a question less than 2h old — the row stays 'scheduled' and comes back
- * the moment the guard lifts (quiet-shifted), so nothing is ever cancelled here.
+ * lead is a question less than 2h old, or a STAFF message went out less than
+ * 60 min ago (never talk over a human) — the row stays 'scheduled' and comes
+ * back the moment the guard lifts (quiet-shifted), so nothing is cancelled here.
+ * A failed staff lookup fails soft to the bot-question guard alone.
  */
 async function deferForOpenQuestion(env: Env, f: Followup): Promise<boolean> {
-  const gate = gateOnOpenQuestion(await lastBotMessage(env.DB, f.phone), nowSec());
+  let staffTs: number | null = null;
+  try {
+    staffTs = await lastStaffMessageTs(env.DB, f.phone);
+  } catch (err) {
+    console.warn(`[followups] staff-reply lookup failed for ${f.phone}: ${String(err)}`);
+  }
+  const gate = gateNudge(await lastBotMessage(env.DB, f.phone), staffTs, nowSec());
   if (gate.send) return false;
   await rescheduleRow(env, f, shiftOutOfQuiet(gate.retryAt));
   return true;
@@ -1271,15 +1290,20 @@ async function reminderVerdict(
     }
   }
   let lastInbound: { body: string; ts: number } | null = null;
+  let recentInbound: { body: string; ts: number }[] = [];
   try {
     const recent = await recentMessages(env.DB, f.phone, 10);
-    const ins = recent.filter((m) => m.direction === "in");
-    const last = ins[ins.length - 1];
-    if (last) lastInbound = { body: last.body ?? "", ts: last.ts };
+    recentInbound = recent.filter((m) => m.direction === "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
+    const last = recentInbound[recentInbound.length - 1];
+    if (last) lastInbound = last;
   } catch {
     lastInbound = null;
+    recentInbound = [];
   }
-  return { verdict: shouldSendReminder(f, record, nowSec(), { contactStatus, lastInbound }), record };
+  return {
+    verdict: shouldSendReminder(f, record, nowSec(), { contactStatus, lastInbound, recentInbound }),
+    record,
+  };
 }
 
 // ---- Airtable syncs ----

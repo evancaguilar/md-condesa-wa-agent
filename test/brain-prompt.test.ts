@@ -267,7 +267,7 @@ test("context block lists the next valid hours, soonest first, with the 1h buffe
   const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
   assert.equal(line.split(" · ").length, 3, line);
   assert.ok(line.includes("hoy a las 8:00 pm"), "18:30 + 1h keeps the 8 pm class today: " + line);
-  assert.ok(line.includes("mañana martes 7:00 am"), line);
+  assert.ok(line.includes("mañana martes 7 a las 7:00 am"), line);
   assert.ok(line.indexOf("hoy a las") < line.indexOf("mañana"), "soonest first");
   // The hint must not license an unverified offer.
   assert.match(block, /Ofrece SOLO filas de su grupo de edad/);
@@ -278,7 +278,7 @@ test("slot hints follow the lead's program — a kids campaign never sees adult 
     ctx({ campaign: { name: "Kids septiembre", info: "clases para niños" } }),
   );
   assert.match(block, /programa por edad: Kids \(6–12 años\)/);
-  assert.ok(block.includes("mañana martes 4:00 pm"), block); // Kids Muay Thai
+  assert.ok(block.includes("mañana martes 7 a las 4:00 pm"), block); // Kids Muay Thai
   assert.ok(!block.includes("7:00 am"), "7 am is an adults-only hour");
 });
 
@@ -352,4 +352,30 @@ test("context block names the renamed sáb 12:00 class (Blindaje 8), 2026-10-10"
   );
   const line = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
   assert.ok(line.includes("hoy a las 12:00 pm (Blindaje 8)"), line);
+});
+
+test("<cancelacion>: a lead who called off the trial gets an empathetic reschedule hint, once", () => {
+  const plain = buildContextBlock(ctx());
+  assert.ok(!plain.includes("<cancelacion>"));
+  const cancel = buildContextBlock(ctx({ leadCancel: "cancel" }));
+  assert.match(cancel, /<cancelacion>\nEl lead avisó que NO llegará/);
+  assert.match(cancel, /no la vuelvas a confirmar/);
+  assert.match(buildContextBlock(ctx({ leadCancel: "reschedule" })), /quiere cambiarla/);
+  // The reminder button already carries <reschedule>: no second hint.
+  const both = buildContextBlock(ctx({ leadCancel: "reschedule", reschedule: true }));
+  assert.ok(both.includes("<reschedule>") && !both.includes("<cancelacion>"));
+});
+
+test("kids Jiu-Jitsu lead: the per-turn hours never offer 5 pm as the arrival (audit 2026-10)", () => {
+  const block = buildContextBlock(
+    ctx({
+      nowCdmx: "2026-07-06T10:00:00-06:00",
+      contact: contact({ qualification: JSON.stringify({ discipline: "jiu", audience: "kid", child_age_months: 96 }) }),
+    }),
+  );
+  const soon = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
+  assert.ok(soon.includes("hoy a las 4:00 pm (Muay Thai Kids + Jiu-Jitsu Kids 5:00 pm)"), soon);
+  assert.ok(!/a las 5:00 pm/.test(soon), soon);
+  const days = block.split("\n").find((l) => l.startsWith("todas las opciones"))!;
+  assert.ok(!/(: |, )5:00 pm Jiu-Jitsu Kids/.test(days), days);
 });

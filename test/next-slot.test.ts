@@ -42,7 +42,7 @@ test("nextTrialSlot: 2h lead time skips classes that are too close", () => {
   const slot = nextTrialSlot("muay", "kid", MON(14, 30));
   assert.equal(slot?.date, "2026-08-25");
   assert.equal(slot?.time, "16:00");
-  assert.equal(slot?.label, "mañana martes 4:00 pm");
+  assert.equal(slot?.label, "mañana martes 25 a las 4:00 pm");
 });
 
 test("nextTrialSlot: Thursday evening adult Muay Thai proposes the sparring hour", () => {
@@ -61,7 +61,7 @@ test("nextTrialSlot: Sunday kid lead never gets a Sunday slot", () => {
   assert.notEqual(slot?.weekday, 6); // 6 = Sunday
   assert.equal(slot?.date, "2026-08-31"); // the following Monday
   assert.equal(slot?.time, "16:00"); // Kids Muay Thai, never the pp Mini class
-  assert.equal(slot?.label, "mañana lunes 4:00 pm");
+  assert.equal(slot?.label, "mañana lunes 31 a las 4:00 pm");
 });
 
 test("nextTrialSlot: kid audience never returns an adult class", () => {
@@ -79,7 +79,7 @@ test("nextTrialSlot: baby leads get the Wed/Sat baby slots only", () => {
   assert.equal(slot?.discipline, "baby");
   assert.equal(slot?.date, "2026-08-29"); // Saturday
   assert.equal(slot?.time, "14:00");
-  assert.equal(slot?.label, "el sábado 2:00 pm");
+  assert.equal(slot?.label, "el sábado 29 a las 2:00 pm");
 });
 
 test("nextTrialSlot: unbookable discipline text falls back to any class", () => {
@@ -148,6 +148,21 @@ function bruteSoonest(
     for (const s of SLOTS) {
       // pp slots are never proposed to a generic (no-discipline) lead.
       if (s.weekday !== wd || s.audience !== audience || s.trial === false || s.pp) continue;
+      // Kids/Teens second half (5 pm after the 4 pm class, 12 pm after 11 am
+      // on Saturday) is never an arrival.
+      const mins = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+      if (
+        audience === "kid" &&
+        SLOTS.some(
+          (o) =>
+            o.weekday === s.weekday &&
+            o.group === s.group &&
+            !o.pp &&
+            o.trial !== false &&
+            mins(s.time) - mins(o.time) > 0 &&
+            mins(s.time) - mins(o.time) <= 60,
+        )
+      ) continue;
       const hh = Number(s.time.slice(0, 2));
       const mm = Number(s.time.slice(3, 5));
       const at = cdmxToEpoch(dp.year, dp.month, dp.day, hh, mm, 0);
@@ -207,7 +222,7 @@ test("nextTrialSlot: a preferred block wins INSIDE the 24h horizon", () => {
   const slot = nextTrialSlot(null, "adult", FRI(7), undefined, [], SAT_EARLY);
   assert.equal(slot?.date, "2026-08-29");
   assert.equal(slot?.time, "09:00");
-  assert.equal(slot?.label, "mañana sábado 9:00 am");
+  assert.equal(slot?.label, "mañana sábado 29 a las 9:00 am");
 });
 
 test("nextTrialSlot: a preferred block NEVER wins beyond the 24h horizon", () => {
@@ -282,13 +297,38 @@ test("formatSlotLabel: hoy / mañana / el <día>, es + en", () => {
   assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 26, 8), "es"), "hoy a las 11:00 am");
   assert.equal(
     formatSlotLabel(slot, cdmxToEpoch(2026, 8, 25, 8), "es"),
-    "mañana miércoles 11:00 am",
+    "mañana miércoles 26 a las 11:00 am",
   );
-  assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 24, 8), "es"), "el miércoles 11:00 am");
+  assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 24, 8), "es"), "el miércoles 26 a las 11:00 am");
   assert.equal(formatSlotLabel(slot, cdmxToEpoch(2026, 8, 26, 8), "en"), "today at 11:00 am");
   assert.equal(
     formatSlotLabel(slot, cdmxToEpoch(2026, 8, 24, 8), "en"),
-    "on Wednesday at 11:00 am",
+    "on Wednesday 26 at 11:00 am",
+  );
+});
+
+test("dayLabel / formatSlotLabel carry the day of the month (2026-10-21 audit)", async () => {
+  const { dayLabel, atClockEs } = await import("../src/cron/next-slot.js");
+  // Mon 2026-10-12 … Thu 2026-10-15.
+  const now = cdmxToEpoch(2026, 10, 12, 9, 0, 0);
+  assert.equal(dayLabel({ weekday: 0, date: "2026-10-12" }, now), "hoy lunes 12");
+  assert.equal(dayLabel({ weekday: 1, date: "2026-10-13" }, now), "mañana martes 13");
+  assert.equal(dayLabel({ weekday: 3, date: "2026-10-15" }, now), "jueves 15");
+  // Month rollover: Sat Oct 31 → Sun Nov 1 reads "1", never "01".
+  const sat = cdmxToEpoch(2026, 10, 31, 9, 0, 0);
+  assert.equal(dayLabel({ weekday: 6, date: "2026-11-01" }, sat), "mañana domingo 1");
+  assert.equal(
+    formatSlotLabel({ weekday: 6, date: "2026-11-01", time: "11:00" }, sat, "es"),
+    "mañana domingo 1 a las 11:00 am",
+  );
+  // "a la 1" (singular) — never "a las 1:00".
+  assert.equal(atClockEs("13:15"), "a la 1:15 pm");
+  assert.equal(atClockEs("01:00"), "a la 1:00 am");
+  assert.equal(atClockEs("16:00"), "a las 4:00 pm");
+  assert.equal(formatSlotLabel({ weekday: 0, date: "2026-10-12", time: "13:00" }, now, "es"), "hoy a la 1:00 pm");
+  assert.equal(
+    formatSlotLabel({ weekday: 3, date: "2026-10-15", time: "16:00" }, now, "en"),
+    "on Thursday 15 at 4:00 pm",
   );
 });
 
@@ -382,4 +422,59 @@ test("upcomingBandSlots: Nivel 0 Friday 12 pm only for a known 6–11-month-old"
   assert.equal(twoYears[0]?.date, "2026-10-24"); // Saturday 2 pm
   const unknown = upcomingBandSlots("baby", null, thu, 3, {});
   assert.ok(unknown.every((s) => s.weekday !== 4));
+});
+
+// ---- Kids/Teens arrival is the FIRST class (nightly audits 2026-10) ----
+//
+// intake: "Kids 6–12: L–J la hora de llegada para prueba es SIEMPRE 4:00 pm …
+// NUNCA ofrezcas las 5 pm como hora de llegada". Nudges for a kids Jiu-Jitsu
+// lead proposed "Jiu-Jitsu hoy a las 5:00 pm" (the 17:00 row).
+
+test("kids/teens: 17:00 Mon–Thu is never a proposed arrival, for any discipline or hour", () => {
+  for (let day = 24; day <= 27; day++) {
+    for (let h = 0; h < 24; h++) {
+      const now = cdmxToEpoch(2026, 8, day, h, 0, 0);
+      for (const band of ["kids", "teens"] as const) {
+        for (const disc of [null, "jiu", "muay", "mma"]) {
+          for (const s of upcomingBandSlots(band, disc, now, 6)) {
+            if (s.weekday <= 3) assert.equal(s.time, "16:00", `${band}/${disc} at 08-${day} ${h}:00 → ${s.date} ${s.time}`);
+          }
+        }
+      }
+      const kid = nextTrialSlot("jiu", "kid", now);
+      if (kid && kid.weekday <= 3) assert.notEqual(kid.time, "17:00");
+    }
+  }
+});
+
+test("kids Jiu-Jitsu lead: the nudge proposes the 4 pm arrival with Jiu-Jitsu at 5 riding along", async () => {
+  const { bandSlot } = await import("../src/cron/nudges.js");
+  const { slotCta } = await import("../src/cron/nudge-copy.js");
+  const c = {
+    phone: "5215512345678", name: null, lang: "es" as const, status: "lead" as const,
+    qualification: JSON.stringify({ discipline: "jiu", audience: "kid" }),
+    human_override_until: null, last_inbound_at: null, campaign_id: null, ad_ref: null,
+    airtable_lead_id: null, created_at: 0, updated_at: 0,
+  };
+  const slot = bandSlot(c, null, "kids", MON(10));
+  assert.equal(slot?.date, "2026-08-24");
+  assert.equal(slot?.time, "16:00");
+  assert.deepEqual(slot?.then, { discipline: "jiu", time: "17:00" });
+  const cta = slotCta("kids", "es", slot, "https://x", MON(10));
+  assert.match(cta, /Les puedo apartar lugar en Muay Thai hoy a las 4:00 pm \(y Jiu-Jitsu a las 5:00 pm\)/);
+  assert.doesNotMatch(cta, /Jiu-Jitsu hoy a las 5/);
+  // 15:30: the 4 pm class is inside the lead time — tomorrow 4 pm, never today 5 pm.
+  const late = bandSlot(c, null, "kids", MON(15, 30));
+  assert.equal(late?.date, "2026-08-25");
+  assert.equal(late?.time, "16:00");
+  assert.match(slotCta("kids", "en", slot, "https://x", MON(10)), /Muay Thai today at 4:00 pm \(then Jiu-Jitsu at 5:00 pm\)/);
+});
+
+test("kids Saturday: arrival 11 am (Jiu-Jitsu) with Muay Thai at 12 — never 12 pm as the arrival", () => {
+  const fri = cdmxToEpoch(2026, 8, 28, 12, 0, 0);
+  const s = upcomingBandSlots("kids", "muay", fri, 1)[0];
+  assert.equal(s?.date, "2026-08-29");
+  assert.equal(s?.time, "11:00");
+  assert.equal(s?.discipline, "jiu");
+  assert.deepEqual(s?.then, { discipline: "muay", time: "12:00" });
 });
