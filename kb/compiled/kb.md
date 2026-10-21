@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-10-19+571423312912
-     approx_tokens: 12089 (chars 42311 / 3.5)
+     version: 2026-10-21+38fdec201705
+     approx_tokens: 12084 (chars 42294 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -131,7 +131,7 @@ Hay clases con **Gi** (kimono) y **No-Gi** (rashguard/playera deportiva y short/
 Striking de pie: puños, patadas, rodillas, codos, defensa, desplazamiento, coordinación y condición física. Gran opción para ponerse en forma, ganar confianza, aprender defensa personal y liberar estrés. No se necesita experiencia.
 
 ### MMA
-Combina striking, grappling, derribos, defensa y transiciones entre pelea de pie y piso. Buena opción para una visión completa del combate; el coach adapta la clase según nivel.
+Combina striking, grappling, derribos, defensa y transiciones entre pelea de pie y piso. Buena opción para una visión completa del combate; el coach adapta la clase según nivel. **Edad**: 13–15 ⇒ MMA Teens (L–J 4 pm); **16–17** pueden probar MMA adultos si tienen tamaño y capacidad (lo confirma el coach).
 
 ### Box
 Técnica de golpeo, defensa, desplazamiento, coordinación, timing y condición física. Fuerte para cardio, confianza y fundamentos de striking.
@@ -195,19 +195,15 @@ Cuando el lead confirma un horario que está en el KB, **agéndalo y confírmalo
 - Baby Fight Club: "Listo {nombre}, {hijo} ya tiene su lugar en Baby Fight Club! 🙌 Los esperamos a los dos el {día} a las {hora} en MD Condesa. Aquí está todo lo que necesitan saber para su primera clase, y 2 minutos de preguntas para que el coach los conozca antes de llegar 🥋" + link + el mismo cierre.
 - Sin nombre claro: "Listo, ya tienes tu lugar!" / "Listo, {hijo} ya tiene…"; sin nombre del peque: "tu peque". "a la 1:00", no "a las 1:00". El link y el cierre van SIEMPRE (el sistema pone el link personal del lead).
 
-## Curso de Verano (niños 6–12 años)
+## Curso de Verano 2026: YA TERMINÓ
 
-El Curso de Verano 2026 YA TERMINÓ (fue del 20 de julio al 14 de agosto). Si preguntan: dilo en una línea e invita al programa regular de Kids con su clase de prueba gratis.
+Si preguntan, dilo en una línea e invita a Kids con su clase de prueba gratis.
 
-## Promo Mañanas $999 (vigente hasta fines de septiembre 2026)
+## Promo Mañanas $999 (anuncio retirado — NO la ofrezcas)
 
-**$999 MXN el PRIMER mes, clases ilimitadas SOLO en horario matutino (7am–12pm), adultos.** Después aplica precio regular; no combinable con otras promos. SÍ quedan lugares — confírmalo con confianza.
+**Nunca la ofrezcas ni la menciones tú.** Solo si un lead la pide (vio el anuncio) se respeta: **$999 MXN el PRIMER mes, clases ilimitadas SOLO en horario matutino (7am–12pm), adultos.** Después aplica precio regular; no combinable con otras promos.
 
-**Pago**: link oficial **https://mpago.la/2UBtTvP** — mándalo a quien quiera inscribirse y pide su comprobante por este chat. Al llegar el comprobante (o "ya pagué"), **escala a humano** para verificar y confirmar la inscripción. Nunca prometas "conectarlo con un representante" — tú cierras la venta.
-
-## Seminario Henry "Triple C" Cejudo
-
-El seminario con Henry Cejudo YA PASÓ (fue el jueves 3 de septiembre de 2026). Si preguntan: dilo en una línea y ofrece la clase de prueba gratis.
+**Pago**: link **https://mpago.la/2UBtTvP**; pide su comprobante por este chat y, al llegar (o "ya pagué"), **escala a humano**.
 
 ## Reto Gladiador
 
@@ -275,17 +271,18 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 | Silver | $2,500 | $3,000 |
 | Bronze | $1,996 | $2,396 |
 
-- **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario.
+- **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario. **3 clases/semana**: no asignes plan ni precio (depende de la disciplina; lo arma el equipo) — escala si insiste.
+- **Clase suelta / paquetes (residentes)**: no des precios ni inventes paquetes — escala. (El drop-in de visitantes sí se dice.)
 - Kids (6–12) y Teens (13–17): MISMOS precios y planes que adultos, excepto que su plan más alto es Gold (no hay Diamond).
 - **Mini Muay Thai (3–5)**: MISMOS precios que Kids/Teens. Como Mini MT solo tiene 3 clases por semana (lun 3:15, mié 3:15, sáb 1:15), su membresía normal es el plan **Bronze: $1,996 cada 4 semanas domiciliado** ($2,396 sin domiciliar). Si solo quieren **1 clase por semana, existe la opción de $1,500 cada 4 semanas**. Si un papá/mamá de Mini MT insiste en el precio, da ESAS cifras ("$1,500 con 1 clase por semana, o $1,996 con las 3 clases"), no el rango de adultos. (Evan, 2026-09-18.)
-- Baby Fight Club (6–36 meses; Nivel 0: precio por confirmar, escala), cobro cada 4 semanas: **$1,996 (1 clase/sem)** (Evan, 2026-09-22). Si preguntan por 2 clases por semana, escala — ese precio se confirma en persona.
+- Baby Fight Club (6–36 meses, Nivel 0 incluido — mismo precio), cobro cada 4 semanas: **$1,996 (1 clase/sem)** (Evan, 2026-09-22). Si preguntan por 2 clases por semana, escala — ese precio se confirma en persona.
 - **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día.
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
 - Descuento en equipo **Venum** para inscritos (solo si preguntan; Evan, 2026-10-03): mandan el link de venum.com y pagan 25% menos en su primer pedido (15% después) vs. pedirlo directo con envío y aranceles. No aplica en productos ya rebajados. Cómo pedirlo: https://mdcondesa.com/bienvenida/
 
 Respuesta sugerida la PRIMERA vez que preguntan precio (adultos/kids/teens):
-> Con gusto 🙌 Tenemos varias opciones de planes, paquetes y promos según la frecuencia de tu entrenamiento y el programa — y justo por eso preferimos platicar un poco contigo primero, así te recomendamos la que mejor se ajuste a tu objetivo y presupuesto, en vez de mandarte una lista genérica. Lo ideal es que vengas a tu día de prueba gratis y ahí lo vemos 💪 ¿Te queda bien [día] a las [hora]?
+> Con gusto 🙌 Tenemos varias opciones de planes y promos según la frecuencia de tu entrenamiento y el programa — y justo por eso preferimos platicar un poco contigo primero, así te recomendamos la que mejor se ajuste a tu objetivo y presupuesto, en vez de mandarte una lista genérica. Lo ideal es que vengas a tu día de prueba gratis y ahí lo vemos 💪 ¿Te queda bien [día] a las [hora]?
 
 NUNCA uses fórmulas que suenen a negativa: "por WhatsApp no compartimos la lista", "no te puedo dar precios por aquí", "eso solo se platica en persona". La idea es "te armamos el mejor plan", no "no te puedo decir".
 
@@ -313,6 +310,8 @@ Respuesta sugerida (Silver):
 ## Estacionamiento
 
 No tenemos estacionamiento propio. Hay estacionamientos de paga alrededor del Parque México y en las calles aledañas.
+
+**Metro más cercano: Chilpancingo.**
 
 ## Datos que preguntan seguido (respuestas directas — NO las evadas)
 
