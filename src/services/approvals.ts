@@ -25,6 +25,7 @@ import { bookingSlot, claimBookingConfirmation } from "./confirm-once.js";
 import { bookingRecordedKey, parseBookingRecordedMarker } from "./booking-core.js";
 import { armNudges } from "../cron/nudges.js";
 import { auditHumanSend } from "./booking-guard.js";
+import { auditHumanSlotClaims } from "./slot-audit.js";
 import type { HumanSendSource } from "./booking-claims.js";
 import {
   markApprovedCard,
@@ -228,6 +229,11 @@ export async function runPostSendEffects(
   // tool loop; anything else that CLAIMS a booking did not, so audit it.
   // Never throws, always awaited (Workers kill floating promises).
   if (!bookingOrigin) await auditHumanSend(env, phone, sentText, source);
+  // A human EDIT is unchecked text (the brain guard only saw the draft):
+  // non-blocking schedule check → #wa-leads note if it names a slot that
+  // doesn't exist / takes no trial (2026-10-20, #2067: edit offered Wed 8 pm
+  // MMA sparring). No-op for any other source.
+  await auditHumanSlotClaims(env, phone, sentText, source);
 }
 
 /** Approve the drafted reply as-is and send it. */

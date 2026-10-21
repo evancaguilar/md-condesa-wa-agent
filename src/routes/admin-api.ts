@@ -231,7 +231,8 @@ import {
   escalationReason,
 } from "../services/approvals.js";
 import { runKbChat, applyProposal, accrueChatUsage } from "../services/kb-editor.js";
-import { auditHumanSend, parseBookingFromText } from "../services/booking-guard.js";
+import { parseBookingFromText } from "../services/booking-guard.js";
+import { auditStaffSend } from "../services/slot-audit.js";
 import { registerBooking } from "../services/booking-core.js";
 import { callAnthropic, unescapeNewlines } from "../brain/claude.js";
 import { buildSystem } from "../brain/prompt.js";
@@ -1123,7 +1124,8 @@ async function handleStaffSend(
       sendText: (e, p, b, opts) => sendText(e, p, b, opts),
       isWindowClosed: (err) => err instanceof WindowClosedError,
       postNote: (_e, text) => ports.slack.postNote(text),
-      auditSend: (e, p, t, by) => auditHumanSend(e, p, t, "staff", by),
+      // Booking-capture card + non-blocking schedule check (services/slot-audit).
+      auditSend: (e, p, t, by) => auditStaffSend(e, p, t, "staff", by),
     },
   );
   if (!result.ok && (result.reason === "empty" || result.reason === "too_long")) {

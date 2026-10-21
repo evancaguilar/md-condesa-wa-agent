@@ -115,7 +115,7 @@ import {
 } from "./post-trial.js";
 import { captureCapiEvent, captureResultCapiEvents } from "../services/meta-capi.js";
 import { parseStaffLaterNote, sendStaffText, staffSendClaimKey } from "../services/staff-send.js";
-import { auditHumanSend } from "../services/booking-guard.js";
+import { auditStaffSend } from "../services/slot-audit.js";
 import {
   claimBookingConfirmation,
   releaseBookingConfirmation,
@@ -708,7 +708,8 @@ async function processOne(
           sendText: (e, p, b, opts) => sendText(e, p, b, opts),
           isWindowClosed: (err) => err instanceof WindowClosedError,
           postNote: (_e, text) => deps.slack.postNote(text),
-          auditSend: (e, p, t, by) => auditHumanSend(e, p, t, "staff_later", by),
+          // Booking-capture card + non-blocking schedule check (services/slot-audit).
+          auditSend: (e, p, t, by) => auditStaffSend(e, p, t, "staff_later", by),
         });
       } catch (err) {
         await kvDelete(env.DB, staffSendClaimKey(f.phone, token));
