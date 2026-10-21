@@ -399,8 +399,32 @@ export function confirmClosing(lang: Language, copy: Partial<typeof CLIENT.copy>
   return (lang === "en" ? copy.confirmClosingEn : copy.confirmClosingEs) ?? "";
 }
 
-/** The closing is there when the text already invites a friend. */
-const CLOSING_RE = /invitar a (?:un |una |tu )?amig|invite a friend/iu;
+/**
+ * The closing is there when the text already invites someone along. The brain
+ * paraphrases the standard line ("Si quieren invitar a otra familia…", "si
+ * quieres traer a un amigo", "compártelo con alguien…"), and the old
+ * `invitar a (un|una|tu) amig` test missed those, so personalizeConfirmation
+ * appended the stock closing a SECOND time (2026-10-20, Cinthya …4526).
+ * Shape: an invite/bring/share verb, then within the same clause "a"/"con"
+ * + optional determiners + a person noun. The person noun must follow
+ * "a/con" so "ser parte de la familia MD" or "trae ropa cómoda" never count.
+ */
+export const CLOSING_RE = new RegExp(
+  [
+    // Spanish: invitar / invita(n) / invítalo / traer / trae(n) / traigan / compartir / comparte…
+    String.raw`\b(?:inv[ií]t\w*|tra(?:er\w*|e|en|igan?|igas)\b|comp[aá]rt\w*)` +
+      String.raw`[^.!?\n]{0,30}?\b(?:a|al|con)\s+` +
+      String.raw`(?:(?:un|una|unos|unas|tu|tus|su|sus|otro|otra|otros|otras|alg[uú]n|alguna|algunos|algunas|m[aá]s|esa|ese)\s+)*` +
+      String.raw`(?:amig\w*|famili\w*|alguien|personas?|conocid\w*|parientes?|compa\w*|herman\w*|primos?|primas?|vecin\w*|novi[oa]s?|pareja)`,
+    // "invitar amigos" / "traer familiares" (bare plural, no "a").
+    String.raw`\b(?:invitar|invita|traer|trae|traigan)\s+(?:amig\w*|familiares)`,
+    // "Si conoces a alguien que quiera entrenar, ¡invítalo!"
+    String.raw`\bconoc\w*\s+a\s+alguien\b[^.!?\n]{0,40}?\b(?:inv[ií]t|tr[aá]e)`,
+    // English: invite / bring / share … friend / family / someone
+    String.raw`\b(?:invite|bring|share)\b[^.!?\n]{0,30}?\b(?:friends?|family|someone|anyone|buddy|partner)\b`,
+  ].join("|"),
+  "iu",
+);
 
 /** The confirmation copy for a version (free-form text and template seeding). */
 export function confirmationCopy(
