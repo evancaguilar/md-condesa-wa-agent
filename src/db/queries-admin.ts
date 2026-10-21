@@ -769,8 +769,8 @@ export async function hasScheduledFollowupOfKind(
 }
 
 /**
- * True if the phone has EVER had a followup whose kind is in `kinds`, in any
- * status (sent, cancelled, scheduled…). Booking-kind rows are the local
+ * True if the phone has had a followup whose kind is in `kinds` (due at or
+ * after `sinceDueAt` when given), in any status (sent, cancelled, scheduled…). Booking-kind rows are the local
  * record that a trial was booked at some point (nudges.bookedBefore). Rides
  * the UNIQUE(phone, kind, airtable_record_id) autoindex.
  */
@@ -778,16 +778,18 @@ export async function hasAnyFollowupOfKind(
   db: D1Database,
   phone: string,
   kinds: readonly string[],
+  sinceDueAt?: number,
 ): Promise<boolean> {
   if (kinds.length === 0) return false;
   const placeholders = kinds.map((_, i) => `?${i + 2}`).join(", ");
+  const since = sinceDueAt === undefined ? "" : ` AND due_at >= ?${kinds.length + 2}`;
   const row = await db
     .prepare(
       `SELECT 1 AS n FROM followups
-       WHERE phone = ?1 AND kind IN (${placeholders})
+       WHERE phone = ?1 AND kind IN (${placeholders})${since}
        LIMIT 1`,
     )
-    .bind(phone, ...kinds)
+    .bind(phone, ...kinds, ...(sinceDueAt === undefined ? [] : [sinceDueAt]))
     .first<{ n: number }>();
   return row !== null;
 }

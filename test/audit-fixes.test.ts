@@ -193,15 +193,20 @@ test("PAST_BOOKING_KINDS covers the reminders and both post-trial chains", () =>
   assert.ok(!set.has("nudge_1h"));
 });
 
-test("hasBookingHistory: a marker of ANY age, or any booking-kind row", () => {
-  assert.equal(hasBookingHistory(null, false), false);
-  assert.equal(hasBookingHistory(null, true), true);
-  // A class long gone still counts (bookingMarkerLive would say false).
-  const past = JSON.stringify({ ts: 1_700_000_000, trialDate: "2026-10-01", trialTime: "18:00" });
-  assert.equal(hasBookingHistory(past, false), true);
-  assert.equal(bookingMarkerLive(past, cdmxToEpoch(2026, 10, 21, 12, 0, 0)), false);
-  assert.equal(hasBookingHistory("1700000000", false), true); // legacy bare epoch
-  assert.equal(hasBookingHistory("garbage", false), false);
+test("hasBookingHistory: a marker younger than 60 days, or a recent booking-kind row", () => {
+  const now = cdmxToEpoch(2026, 10, 21, 12, 0, 0);
+  assert.equal(hasBookingHistory(null, false, now), false);
+  assert.equal(hasBookingHistory(null, true, now), true);
+  // A class already gone still counts (bookingMarkerLive would say false)…
+  const recent = JSON.stringify({ ts: now - 20 * 86400, trialDate: "2026-10-01", trialTime: "18:00" });
+  assert.equal(hasBookingHistory(recent, false, now), true);
+  assert.equal(bookingMarkerLive(recent, now), false);
+  assert.equal(hasBookingHistory(String(now - 86400), false, now), true); // legacy bare epoch
+  // …but a booking older than the window makes a returning lead fresh again.
+  const old = JSON.stringify({ ts: now - 61 * 86400, trialDate: "2026-08-20", trialTime: "18:00" });
+  assert.equal(hasBookingHistory(old, false, now), false);
+  assert.equal(hasBookingHistory("1700000000", false, now), false);
+  assert.equal(hasBookingHistory("garbage", false, now), false);
 });
 
 /** A nudge-eligible lead whose ONLY booking signal is `signal`. */
@@ -214,7 +219,9 @@ function historyDb(signal: "marker" | "row" | "none" | "probe_fails", sink: { in
       return { first: signal === "row" ? { n: 1 } : null };
     }
     if (sql.includes("SELECT value FROM kv") && signal === "marker") {
-      return { first: { value: JSON.stringify({ ts: 1_700_000_000, trialDate: "2026-10-01", trialTime: "18:00" }) } };
+      // A class 10 days gone: past bookingMarkerLive, inside the 60-day history window.
+      const ts = Math.floor(Date.now() / 1000) - 10 * 86400;
+      return { first: { value: JSON.stringify({ ts, trialDate: "2026-10-01", trialTime: "18:00" }) } };
     }
     if (sql.includes("SELECT value FROM kv")) return { first: null };
     if (sql.includes("INSERT OR IGNORE INTO followups")) sink.inserted++;

@@ -10,6 +10,7 @@ import { greetingName } from "../cron/display-name.js";
 import { cdmxParts } from "../cron/time.js";
 import { weekdayIndex } from "../brain/tools.js";
 import { displayContact } from "./channel.js";
+import { releaseBookingConfirmation, slotFromEpoch } from "./confirm-once.js";
 import {
   TRIAL_CANCEL_KINDS,
   cancelTaskNote,
@@ -68,6 +69,10 @@ export async function applyLeadCancellation(
   const trials = [
     ...new Set(rows.map((r) => decodeChainNote(r.note).trial).filter((t): t is number => t !== null)),
   ].sort((a, b) => a - b);
+
+  // A rebook of the same class must get its confirmation again — clear the
+  // confirm-once claim of every cancelled trial (best-effort, never throws).
+  for (const t of trials) await releaseBookingConfirmation(env.DB, phone, slotFromEpoch(t));
 
   try {
     const prev = parseTrialCancelMarker(await kvGet(env.DB, trialCancelledKey(phone)));

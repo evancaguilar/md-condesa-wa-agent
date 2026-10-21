@@ -2,7 +2,20 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-21**.
 
-### Duplicate booking confirmations, doubled invite closing, schedule checks on human sends (2026-10-21) — COMMITTED ON A WORKTREE BRANCH, NOT PUSHED
+### Auditor-nocturno review (Oct 7–21): nudge fixes, lead cancellations, audit retry, KB answers (2026-10-21) — MERGED ON LOCAL main, NOT PUSHED
+
+Review of 11 nightly Opus reports (Oct 8/10/11 header-only, Oct 20 missing) — most recurring errors already had a KB rule but no code enforcement. Shipped together with the entry below:
+
+- **KB (Evan's answers):** Promo Mañanas $999 never offered (honored only if asked; ad is down); BFC Nivel 0 = $1,996; metro Chilpancingo; MMA adultos 16–17 if capable, 13–15 → MMA Teens; 3 clases/sem and clase suelta/paquetes → no figures, escalate; "paquetes" dropped from the first-price script. Expired Cejudo/verano copy trimmed (KB 12,084/12,100 tok).
+- **Nudges:** Kids/Teens never proposed at the 5 pm second half (`collectSlots`, also the brain's per-turn hours; nudge copy "4:00 pm (y Jiu-Jitsu a las 5:00 pm)"); discipline falls back to the campaign name (`disciplineFromCampaign`); a staff reply (`out_human`/`out_human_echo`) defers nudges 60 min; no "todavía no has agendado" to anyone with a booking in the last **60 days** (marker or booking-kind followup row; older ⇒ fresh lead again). Slot labels carry the day of month ("mañana martes 13"). Mini MT first-class link → kids page.
+- **Lead cancellations:** `pipeline/lead-cancel.ts` (pure detector, cancel vs reschedule) + `services/trial-cancel.ts` hooked at inbound step 1c (not a gate): cancels scheduled trial_confirm/day_before/same_day/no_show_hoy, kv `trial_cancelled:<phone>` so the no-show chain never chases that class, releases the confirm-once claim, #wa-leads task note to update Airtable, `<cancelacion>` hint for the brain. Send-time backstop checks every recent inbound, not just the last.
+- **Nightly audit:** day mark written only after success; ≤3 leased attempts in the 05:00 hour (kv `nightly_audit_try`); one #bot-ops note if the day is lost.
+- Tests → **1336** (both entries).
+- [ ] **Evan:** confirm "Reprogramó" is a real Airtable Resultado option (the cancel note suggests it).
+- [ ] **Evan:** Mañanas $999 campaign — turn it off in Campañas if still active (its welcome can still fire on keywords).
+- [ ] **Evan:** add BJJ Tue/Thu 3:15 pm to the KB once launch is confirmed.
+
+### Duplicate booking confirmations, doubled invite closing, schedule checks on human sends (2026-10-21) — MERGED ON LOCAL main, NOT PUSHED
 
 - **Duplicate confirmation + video (auditor 10-13/15/18/21) — two root causes, proven from transcripts:** (1) overlapping brain turns: the 8 s debounce is check-then-act and `book` results skip the mid-brain supersede, so name + child's name ~10 s apart → two book turns → two confirmations + two videos (…6562, …0711, …8321); variant: the parallel non-book turn restated the booking it hadn't seen (…2064). (2) `syncBookings` read the brain's brand-new record before `finalizeBooking` wrote `booking_recorded` → armed `trial_confirm` → signed-link confirmation + video again 5 min later (…9313: 20:45:59 chat, 20:50:50 with `meta.cuestionario`). **Fix** `src/services/confirm-once.ts`: atomic kv claim `booking_confirm:<phone>:<YYYY-MM-DDTHH:mm>` (2 h window, fail-open) on the brain direct send, `trial_confirm`, approved/edited booking drafts (video only) and `registerBooking` (video only); stale booking restatements from a parallel turn are dropped (Slack ops note); `makeAirtablePort.bookTrial` writes `booking_recorded` the moment the record exists.
 - **Doubled "invite a friend" closing:** `CLOSING_RE` (cuestionario-core) now recognises paraphrases (invitar/traer/compartir + a/con + amigo/familia/alguien/pareja…).

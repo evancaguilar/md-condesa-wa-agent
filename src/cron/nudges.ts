@@ -259,13 +259,27 @@ export const PAST_BOOKING_KINDS = [
 ] as const;
 
 /**
- * Pure. Booking history from the local signals: a `booking_recorded` marker of
- * ANY age (a past class counts too — leads whose trial date had passed, or
- * who had attended, kept getting "todavía no has agendado", audit 2026-10),
- * or any booking-kind followup row (`hasBookingRow`).
+ * How far back a booking still silences the "todavía no has agendado" drips.
+ * Past it, a lead who booked (or no-showed) long ago and comes back through a
+ * new ad is a fresh lead again and gets the normal nudges.
  */
-export function hasBookingHistory(markerRaw: string | null, hasBookingRow: boolean): boolean {
-  return hasBookingRow || parseBookingRecordedMarker(markerRaw) !== null;
+export const BOOKING_HISTORY_WINDOW_SECONDS = 60 * 86400;
+
+/**
+ * Pure. Booking history from the local signals: a `booking_recorded` marker
+ * younger than BOOKING_HISTORY_WINDOW_SECONDS (a past class counts too —
+ * leads whose trial date had passed, or who had attended, kept getting
+ * "todavía no has agendado", audit 2026-10), or a recent booking-kind
+ * followup row (`hasBookingRow`, already windowed by the query).
+ */
+export function hasBookingHistory(
+  markerRaw: string | null,
+  hasBookingRow: boolean,
+  now: number = Math.floor(Date.now() / 1000),
+): boolean {
+  if (hasBookingRow) return true;
+  const m = parseBookingRecordedMarker(markerRaw);
+  return m !== null && now - m.ts < BOOKING_HISTORY_WINDOW_SECONDS;
 }
 
 /**
@@ -274,13 +288,19 @@ export function hasBookingHistory(markerRaw: string | null, hasBookingRow: boole
  * lookup error falls back to the marker alone, never blocks the drip outright.
  */
 async function bookedBefore(env: Env, phone: string): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
   let row = false;
   try {
-    row = await hasAnyFollowupOfKind(env.DB, phone, PAST_BOOKING_KINDS);
+    row = await hasAnyFollowupOfKind(
+      env.DB,
+      phone,
+      PAST_BOOKING_KINDS,
+      now - BOOKING_HISTORY_WINDOW_SECONDS,
+    );
   } catch (err) {
     console.warn(`[nudges] booking-history lookup failed for ${phone}: ${String(err)}`);
   }
-  return hasBookingHistory(await kvGet(env.DB, bookingRecordedKey(phone)), row);
+  return hasBookingHistory(await kvGet(env.DB, bookingRecordedKey(phone)), row, now);
 }
 
 /** kv claim: at most ONE nudge (day-1 or extended) per phone per CDMX day. */
