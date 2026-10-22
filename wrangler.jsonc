@@ -31,6 +31,10 @@
   },
   "vars": {
     "SLACK_CHANNEL_ID": "C0BFKQ6AU9F",
+    // #evan-alerts: ONLY what needs Evan (docs/slack-routing.md, 2026-10-22).
+    "SLACK_CHANNEL_ALERTS_ID": "C0C0YSLS622",
+    // Retired #bot-ops: no longer posted to (mechanical notes → D1 ops_log,
+    // /admin → Logs). Kept only so buttons on its old cards still update.
     "SLACK_CHANNEL_OPS_ID": "C0C76L1QPFY",
     "AIRTABLE_BASE_ID": "appcX38TBVltyxHR6",
     "AIRTABLE_TRIALS_TABLE": "Leads",

@@ -1,6 +1,7 @@
 // Auditor nocturno (owner directive 2026-08-28): once a day, an OPUS-tier
-// review of the last 24h of conversations, posted to #wa-leads before the
-// team wakes up. It REPORTS — it never edits code, campaigns, or the KB, and
+// review of the last 24h of conversations. Since 2026-10-22 the FULL report
+// goes to the D1 ops_log (kind "audit", /admin → Logs) and #evan-alerts gets
+// ONE summary message (auditSummaryMessage) linking to it. It REPORTS — it never edits code, campaigns, or the KB, and
 // it never messages a lead. Structural fixes stay with a human + Claude Code.
 //
 // Cost note: claude-opus-5 at $5/$25 per MTok over a compacted day (~30–60K
@@ -14,6 +15,7 @@ import { SLOTS } from "../brain/slots.gen.js";
 import { accrueUsage } from "../db/queries.js";
 import { listApprovalHistory, namesForPhones } from "../db/queries-admin.js";
 import { cdmxDateStr } from "./time.js";
+import { dashboardUrl } from "../services/dashboard-link.js";
 
 export const AUDIT_MODEL = "claude-opus-5";
 const AUDIT_EFFORT = "high" as const;
@@ -54,8 +56,8 @@ export interface AuditApprovalRow {
 // successful run; attempts are tracked in kv `nightly_audit_try` with a lease
 // (a killed run — Worker wall time — can't be told from a slow one, so a new
 // attempt waits until the lease of the last one expires), at most
-// NIGHTLY_AUDIT_MAX_ATTEMPTS inside the 05:00 hour, and ONE #bot-ops note if
-// the day ends up with no report.
+// NIGHTLY_AUDIT_MAX_ATTEMPTS inside the 05:00 hour, and ONE #evan-alerts note
+// if the day ends up with no report.
 
 export const NIGHTLY_AUDIT_MARK_KEY = "nightly_audit_mark";
 export const NIGHTLY_AUDIT_TRY_KEY = "nightly_audit_try";
@@ -123,7 +125,7 @@ export function nightlyAuditStep(opts: {
   return { action: "give_up", attempts: st.n, lastError: st.lastError ?? null };
 }
 
-/** The #bot-ops line when the day ends with no report. Pure. */
+/** The #evan-alerts line when the day ends with no report. Pure. */
 export function nightlyAuditGiveUpNote(step: { attempts: number; lastError: string | null }, today: string): string {
   const why =
     step.attempts === 0
@@ -232,7 +234,8 @@ export function buildAuditSystem(kb: string): SystemBlock[] {
 
 Tu ÚNICA salida es el reporte. Reglas:
 - Español, listo para Slack (sin markdown de encabezados #; usa emojis y guiones). Máximo ~2500 caracteres.
-- Estructura: 1) "📊 Números:" (leads nuevos, conversaciones activas, agendados detectados en las charlas, aprobaciones y su latencia mediana/máxima). 2) "🐛 Problemas:" cada uno con el TELÉFONO, una cita textual corta y por qué es un problema. 3) "💡 Sugerencias:" mejoras de conocimiento/copy (máx 3). Si el día estuvo limpio: "✅ Sin novedades" + los números.
+- PRIMERA LÍNEA, siempre: "🧾 Resumen: " + UNA frase (máx ~200 caracteres) con lo más importante del día para el dueño. Es lo único que verá en Slack; el resto se lee en el panel.
+- Estructura después del resumen: 1) "📊 Números:" (leads nuevos, conversaciones activas, agendados detectados en las charlas, aprobaciones y su latencia mediana/máxima). 2) "🐛 Problemas:" cada uno con el TELÉFONO, una cita textual corta y por qué es un problema. 3) "💡 Sugerencias:" mejoras de conocimiento/copy (máx 3). Si el día estuvo limpio: "✅ Sin novedades" + los números.
 - NUNCA inventes: cita textual. Si dudas de un dato del negocio, márcalo "(verificar)".
 - Qué buscar, en orden de gravedad: leads con pregunta SIN respuesta del bot; respuestas con datos incorrectos (horarios/edades/precios que contradigan la parrilla o el KB); horarios propuestos que no existen en la parrilla; textos internos filtrados al lead (p.ej. "<sin_respuesta>", "no_tool_call"); mensajes duplicados o contradictorios al mismo lead; leads calientes que se enfriaron sin seguimiento; preguntas que el bot no supo responder (huecos de conocimiento); aprobaciones que esperaron >1h.
 - El bot agenda en el chat, manda nudges automáticos y plantillas: los mensajes marcados [plantilla #N] son copys automáticos, no juzgues su repetición entre leads distintos — SÍ es problema el mismo lead recibiendo lo mismo dos veces.
@@ -255,6 +258,48 @@ export function buildAuditUser(
   return `Ventana auditada: ${windowLabel}\n\n=== APROBACIONES DEL DÍA ===\n${approvals}\n\n=== CONVERSACIONES (hora CDMX) ===\n${transcripts || "(sin conversaciones en la ventana)"}`;
 }
 
+/**
+ * Pure. The ONE #evan-alerts message for a finished audit: header, the
+ * model's "🧾 Resumen:" line, the first "📊 Números:" line, problem /
+ * suggestion counts and a link to the full report in /admin → Logs. Falls
+ * back to the digest's first lines when the model skipped the structure.
+ */
+export function auditSummaryMessage(digest: string, header: string, logsUrl: string): string {
+  const lines = digest.split("\n").map((l) => l.trim());
+  const resumen = lines.find((l) => /^🧾|^\*?resumen\*?:/iu.test(l)) ?? null;
+  const numIdx = lines.findIndex((l) => /^\*?📊/u.test(l));
+  let numeros: string | null = null;
+  if (numIdx >= 0) {
+    const sameLine = (lines[numIdx] ?? "").replace(/^\*?📊\s*\*?n[úu]meros:?\*?\s*/iu, "").trim();
+    numeros = sameLine || (lines[numIdx + 1] ?? "").replace(/^[-•]\s*/, "") || null;
+  }
+  const count = (marker: RegExp): number => {
+    const start = lines.findIndex((l) => marker.test(l));
+    if (start < 0) return 0;
+    let n = 0;
+    for (let i = start + 1; i < lines.length; i++) {
+      const l = lines[i] ?? "";
+      if (/^\*?(📊|🐛|💡|✅)/u.test(l)) break;
+      if (/^[-•]|^\d+[.)]\s/.test(l)) n++;
+    }
+    return n;
+  };
+  const problems = count(/^\*?🐛/u);
+  const ideas = count(/^\*?💡/u);
+  const clean = lines.some((l) => /^✅\s*sin novedades/iu.test(l));
+  const out: string[] = [header];
+  if (resumen) out.push(resumen);
+  if (numeros) out.push(`📊 ${numeros}`);
+  if (!resumen && !numeros) {
+    const head = lines.filter(Boolean).slice(0, 4).join("\n");
+    out.push(head.length > 600 ? `${head.slice(0, 599)}…` : head || "(el auditor no produjo reporte)");
+  }
+  const tally = clean && !problems ? "✅ sin problemas" : `🐛 ${problems} problema${problems === 1 ? "" : "s"}`;
+  out.push(`${tally} · 💡 ${ideas} sugerencia${ideas === 1 ? "" : "s"} — <${logsUrl}|reporte completo en el panel>`);
+  const msg = out.join("\n");
+  return msg.length > SLACK_CHUNK ? `${msg.slice(0, SLACK_CHUNK - 1)}…` : msg;
+}
+
 /** Split the digest into Slack-sized chunks on line boundaries. */
 export function chunkForSlack(text: string, max: number = SLACK_CHUNK): string[] {
   const out: string[] = [];
@@ -273,7 +318,10 @@ export function chunkForSlack(text: string, max: number = SLACK_CHUNK): string[]
 // ---- IO --------------------------------------------------------------------
 
 export interface NightlyAuditDeps {
+  /** Full report → ops_log (kind "audit"). */
   postNote(env: Env, text: string): Promise<void>;
+  /** The one summary message → #evan-alerts. */
+  postAlert(env: Env, text: string): Promise<void>;
   /** Compiled KB text — injected (src/kb.ts raw-imports kb.md, which node's
    *  test runner can't resolve; the dispatcher passes the real KB). */
   kb: string;
@@ -291,7 +339,7 @@ export async function runNightlyAudit(env: Env, deps: NightlyAuditDeps): Promise
     .bind(since, now)
     .all<AuditMessageRow>();
   if (!msgs.length) {
-    await deps.postNote(env, `🌙 Auditor nocturno: sin conversaciones en las últimas 24h.`);
+    await deps.postAlert(env, `🌙 Auditor nocturno: sin conversaciones en las últimas 24h.`);
     return;
   }
 
@@ -326,9 +374,11 @@ export async function runNightlyAudit(env: Env, deps: NightlyAuditDeps): Promise
     .trim();
 
   const header = `🌙 *Auditor nocturno* (${AUDIT_MODEL}, esfuerzo alto) — ${windowLabel}`;
-  const chunks = chunkForSlack(digest || "(el auditor no produjo reporte — revisar logs)");
-  await deps.postNote(env, header);
-  for (const c of chunks) await deps.postNote(env, c);
+  // Full report to the ops_log first (one row, no Slack size limit), then the
+  // one summary to #evan-alerts. A Slack failure throws ⇒ the dispatcher's
+  // retry runs the audit again (a duplicate log row is harmless).
+  await deps.postNote(env, `${header}\n\n${digest || "(el auditor no produjo reporte — revisar logs)"}`);
+  await deps.postAlert(env, auditSummaryMessage(digest, header, dashboardUrl(env, "logs/audit")));
 
   // Accrue at OPUS pricing into the same usage_log the budget report reads.
   try {

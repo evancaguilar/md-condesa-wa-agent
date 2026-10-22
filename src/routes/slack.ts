@@ -30,6 +30,7 @@ import {
 import {
   markApprovedCard,
   postNote,
+  postTaskNote,
   sendHumanFollowupTemplate,
   updateControlPanel,
   updatePostTrialCard,
@@ -201,6 +202,7 @@ async function onTakeoverPhone(env: Env, phone: string | null): Promise<void> {
   await postNote(
     env,
     `🙋 Tomaste el control de ${phone} — el bot no responde ese chat por ${hours}h.`,
+    { kind: "panel", meta: { phone } },
   );
 }
 
@@ -225,12 +227,12 @@ async function onSendTemplate(env: Env, id: number): Promise<void> {
     // Blocked by the baja backstop: without feedback the button looks broken
     // and staff keep clicking. Say so once, leave the card as-is.
     if (err instanceof OptedOutError) {
-      await postNote(env, `🚫 Plantilla NO enviada a ${a.phone}: el contacto está dado de baja.`);
+      await postTaskNote(env, `🚫 Plantilla NO enviada a ${a.phone}: el contacto está dado de baja.`);
       return;
     }
     // Legacy card for an IG/FB contact (button suppressed on new cards).
     if (err instanceof ChannelCapabilityError) {
-      await postNote(env, `🚫 Plantilla NO enviada a ${a.phone}: no hay plantillas en IG/FB.`);
+      await postTaskNote(env, `🚫 Plantilla NO enviada a ${a.phone}: no hay plantillas en IG/FB.`);
       return;
     }
     throw err;
@@ -359,7 +361,7 @@ async function onBotToggle(env: Env, enabled: boolean): Promise<void> {
  * 🌙 Night mode: arm ⇒ full-auto (no approval on high-confidence replies)
  * until the next 07:00 CDMX, when the kv window lapses on its own; disarm ⇒
  * back to manual immediately. Both refresh the pinned panel and leave an
- * audit note in the channel.
+ * audit note in ops_log.
  */
 async function onAutoMode(env: Env, arm: boolean): Promise<void> {
   if (arm) {
@@ -367,10 +369,11 @@ async function onAutoMode(env: Env, arm: boolean): Promise<void> {
     await postNote(
       env,
       `🌙 *Modo nocturno ACTIVADO* — el bot responde solo (sin aprobación) hasta las *${autoModeEndLabel(until)}*. Respuestas de baja confianza siguen quedando en borrador.`,
+      { kind: "autosend" },
     );
   } else {
     await disarmAutoMode(env.DB);
-    await postNote(env, "🎓 *Modo manual* — cada respuesta vuelve a requerir aprobación.");
+    await postNote(env, "🎓 *Modo manual* — cada respuesta vuelve a requerir aprobación.", { kind: "autosend" });
   }
   await updateControlPanel(env);
 }
@@ -392,6 +395,7 @@ async function onAutoSendToggle(
     enabled
       ? `🤖 *Auto-envío ACTIVADO*${who} — toda respuesta con seguridad ≥75% sale sin aprobación (máx. ${AUTO_SEND_DAILY_CAP}/día; nunca un agendado sin respaldo).`
       : `🤖 *Auto-envío DESACTIVADO*${who} — todas las respuestas vuelven a pasar por aprobación.`,
+    { kind: "autosend" },
   );
   await updateControlPanel(env);
 }

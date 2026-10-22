@@ -64,10 +64,13 @@ test("shouldPing: only past the threshold, once per cooldown", () => {
   assert.match(buildPingText({ drafts: 1, escalations: 0, oldestAgeSec: 1800 }), /1 pendiente en/);
 });
 
-test("channelFor: ops falls back to the task channel until SLACK_CHANNEL_OPS_ID is set", async () => {
+test("channelFor: task → #wa-leads; alerts → SLACK_CHANNEL_ALERTS_ID or null (no ops channel any more)", async () => {
   const { channelFor } = await import("../src/services/slack.js");
   assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK" }, "task"), "CTASK");
-  assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK" }, "ops"), "CTASK");
-  assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK", SLACK_CHANNEL_OPS_ID: "COPS" }, "ops"), "COPS");
-  assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK", SLACK_CHANNEL_OPS_ID: "COPS" }, "task"), "CTASK");
+  // Unset alerts channel ⇒ null: callers keep the alert in ops_log only and
+  // never fall back to #wa-leads (one event, at most one channel).
+  assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK" }, "alerts"), null);
+  assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK", SLACK_CHANNEL_ALERTS_ID: "" }, "alerts"), null);
+  assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK", SLACK_CHANNEL_ALERTS_ID: "CALERT" }, "alerts"), "CALERT");
+  assert.equal(channelFor({ SLACK_CHANNEL_ID: "CTASK", SLACK_CHANNEL_ALERTS_ID: "CALERT" }, "task"), "CTASK");
 });

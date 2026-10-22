@@ -28,10 +28,11 @@ import {
 } from "./nightly-audit.js";
 import { KB } from "../kb.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
-import type { CronDeps } from "./deps.js";
+import { alertNote, type CronDeps } from "./deps.js";
 import { kvGet, kvSet, kvClaimIfAbsentOrOlder } from "../db/queries.js";
 import { reportInfraError } from "../services/infra-alert.js";
 import { ensureIndexes } from "../db/indexes.js";
+import { pruneOpsLog } from "../services/ops-log.js";
 import { CLIENT } from "../client.gen.js";
 import { runAdSpendBackfillStep, runDailyAdSpend, shouldRunDailyPull } from "./ad-spend.js";
 import {
@@ -114,41 +115,49 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // Additive indexes (src/db/indexes.ts): kv-guarded + per-isolate memo, so
   // after the first successful tick this is one kv read per warm isolate.
   await safe("ensureIndexes", () => ensureIndexes(env.DB));
+  // ops_log (services/ops-log.ts): once a day at 04:00 CDMX, ensure its
+  // indexes and drop rows older than 30 days. No-op until the table exists.
+  if (p.hour === 4 && (await kvGet(env.DB, "ops_log_prune_mark")) !== cdmxDateStr(nowEpoch)) {
+    await safe("pruneOpsLog", async () => {
+      await pruneOpsLog(env.DB, nowEpoch);
+      await kvSet(env.DB, "ops_log_prune_mark", cdmxDateStr(nowEpoch));
+    });
+  }
   // One-shot template copy sync (src/cron/template-sync.ts, kv-guarded).
   await safe("syncPostTrialD0Templates", () =>
-    syncPostTrialD0Templates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    syncPostTrialD0Templates(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "template" }) }),
   );
   // One-shot campaign seeds (src/cron/seed-campaigns.ts, kv-guarded).
   await safe("seedCampaigns", () =>
-    seedCampaigns(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    seedCampaigns(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "seed" }) }),
   );
   await safe("applyCampaignTriggerUpdates", () =>
-    applyCampaignTriggerUpdates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    applyCampaignTriggerUpdates(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "seed" }) }),
   );
   // One-shot submission of the student-kit templates (QR + responsiva +
   // welcome) to Meta (src/cron/template-seed-student.ts, kv-guarded).
   await safe("seedStudentKitTemplates", () =>
-    seedStudentKitTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    seedStudentKitTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "template" }) }),
   );
   // One-shot submission of the post-trial / no-show chain templates, per
   // program (adults / _kids / _baby; src/cron/template-seed-chains.ts).
   await safe("seedChainTemplates", () =>
-    seedChainTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    seedChainTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "template" }) }),
   );
   // One-shot submission of the questionnaire-invite templates (closed-window
   // fallback of sendCuestionario; src/cron/template-seed-cuestionario.ts).
   await safe("seedCuestionarioTemplates", () =>
-    seedCuestionarioTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    seedCuestionarioTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "template" }) }),
   );
   // …and the primera_clase* booking confirmations (closed-window twin of the
   // one-message confirmation with the first-class link).
   await safe("seedConfirmTemplates", () =>
-    seedConfirmTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    seedConfirmTemplates(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "template" }) }),
   );
   // One-shot submission of the Baby Fight Club Nivel 0 announcement template
   // (Marketing; the blast to the 6–12-month parents, src/cron/template-seed-nivel0.ts).
   await safe("seedNivel0Templates", () =>
-    seedNivel0Templates(env, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    seedNivel0Templates(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "template" }) }),
   );
 
   // One-shot post-switch delta (2026-10-06 D1 migration): DB_TARGET is the OLD
@@ -169,6 +178,7 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       if (r.done) {
         await cronDeps.slack.postNote(
           `✅ Migración D1: delta de la base vieja copiado (${r.cursor.copied} filas revisadas, solo se añadieron las que faltaban). El bot corre en wa-agent-db-2.`,
+          { kind: "infra", level: "info" },
         );
       }
     });
@@ -185,7 +195,7 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     await safe("redrive", () =>
       runRedrive(
         env,
-        { turn: (row, now) => turn(row, now), postNote: (t) => cronDeps.slack.postNote(t) },
+        { turn: (row, now) => turn(row, now), postNote: (t) => cronDeps.slack.postNote(t, { kind: "redrive" }) },
         nowEpoch,
       ),
     );
@@ -220,7 +230,8 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // otherwise one 2-day backfill chunk; the pull and the backfill never share a tick.
   const metrics = CLIENT.features.marketingMetrics === true && !!env.META_AD_ACCOUNT_ID;
   const metricsSlot = metrics && p.minute % 15 >= 5;
-  const metricsNote = (t: string): Promise<void> => cronDeps.slack.postNote(t);
+  const metricsNote = (t: string): Promise<void> => cronDeps.slack.postNote(t, { kind: "metrics" });
+  const capiNote = (t: string): Promise<void> => cronDeps.slack.postNote(t, { kind: "capi" });
   if (metricsSlot) {
     await safe("leadLinkSweep", () => runLeadLinkSweep(env, { postNote: metricsNote }));
     await safe("studentLinkSweep", () => runStudentLinkSweep(env, { postNote: metricsNote }));
@@ -248,14 +259,14 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // 15 min on the metrics-slot ticks, after the student-link sweep above so a
   // fresh Alumno link already shows as {Cerró}=1. No-op while the feature is off.
   if (CLIENT.features.airtableSync && p.minute % 15 >= 5) {
-    await safe("capiSweep", () => runCapiFunnelSweep(env, nowEpoch, { postNote: metricsNote }));
+    await safe("capiSweep", () => runCapiFunnelSweep(env, nowEpoch, { postNote: capiNote }));
   }
 
   // Meta Conversions API drain (docs/meta-capi.md): ≤5 events = ≤5 subrequests,
   // and zero D1 reads while the feature is off or the queue is empty. Runs
   // every tick so a booking reaches Meta within minutes, as the docs ask.
   await safe("capiDrain", () =>
-    runCapiDrain(env, nowEpoch, { postNote: (t) => cronDeps.slack.postNote(t) }),
+    runCapiDrain(env, nowEpoch, { postNote: capiNote }),
   );
 
   // Every ~15 min (minute % 15 < 5): booking sync + result watcher.
@@ -267,10 +278,10 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   }
 
   // Once daily at 05:00 CDMX: the OPUS nightly audit of the last 24h of
-  // conversations, posted to Slack before the team wakes up. Report-only — it
-  // never touches leads, campaigns, or code. The day mark is written only
+  // conversations (full report → ops_log, one summary → #evan-alerts) before
+  // the team wakes up. Report-only — it never touches leads, campaigns, or code. The day mark is written only
   // AFTER a successful run; a thrown/killed run is retried (≤3 attempts in the
-  // 05:00 hour, 15-min lease) and a day with no report gets one #bot-ops note
+  // 05:00 hour, 15-min lease) and a day with no report gets one #evan-alerts note
   // (nightlyAuditStep; 2026-10-20 had no report and nobody knew).
   if (p.hour === NIGHTLY_AUDIT_HOUR || p.hour === NIGHTLY_AUDIT_HOUR + 1) {
     const today = cdmxDateStr(nowEpoch);
@@ -284,7 +295,8 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
         await safe("nightlyAudit", async () => {
           try {
             await runNightlyAudit(env, {
-              postNote: async (_env, text) => cronDeps.slack.postNote(text),
+              postNote: async (_env, text) => cronDeps.slack.postNote(text, { kind: "audit", level: "info" }),
+              postAlert: async (_env, text) => alertNote(cronDeps.slack, text, { kind: "audit" }),
               kb: KB,
               now: nowEpoch,
             });
@@ -299,7 +311,9 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       } else if (step.action === "give_up") {
         const base: NightlyAuditTry = state && state.date === today ? state : { date: today, n: 0, startedAt: 0 };
         await kvSet(env.DB, NIGHTLY_AUDIT_TRY_KEY, JSON.stringify({ ...base, noted: true }));
-        await safe("nightlyAuditGiveUp", () => cronDeps.slack.postNote(nightlyAuditGiveUpNote(step, today)));
+        await safe("nightlyAuditGiveUp", () =>
+          alertNote(cronDeps.slack, nightlyAuditGiveUpNote(step, today), { kind: "audit" }),
+        );
       }
     }
   }
@@ -325,7 +339,7 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       }
       // Customer-list audiences (docs/meta-audiences.md): one Airtable walk +
       // a handful of Graph calls, once a day. No-op while the feature is off.
-      await safe("audienceSync", () => runAudienceSync(env, nowEpoch, { postNote: metricsNote }));
+      await safe("audienceSync", () => runAudienceSync(env, nowEpoch, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "audiences" }) }));
       await safe("budgetReport", () => runBudgetReport(env, cronDeps, nowEpoch));
       await safe("ensureControlPanel", () => cronDeps.ensureControlPanel(env));
       // Expire Google click codes from the site's /g beacon (90-day gclid life).
@@ -333,7 +347,9 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       // Questionnaire rate-limit counters (kv cq_rl:<hour>:<token>), > 48 h old.
       await safe("cuestionarioRateGc", () => gcCuestionarioRate(env.DB, nowEpoch));
       // Edit tuner: self-gated to ~weekly + ≥5 new edits since its watermark.
-      await safe("editTuning", () => maybeRunEditTuning(env, cronDeps, nowEpoch));
+      await safe("editTuning", () =>
+        maybeRunEditTuning(env, { slack: { postNote: (t) => cronDeps.slack.postNote(t, { kind: "tuner" }) } }, nowEpoch),
+      );
       // Booking-reconciliation backstop: flag outbound "ya quedó agendado"
       // claims Airtable has no trial datetime for. Posts only when it finds one.
       await safe("bookingRecon", () =>
@@ -345,7 +361,7 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   // LAST on purpose: a sales-conversation recording can take minutes to
   // transcribe (one record per tick; src/cron/sales-audio.ts).
   await safe("salesAudio", () =>
-    runSalesAudio(env, { postNote: (t) => cronDeps.slack.postNote(t) }, nowEpoch),
+    runSalesAudio(env, { postNote: (t) => cronDeps.slack.postNote(t, { kind: "sales_audio" }) }, nowEpoch),
   );
 }
 
@@ -354,11 +370,12 @@ async function safeWith(env: Env, label: string, fn: () => Promise<unknown>): Pr
     await fn();
   } catch (err) {
     console.error(`[cron] ${label} failed: ${String(err)}`);
-    // Infra outage (D1 saturated, Anthropic down…) ⇒ throttled <!here>; an
-    // ordinary bug stays a console line. Never throws.
+    // Infra outage (D1 saturated, Anthropic down, WA token…) ⇒ throttled
+    // level=critical note (ops_log + one #evan-alerts line); an ordinary bug
+    // stays a console line. Never throws.
     await reportInfraError(
       {
-        postNote: (t) => cronDeps.slack.postNote(t),
+        postNote: (t) => cronDeps.slack.postNote(t, { kind: "infra", level: "critical" }),
         kvClaim: (k, n, a) => kvClaimIfAbsentOrOlder(env.DB, k, n, a),
       },
       `cron ${label}`,

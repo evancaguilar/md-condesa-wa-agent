@@ -193,7 +193,7 @@ export async function applyTuningProposal(
 ): Promise<void> {
   const record = parseTuningRecord(await kvGet(env.DB, key));
   if (!record) {
-    await postNote(env, `🧠 Propuesta no encontrada (${key}).`);
+    await postNote(env, `🧠 Propuesta no encontrada (${key}).`, { kind: "tuner" });
     return;
   }
   const ts = record.slackTs;
@@ -274,7 +274,7 @@ export async function applyTuningProposal(
 export async function discardTuningProposal(env: Env, key: string): Promise<void> {
   const record = parseTuningRecord(await kvGet(env.DB, key));
   if (!record) {
-    await postNote(env, `🧠 Propuesta no encontrada (${key}).`);
+    await postNote(env, `🧠 Propuesta no encontrada (${key}).`, { kind: "tuner" });
     return;
   }
   if (record.status !== "pending") return;

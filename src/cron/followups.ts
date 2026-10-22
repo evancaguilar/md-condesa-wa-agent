@@ -9,7 +9,7 @@
 // didn't-sign-up chain and the second no-show touch); processResult below is
 // what arms both.
 
-import type { Env, Followup } from "../types.js";
+import type { Env, Followup, NoteOpts } from "../types.js";
 import {
   scheduleFollowup,
   rescheduleFollowup,
@@ -706,6 +706,7 @@ async function processOne(
         await markFollowup(env.DB, f.id, "cancelled");
         await deps.slack.postNote(
           `🕐 Envío programado de ${byLabel(later.by)} a ${f.phone} cancelado: el lead escribió primero — el texto quedó guardado en el panel.`,
+          { kind: "panel" },
         );
         return;
       }
@@ -724,7 +725,7 @@ async function processOne(
         res = await sendStaffText(env, f.phone, later.text, later.by, token, {
           sendText: (e, p, b, opts) => sendText(e, p, b, opts),
           isWindowClosed: (err) => err instanceof WindowClosedError,
-          postNote: (_e, text) => deps.slack.postNote(text),
+          postNote: (_e, text) => deps.slack.postNote(text, { kind: "panel" }),
           // Booking-capture card + non-blocking schedule check (services/slot-audit).
           auditSend: (e, p, t, by) => auditStaffSend(e, p, t, "staff_later", by),
         });
@@ -742,14 +743,17 @@ async function processOne(
       if (res.reason === "duplicate") {
         await deps.slack.postNote(
           `🕐 Envío programado #${f.id} a ${f.phone}: reclamo duplicado — marcado como enviado; verifica el chat en el panel.`,
+          { kind: "panel" },
         );
         await markFollowup(env.DB, f.id, "sent");
         return;
       }
       await markFollowup(env.DB, f.id, "cancelled");
       if (res.reason === "window_closed") {
-        // Loud: a human decides whether to re-engage (never an auto template).
-        await deps.slack.postNote(
+        // Loud: a human decides whether to re-engage (never an auto template)
+        // ⇒ #wa-leads (task channel).
+        await taskNote(
+          deps.slack,
           `⏰ Mensaje programado de ${byLabel(later.by)} para ${f.phone} NO enviado: ventana de 24h cerrada.`,
         );
       } else if (res.reason !== "opted_out") {
@@ -802,8 +806,10 @@ async function processOne(
         return;
       }
       if (channelOf(f.phone) !== "wa") {
-        // IG/FB: no templates, no media-id sends — a human hands it over.
-        await deps.slack.postNote(
+        // IG/FB: no templates, no media-id sends — a human hands it over
+        // ⇒ #wa-leads (task channel).
+        await taskNote(
+          deps.slack,
           `🎟️ ${displayContact(f.phone)} se inscribió y escribe por IG/FB: mándale su QR de acceso y el link de la responsiva a mano (Airtable → Alumnos).`,
         );
         await markFollowup(env.DB, f.id, "cancelled");
@@ -969,7 +975,9 @@ function studentKitIo(env: Env, deps: { slack: CronSlackDeps }, f: Followup): Ki
       f.note = note;
     },
     mark: (status) => markFollowup(env.DB, f.id, status),
-    postNote: (t) => deps.slack.postNote(t),
+    postNote: (t) => deps.slack.postNote(t, { kind: "student_kit" }),
+    // Manual QR/responsiva hand-overs → #wa-leads.
+    postTaskNote: (t) => taskNote(deps.slack, t),
   };
 }
 
@@ -1008,7 +1016,8 @@ async function postAttendedCard(
   if (deps.slack.postPostTrialCard) {
     await deps.slack.postPostTrialCard({ phone, name: who });
   } else {
-    await deps.slack.postNote(attendedCardText(who, displayContact(phone)));
+    // Fallback for fakes/stubs without the card port: same team card, as text.
+    await taskNote(deps.slack, attendedCardText(who, displayContact(phone)));
   }
 }
 
@@ -1042,7 +1051,7 @@ async function sendTrialConfirm(
   recordId: string,
   slack: Pick<CronSlackDeps, "postNote">,
 ): Promise<void> {
-  const postNote = (t: string): Promise<void> => slack.postNote(t);
+  const postNote = (t: string, o?: NoteOpts): Promise<void> => slack.postNote(t, { kind: "cuestionario", ...o });
   const first = await sendFirstClassConfirmation(env, {}, { recordId, phone });
   if (first.ok) {
     await afterBookingConfirmed(env, phone, {
@@ -1216,6 +1225,7 @@ async function noteMessengerWindowClosed(
   await kvSet(env.DB, dayKey, "1");
   await deps.slack.postNote(
     `Seguimiento (${what}) a ${displayContact(phone)} omitido: en IG/FB no hay plantillas y la ventana de 7 días de Meta ya cerró. Solo el lead puede reabrir la conversación.`,
+    { kind: "followup" },
   );
 }
 
@@ -1243,6 +1253,9 @@ async function noteTemplateFailure(
     res.missing
       ? `Plantilla de seguimiento no disponible (${res.template}); se omitió un envío a ${displayContact(phone)}. Falta enviarla/aprobarla en Meta (ver docs/templates.md).`
       : `⚠️ Falló el envío de la plantilla ${res.template} a ${displayContact(phone)} — NO es que falte aprobarla. Error de Meta: ${res.error}`,
+    // Follow-up sends are being skipped (≤1 note/day) ⇒ critical: ops_log +
+    // one #evan-alerts line.
+    { kind: "template", level: "critical", meta: { template: res.template, phone } },
   );
 }
 
@@ -1431,7 +1444,7 @@ export async function syncBookings(
         //    staff moved the date, or it was booked while the feature was off)
         //    is sent here, once. syncCuestionario never throws.
         if (!includeConfirm && !recentlyConfirmedInline) {
-          await syncCuestionario(env, (t) => deps.slack.postNote(t), rec, phone);
+          await syncCuestionario(env, (t, o) => deps.slack.postNote(t, { kind: "cuestionario", ...o }), rec, phone);
         }
         // The same "real Airtable booking" marker chat bookings write, so the
         // brain knows this lead is booked (no duplicate book_trial) and its
@@ -1797,9 +1810,12 @@ async function reactToResult(
               ]);
               await deps.slack.postNote(
                 `Bienvenida a ${phone}: la plantilla student_welcome falló (${String(tErr)}); mandé human_followup en su lugar. ¿Ya está aprobada en Meta?`,
+                { kind: "template" },
               );
             } catch (t2Err) {
-              await deps.slack.postNote(
+              // Nothing went out ⇒ the team welcomes them by hand (#wa-leads).
+              await taskNote(
+                deps.slack,
                 `No pude enviar bienvenida a ${phone} (student_welcome y human_followup fallaron): ${String(t2Err)}`,
               );
             }

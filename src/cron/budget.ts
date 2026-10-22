@@ -65,6 +65,7 @@ export async function runBudgetReport(
     `📊 ${CLIENT.shortName} bot — gasto\n` +
       `Ayer (${y.day}): ~$${y.cost.toFixed(2)} USD · ${y.input + y.output} tokens\n` +
       `Mes ${month} a la fecha: ~$${mtd.costUsd.toFixed(2)} USD`,
+    { kind: "budget" },
   );
 
   for (const t of THRESHOLDS) {
@@ -75,6 +76,7 @@ export async function runBudgetReport(
     await deps.slack.postNote(
       `⚠️ El gasto del bot cruzó $${t} USD este mes (${month}): ~$${mtd.costUsd.toFixed(2)}. ` +
         `Solo aviso — el bot sigue operando normal.`,
+      { kind: "budget" },
     );
   }
 }

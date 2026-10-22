@@ -69,6 +69,14 @@ label.lab{display:block;font-size:13px;color:var(--muted);margin-top:10px}
 .chip.red{background:rgba(209,59,59,.18);color:#ef7d7d}
 .chip.blue{background:rgba(47,111,214,.18);color:#7fb0f5}
 .chip.amber{background:rgba(224,164,35,.18);color:var(--amber);cursor:help}
+.chip.orange{background:rgba(232,112,36,.18);color:#f0965a}
+.chip.dim{opacity:.55}
+.logrow{padding:10px 0;border-top:1px solid var(--line)}
+.logrow:first-child{border-top:none}
+.logrow .chip.amber{cursor:default}
+.logmsg{white-space:pre-wrap;word-break:break-word;font-size:14px;margin-top:4px}
+.logmeta summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
+.logmeta pre{font-size:12px;margin:6px 0 0;overflow-x:auto}
 .chips{display:flex;flex-wrap:wrap;gap:5px}
 .spin{display:inline-block;width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--gold);
   border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle}
@@ -364,6 +372,7 @@ var TABS=[
   {id:"editor",   icon:"✨",label:"Editor"},
   {id:"campanas", icon:"📣",label:"Camp"},
   {id:"envios",   icon:"📨",label:"Envíos",owner:true},
+  {id:"logs",     icon:"🧾",label:"Logs",owner:true},
   {id:"probar",   icon:"🧪",label:"Probar"}
 ];
 function visibleTabs(){ return TABS.filter(function(t){ return !t.owner || (state.me && state.me.role==="owner"); }); }
@@ -2641,6 +2650,118 @@ function wireBlastForm(cat){
       toast("Envío en cola","ok"); lastPreview=0; el("bConfirm").checked=false; loadBlastRuns();
     }catch(e){ el("bQueueOut").textContent="❌ "+((e.data&&e.data.error)||"no se pudo encolar"); el("bQueue").disabled=false; }
   };
+}
+
+// ---------- LOGS (ops_log, owner-only) ----------
+// The bot's own log in D1 (services/ops-log.ts; replaces #bot-ops). NO polling
+// (D1 rows-read budget): loads on open, on filter change and on Refrescar only.
+// Deep link: #logs or #logs/<kind>.
+var logsState={kinds:[],rows:[],seq:0,limit:200,retentionDays:30};
+var LOG_LEVEL_OPTS=[["","Todos"],["info","Info+"],["warn","Warn+"],["error","Error+"],["critical","Critical"]];
+VIEWS.logs=function(){
+  if(!state.me || state.me.role!=="owner"){ location.hash="#inicio"; return; }
+  var deepKind="";
+  try{ deepKind=decodeURIComponent(location.hash.split("/")[1]||"").trim(); }catch(e){ deepKind=""; }
+  var m=el("main");
+  var minDate=cdmxDayKey(Date.now()-logsState.retentionDays*864e5);
+  m.innerHTML='<h1>Logs del bot</h1>'
+    +'<div class="muted sm" style="margin-bottom:10px">Lo que antes iba a #bot-ops: sincronizaciones, reportes, avisos y errores. Sin fechas = últimos 7 días · se guardan '+esc(logsState.retentionDays)+' días.</div>'
+    +'<div class="card"><div class="row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">'
+    +'<label class="lab" style="margin:0">Nivel <select id="lgLevel" class="field" style="width:auto">'+LOG_LEVEL_OPTS.map(function(o){ return '<option value="'+o[0]+'">'+esc(o[1])+'</option>'; }).join("")+'</select></label>'
+    +'<label class="lab" style="margin:0">Tipo <select id="lgKind" class="field" style="width:auto"></select></label>'
+    +'<label class="lab" style="margin:0">Desde <input id="lgFrom" type="date" class="field" style="width:auto" min="'+esc(minDate)+'"></label>'
+    +'<label class="lab" style="margin:0">Hasta <input id="lgTo" type="date" class="field" style="width:auto" min="'+esc(minDate)+'"></label>'
+    +'<button class="btn sm" id="lgRefresh">↻ Refrescar</button>'
+    +'</div></div>'
+    +'<div id="logsBody"><div class="loading"><span class="spin"></span></div></div>';
+  renderLogKinds(deepKind);
+  ["lgLevel","lgKind","lgFrom","lgTo"].forEach(function(id){
+    el(id).onchange=function(){ if(id==="lgKind") syncLogsHash(); loadLogs(false); };
+  });
+  el("lgRefresh").onclick=function(){ loadLogs(false); };
+  el("logsBody").onclick=function(ev){
+    var t=ev.target&&ev.target.closest?ev.target.closest("[data-lgkind]"):null;
+    if(t){ renderLogKinds(t.getAttribute("data-lgkind")); syncLogsHash(); loadLogs(false); return; }
+    if(ev.target&&ev.target.id==="lgMore") loadLogs(true);
+  };
+  loadLogs(false);
+};
+function renderLogKinds(sel){
+  var s=el("lgKind"); if(!s) return;
+  var cur=sel!=null?sel:s.value;
+  var list=logsState.kinds.slice();
+  if(cur && list.indexOf(cur)<0) list.push(cur);
+  s.innerHTML='<option value="">Todas</option>'+list.map(function(k){ return '<option value="'+esc(k)+'"'+(k===cur?' selected':'')+'>'+esc(k)+'</option>'; }).join("");
+}
+function syncLogsHash(){
+  var k=el("lgKind")?el("lgKind").value:"";
+  history.replaceState(null,"",location.pathname+location.search+"#logs"+(k?"/"+encodeURIComponent(k):""));
+}
+function logsQuery(before){
+  var p=[], lv=el("lgLevel").value, k=el("lgKind").value, f=el("lgFrom").value, t=el("lgTo").value;
+  if(lv) p.push("level="+encodeURIComponent(lv));
+  if(k) p.push("kind="+encodeURIComponent(k));
+  if(f) p.push("from="+encodeURIComponent(f));
+  if(t) p.push("to="+encodeURIComponent(t));
+  if(before) p.push("before="+encodeURIComponent(before));
+  p.push("limit="+logsState.limit);
+  return "/ops-log?"+p.join("&");
+}
+function logLevelChip(lv){
+  var cls={critical:"red",error:"orange",warn:"amber",info:"",debug:"dim"}[lv];
+  return '<span class="chip'+(cls?" "+cls:"")+'">'+esc(lv||"?")+'</span>';
+}
+function logTime(ts){
+  var ms= ts<1e12 ? ts*1000 : ts;
+  return new Intl.DateTimeFormat("es-MX",{timeZone:"America/Mexico_City",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(ms));
+}
+function logRowHtml(r){
+  var meta="";
+  if(r.meta){
+    var pretty=r.meta;
+    try{ pretty=JSON.stringify(JSON.parse(r.meta),null,2); }catch(e){}
+    meta='<details class="logmeta"><summary>meta</summary><pre class="base">'+esc(pretty)+'</pre></details>';
+  }
+  return '<div class="logrow"><div class="row" style="flex-wrap:wrap;gap:6px">'
+    +'<span class="muted sm">'+esc(logTime(r.ts))+'</span>'+logLevelChip(r.level)
+    +'<span class="chip" data-lgkind="'+esc(r.kind)+'" style="cursor:pointer" title="Filtrar por este tipo">'+esc(r.kind)+'</span></div>'
+    +'<div class="logmsg">'+esc(r.message)+'</div>'+meta+'</div>';
+}
+function logsMoreHtml(hasMore){
+  return hasMore?'<div class="center" style="margin-top:10px"><button class="btn sm" id="lgMore">Cargar más</button></div>':"";
+}
+async function loadLogs(more){
+  var body=el("logsBody"); if(!body) return;
+  var seq=++logsState.seq;
+  var before=more && logsState.rows.length ? logsState.rows[logsState.rows.length-1].id : 0;
+  if(!more){ logsState.rows=[]; body.innerHTML='<div class="loading"><span class="spin"></span></div>'; }
+  else { var b=el("lgMore"); if(b){ b.disabled=true; b.textContent="Cargando…"; } }
+  var d;
+  try{ d=await api(logsQuery(before)); }
+  catch(e){
+    if(seq!==logsState.seq || !el("logsBody")) return;
+    if(more){ toast("No se pudieron cargar más logs","err"); var b2=el("lgMore"); if(b2){ b2.disabled=false; b2.textContent="Cargar más"; } return; }
+    body.innerHTML='<div class="card muted">No se pudieron cargar los logs'+(e&&e.status===403?' (solo el dueño).':'.')+'</div>';
+    return;
+  }
+  if(seq!==logsState.seq || !el("logsBody")) return;
+  if(d && d.kinds && !logsState.kinds.length){ logsState.kinds=d.kinds.slice(); renderLogKinds(null); }
+  if(d && d.retentionDays) logsState.retentionDays=d.retentionDays;
+  if(d && d.migrated===false){
+    body.innerHTML='<div class="card" style="border-color:var(--amber)"><b>⚠️ Migración pendiente:</b> pega el SQL de ops_log (src/db/schema.sql, final) en la consola de D1.</div>';
+    return;
+  }
+  var rows=(d&&d.rows)||[];
+  logsState.rows=logsState.rows.concat(rows);
+  var hasMore=rows.length>=logsState.limit;
+  if(!more){
+    if(!rows.length){ body.innerHTML='<div class="card muted">Sin logs con estos filtros.</div>'; return; }
+    body.innerHTML='<div class="muted sm" id="lgCount" style="margin-bottom:6px"></div><div class="card" id="lgList">'+rows.map(logRowHtml).join("")+'</div><div id="lgMoreBox">'+logsMoreHtml(hasMore)+'</div>';
+  }else{
+    var list=el("lgList"); if(list) list.insertAdjacentHTML("beforeend",rows.map(logRowHtml).join(""));
+    el("lgMoreBox").innerHTML=logsMoreHtml(hasMore);
+  }
+  el("lgCount").textContent=logsState.rows.length+" registro"+(logsState.rows.length===1?"":"s")+(hasMore?" (hay más)":"");
 }
 
 // ---------- PROBAR (sandbox) ----------

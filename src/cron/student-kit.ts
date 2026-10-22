@@ -164,7 +164,16 @@ export interface KitIo {
   saveProgress(note: string): Promise<void>;
   reschedule(dueAt: number, note: string): Promise<void>;
   mark(status: Followup["status"]): Promise<void>;
+  /** FYI ("QR enviados") → ops_log. */
   postNote(text: string): Promise<void>;
+  /** The team must hand the QR/responsiva over → #wa-leads. Optional for
+   *  one-line fakes: kitTask() falls back to postNote. */
+  postTaskNote?(text: string): Promise<void>;
+}
+
+/** Task-channel note (#wa-leads) with the postNote fallback for fakes. */
+function kitTask(io: Pick<KitIo, "postNote" | "postTaskNote">, text: string): Promise<void> {
+  return io.postTaskNote ? io.postTaskNote(text) : io.postNote(text);
 }
 
 export interface KitContext {
@@ -198,7 +207,8 @@ export async function runStudentKit(io: KitIo, ctx: KitContext, note: string | n
   } catch (err) {
     const n = st.err + 1;
     if (n >= ERROR_MAX_ATTEMPTS) {
-      await io.postNote(
+      await kitTask(
+        io,
         `⚠️ No pude leer el Alumno de ${ctx.who} en Airtable para mandarle su QR/responsiva (${String(err)}) — mándaselos a mano.`,
       );
       await io.mark("failed");
@@ -210,7 +220,8 @@ export async function runStudentKit(io: KitIo, ctx: KitContext, note: string | n
   if (!alumno) {
     const n = st.alumno + 1;
     if (n >= ALUMNO_MAX_ATTEMPTS) {
-      await io.postNote(
+      await kitTask(
+        io,
         `No encontré el Alumno de ${ctx.who} para mandarle su QR/responsiva — mándaselos a mano.`,
       );
       await io.mark("failed");
@@ -304,7 +315,8 @@ export async function runStudentKit(io: KitIo, ctx: KitContext, note: string | n
     }
     // ONE note, then the row is done — never a note per retry.
     const missing = failures.map((x) => (x.part === "qr" ? "su QR de acceso" : "el link de la responsiva"));
-    await io.postNote(
+    await kitTask(
+      io,
       `⚠️ No pude mandarle a ${label(alumno, ctx)} ${missing.join(" ni ")}` +
         (transient
           ? ` (error: ${lastErr}).`

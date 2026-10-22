@@ -55,6 +55,7 @@ import {
   postBookingCaptureCard,
   postBookingFyi,
   postNote,
+  postTaskNote,
   updateBookingCaptureCard,
 } from "./slack.js";
 import { CLIENT } from "../client.gen.js";
@@ -91,7 +92,10 @@ export const BOOKING_META_PREFIX = "booking:";
 export interface BookingGuardDeps {
   postCard: typeof postBookingCaptureCard;
   updateCard: typeof updateBookingCaptureCard;
+  /** ops_log note (kind "booking"). */
   postNote: typeof postNote;
+  /** A human must act → #wa-leads. Optional for fakes (falls back to postNote). */
+  postTaskNote?: typeof postTaskNote;
   postBookingFyi(env: Env, booking: BookTrialInput): Promise<void>;
   registerBooking: typeof registerBooking;
   validateSlot: typeof validateSlot;
@@ -106,6 +110,7 @@ export function realGuardDeps(): BookingGuardDeps {
     postCard: postBookingCaptureCard,
     updateCard: updateBookingCaptureCard,
     postNote,
+    postTaskNote,
     postBookingFyi,
     registerBooking,
     validateSlot,
@@ -500,7 +505,7 @@ export async function applyBookingCapture(
 ): Promise<void> {
   const record = await getBookingCapture(env, key);
   if (!record) {
-    await deps.postNote(env, `🗓 Registro de agendado no encontrado (${key}).`);
+    await deps.postNote(env, `🗓 Registro de agendado no encontrado (${key}).`, { kind: "booking" });
     return;
   }
   if (record.status !== "open") {
@@ -534,7 +539,7 @@ export async function applyBookingCapture(
     env,
     {
       postBookingFyi: (booking) => deps.postBookingFyi(env, booking),
-      postNote: (text) => deps.postNote(env, text),
+      postNote: (text, o) => deps.postNote(env, text, { kind: "booking", ...o }),
     },
     input,
     { force: opts?.force === true, ...(opts?.by ? { by: opts.by } : {}) },
@@ -576,7 +581,9 @@ async function failCard(
   deps: BookingGuardDeps,
 ): Promise<void> {
   if (!record.slackTs) {
-    await deps.postNote(env, `❌ No se pudo registrar ${record.phone}: ${detail}`);
+    // No card to keep the retry buttons on ⇒ the team must register it by hand (#wa-leads).
+    const text = `❌ No se pudo registrar ${record.phone}: ${detail}`;
+    await (deps.postTaskNote ? deps.postTaskNote(env, text) : deps.postNote(env, text, { kind: "booking" }));
     return;
   }
   await deps.updateCard(
@@ -596,7 +603,7 @@ export async function skipBookingCapture(
 ): Promise<void> {
   const record = await getBookingCapture(env, key);
   if (!record) {
-    await deps.postNote(env, `🗓 Registro de agendado no encontrado (${key}).`);
+    await deps.postNote(env, `🗓 Registro de agendado no encontrado (${key}).`, { kind: "booking" });
     return;
   }
   if (record.status !== "open") return;
@@ -680,7 +687,7 @@ export async function submitBookingCaptureEdit(
 ): Promise<void> {
   const record = await getBookingCapture(env, key);
   if (!record) {
-    await deps.postNote(env, `🗓 Registro de agendado no encontrado (${key}).`);
+    await deps.postNote(env, `🗓 Registro de agendado no encontrado (${key}).`, { kind: "booking" });
     return;
   }
   if (record.status !== "open") return;

@@ -140,6 +140,7 @@ export async function runDailyAdSpend(
     if (r.errors.length) {
       await deps.slack.postNote(
         `⚠️ Ad spend import ${w.since}..${w.until}: ${r.errors.length} batch error(s). First: ${r.errors[0]}`,
+        { kind: "metrics" },
       );
     }
     return r;
@@ -149,6 +150,7 @@ export async function runDailyAdSpend(
     if (err instanceof MetricsSchemaError) {
       await deps.slack.postNote(
         `⚠️ Ad spend import stopped: Airtable field missing (${msg}). Fix the base or the airtableMetrics map.`,
+        { kind: "metrics" },
       );
     }
     throw err;
@@ -184,6 +186,7 @@ export async function runAdSpendBackfillStep(
   await kvSet(env.DB, KV_BACKFILL_DONE, iso(nowEpoch));
   await deps.slack.postNote(
     `✅ Ad spend backfill complete: ${env.METRICS_SINCE} → ${chunk.until} is in Airtable (Ad Spend Diario).`,
+    { kind: "metrics" },
   );
   return "done";
 }

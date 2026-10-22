@@ -19,6 +19,7 @@ import {
   makeSlackPort,
   postNote,
   postTaskNote,
+  postAlert,
   ensureStatusLine,
   postAttendanceCheck,
   postPostTrialCard,
@@ -58,8 +59,9 @@ function makePorts(env: Env): Ports {
     setCronDeps({
       ensureStatusLine: (e, pending, now) => ensureStatusLine(e, pending, now),
       slack: {
-        postNote: (text) => postNote(env, text),
+        postNote: (text, opts) => postNote(env, text, opts),
         postTaskNote: (text) => postTaskNote(env, text),
+        postAlert: (text, opts) => postAlert(env, text, opts),
         postAttendanceCheck: (a) =>
           postAttendanceCheck(env, a.name, a.phone, a.recordId).then(() => {}),
         postPostTrialCard: (a) => postPostTrialCard(env, a).then(() => {}),
@@ -102,7 +104,7 @@ async function withInfraAlert(
     ctx.waitUntil(
       reportInfraError(
         {
-          postNote: (t) => postNote(env, t),
+          postNote: (t) => postNote(env, t, { kind: "infra", level: "critical" }),
           kvClaim: (k, n, a) => kvClaimIfAbsentOrOlder(env.DB, k, n, a),
         },
         scope,

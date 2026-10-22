@@ -4,7 +4,10 @@ import {
   parseWebhook,
   type EchoEvent,
   type InboundEvent,
+  type TemplateStatusEvent,
 } from "./webhook-parse.js";
+import { templateStatusNotice } from "../services/template-status.js";
+import { alertNote, taskNote } from "../cron/deps.js";
 import {
   cancelPendingApprovals,
   insertMessageIfNew,
@@ -75,7 +78,7 @@ export async function handleWebhook(
       console.error("[webhook] D1 probe failed — asking Meta to retry", err);
       ctx.waitUntil(
         reportInfraError(
-          { postNote: (t) => ports.slack.postNote(t) },
+          { postNote: (t) => ports.slack.postNote(t, { kind: "infra", level: "critical" }) },
           "webhook probe",
           err,
         ),
@@ -108,6 +111,7 @@ async function processEvents(
       }
       if (ev.type === "inbound") await onInbound(env, ctx, ports, ev);
       else if (ev.type === "echo") await onEcho(env, ports, ev);
+      else if (ev.type === "template_status") await onTemplateStatus(ports, ev);
       else if (ev.type === "status" && ev.status === "failed") {
         // A FAILED delivery is the only status worth keeping: Meta accepts
         // sends synchronously and reports non-delivery here (2026-08-28: blast
@@ -129,12 +133,13 @@ async function processEvents(
       if (ev.type === "inbound" && classifyInfraError(err)?.kind.startsWith("d1")) {
         await fallbackUnstoredInbound(env, ports, ev);
       }
-      // D1 / Anthropic / Meta outage ⇒ one <!here> per 15 min, throttled
+      // D1 / Anthropic / Meta / WA-token outage ⇒ one level=critical note
+      // (ops_log + one #evan-alerts line) per 15 min, throttled
       // OUTSIDE D1 when D1 is the thing that is down (2026-10-06 incident:
       // hours of "D1 DB is overloaded" with nothing but console.error).
       await reportInfraError(
         {
-          postNote: (t) => ports.slack.postNote(t),
+          postNote: (t) => ports.slack.postNote(t, { kind: "infra", level: "critical" }),
           kvClaim: (k, n, a) => kvClaimIfAbsentOrOlder(env.DB, k, n, a),
         },
         `webhook ${ev.type}`,
@@ -153,9 +158,10 @@ const HOLDING_FALLBACK_COOLDOWN_SEC = 30 * 60;
 /**
  * 2026-10-06 D1 outage: for ~15 h every inbound was acked to Meta and then
  * lost when the first D1 call threw; Evan had no way to even SEE the leads.
- * Slack gets the raw text (phone + body, "responde desde la app de WhatsApp
- * Business o espera al reproceso"); the lead gets ONE holding line per 30 min
- * so they are not left on read. Both via paths that do not touch D1.
+ * #wa-leads gets the raw text (phone + body, "responde desde la app de WhatsApp
+ * Business o espera al reproceso") — postTaskNote is plain Slack, no D1; the
+ * lead gets ONE holding line per 30 min so they are not left on read. Both via
+ * paths that do not touch D1.
  */
 async function fallbackUnstoredInbound(env: Env, ports: Ports, ev: InboundEvent): Promise<void> {
   if (!ev.wamid || !ev.from || relayedWamids.has(ev.wamid)) return;
@@ -164,7 +170,9 @@ async function fallbackUnstoredInbound(env: Env, ports: Ports, ev: InboundEvent)
   const body = (ev.body ?? "").trim() || "[sin texto / media]";
   const nowSec = Math.floor(Date.now() / 1000);
   try {
-    await ports.slack.postNote(
+    // The team must answer it by hand ⇒ #wa-leads (task channel, no D1).
+    await taskNote(
+      ports.slack,
       `📥 *Mensaje SIN guardar (base de datos caída)* — ${displayContact(ev.from)}` +
         `${ev.profileName ? ` · ${ev.profileName}` : ""}
 ` +
@@ -236,5 +244,25 @@ async function onEcho(env: Env, ports: Ports, ev: EchoEvent): Promise<void> {
     channelOf(phone) === "wa" ? "desde el teléfono" : "desde la bandeja de la página";
   await ports.slack.postNote(
     `Evan respondió ${source} (${displayContact(phone)}) — bot en pausa hasta ${hhmm}.`,
+    { kind: "webhook", meta: { phone } },
   );
+}
+
+/**
+ * Meta's template review verdict (`message_template_status_update`). A verdict
+ * Evan acts on (approved / rejected / paused / disabled / flagged /
+ * reinstated) → ONE #evan-alerts post; pending & other lifecycle noise →
+ * ops_log only. Never touches the inbound pipeline or the contact tables.
+ */
+async function onTemplateStatus(ports: Ports, ev: TemplateStatusEvent): Promise<void> {
+  const notice = templateStatusNotice(ev);
+  const meta = {
+    templateId: ev.templateId,
+    name: ev.name,
+    language: ev.language,
+    event: ev.event,
+    reason: ev.reason,
+  };
+  if (notice.alert) await alertNote(ports.slack, notice.text, { kind: "template", meta });
+  else await ports.slack.postNote(notice.text, { kind: "template", level: "info", meta });
 }

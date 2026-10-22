@@ -163,3 +163,45 @@ test("booking-recon: sends that don't claim a booking are ignored", () => {
   ];
   assert.equal(findUnbackedConfirmations(sends, [], NOW).length, 0);
 });
+
+test("runBookingRecon: the unbacked-claims digest goes to #wa-leads (postTaskNote), not ops_log", async () => {
+  const { runBookingRecon } = await import("../src/cron/booking-recon.js");
+  const now = Math.floor(Date.now() / 1000);
+  const tasks: string[] = [];
+  const notes: string[] = [];
+  const slack = {
+    async postNote(t: string) {
+      notes.push(t);
+    },
+    async postTaskNote(t: string) {
+      tasks.push(t);
+    },
+    async postAttendanceCheck() {},
+  };
+  const env = { DB: {} } as unknown as import("../src/types.js").Env;
+  const n = await runBookingRecon(
+    env,
+    {
+      slack,
+      loadSends: async () => [
+        { phone: "5215512345678", ts: now - 3600, body: "¡Perfecto! Ya quedó agendado, nos vemos pronto." },
+      ],
+      loadBookings: async () => [],
+    },
+    now,
+  );
+  assert.equal(n, 1);
+  assert.equal(tasks.length, 1);
+  assert.match(tasks[0]!, /^🕵️ Reconciliación de agendados — 1 confirmación\(es\) SIN registro/);
+  assert.match(tasks[0]!, /5215512345678/);
+  assert.deepEqual(notes, []);
+
+  // Clean run: nothing posted anywhere.
+  const clean = await runBookingRecon(
+    env,
+    { slack, loadSends: async () => [], loadBookings: async () => [] },
+    now,
+  );
+  assert.equal(clean, 0);
+  assert.equal(tasks.length, 1);
+});

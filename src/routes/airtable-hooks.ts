@@ -65,7 +65,7 @@ export interface EnrolledHookDeps {
   getRecord(recordId: string): Promise<BookingRecord | null>;
   processResult(rec: BookingRecord, phone: string): Promise<ResultOutcome>;
   runKit(phone: string, recordId: string): Promise<KitNowOutcome>;
-  /** Ops note — only on failure. */
+  /** ops_log note — only on failure (the cron retries). */
   postNote(text: string): Promise<void>;
   /** Keeps the work alive past the reply (ctx.waitUntil). */
   waitUntil(p: Promise<unknown>): void;
@@ -128,7 +128,7 @@ export async function handleEnrolledHook(req: Request, deps: EnrolledHookDeps): 
   return json(result, 200);
 }
 
-/** Never throws: every failure lands in the result (and one Slack note). */
+/** Never throws: every failure lands in the result (and one ops_log note). */
 async function runEnrolled(deps: EnrolledHookDeps, recordId: string, t0: number): Promise<HookResult> {
   const done = (r: Omit<HookResult, "ms">): HookResult => ({ ...r, ms: deps.nowMs() - t0 });
   const fail = async (what: string, err: unknown) => {
@@ -217,7 +217,7 @@ export function makeEnrolledHookDeps(
         rec.leadIncome ?? rec.initialPayment ?? null,
       ),
     runKit: (phone, recordId) => runStudentKitNow(env, cron, phone, recordId),
-    postNote: (t) => cron.slack.postNote(t),
+    postNote: (t) => cron.slack.postNote(t, { kind: "student_kit" }),
     waitUntil: (p) => ctx.waitUntil(p),
   };
 }

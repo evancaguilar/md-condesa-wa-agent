@@ -73,11 +73,67 @@ export interface AppStateSyncEvent {
   type: "app_state_sync";
 }
 
+/**
+ * `message_template_status_update` (the app's webhook must be subscribed to
+ * that field): Meta's review verdict / lifecycle change for one template.
+ * Never touches the inbound pipeline — routes/whatsapp.ts posts one alert.
+ */
+export interface TemplateStatusEvent {
+  type: "template_status";
+  /** Meta's event, upper-cased: APPROVED | REJECTED | PENDING | PAUSED |
+   *  DISABLED | FLAGGED | REINSTATED | PENDING_DELETION | DELETED | … */
+  event: string;
+  templateId: string | null;
+  name: string;
+  language: string | null;
+  /** Rejection/disable reason; null when Meta sends none / "NONE". */
+  reason: string | null;
+  /** other_info title + description (PAUSED / FLAGGED explain themselves here). */
+  detail: string | null;
+}
+
 export type WebhookEvent =
   | InboundEvent
   | StatusEvent
   | EchoEvent
-  | AppStateSyncEvent;
+  | AppStateSyncEvent
+  | TemplateStatusEvent;
+
+interface RawTemplateStatus {
+  event?: string;
+  message_template_id?: number | string;
+  message_template_name?: string;
+  message_template_language?: string;
+  reason?: string | null;
+  other_info?: { title?: string; description?: string } | null;
+}
+
+/** Pure: one `message_template_status_update` value → event (null when unusable). */
+export function parseTemplateStatus(value: unknown): TemplateStatusEvent | null {
+  const v = (value ?? {}) as RawTemplateStatus;
+  const event = typeof v.event === "string" ? v.event.trim().toUpperCase() : "";
+  const name = typeof v.message_template_name === "string" ? v.message_template_name.trim() : "";
+  if (!event || !name) return null;
+  const id = v.message_template_id;
+  const reasonRaw = typeof v.reason === "string" ? v.reason.trim() : "";
+  const info = v.other_info ?? null;
+  const detail = [info?.title, info?.description]
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter(Boolean)
+    .join(" — ");
+  return {
+    type: "template_status",
+    event,
+    templateId: typeof id === "number" || (typeof id === "string" && id) ? String(id) : null,
+    name,
+    language:
+      typeof v.message_template_language === "string" && v.message_template_language.trim()
+        ? v.message_template_language.trim()
+        : null,
+    reason: reasonRaw && reasonRaw.toUpperCase() !== "NONE" ? reasonRaw : null,
+    detail: detail || null,
+  };
+}
 
 interface RawMedia {
   id?: string;
@@ -357,7 +413,8 @@ function parseMessengerEvents(
  * Parses a webhook envelope into normalized events. WhatsApp payloads
  * (object:"whatsapp_business_account") use entry[].changes[]; `field` on each
  * change tells us the subscription: `messages` (inbound/status),
- * `smb_message_echoes` (echo), `smb_app_state_sync` (coexistence sync).
+ * `smb_message_echoes` (echo), `smb_app_state_sync` (coexistence sync),
+ * `message_template_status_update` (template review verdicts).
  * Instagram/Messenger payloads (object:"instagram"|"page") use
  * entry[].messaging[] and normalize into the same event union with
  * channel-prefixed contact ids.
@@ -403,6 +460,12 @@ export function parseWebhook(payload: unknown): WebhookEvent[] {
 
       if (field === "smb_app_state_sync") {
         events.push({ type: "app_state_sync" });
+        continue;
+      }
+
+      if (field === "message_template_status_update") {
+        const ev = parseTemplateStatus(change.value);
+        if (ev) events.push(ev);
         continue;
       }
 

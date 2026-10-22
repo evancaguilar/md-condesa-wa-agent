@@ -5,7 +5,7 @@
 // unbooked. Runs from the existing daily ~10:00 CDMX block in dispatcher.ts.
 
 import type { Env } from "../types.js";
-import type { CronSlackDeps } from "./deps.js";
+import { taskNote, type CronSlackDeps } from "./deps.js";
 import { recentClaimSends } from "../db/queries.js";
 import { listRecentBookings } from "../services/airtable.js";
 import { cdmxParts } from "./time.js";
@@ -43,22 +43,27 @@ function slotLine(m: Mismatch): string {
 }
 
 export interface BookingReconDeps {
+  /** The digest goes to postTaskNote (#wa-leads) via taskNote(). */
   slack: CronSlackDeps;
+  /** Test seams; default to the D1 query and the Airtable list. */
+  loadSends?: typeof recentClaimSends;
+  loadBookings?: typeof listRecentBookings;
 }
 
 /**
  * Scans the last 48h of outbound messages for unbacked booking claims and
- * posts a Slack digest when it finds any. Returns the mismatch count (0 when
- * clean — nothing is posted in that case, keeping #wa-leads quiet).
+ * posts a #wa-leads digest when it finds any (the team registers them by
+ * hand). Returns the mismatch count (0 when clean — nothing is posted in that
+ * case, keeping #wa-leads quiet).
  */
 export async function runBookingRecon(
   env: Env,
   deps: BookingReconDeps,
   nowEpoch: number = Math.floor(Date.now() / 1000),
 ): Promise<number> {
-  const sends = await recentClaimSends(env.DB, nowEpoch - CLAIM_LOOKBACK_S);
+  const sends = await (deps.loadSends ?? recentClaimSends)(env.DB, nowEpoch - CLAIM_LOOKBACK_S);
   const sinceIso = new Date((nowEpoch - BOOKING_LOOKBACK_S) * 1000).toISOString();
-  const records = await listRecentBookings(env, sinceIso);
+  const records = await (deps.loadBookings ?? listRecentBookings)(env, sinceIso);
   const bookings: ReconBooking[] = records.map((r) => ({
     phone: r.phone ?? "",
     trialDateTimeIso: r.trialDateTimeIso,
@@ -75,7 +80,9 @@ export async function runBookingRecon(
         `• ${m.phone} — "${m.snippet}" (${fechaCdmx(m.ts)})${slotLine(m)}`,
     )
     .join("\n");
-  await deps.slack.postNote(
+  // The team must register these by hand ⇒ #wa-leads (task channel).
+  await taskNote(
+    deps.slack,
     `🕵️ Reconciliación de agendados — ${mismatches.length} confirmación(es) SIN registro en Airtable:\n${lines}\nRevisa y regístralos a mano — este aviso se repite cada día hasta que el registro exista.`,
   );
   return mismatches.length;

@@ -182,3 +182,66 @@ test("report: when kv throws, the colo-wide Cache API gate coordinates isolates"
     delete (globalThis as { caches?: unknown }).caches;
   }
 });
+
+test("classify: WhatsApp token/auth failures are wa_auth (blocking), Messenger and 400s are not", () => {
+  // services/wa.ts post(): `WA send failed (${status}) [${code}]: ${message}`.
+  assert.equal(
+    classifyInfraError(
+      new Error("WA send failed (401) [190]: Error validating access token: Session has expired on Tuesday, 21-Oct-26."),
+    )?.kind,
+    "wa_auth",
+  );
+  assert.equal(
+    classifyInfraError(new Error("WA send failed (403) [200]: Permissions error"))?.kind,
+    "wa_auth",
+  );
+  // Code 190 with an unusual HTTP status still means the token is dead.
+  assert.equal(
+    classifyInfraError(new Error("WA send failed (400) [190]: Invalid OAuth access token - Cannot parse access token"))?.kind,
+    "wa_auth",
+  );
+  assert.equal(
+    classifyInfraError(new Error("WA media upload failed (401): Invalid OAuth access token"))?.kind,
+    "wa_auth",
+  );
+  assert.equal(
+    classifyInfraError(new Error("Graph GET failed: OAuthException — The access token has expired"))?.kind,
+    "wa_auth",
+  );
+  // IG/FB page token is a different credential; an ordinary 400 is a data bug.
+  assert.equal(
+    classifyInfraError(new Error("Messenger send failed (401): Error validating access token")),
+    null,
+  );
+  assert.equal(
+    classifyInfraError(new Error("WA send failed (400) [131026]: Message undeliverable")),
+    null,
+  );
+  // 5xx stays meta_api.
+  assert.equal(classifyInfraError(new Error("WA send failed (502) [2]: Service temporarily unavailable"))?.kind, "meta_api");
+});
+
+test("report: wa_auth alarm names the token and how to rotate it", async () => {
+  resetInfraAlertMemoryForTests();
+  const posts: string[] = [];
+  const deps = {
+    postNote: async (t: string) => {
+      posts.push(t);
+    },
+    kvClaim: async () => true,
+  };
+  const err = new Error("WA send failed (401) [190]: Error validating access token: Session has expired");
+  assert.equal(await reportInfraError(deps, "webhook inbound", err, 9000), "wa_auth");
+  assert.equal(posts.length, 1);
+  const first = posts[0]!.split("\n")[0]!;
+  // The first line is what the level=critical #evan-alerts post carries.
+  assert.match(first, /\*El token de WhatsApp \(Meta\) no es válido\*/);
+  assert.match(first, /NO puede enviar mensajes/);
+  assert.match(posts[0]!, /Usuarios del sistema/);
+  assert.match(posts[0]!, /WA_ACCESS_TOKEN/);
+  // Own throttle key, independent of meta_api.
+  assert.equal(
+    await reportInfraError(deps, "cron x", new Error("WA send failed (503) [0]: down"), 9000 + 10),
+    "meta_api",
+  );
+});

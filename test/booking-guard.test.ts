@@ -679,3 +679,25 @@ test("upcomingTrialDateFromReminders: a past trial or no rows backs nothing", ()
   assert.equal(upcomingTrialDateFromReminders(rows, cdmxToEpoch(2026, 9, 29, 12, 0, 0)), null);
   assert.equal(upcomingTrialDateFromReminders([], cdmxToEpoch(2026, 9, 29, 12, 0, 0)), null);
 });
+
+test("applyBookingCapture: no card to keep the buttons on ⇒ '❌ No se pudo registrar' goes to #wa-leads (postTaskNote)", async () => {
+  const { db, state } = fakeDb();
+  const key = await seedCapture(state, { slackTs: null });
+  const tasks: string[] = [];
+  const { deps, log } = harness({
+    async postTaskNote(_env, text) {
+      tasks.push(text);
+    },
+    async registerBooking(_env, _slack, input, opts) {
+      log.registered.push({ input, opts });
+      return { ok: false, reason: "airtable_error", detail: "airtable create failed" };
+    },
+  });
+
+  await applyBookingCapture(envWith(db), key, undefined, deps);
+
+  assert.equal(tasks.length, 1);
+  assert.match(tasks[0]!, /^❌ No se pudo registrar 5215.*airtable create failed/);
+  assert.deepEqual(log.notes, []); // never also in ops_log/postNote
+  assert.equal(log.updates.length, 0);
+});

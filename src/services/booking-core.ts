@@ -423,6 +423,7 @@ export async function registerBooking(
     try {
       await slack.postNote(
         `🗓 ${opts.by} registró el agendado de ${booking.phone} en Airtable (${recordId}) — secuencia anti-no-show activada.`,
+        { kind: "booking" },
       );
     } catch (err) {
       console.error("[booking] attribution note failed", err);

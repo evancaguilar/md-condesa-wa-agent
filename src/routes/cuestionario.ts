@@ -232,7 +232,7 @@ async function handleSend(req: Request, env: Env): Promise<Response> {
   }
   const result = await sendCuestionario(
     env,
-    { postNote: (t) => postNote(env, t) },
+    { postNote: (t, o) => postNote(env, t, { kind: "cuestionario", ...o }) },
     {
       recordId,
       ...(isCuestionarioVersion(body?.version) ? { version: body.version } : {}),

@@ -153,3 +153,22 @@ CREATE INDEX IF NOT EXISTS idx_followups_kind_status_due ON followups(kind, stat
 CREATE INDEX IF NOT EXISTS idx_contacts_updated ON contacts(updated_at);
 CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts);  -- ALSO worker-applied since 2026-09-17 (kv guard migr_idx_2026_09_17): the console migration above was never run in prod
 CREATE INDEX IF NOT EXISTS idx_contacts_last10 ON contacts(substr(phone,-10));  -- worker-applied (kv guard migr_idx_2026_10_19): dashboard deep-link resolve
+
+-- ---- ops_log: the bot's own log, replaces the #bot-ops Slack channel (2026-10-22) ----
+-- Prod migration (Evan pastes in D1 console): the CREATE TABLE + 3 indexes below.
+-- Code fail-softs pre-migration (services/ops-log.ts: writes fall back to
+-- console, the Logs tab shows "migración pendiente"). The indexes are ALSO
+-- created from the worker by the daily prune (pruneOpsLog), so a skipped paste
+-- can't turn the Logs tab into a full scan. Rows > 30 days are pruned daily.
+
+CREATE TABLE IF NOT EXISTS ops_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,        -- unix seconds
+  level TEXT NOT NULL,        -- debug | info | warn | error | critical (critical also posts one line to #evan-alerts)
+  kind TEXT NOT NULL,         -- subsystem: template, blast, booking, metrics, audit, infra, … (OPS_KINDS)
+  message TEXT NOT NULL,      -- the text that used to go to #bot-ops
+  meta TEXT                   -- JSON, optional
+);
+CREATE INDEX IF NOT EXISTS idx_ops_log_ts ON ops_log(ts);
+CREATE INDEX IF NOT EXISTS idx_ops_log_kind_ts ON ops_log(kind, ts);
+CREATE INDEX IF NOT EXISTS idx_ops_log_level_ts ON ops_log(level, ts);

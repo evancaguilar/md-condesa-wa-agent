@@ -319,3 +319,23 @@ test("staff_later: unparseable note → cancelled, never throws", async () => {
   assert.deepEqual(rec.marks, [{ id: 7, status: "cancelled" }]);
   assert.equal(rec.notes.length, 0);
 });
+
+test("staff_later routing: closed window → #wa-leads (postTaskNote); 'lead wrote first' stays ops_log", async () => {
+  failFetch();
+  const closed = scenario({ row: { created_at: DAYTIME - 3600 }, contact: { last_inbound_at: null } });
+  const tasks: string[] = [];
+  const withTask = { ...closed.slack, postTaskNote: async (t: string) => void tasks.push(t) };
+  await atClock(DAYTIME, () => runDueFollowups(closed.env, { slack: withTask }));
+  assert.equal(tasks.length, 1);
+  assert.ok(/ventana de 24h cerrada/i.test(tasks[0]!));
+  assert.equal(closed.rec.notes.length, 0);
+
+  failFetch();
+  const stale = scenario({ row: { created_at: DAYTIME - 3600 }, contact: { last_inbound_at: DAYTIME - 60 } });
+  const tasks2: string[] = [];
+  const withTask2 = { ...stale.slack, postTaskNote: async (t: string) => void tasks2.push(t) };
+  await atClock(DAYTIME, () => runDueFollowups(stale.env, { slack: withTask2 }));
+  assert.equal(tasks2.length, 0);
+  assert.equal(stale.rec.notes.length, 1);
+  assert.ok(/escribió primero/.test(stale.rec.notes[0]!));
+});

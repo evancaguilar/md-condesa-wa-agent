@@ -220,5 +220,6 @@ async function noteSyncFailure(
   await postNote(
     env,
     `Sync a Airtable falló hoy (${event}, ${phone}): ${detail}. Puede ser un cambio de esquema en la tabla de Leads; revisa los campos.`,
+    { kind: "lead_sync" },
   );
 }

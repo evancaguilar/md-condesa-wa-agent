@@ -605,3 +605,53 @@ test("seed: app id unknown → QR pair reported failed, the rest still created",
   assert.equal(notes.length, 1);
   assert.match(notes[0]!, /student_qr \(muestra de imagen: no pude averiguar el app id de Meta \(pon META_APP_ID\)\)/);
 });
+
+// ---- Slack routing (2026-10-22): hand-overs → #wa-leads, success → ops_log ----
+
+function withTask(sc: Scenario) {
+  const h = harness(sc);
+  const tasks: string[] = [];
+  h.io.postTaskNote = async (t) => {
+    tasks.push(t);
+  };
+  return { ...h, tasks };
+}
+
+test("routing: every 'mándaselo a mano' note goes to postTaskNote, never postNote", async () => {
+  const noAlumno = withTask({ alumnoIds: [] });
+  await runStudentKit(
+    noAlumno.io,
+    CTX,
+    encodeKitNote({ alumno: ALUMNO_MAX_ATTEMPTS - 1, tpl: 0, err: 0, qr: false, resp: false }),
+  );
+  assert.equal(noAlumno.tasks.length, 1);
+  assert.match(noAlumno.tasks[0]!, /No encontré el Alumno/);
+  assert.deepEqual(noAlumno.r.notes, []);
+
+  const airtable = withTask({ airtableFails: true });
+  await runStudentKit(
+    airtable.io,
+    CTX,
+    encodeKitNote({ alumno: 0, tpl: 0, err: ERROR_MAX_ATTEMPTS - 1, qr: false, resp: false }),
+  );
+  assert.equal(airtable.tasks.length, 1);
+  assert.match(airtable.tasks[0]!, /No pude leer el Alumno/);
+  assert.deepEqual(airtable.r.notes, []);
+
+  const tpl = withTask({ windowOpen: false, templateFails: ["student_qr_es", "student_responsiva_es"] });
+  await runStudentKit(
+    tpl.io,
+    CTX,
+    encodeKitNote({ alumno: 0, tpl: TEMPLATE_MAX_ATTEMPTS - 1, err: 0, qr: false, resp: false }),
+  );
+  assert.equal(tpl.tasks.length, 1);
+  assert.match(tpl.tasks[0]!, /Mándaselo a mano/);
+  assert.deepEqual(tpl.r.notes, []);
+});
+
+test("routing: the success FYI ('QR y responsiva enviados') stays on postNote (ops_log)", async () => {
+  const ok = withTask({ windowOpen: true });
+  await runStudentKit(ok.io, CTX, null);
+  assert.deepEqual(ok.tasks, []);
+  assert.deepEqual(ok.r.notes, ["🎟️ QR y responsiva enviados a Ana López (5215512345678)"]);
+});

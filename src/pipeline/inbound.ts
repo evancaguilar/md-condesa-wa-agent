@@ -376,7 +376,7 @@ export async function processInbound(
     return;
   }
 
-  // 3. Opt-out. CRM flag + Slack note go out BEFORE the confirmation send so
+  // 3. Opt-out. CRM flag + ops_log note go out BEFORE the confirmation send so
   // the baja is visible to the team even if that send fails.
   // v2: the last ≤3 inbound messages within 2 min count as ONE text (2026-10-10
   // …4595: "No me interesa…" / "Gracias" / "Ya no me manden mensaje.").
@@ -455,7 +455,7 @@ export async function processInbound(
     if (match !== null) {
       matchedCampaign = activeCampaigns.find((c) => c.id === match.id) ?? null;
       await setContactCampaign(env.DB, msg.phone, match.id);
-      // Auto-learn: best-effort, off the reply path; the Slack note fires only
+      // Auto-learn: best-effort, off the reply path; the ops_log note fires only
       // on a real append (once per new ad, not per message).
       const learnId = adIdToLearn(match, msg.referral?.sourceId);
       if (learnId !== null && matchedCampaign) {
@@ -466,6 +466,7 @@ export async function processInbound(
               learned
                 ? ports.slack.postNote(
                     `🔗 Anuncio ${learnId} vinculado automáticamente a la campaña «${campaignName}» (coincidió por el texto del anuncio).`,
+                    { kind: "campaign" },
                   )
                 : undefined,
             )
@@ -567,6 +568,7 @@ export async function processInbound(
     await ports.slack.postNote(
       `(bot en pausa por override) ${msg.phone}: ${body}` +
         (armed ? "\n_Si nadie le contesta en 60 min, la IA responde (directo si ≥70 % segura, si no borrador)._" : ""),
+      { kind: "approvals", meta: { phone: msg.phone } },
     );
     return;
   }
@@ -704,7 +706,7 @@ export async function processInbound(
             decision === "first"
               ? `⚡ Nuevo lead — campaña «${matchedCampaign.name}» (${msg.phone}). Respuesta automática enviada; la IA contesta a partir de su próximo mensaje.`
               : `🔁 Lead volvió a llegar por la campaña «${matchedCampaign.name}» (${msg.phone}). Bienvenida reenviada.`;
-          ctx.waitUntil(ports.slack.postNote(note).catch(() => {}));
+          ctx.waitUntil(ports.slack.postNote(note, { kind: "campaign" }).catch(() => {}));
           // The canned welcome answers the AD, not the lead. Audit 2026-08:
           // 4/20 conversations in chunk 00 had their opening question
           // swallowed right here ("¿Es apto para niños?", "¿costo?") — the
@@ -1197,7 +1199,7 @@ async function routeResult(
         await afterBookingConfirmed(env, phone, {
           recordId: result.recordId,
           sentText: confirmation,
-          postNote: (t) => ports.slack.postNote(t),
+          postNote: (t, o) => ports.slack.postNote(t, { kind: "cuestionario", ...o }),
         });
       }
     }
@@ -1342,8 +1344,9 @@ async function routeResult(
   // training wheels.
   const reason = result.action === "draft" ? result.reason : undefined;
   // Brain outage alarm: the holding-line draft is what staff see, but the
-  // cause (balance, key, Anthropic 5xx) only they can fix. One <!here> per
-  // 30 min, atomic kv claim so parallel turns don't all shout.
+  // cause (balance, key, Anthropic 5xx) only Evan can fix. level=critical ⇒
+  // ops_log + one #evan-alerts line, at most once per 30 min (atomic kv claim
+  // so parallel turns don't all shout).
   if (reason?.startsWith("api_error")) {
     const claimed = await kvClaimIfAbsentOrOlder(env.DB, "brain_outage_alert", Math.floor(Date.now() / 1000), 30 * 60).catch(() => false);
     if (claimed) {
@@ -1353,6 +1356,7 @@ async function routeResult(
           .postNote(
             `<!here> 🧠⚠️ El cerebro (Anthropic) está fallando — cada respuesta sale como línea de espera. Causa: ${reason.slice(0, 200)}\n` +
               `Revisa saldo/auto-reload en console.anthropic.com o la API key en Cloudflare. Los leads afectados esperan respuesta humana.`,
+            { kind: "brain", level: "critical" },
           )
           .catch(() => {})
       );
@@ -1564,7 +1568,7 @@ async function escalationTask(
  * A parallel turn already confirmed this class, so this turn's reply is not
  * sent. If the lead's burst asked something else, the draft goes to Aprobar
  * (no holding line, no auto-send) so a human answers it; otherwise it is
- * dropped. Either way #bot-ops gets one line. Never throws.
+ * dropped. Either way ops_log gets one line. Never throws.
  */
 async function suppressDuplicateReply(
   env: Env,
@@ -1592,7 +1596,10 @@ async function suppressDuplicateReply(
     console.error("[inbound] duplicate draft to Aprobar failed", ctx.phone, err);
   }
   try {
-    await ports.slack.postNote(duplicateSuppressedNote(ctx.phone, what, toApproval));
+    await ports.slack.postNote(duplicateSuppressedNote(ctx.phone, what, toApproval), {
+      kind: "booking",
+      meta: { phone: ctx.phone },
+    });
   } catch (err) {
     console.error("[inbound] duplicate note failed", err);
   }
@@ -1669,7 +1676,9 @@ async function queueApproval(
 
 /**
  * Gate 3a: relays the site's answer to a Reto course-login request. The member
- * just wrote, so the window is open; a failure only costs a Slack ops note.
+ * just wrote, so the window is open. What the team must fix (no reply went
+ * out, missing `fundamentos` tag) → #wa-leads; a site failure that the
+ * fallback message covered → ops_log (kind "reto").
  */
 async function handleRetoLogin(env: Env, ports: Ports, phone: string): Promise<void> {
   const res = await requestRetoLogin(env, phone);
@@ -1678,21 +1687,24 @@ async function handleRetoLogin(env: Env, ports: Ports, phone: string): Promise<v
   } catch (err) {
     if (!(err instanceof WindowClosedError)) {
       console.error("[inbound] reto login reply failed", phone, err);
-      await ports.slack.postNote(`🎓 Login de cursos del Reto: no pude responderle a ${phone} (${String(err)}).`);
+      await taskNote(ports.slack, `🎓 Login de cursos del Reto: no pude responderle a ${phone} (${String(err)}).`);
       return;
     }
   }
   if (res.error || !res.ok) {
-    await ports.slack.postNote(`🎓 Login de cursos del Reto: el sitio falló para ${phone} (${res.error ?? "respuesta sin texto"}). Le mandé el mensaje de respaldo.`);
+    await ports.slack.postNote(
+      `🎓 Login de cursos del Reto: el sitio falló para ${phone} (${res.error ?? "respuesta sin texto"}). Le mandé el mensaje de respaldo.`,
+      { kind: "reto", level: "warn" },
+    );
   } else if (res.member === false) {
-    await ports.slack.postNote(`🎓 ${phone} pidió entrar a los cursos del Reto pero su número no tiene la etiqueta \`fundamentos\` en Airtable (Alumnos). Si ya pagó el Reto, agrégala.`);
+    await taskNote(ports.slack, `🎓 ${phone} pidió entrar a los cursos del Reto pero su número no tiene la etiqueta \`fundamentos\` en Airtable (Alumnos). Si ya pagó el Reto, agrégala.`);
   }
 }
 
 /**
  * The one opt-out routine (gate 3 and the brain's `opt_out` escalation):
  * status opted_out, followups + pending drafts cancelled, Airtable «Baja» tag,
- * Slack note. CRM flag + note go out BEFORE any confirmation send so the baja
+ * ops_log note. CRM flag + note go out BEFORE any confirmation send so the baja
  * is visible to the team even if that send fails.
  */
 async function applyOptOut(
@@ -1710,7 +1722,7 @@ async function applyOptOut(
   );
   if (opts.waitUntil) opts.waitUntil(flag);
   else await flag;
-  await ports.slack.postNote(opts.note);
+  await ports.slack.postNote(opts.note, { kind: "optout", meta: { phone } });
 }
 
 /** True when a stored message's meta JSON marks it as a voice transcription. */

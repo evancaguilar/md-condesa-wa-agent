@@ -43,8 +43,11 @@ export interface Env {
 
   // Vars
   SLACK_CHANNEL_ID: string;
-  /** Everything that is NOT a human task (FYIs, alerts, reports, debug) goes
-   *  here when set; unset ⇒ same channel as SLACK_CHANNEL_ID. docs/slack-channels-review.md */
+  /** #evan-alerts: ONLY what needs Evan (docs/slack-routing.md). Unset ⇒ those
+   *  alerts are kept in ops_log only. */
+  SLACK_CHANNEL_ALERTS_ID?: string;
+  /** Retired #bot-ops (2026-10-22): never posted to; kept only so buttons on
+   *  cards posted there before the restructure can still be edited. */
   SLACK_CHANNEL_OPS_ID?: string;
   AIRTABLE_BASE_ID: string;
   AIRTABLE_TRIALS_TABLE: string;
@@ -547,13 +550,23 @@ export interface AutoSentFyi {
   sureness?: number;
 }
 
+/** postNote / postAlert options: ops_log kind + level + structured meta. */
+export interface NoteOpts {
+  kind?: string;
+  level?: import("./services/ops-log.js").OpsLevel;
+  meta?: Record<string, unknown>;
+}
+
 export interface SlackPort {
   /** Posts a draft-approval card; returns the Slack message ts. */
   postDraft(
     a: PendingApproval & { contextText: string; sureness?: number },
   ): Promise<string>;
-  /** Plain note to the OPS channel (FYI / alert / debug — nobody must act). */
-  postNote(text: string): Promise<void>;
+  /** Mechanical note → D1 ops_log, not Slack (level "critical" also posts one
+   *  line to #evan-alerts). Never throws. services/slack.ts postNote. */
+  postNote(text: string, opts?: NoteOpts): Promise<void>;
+  /** Needs Evan → #evan-alerts. Optional for one-line fakes (alertNote() falls back). */
+  postAlert?(text: string, opts?: Omit<NoteOpts, "level">): Promise<void>;
   /** Plain note to the TASK channel (#wa-leads): a human must do something.
    *  Optional so one-line test fakes stay one-liners; callers fall back to postNote. */
   postTaskNote?(text: string): Promise<void>;

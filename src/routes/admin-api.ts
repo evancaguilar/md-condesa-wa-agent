@@ -246,6 +246,7 @@ import {
   setAutoSendEnabled,
 } from "../services/auto-send.js";
 import { KB } from "../kb.js";
+import { listOpsLog, OPS_KINDS, OPS_LEVELS, OPS_LOG_RETENTION_DAYS, parseOpsLogParams } from "../services/ops-log.js";
 
 // Overlay hard cap (estimated tokens). A resulting overlay above this is rejected
 // so the second cached system block stays small.
@@ -496,7 +497,7 @@ export async function handleAdminApi(
     }
     const r = await sendCuestionario(
       env,
-      { postNote: (t) => ports.slack.postNote(t) },
+      { postNote: (t, o) => ports.slack.postNote(t, { kind: "cuestionario", ...o }) },
       {
         recordId,
         ...(phone ? { phone } : {}),
@@ -517,7 +518,7 @@ export async function handleAdminApi(
       const body = (await req.json().catch(() => null)) as CreateTemplateInput | null;
       if (!body || typeof body !== "object") return json({ error: "body inválido" }, 400);
       const r = await createTemplate(env, body);
-      if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) enviada a Meta por ${by} → ${r.status ?? "?"}`).catch(() => {}));
+      if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) enviada a Meta por ${by} → ${r.status ?? "?"}`, { kind: "template" }).catch(() => {}));
       return json(r, r.ok ? 200 : 400);
     }
     // Edit an existing template's body/footer in place (2026-09-21).
@@ -525,7 +526,7 @@ export async function handleAdminApi(
       const body = (await req.json().catch(() => null)) as UpdateTemplateInput | null;
       if (!body || typeof body !== "object") return json({ error: "body inválido" }, 400);
       const r = await updateTemplate(env, body);
-      if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) editada por ${by} → ${r.status ?? "?"}`).catch(() => {}));
+      if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) editada por ${by} → ${r.status ?? "?"}`, { kind: "template" }).catch(() => {}));
       return json(r, r.ok ? 200 : 400);
     }
     // Sends per cron tick (kv `blast_per_tick`, clamped 1..BLAST_PER_TICK_MAX).
@@ -544,7 +545,7 @@ export async function handleAdminApi(
       if (runM[2] === "failures" && method === "GET") return handleBlastFailures(env, runM[1]!);
       if (runM[2] !== "failures" && method === "POST") {
         const res = await handleBlastRunAction(env, runM[1]!, runM[2]!, by);
-        if (res.note) ctx.waitUntil(ports.slack.postNote(res.note).catch(() => {}));
+        if (res.note) ctx.waitUntil(ports.slack.postNote(res.note, { kind: "blast" }).catch(() => {}));
         return res.response;
       }
     }
@@ -552,7 +553,7 @@ export async function handleAdminApi(
     if (path === "/admin/api/blast/test" && method === "POST") return handleBlastTest(req, env);
     if (path === "/admin/api/blast/queue" && method === "POST") {
       const res = await handleBlastQueue(req, env, by);
-      if (res.note) ctx.waitUntil(ports.slack.postNote(res.note).catch(() => {}));
+      if (res.note) ctx.waitUntil(ports.slack.postNote(res.note, { kind: "blast" }).catch(() => {}));
       return res.response;
     }
     return json({ error: "not found" }, 404);
@@ -622,7 +623,7 @@ export async function handleAdminApi(
     // Run the Airtable funnel sweep now (same code the cron runs every 15 min).
     if (path === "/admin/api/capi/sweep" && method === "POST") {
       return json(
-        await runCapiFunnelSweep(env, nowSec(), { postNote: (t) => ports.slack.postNote(t) }),
+        await runCapiFunnelSweep(env, nowSec(), { postNote: (t) => ports.slack.postNote(t, { kind: "capi" }) }),
       );
     }
     return json({ error: "not_found" }, 404);
@@ -641,12 +642,20 @@ export async function handleAdminApi(
       const res = await runAudienceSync(
         env,
         nowSec(),
-        { postNote: (t) => ports.slack.postNote(t) },
+        { postNote: (t) => ports.slack.postNote(t, { kind: "audiences" }) },
         { dryRun: body.dryRun === true, force: true },
       );
       return json(res, res.error ? 502 : 200);
     }
     return json({ error: "not_found" }, 404);
+  }
+
+  // ---- bot ops log (owner-only; services/ops-log.ts, tab "Logs") ----
+  if (path === "/admin/api/ops-log" && method === "GET") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const now = nowSec();
+    const res = await listOpsLog(env.DB, parseOpsLogParams((k) => url.searchParams.get(k), now), now);
+    return json({ ...res, kinds: OPS_KINDS, levels: OPS_LEVELS, retentionDays: OPS_LOG_RETENTION_DAYS });
   }
 
   // ---- one-time WABA migration (owner-only; docs/waba-migration-runbook.md) ----
@@ -816,7 +825,7 @@ export async function handleAdminApi(
         action === "approve" ? "aprobada" : action === "edit" ? "editada" : "descartada";
       // The sent text rides along: a card resolved from the panel is rewritten
       // in Slack to a one-liner, so without this the conversation record in
-      // #bot-ops has a hole (2026-10-09 audit: most lead threads unreadable).
+      // ops_log has a hole (2026-10-09 audit: most lead threads unreadable).
       ctx.waitUntil(
         (async () => {
           let tail = "";
@@ -832,6 +841,7 @@ export async function handleAdminApi(
           }
           await ports.slack.postNote(
             `✅ Aprobación #${id} ${verb} por ${session.user} desde el panel${tail}`,
+            { kind: "approvals" },
           );
         })().catch(() => {}),
       );
@@ -1123,7 +1133,7 @@ async function handleStaffSend(
     {
       sendText: (e, p, b, opts) => sendText(e, p, b, opts),
       isWindowClosed: (err) => err instanceof WindowClosedError,
-      postNote: (_e, text) => ports.slack.postNote(text),
+      postNote: (_e, text) => ports.slack.postNote(text, { kind: "panel" }),
       // Booking-capture card + non-blocking schedule check (services/slot-audit).
       auditSend: (e, p, t, by) => auditStaffSend(e, p, t, "staff", by),
     },
@@ -1320,7 +1330,7 @@ async function handleStaffSendMedia(
     {
       sendMedia: (e, p, k, id, opts) => sendMedia(e, p, k, id, opts),
       isWindowClosed: (err) => err instanceof WindowClosedError,
-      postNote: (_e, text) => ports.slack.postNote(text),
+      postNote: (_e, text) => ports.slack.postNote(text, { kind: "panel" }),
     },
   );
   if (!result.ok && result.reason === "too_long") {
@@ -1716,7 +1726,7 @@ async function handleStatus(
       JSON.stringify({ by: session.user, ts: nowSec(), dir: "set" }),
     );
     try {
-      await ports.slack.postNote(`🚫 ${phone} marcado como baja por ${session.user}`);
+      await ports.slack.postNote(`🚫 ${phone} marcado como baja por ${session.user}`, { kind: "optout" });
     } catch (err) {
       console.error("manual opt-out slack note failed", err);
     }
@@ -1729,6 +1739,7 @@ async function handleStatus(
     try {
       await ports.slack.postNote(
         `↩️ ${phone} ya no está marcado como baja (${session.user}). La etiqueta Baja en Airtable se quita a mano.`,
+        { kind: "optout" },
       );
     } catch (err) {
       console.error("manual opt-out slack note failed", err);
@@ -2912,7 +2923,7 @@ async function handleCapiTest(req: Request, env: Env): Promise<Response> {
 async function handleMetricsBrief(env: Env, ports: Ports): Promise<Response> {
   try {
     const text = await runMetricsBrief(env, nowSec(), {
-      postNote: (t) => ports.slack.postNote(t),
+      postNote: (t) => ports.slack.postNote(t, { kind: "metrics" }),
     });
     return json({ ok: true, text });
   } catch (err) {

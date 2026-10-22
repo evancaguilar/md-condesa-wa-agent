@@ -12,7 +12,7 @@
 //
 // Pure logic (whitelists, copy, version) lives in cuestionario-core.ts.
 
-import type { Contact, Env, Language } from "../types.js";
+import type { Contact, Env, Language, NoteOpts } from "../types.js";
 import {
   airtableFetch,
   AirtableWriteError,
@@ -166,8 +166,9 @@ export async function postCompletionOnce(
 // ---- send -----------------------------------------------------------------------
 
 export interface CuestionarioDeps {
-  /** Ops-channel note (non-window send failures; the daily template-failure note). */
-  postNote(text: string): Promise<void>;
+  /** ops_log note (non-window send failures; the daily template-failure note,
+   *  which passes level "critical"). Wiring binds kind "cuestionario". */
+  postNote(text: string, opts?: NoteOpts): Promise<void>;
   now?(): number;
   /** Test seams; default to the real implementations. */
   getRecord?: (env: Env, recordId: string) => Promise<AirtableRecord | null>;
@@ -387,8 +388,10 @@ export async function sendCuestionario(
       console.warn(`[cuestionario] ${rec.id} ${phone}: window closed, template not sent: ${tplErr}`);
       try {
         if (await kvSetIfAbsent(env.DB, templateNoteKey(now), "1")) {
+          // Blocks every closed-window invite ⇒ critical (ops_log + one #evan-alerts line).
           await deps.postNote(
             `📝 Cuestionario: hoy hay leads con la ventana cerrada a los que no se pudo mandar la plantilla cuestionario_invite (${tplErr.slice(0, 160)}). ¿Está aprobada en WhatsApp Manager? (un aviso por día)`,
+            { kind: "template", level: "critical" },
           );
         }
       } catch {
@@ -470,7 +473,7 @@ export function syncTryKey(recordId: string): string {
  */
 export async function syncCuestionario(
   env: Env,
-  postNote: (text: string) => Promise<void>,
+  postNote: (text: string, opts?: NoteOpts) => Promise<void>,
   rec: { id: string; cuestionarioEnviado?: unknown },
   phone: string,
   nowSec: number = Math.floor(Date.now() / 1000),
@@ -601,8 +604,8 @@ export async function sendFirstClassConfirmation(
 export interface AfterConfirmedOpts {
   /** Leads record id, when the caller has it (a `#n` sequence suffix is stripped). */
   recordId?: string | null;
-  /** Ops-note sink for sendCuestionario. Defaults to the Slack ops channel. */
-  postNote?: (text: string) => Promise<void>;
+  /** Note sink for sendCuestionario. Defaults to ops_log (kind "cuestionario"). */
+  postNote?: (text: string, opts?: NoteOpts) => Promise<void>;
   /** The confirmation text that just landed. When it carries a valid signed
    *  first-class link, that WAS the link: stamp the record, no invite. */
   sentText?: string | null;
@@ -664,7 +667,7 @@ export async function afterBookingConfirmed(
     }
     const r = await sendCuestionario(
       env,
-      { postNote: opts.postNote ?? ((t) => slackOpsNote(env, t)) },
+      { postNote: opts.postNote ?? ((t, o) => slackOpsNote(env, t, { kind: "cuestionario", ...o })) },
       { recordId, phone },
     );
     if (!r.ok && r.reason !== "already_sent") {

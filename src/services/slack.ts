@@ -14,11 +14,12 @@ import {
   KV_STATUS_LINE_PING_AT,
   KV_STATUS_LINE_TS,
 } from "./status-line.js";
-import { dashboardChatUrl } from "./dashboard-link.js";
+import { dashboardChatUrl, dashboardUrl } from "./dashboard-link.js";
 import type {
   AutoSentFyi,
   BookTrialInput,
   Env,
+  NoteOpts,
   PendingApproval,
   SlackPort,
 } from "../types.js";
@@ -73,6 +74,13 @@ import { AUTO_SEND_DAILY_CAP, isAutoSendEnabled } from "./auto-send.js";
 import { claimApproval, getCampaign } from "../db/queries-admin.js";
 import type { Proposal } from "./kb-editor.js";
 import { CLIENT } from "../client.gen.js";
+import {
+  criticalAlertLine,
+  criticalDedupeKey,
+  inferLevel,
+  shouldPostCritical,
+  writeOpsLog,
+} from "./ops-log.js";
 
 export {
   verifySlackSignature,
@@ -115,15 +123,25 @@ async function slackCall(
 }
 
 /**
- * Two channels (docs/slack-channels-review.md, 2026-10-06): "task" is
- * SLACK_CHANNEL_ID (#wa-leads) — only things a human must do, with the
- * buttons; "ops" is SLACK_CHANNEL_OPS_ID (#bot-ops) — FYIs, alerts, reports,
- * debug. Unset ops var ⇒ both resolve to the task channel (safe rollout).
+ * Slack destinations (2026-10-22 restructure, docs/slack-routing.md):
+ *   "task"   SLACK_CHANNEL_ID (#wa-leads) — ONLY what the team must act on:
+ *            approval cards, booking FYIs, human-task notes, the scoreboard.
+ *   "alerts" SLACK_CHANNEL_ALERTS_ID (#evan-alerts) — ONLY what needs Evan:
+ *            nightly-audit summary, sales escalations, template approved /
+ *            rejected, weekly scoreboard, level=critical one-liners.
+ * Everything else is NOT Slack: postNote writes the D1 ops_log (services/
+ * ops-log.ts, /admin → Logs). #bot-ops (SLACK_CHANNEL_OPS_ID) is no longer a
+ * destination; the var survives only so a button on a card posted there
+ * before the restructure can still be edited (updateMessage retry).
+ * Dedupe rule: one event → at most ONE Slack channel.
  */
-export type NoteKind = "task" | "ops";
+export type NoteKind = "task" | "alerts";
 
-export function channelFor(env: Pick<Env, "SLACK_CHANNEL_ID" | "SLACK_CHANNEL_OPS_ID">, kind: NoteKind): string {
-  if (kind === "ops" && env.SLACK_CHANNEL_OPS_ID) return env.SLACK_CHANNEL_OPS_ID;
+export function channelFor(
+  env: Pick<Env, "SLACK_CHANNEL_ID" | "SLACK_CHANNEL_ALERTS_ID">,
+  kind: NoteKind,
+): string | null {
+  if (kind === "alerts") return env.SLACK_CHANNEL_ALERTS_ID || null;
   return env.SLACK_CHANNEL_ID;
 }
 
@@ -134,8 +152,10 @@ async function postMessage(
   extra?: Record<string, unknown>,
   kind: NoteKind = "task",
 ): Promise<string> {
+  const channel = channelFor(env, kind);
+  if (!channel) throw new Error(`slack: no channel configured for "${kind}"`);
   const data = await slackCall(env, "chat.postMessage", {
-    channel: channelFor(env, kind),
+    channel,
     text,
     blocks,
     ...extra,
@@ -149,15 +169,15 @@ async function updateMessage(
   blocks: unknown[],
   text: string,
 ): Promise<void> {
-  // Cards live in the task channel; the auto-sent FYI (with its "Tomar
-  // control" button) lives in ops. Button payloads only carry the ts, so a
-  // miss in the task channel retries in ops.
+  // Cards live in the task channel. Button payloads only carry the ts, so a
+  // miss there retries in the retired #bot-ops channel, where auto-sent FYIs
+  // (with a "Tomar control" button) were posted before 2026-10-22.
   try {
-    await slackCall(env, "chat.update", { channel: channelFor(env, "task"), ts, text, blocks });
+    await slackCall(env, "chat.update", { channel: env.SLACK_CHANNEL_ID, ts, text, blocks });
   } catch (err) {
-    const ops = channelFor(env, "ops");
-    if (ops === channelFor(env, "task") || !/message_not_found|channel_not_found/.test(String(err))) throw err;
-    await slackCall(env, "chat.update", { channel: ops, ts, text, blocks });
+    const legacyOps = env.SLACK_CHANNEL_OPS_ID;
+    if (!legacyOps || legacyOps === env.SLACK_CHANNEL_ID || !/message_not_found|channel_not_found/.test(String(err))) throw err;
+    await slackCall(env, "chat.update", { channel: legacyOps, ts, text, blocks });
   }
 }
 
@@ -354,10 +374,51 @@ export async function postDraft(
   return postMessage(env, blocks, `<!here> Nueva respuesta por aprobar — ${a.phone}`);
 }
 
-/** Plain informational note to the channel. */
-/** FYI / alert / debug note → ops channel. */
-export async function postNote(env: Env, text: string): Promise<void> {
-  await postMessage(env, [section(text)], text, undefined, "ops");
+/**
+ * Mechanical note (FYI / report / debug / non-blocking failure) → D1 ops_log,
+ * NOT Slack. Never throws. level defaults from the leading emoji (inferLevel);
+ * level "critical" (a failure that blocks sends) ALSO posts one line to
+ * #evan-alerts, deduped per kind for 30 min.
+ */
+export async function postNote(env: Env, text: string, opts: NoteOpts = {}): Promise<void> {
+  const level = opts.level ?? inferLevel(text);
+  const kind = opts.kind ?? "misc";
+  await writeOpsLog(env.DB, { level, kind, message: text, meta: opts.meta });
+  if (level !== "critical") return;
+  // Fail OPEN on D1: an infra alert (services/infra-alert.ts) arrives here
+  // exactly when D1 is down, so a kv error must not swallow the Slack line.
+  const line = criticalAlertLine(kind, text);
+  const key = criticalDedupeKey(kind);
+  const now = Math.floor(Date.now() / 1000);
+  const prev = await kvGet(env.DB, key).catch(() => null);
+  if (!shouldPostCritical(prev, line, now)) return;
+  await kvSet(env.DB, key, `${now}|${line}`).catch(() => {});
+  const full = `${line} · <${dashboardUrl(env, `logs/${kind}`)}|detalle>`;
+  try {
+    await postMessage(env, [section(full)], line, undefined, "alerts");
+  } catch (err) {
+    console.error("[slack] critical alert line failed", kind, err);
+  }
+}
+
+/**
+ * Needs Evan → #evan-alerts (also recorded in ops_log so the Logs tab is the
+ * complete record). Throws on a Slack failure so retry-on-failure callers
+ * (nightly audit) retry. No alerts channel configured ⇒ ops_log only.
+ */
+export async function postAlert(env: Env, text: string, opts: Omit<NoteOpts, "level"> = {}): Promise<void> {
+  const kind = opts.kind ?? "misc";
+  await writeOpsLog(env.DB, {
+    level: inferLevel(text),
+    kind,
+    message: text,
+    meta: { ...(opts.meta ?? {}), slack: "evan-alerts" },
+  });
+  if (!channelFor(env, "alerts")) {
+    console.warn("[slack] SLACK_CHANNEL_ALERTS_ID unset; alert kept in ops_log only", kind);
+    return;
+  }
+  await postMessage(env, [section(text)], text, undefined, "alerts");
 }
 
 /** A human must act → task channel (#wa-leads). */
@@ -416,10 +477,12 @@ async function escalationSlaStep(env: Env, a: PendingApproval, now: number): Pro
     );
     return;
   }
-  const owner = (env as unknown as Record<string, string | undefined>).SLACK_OWNER_USER_ID;
-  if (!owner) return; // no owner id configured ⇒ skip the DM
-  const text = `⏰ ${a.phone} lleva ${mins} min sin respuesta humana en #wa-leads (escalación).`;
-  await slackCall(env, "chat.postMessage", { channel: owner, text, blocks: [section(text)] });
+  // Sales escalation past its SLA → #evan-alerts (was a DM to
+  // SLACK_OWNER_USER_ID, usually unset). The task itself stays in #wa-leads.
+  await postAlert(env, `⏰ ${a.phone} lleva ${mins} min sin respuesta humana en #wa-leads (escalación).`, {
+    kind: "approvals",
+    meta: { phone: a.phone, approvalId: a.id },
+  });
 }
 
 /** FYI card posted when the model's book_trial tool fires. */
@@ -435,33 +498,28 @@ export async function postBookingFyi(env: Env, booking: BookTrialInput): Promise
         (chatUrl ? `  •  <${chatUrl}|💬 Abrir en el panel>` : ""),
     ),
   ];
-  await postMessage(env, blocks, `Clase de prueba agendada — ${booking.name}`, undefined, "ops");
+  // #wa-leads, silent (no <!here>): the team preps for the visit.
+  await postMessage(env, blocks, `Clase de prueba agendada — ${booking.name}`, undefined, "task");
 }
 
 /**
- * FYI card for a reply the gated auto-send lane sent WITHOUT approval. Silent
- * on purpose (no <!here>): nothing is action-required — it already went out.
- * "Tomar control" pauses the bot for that lead so a human can take the thread;
- * it is phone-keyed (`takeover_phone|<phone>`) because an auto-sent reply never
- * created an approval row to claim.
+ * A reply the gated auto-send lane sent WITHOUT approval → ops_log (kind
+ * "autosend"), not Slack (2026-10-22): it already went out, nobody must act.
+ * Taking the thread over is done from the dashboard chat (link in meta).
  */
 export async function postAutoSentFyi(env: Env, fyi: AutoSentFyi): Promise<void> {
   const who = fyi.name ? `${fyi.name} · ${fyi.phone}` : fyi.phone;
   const seguridad =
     fyi.sureness !== undefined ? `seguridad ${fyi.sureness}%` : "alta confianza";
-  const blocks: unknown[] = [
-    section(`🤖 *Auto-enviado (${seguridad})* — ${who}`),
-    section(`>${quote(fyi.text)}`),
-    context(
-      `${fyi.dailyCount}/${AUTO_SEND_DAILY_CAP} hoy  •  sin aprobación (auto-envío seguro)`,
-    ),
+  await postNote(
+    env,
+    `🤖 Auto-enviado (${seguridad}) — ${who}: «${fyi.text}» · ${fyi.dailyCount}/${AUTO_SEND_DAILY_CAP} hoy`,
     {
-      type: "actions",
-      block_id: `autosent_${fyi.phone}`,
-      elements: [button("🙋 Tomar control", `takeover_phone|${fyi.phone}`)],
+      kind: "autosend",
+      level: "info",
+      meta: { phone: fyi.phone, sureness: fyi.sureness ?? null, dailyCount: fyi.dailyCount, chat: dashboardChatUrl(env, fyi.phone) },
     },
-  ];
-  await postMessage(env, blocks, `Auto-enviado — ${fyi.phone}`, undefined, "ops");
+  );
 }
 
 /**
@@ -766,7 +824,7 @@ export async function ensureStatusLine(
   if (existing) {
     try {
       await slackCall(env, "chat.update", {
-        channel: channelFor(env, "task"),
+        channel: env.SLACK_CHANNEL_ID,
         ts: existing,
         text,
         blocks: [section(text)],
@@ -780,7 +838,7 @@ export async function ensureStatusLine(
     const ts = await postMessage(env, [section(text)], text, undefined, "task");
     await kvSet(env.DB, KV_STATUS_LINE_TS, ts);
     try {
-      await slackCall(env, "pins.add", { channel: channelFor(env, "task"), timestamp: ts });
+      await slackCall(env, "pins.add", { channel: env.SLACK_CHANNEL_ID, timestamp: ts });
     } catch {
       // best-effort
     }
@@ -1117,8 +1175,9 @@ export async function runApprovalTimeouts(
 export function makeSlackPort(env: Env): SlackPort {
   return {
     postDraft: (a) => postDraft(env, a),
-    postNote: (text) => postNote(env, text),
+    postNote: (text, opts) => postNote(env, text, opts),
     postTaskNote: (text) => postTaskNote(env, text),
+    postAlert: (text, opts) => postAlert(env, text, opts),
     postEscalationTask: (phone, approvalId, text) => postEscalationTask(env, phone, approvalId, text),
     postBookingFyi: (booking) => postBookingFyi(env, booking),
     postAutoSentFyi: (fyi) => postAutoSentFyi(env, fyi),

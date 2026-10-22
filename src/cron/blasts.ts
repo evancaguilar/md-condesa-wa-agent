@@ -251,6 +251,8 @@ export async function runBlastBatch(
       await deps.slack.postNote(
         `⏸️ Envío masivo *${meta?.name ?? runId}* pausado automáticamente: ${msg}\n` +
           `Corrige (plantilla aprobada / nombre e idioma exactos / link del encabezado) y reanuda desde /admin → Envíos.`,
+        // Blocks the run's remaining sends ⇒ critical (ops_log + one #evan-alerts line).
+        { kind: "blast", level: "critical", meta: { runId } },
       );
       break;
     }
@@ -286,6 +288,7 @@ export async function runBlastBatch(
       result.finishedRuns.push(runId);
       await deps.slack.postNote(
         `✅ Envío masivo *${meta.name}* terminado: ${c.sent} enviados · ${c.failed} fallidos · ${c.skipped} baja · ${c.cancelled} cancelados (de ${meta.total}).`,
+        { kind: "blast" },
       );
     }
   }
@@ -312,6 +315,7 @@ export async function expireDueRuns(env: Env, deps: BlastDrainDeps, nowEpoch: nu
     await deps.slack.postNote(
       `⏱️ Envío masivo *${meta.name}* expiró (${cdmxHm(meta.expiresAt ?? nowEpoch)} CDMX): ${n} sin enviar, cancelados. ` +
         `Si el texto sigue vigente, encola un envío nuevo con otra fecha de expiración.`,
+      { kind: "blast" },
     );
   }
   await refreshActiveFlag(env);

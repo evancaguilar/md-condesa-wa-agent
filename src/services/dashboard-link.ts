@@ -13,3 +13,9 @@ export function dashboardChatUrl(env: Env, phone: string): string | null {
   const base = ((env as unknown as Record<string, string | undefined>).DASHBOARD_URL ?? DEFAULT_BASE).replace(/\/+$/, "");
   return `${base}/admin#chats/${digits}`;
 }
+
+/** Any dashboard deep link: dashboardUrl(env, "logs/audit") → …/admin#logs/audit. */
+export function dashboardUrl(env: Env, hash: string): string {
+  const base = ((env as unknown as Record<string, string | undefined>).DASHBOARD_URL ?? DEFAULT_BASE).replace(/\/+$/, "");
+  return `${base}/admin#${hash.replace(/^#/, "")}`;
+}

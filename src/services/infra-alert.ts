@@ -10,13 +10,15 @@
 // its throttle slot in kv, i.e. in D1.
 //
 // This module classifies an error as an infra outage (D1 / Anthropic / Meta /
-// Slack) and posts ONE <!here> note per kind per THROTTLE window. Throttle:
+// WhatsApp token) and posts ONE <!here> note per kind per THROTTLE window —
+// the wiring passes level "critical" (ops_log + the first line to #evan-alerts,
+// services/slack.ts postNote, whose D1 writes fail soft/open). Throttle:
 // try the shared kv claim first (one note across all isolates); when kv itself
 // throws, fall back to a per-isolate in-memory timestamp so the alarm still
 // goes out while the DB is down (a handful of isolates ⇒ a handful of notes,
 // never a flood). Pure: D1 and Slack arrive as injected functions.
 
-export type InfraKind = "d1_overloaded" | "d1_error" | "anthropic" | "meta_api";
+export type InfraKind = "d1_overloaded" | "d1_error" | "anthropic" | "meta_api" | "wa_auth";
 
 export interface InfraClassification {
   kind: InfraKind;
@@ -61,6 +63,23 @@ export function classifyInfraError(err: unknown): InfraClassification | null {
       hint: "console.anthropic.com → Billing (saldo / auto-reload) o la API key en Cloudflare.",
     };
   }
+  // WhatsApp token/auth: services/wa.ts throws "WA send failed (401) [190]: …"
+  // / "WA media upload failed (403): …". Every send fails until a human swaps
+  // the token, so it is a blocking outage, not a per-lead error. Messenger
+  // (IG/FB page token) errors are excluded — a different credential.
+  if (
+    /WA (send|media upload) failed \((401|403)\)|WA send failed \(\d{3}\) \[190\]/i.test(text) ||
+    (!/Messenger/i.test(text) &&
+      /OAuthException|Error validating access token|access token (has expired|is invalid|could not be decrypted)/i.test(text))
+  ) {
+    return {
+      kind: "wa_auth",
+      detail,
+      hint:
+        "Meta Business → Configuración del negocio → Usuarios del sistema: genera un token nuevo (permisos whatsapp_business_messaging y whatsapp_business_management) " +
+        "y actualiza el secreto WA_ACCESS_TOKEN en Cloudflare (Workers → md-condesa-wa-agent → Settings → Variables).",
+    };
+  }
   if (/WA send failed \((5\d\d|429)\)|error code: 5\d\d|graph\.facebook\.com.*(5\d\d|ECONN)/i.test(text)) {
     return {
       kind: "meta_api",
@@ -72,7 +91,8 @@ export function classifyInfraError(err: unknown): InfraClassification | null {
 }
 
 export interface InfraAlertDeps {
-  /** Posts to the ops channel. Must not touch D1. */
+  /** The alarm sink: wired to postNote(level "critical") — ops_log + one
+   *  #evan-alerts line. Must not REQUIRE D1 (postNote's D1 writes fail soft). */
   postNote(text: string): Promise<void>;
   /**
    * Shared throttle (kv, lives in D1): return true when THIS caller won the
@@ -127,9 +147,11 @@ export function formatInfraAlert(
     d1_error: "La base de datos (D1) está fallando",
     anthropic: "El cerebro (Anthropic) está fallando",
     meta_api: "La API de WhatsApp (Meta) está fallando",
+    wa_auth: "El token de WhatsApp (Meta) no es válido",
   };
+  const effect = c.kind === "wa_auth" ? "el bot NO puede enviar mensajes" : "el bot NO está procesando mensajes";
   return (
-    `<!here> 🛑 *${title[c.kind]}* — el bot NO está procesando mensajes (${scope}).\n` +
+    `<!here> 🛑 *${title[c.kind]}* — ${effect} (${scope}).\n` +
     `Error: \`${c.detail}\`\n` +
     `Qué revisar: ${c.hint}` +
     (viaMemory

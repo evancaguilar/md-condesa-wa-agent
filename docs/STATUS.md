@@ -1,8 +1,28 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-21**.
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-22** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
-### "¿Cómo nos encontraste?" after the booking confirmation (2026-10-21) — ON BRANCH `claude/wizardly-turing-m0eeub`, needs Evan's merge
+### Slack routing restructure: #wa-leads = team tasks, #evan-alerts = Evan, #bot-ops → D1 ops_log (2026-10-22): SHIPPED (pushed 2026-10-22 at Evan's request; live probes below)
+
+Full routing table (event → old → new): **docs/slack-routing.md**.
+
+- **#bot-ops is retired as a destination.** `postNote(text, { kind, level, meta })` now writes the new D1 table `ops_log` (`services/ops-log.ts`, which fails soft before the migration). /admin has a new owner-only **Logs** tab: filter by level, kind and date; "Cargar más"; no polling; deep link `#logs/<kind>`. `GET /admin/api/ops-log` is owner-only. Rows older than 30 days are pruned daily at 04:00, and the prune also creates the indexes.
+- **#evan-alerts** (`SLACK_CHANNEL_ALERTS_ID`=C0C0YSLS622) gets:
+  - The nightly audit as ONE summary (the prompt now starts with "🧾 Resumen:"; the full report is in Logs → audit).
+  - The escalation SLA step (was a DM, usually skipped).
+  - **New:** template APPROVED/REJECTED/PAUSED/… notices from the `message_template_status_update` webhook.
+  - One line per `level=critical` event (infra D1/Anthropic/Meta, **new:** WhatsApp token invalid, brain api_error, blast auto-pause, missing follow-up template, cuestionario_invite unavailable), deduped per kind for 30 min and fail-open on D1.
+- **#wa-leads** gains the 📅 booking FYI (was in #bot-ops) and every human-task note that used to sit in #bot-ops: QR/responsiva by hand, scheduled message not sent, welcome failed, booking reconciliation, "no se pudo registrar", Reto tag missing, 📥 message not saved, template not sent. The 🤖 auto-sent FYI moves to ops_log; take over from the dashboard chat.
+- Not built (no code existed): the Monday scoreboard, the "en negociación X días sin contacto" escalation, and the daily closing queue. When they ship they go through `postAlert` (the first two) and `postTaskNote` (the closing queue).
+- Tests → **1367+** (ops-log, ops-log params, template status, wa_auth, routing of student-kit / booking-guard / booking-recon / send-later).
+- [x] Evan OK'd merge + push (2026-10-22).
+- [ ] **Evan:** paste the `ops_log` CREATE TABLE + 3 indexes (end of `src/db/schema.sql`) into the D1 console.
+- [ ] **Evan:** `/invite` the bot to #evan-alerts.
+- [ ] **Evan:** Meta App → WhatsApp → Configuration → Webhook fields → subscribe `message_template_status_update`.
+- [ ] **Evan:** after deploy, probe for the new route: `/admin#logs` shows rows (or the "Migración pendiente" notice); `GET /admin/api/ops-log` → 200 for the owner, 403 for staff.
+- [ ] **Evan (decide):** the edit-tuner proposal cards (Evan-only Aplicar/Descartar) still post to #wa-leads. Move them to #evan-alerts?
+
+### "¿Cómo nos encontraste?" after the booking confirmation (2026-10-21) — SHIPPED (pushed 2026-10-21, ff00be1)
 
 Leads that write to the bot with NO attribution (no click-to-WhatsApp ad referral, no Google click ref, no campaign tag — e.g. Landon, Alexis Luna) were landing as `Origen = Desconocido`, and their sales could not be credited to Meta ads or to organic. Owner rule: ask only AFTER the booking confirmation went out, never in a way that can stall a booking.
 
@@ -11,10 +31,10 @@ Leads that write to the bot with NO attribution (no click-to-WhatsApp ad referra
 - **Capture** (inbound step 1d, not a gate): the first 2 messages within 48 h after the question are classified (`classifyOriginAnswer`: digit 1–6 / keycap, else keywords; "anuncio" wins unless negated; a question back is never an answer; "Instagram" alone = answered, Canal left alone). Writes Leads `Canal` (only over empty/WA/IG/FB) + raw text in `Cómo nos encontró` (fill-if-empty, `airtableLeads.howFound`). The brain gets an `<origen>` hint: thank in one line, never ask again.
 - **Airtable (done 2026-10-21, no code):** `Origen` formula reads Canal (Anuncio/Pagado → Pagado; Post orgánico/Google/Google Maps/Referido/Local/Orgánico → Orgánico; Google Ads → "Google Ads"), plus new lookups `Pagado u Orgánico (alumno)` and `Campaña (alumno)` so tagging the STUDENT counts. A new select option "Post orgánico" is created by the first write (typecast) if nobody added it.
 - New `FollowupKind` `origin_ask` (no migration). Tests 1336 → **1351**.
-- [ ] **Evan:** merge (push to main = deploy). Probe: `/health` rev changes; then on the next unattributed booking watch the chat — question ~3–8 min after the confirmation, and the answer in Leads `Canal` / `Cómo nos encontró`.
+- [x] Merged + pushed (ff00be1).
+- [ ] **Evan:** probe: `/health` rev changes; then on the next unattributed booking watch the chat — question ~3–8 min after the confirmation, and the answer in Leads `Canal` / `Cómo nos encontró`.
 
-### Auditor-nocturno review (Oct 7–21): nudge fixes, lead cancellations, audit retry, KB answers (2026-10-21) — MERGED ON LOCAL main, NOT PUSHED
-
+### Auditor-nocturno review (Oct 7–21): nudge fixes, lead cancellations, audit retry, KB answers (2026-10-21) — SHIPPED (pushed 2026-10-21, bc8cced; live probes below still pending)
 Review of 11 nightly Opus reports (Oct 8/10/11 header-only, Oct 20 missing) — most recurring errors already had a KB rule but no code enforcement. Shipped together with the entry below:
 
 - **KB (Evan's answers):** Promo Mañanas $999 never offered (honored only if asked; ad is down); BFC Nivel 0 = $1,996; metro Chilpancingo; MMA adultos 16–17 if capable, 13–15 → MMA Teens; 3 clases/sem and clase suelta/paquetes → no figures, escalate; "paquetes" dropped from the first-price script. Expired Cejudo/verano copy trimmed (KB 12,084/12,100 tok).
@@ -26,13 +46,14 @@ Review of 11 nightly Opus reports (Oct 8/10/11 header-only, Oct 20 missing) — 
 - Tests → **1336** (both entries).
 - [ ] **Evan:** add BJJ Tue/Thu 3:15 pm to the KB once launch is confirmed.
 
-### Duplicate booking confirmations, doubled invite closing, schedule checks on human sends (2026-10-21) — MERGED ON LOCAL main, NOT PUSHED
+### Duplicate booking confirmations, doubled invite closing, schedule checks on human sends (2026-10-21) — SHIPPED (pushed 2026-10-21, bc8cced; live probe below still pending)
 
 - **Duplicate confirmation + video (auditor 10-13/15/18/21) — two root causes, proven from transcripts:** (1) overlapping brain turns: the 8 s debounce is check-then-act and `book` results skip the mid-brain supersede, so name + child's name ~10 s apart → two book turns → two confirmations + two videos (…6562, …0711, …8321); variant: the parallel non-book turn restated the booking it hadn't seen (…2064). (2) `syncBookings` read the brain's brand-new record before `finalizeBooking` wrote `booking_recorded` → armed `trial_confirm` → signed-link confirmation + video again 5 min later (…9313: 20:45:59 chat, 20:50:50 with `meta.cuestionario`). **Fix** `src/services/confirm-once.ts`: atomic kv claim `booking_confirm:<phone>:<YYYY-MM-DDTHH:mm>` (2 h window, fail-open) on the brain direct send, `trial_confirm`, approved/edited booking drafts (video only) and `registerBooking` (video only); stale booking restatements from a parallel turn are dropped (Slack ops note); `makeAirtablePort.bookTrial` writes `booking_recorded` the moment the record exists.
 - **Doubled "invite a friend" closing:** `CLOSING_RE` (cuestionario-core) now recognises paraphrases (invitar/traer/compartir + a/con + amigo/familia/alguien/pareja…).
 - **Schedule claims:** `findSlotClaimIssues` judges day ranges + parts of day / hours / spans, week-wide "cierra/empiezan a las…", "hay Teens el sábado", sparring (`trial:false`) slots and "12 pm Jiu-Jitsu" on Saturday (Blindaje 8); the KB's canonical summary no longer trips it. **New:** `services/slot-audit.ts` runs it after edited approvals, dashboard composer and scheduled staff sends → #wa-leads note (never blocks).
 - Tests 1287 → **1310**.
-- [ ] **Evan:** OK to push. Probe after deploy: Editar an approval with "mañana miércoles a las 8 pm MMA" on a test chat → #wa-leads "⚠️ Horario a revisar".
+- [x] Pushed 2026-10-21 (bc8cced).
+- [ ] **Evan:** probe after deploy: Editar an approval with "mañana miércoles a las 8 pm MMA" on a test chat → #wa-leads "⚠️ Horario a revisar".
 - [x] Teens Jiu-Jitsu 5 pm row restored (see entry above).
 
 ### Day-of confirmation from the bot number: chat deep links + voice notes / video from the composer (2026-10-19) — SHIPPED (pushed 2026-10-19, rev 072c258b4dc5; team guide: Google Doc "Cómo confirmar la clase del día desde el número del bot")
@@ -42,13 +63,14 @@ Staff used to send the day-of confirmation from the SUPPORT number (their own ph
 - **Deep link `/admin#chats/<digits>`:** SPA resolves via `GET /admin/api/conversations/resolve?phone=` (`resolveContactPhone`: exact PK 521+10 / 52+10 / raw, then `substr(phone,-10)` backed by new `idx_contacts_last10`; 400 invalid, 404 not_found|ambiguous) and opens the chat directly. `INDEX_MIGRATION_KEY` migr_idx_2026_10_19 → the worker applies the index itself on first request. Airtable formula column **`Chat bot`** in Leads already created (2026-10-19). Slack: "💬 Abrir en el panel" on the approval card and the booking FYI (`dashboardChatUrl`, optional `DASHBOARD_URL`).
 - **🎤 voice notes / 🎥 camera video in the chat composer** (`send-media`, WhatsApp kind `audio`, owner-only `POST /admin/api/media/remux-check`). Voice order: WebCodecs Opus (iOS 26+/Chrome, "MDOP" envelope → Ogg) → MediaRecorder ogg (Firefox) → webm (server remuxes WebM→Ogg) → mp4 AAC (iOS ≤18, arrives as an audio FILE, no waveform). Video: mp4, 60 s, 1.5 Mbps; `video/quicktime` rejected. `voice:true` not sent to Graph yet (`SEND_AUDIO_VOICE_FLAG` in wa.ts). A staff send still pauses the bot on that chat. Window closed → buttons disabled, wa.me fallback stays.
 - Tests 1269 → **1287**.
-- [ ] **Evan:** OK to push. After the deploy probe `/admin/api/conversations/resolve?phone=<a known lead>` (logged in) → 200 with the phone.
+- [x] Pushed 2026-10-19 (a08f182 / f14463c).
+- [ ] **Evan:** after the deploy probe `/admin/api/conversations/resolve?phone=<a known lead>` (logged in) → 200 with the phone.
 - [ ] **Evan:** test 🎤 from an iPhone on iOS 26 (expect waveform), from Chrome (expect waveform), from an older iPhone (expect an audio file); test 🎥 on an iPhone.
-- [ ] **Evan:** confirm the #bot-ops note "envió una nota de voz 🎤" appears after a voice send.
+- [ ] **Evan:** confirm the note "envió una nota de voz 🎤" appears after a voice send (#bot-ops until 2026-10-22; now /admin → Logs, kind `panel`).
 - [ ] **Evan:** open a `Chat bot` cell from the Airtable mobile app on a logged-out phone → after login the chat must open.
 - [ ] **Evan:** if voice notes arrive WITHOUT waveform on iOS 26, report the device + browser version.
 
-### Baby Fight Club Nivel 0 = every Friday 12 pm + MMA leads offered the 7 pm class (2026-10-19) — ON BRANCH `claude/bfc-level-1-friday-schedule-q2kp0f`, needs Evan's merge
+### Baby Fight Club Nivel 0 = every Friday 12 pm + MMA leads offered the 7 pm class (2026-10-19) — SHIPPED (pushed 2026-10-19, d1ff0c1..6ec6753; branch `claude/bfc-level-1-friday-schedule-q2kp0f` is fully merged, 0 commits ahead of origin/main); Evan's probe + checklist below still open
 
 **Findings (Slack #wa-leads since the 10-09 "¿12 pm o 1 pm?" update, two independent reads):** 17 parents of 6–11-month-olds were asked; 3 said 12 pm (Ximena Flores, Gabs, abii ayla), 0 said 1 pm, Lucero said Fridays don't work, 13 never answered. Evan confirmed **Friday 12 pm**. Bugs seen on the way: the bot kept saying "posiblemente el 16 de octubre" through 10-19 (Editor proposal 16→23 never applied); the slot validator flagged "viernes 12:00 no existe para BFC (12–36 meses)"; Hugo's Nivel 0 question was parsed as a booking; Gabs/abii gave an answer but no human task was opened. Full report + phone list: scratchpad `bfc-nivel0-findings-2026-10-19.md`.
 
@@ -56,7 +78,8 @@ Staff used to send the day-of confirmation from the SUPPORT number (their own ph
 - **KB:** intake.md Nivel 0 bullet = trial every Friday 12 pm from 2026-10-23, book with `book_trial` (baby, 12:00, child_age in months), never Friday for 12+ months, never Wed/Sat for 6–11; persona age routing line updated; BFC price reply mentions the Friday slot for 6–11 months; Nivel 0 price still "por confirmar, escala" (Evan never gave one). KB 11,989 → **12,089** tokens (limit 12,100 — the next KB edit must trim).
 - **MMA leads try 2 classes** (Evan): intake.md rule — when proposing MMA 8 pm (lun/mar/jue) the bot invites them in the same message to arrive at 7 pm for Jiu-Jitsu or Muay Thai ("son la base del MMA…"); MMA Striking 9 am → arrive 8 am. Asked BEFORE book_trial; invitation, not a requirement.
 - Tests 1263 → **1267**.
-- [ ] **Evan**: merge the branch (push to main = deploy), then probe `/health` kbVersion and sandbox a "mi bebé tiene 7 meses" lead → the bot must offer viernes 12 pm and book it.
+- [x] Branch merged and pushed 2026-10-19 (6ec6753).
+- [ ] **Evan**: probe `/health` kbVersion and sandbox a "mi bebé tiene 7 meses" lead → the bot must offer viernes 12 pm and book it.
 - [ ] **Evan**: D1 overlay / campaign «baby fight club» first_reply + info still say "Nivel 0 … ¿12 pm o 1 pm?" if they were edited by hand — check /admin → Campañas and the KB overlay and drop the question.
 - [ ] **Evan**: the 13 unanswered + 3 "12 pm" parents need the confirmation (template `bfc_nivel0_viernes_es`, docs/templates.md) — nothing queued; audience list in the scratchpad `blast-nivel0-draft.md`. Also Fer: Francesca Berrondo got a "sábado 3 pm" (not a trial slot) on 10-15 — fix by hand.
 - [ ] **Evan**: campaign «fw mma» welcome in /admin → Campañas — if it offers "8 pm" alone, add the 7 pm invitation there too (the canned welcome bypasses the brain).
@@ -65,18 +88,19 @@ Staff used to send the day-of confirmation from the SUPPORT number (their own ph
 
 On 2026-10-16 three "mañana sábado" runs queued at 16:25 did not drain by 21:00 and resumed at 09:00 Saturday (~900 wrong-day sends; same mode on 2026-09-25). Every run now carries `expiresAt` (default **21:00 CDMX of its first sending day**; `null` = never): the drain (src/cron/blasts.ts `expireDueRuns`, pure rules in src/services/blast-expiry.ts) sweeps on every tick while a run is live — before the window gate, so leftovers are cancelled at the 21:00 tick the same evening — marks the run `expired`, posts one ⏱️ Slack note and refreshes the idle flag. Envíos shows an **Expira** field prefilled with today 21:00 (clearing it asks for confirmation) and an "Expiró · N sin enviar" chip; `GET /admin/api/blast/runs` returns `expiresAt` per run. Runs queued before today never expire. docs/blasts.md §2–§4. Tests 1243 → **1254**.
 
-> **Branch `roas-phase1`** merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
+> **Branch `roas-phase1`** (merged to main and pushed 2026-09-21, tip a525f78; deploy verified, see the ROAS entry below) merges the three 2026-09-21 workstreams below — soonest-slot-first, the post-trial sequence, and the Meta CAPI (inert) — plus the KB-build fix. Each entry quotes its own test count against main; **merged the suite is 891 green**.
 
-### One-message booking confirmation with the first-class link (2026-10-16) — COMMITTED, NOT PUSHED (needs Evan's OK)
+### One-message booking confirmation with the first-class link (2026-10-16) — SHIPPED (pushed 2026-10-16, 6cf5a1e); template-approval check below still open
 
 A trial booking now sends ONE text — the owner-approved copy (adultos / kids / Baby Fight Club, closing "Si quieres invitar a un amigo o pariente, estaría súper 👊 Cualquier duda, aquí estoy 🙏") carrying the lead's SIGNED `/tu-primera-clase(-ninos|-bebes)/?t=` link — then the booking video. No separate questionnaire invite. Spec: docs/cuestionario.md "The booking confirmation".
 
 - Brain path: intake.md template updated; `personalizeBookingConfirmation` swaps the brain's generic link (or adds it) and appends the closing BEFORE send/queue, so approve / edit / best-bet all send the link. `afterBookingConfirmed` then sees the token in the sent text → video + stamps `Cuestionario enviado/versión` + kv marker (sync loop stays quiet). Signing fails → generic link, never blocked; a text without a signed link (human rewrite, old drafts, registerBooking) → the old separate invite.
 - Web-form path: `sendFirstClassConfirmation` (free-form copy; closed window → new `primera_clase[_kids|_bfc]_es/_en` Utility templates, button "Ver mi primera clase", self-submitted, kv `tpl_seed:primera_clase:2026-10-16`, docs/templates.md §20). Until those are APPROVED: trial_confirm + cuestionario_invite as before.
 - KB token limit 11750 → 12100 (KB now ~11 989).
-- [ ] **Evan:** OK to push. After the deploy, watch #bot-ops for "📝 Plantillas de confirmación de clase de prueba (primera_clase)" and check the six get APPROVED.
+- [x] Pushed 2026-10-16 (6cf5a1e).
+- [ ] **Evan:** after the deploy, watch #bot-ops for "📝 Plantillas de confirmación de clase de prueba (primera_clase)" and check the six get APPROVED.
 
-### Post-trial/no-show chains per program + template seeder, 2026-10-15 — NOT PUSHED
+### Post-trial/no-show chains per program + template seeder, 2026-10-15 — SHIPPED (pushed 2026-10-15, 5789b38..0d870b9); template-approval check below still open
 
 A mother who took her 11-month-old to Baby Fight Club got the adult "¿Cómo amaneció el cuerpo después de tu clase?" (legacy `post_trial_d2` rows used adult-only copy for everyone). The chains now have THREE sequences, picked by `bandProgram(band)`: **adults** (singular), **kids** (mini / kids / teens → plural to the parent) and **baby** (Baby Fight Club → plural, parent moves with the baby; never "cuerpo" / "what did the baby think").
 
@@ -86,7 +110,7 @@ A mother who took her 11-month-old to Baby Fight Club got the adult "¿Cómo ama
 - Evan's copy review (same day): d3 = "ya tuviste unos días para pensarlo, ¿te animas a unirte?" (no slot offer); d6 = "¿qué podríamos mejorar?" (no schedule link) — both templates carry only {{1}}; no_show_hoy {{2}} = the program booking link (adults vs kids/baby page) instead of a slot; no_show_d2 says "día de prueba gratis"; no_show_d7 "si todavía quieres agendar…".
 - [ ] **Evan, after deploy:** look for the 📝 Slack note "Plantillas de seguimiento post-clase / no-show (adultos, kids, baby)" in #bot-ops (⚠️ = some failed — read the errors); then in WhatsApp Manager confirm the 34 names reach **APPROVED** (any REJECTED → reword in client.mjs and bump `SEED_KEY`).
 
-### "Se inscribió" push hook: welcome + student kit in seconds (2026-10-13) — NOT PUSHED
+### "Se inscribió" push hook: welcome + student kit in seconds (2026-10-13) — SHIPPED (pushed 2026-10-13, 64f4ecd; docs 6518bbd); Evan's secret/automation steps below not verified here
 
 The welcome and the student kit (QR + responsiva) used to wait for two */5 cron polls (up to ~10 min). New `POST /hooks/airtable/enrolled` (src/routes/airtable-hooks.ts), called by the "Se inscribió" automation as its last action. Spec, script, setup: **docs/airtable-enrolled-hook.md**.
 
@@ -96,7 +120,7 @@ The welcome and the student kit (QR + responsiva) used to wait for two */5 cron 
 - Cron behaviour unchanged; it stays the fallback. Slack: only failure notes from the hook. Tests 1217 → **1236**.
 - [ ] **Evan:** add Cloudflare secret `AIRTABLE_HOOK_KEY`, deploy, paste the script into automation `wflEwWirVlvaGQrDB` as the LAST action (same key), then confirm on one enrolment that the 🎟️ note lands within seconds.
 
-### Pre-trial questionnaire backend (2026-10-13) — BRANCH `cuestionario`, NOT PUSHED, ships dark
+### Pre-trial questionnaire backend (2026-10-13) — SHIPPED (branch `cuestionario` fully merged; pushed 2026-10-13, 114783d..2b6c4f5). Shipped dark, then went LIVE 2026-10-15: 6fcc6a1 set `CUESTIONARIO_ENABLED=1` and 0401ffd made the one link the personalized /tu-primera-clase/ page
 
 Every booked lead gets ONE WhatsApp link to mdcondesa.com/cuestionario/ (site page built separately); answers land on their Leads row. Spec + endpoints + fields + test steps: **docs/cuestionario.md**.
 
@@ -106,10 +130,10 @@ Every booked lead gets ONE WhatsApp link to mdcondesa.com/cuestionario/ (site pa
 - Closed window (web-form bookers) → Utility templates `cuestionario_invite[_kids]_es/_en` (URL button = token), self-submitted by the worker (docs/templates.md §19); only if that fails too: one #bot-ops note per day. Dashboard: Chats → **📋 Enviar cuestionario** (owner).
 - Review round: atomic send claim, Slack-escaped summary sent once per record, enum allowlists, canonical tokens, quiet hours in the sync path, kid-aware reminder.
 - Tests 1185 → **1217**.
-- [ ] **Evan:** create the Airtable fields (docs/cuestionario.md), `wrangler secret put CUESTIONARIO_SECRET` (+ `CUESTIONARIO_SEND_KEY` only if the automation is used), deploy, test with one phone via the admin trigger, then set `CUESTIONARIO_ENABLED` = "1" in wrangler.jsonc and push.
+- [ ] **Evan:** create the Airtable fields (docs/cuestionario.md), `wrangler secret put CUESTIONARIO_SECRET` (+ `CUESTIONARIO_SEND_KEY` only if the automation is used), deploy, test with one phone via the admin trigger, then set `CUESTIONARIO_ENABLED` = "1" in wrangler.jsonc and push. (Flag set + pushed 2026-10-15, 6fcc6a1; the other steps not verified here.)
 - [ ] **Evan:** after the deploy, watch #bot-ops for "📝 Plantillas del cuestionario pre-clase" and check the four `cuestionario_invite*` get APPROVED. Until then closed-window leads don't get the invite (one daily note says so).
 
-### Student kit: QR + responsiva after "Se inscribió" (2026-10-13) — NOT PUSHED (lead engineer verifies)
+### Student kit: QR + responsiva after "Se inscribió" (2026-10-13) — SHIPPED (pushed 2026-10-13, 4cf14f1; lead engineer verifies)
 
 When the front desk marks a lead "Se inscribió", the welcome already went out; now the new student ALSO gets, ~90 s later, their personal **check-in QR as an image** and, if Airtable says the waiver is unsigned, the **responsiva signing link**. Owner, 2026-10-13.
 
@@ -122,13 +146,13 @@ When the front desk marks a lead "Se inscribió", the welcome already went out; 
 - [ ] If the note says the app id could not be found: set `META_APP_ID` (wrangler var, the Meta app the WhatsApp token belongs to), bump `SEED_KEY` in template-seed-student.ts, push.
 - [ ] Test once on a real enrolment: the QR scans at reception (it encodes the same URL as the Airtable one), and `QR Compartido` gets ticked.
 
-### Reto course login over WhatsApp (2026-10-13) — ON BRANCH `claude/reto-cursos-login`, INERT until configured
+### Reto course login over WhatsApp (2026-10-13) — SHIPPED (PR #11 merged 2026-10-13, 022c236; branch `claude/reto-cursos-login` fully merged), INERT until configured
 - Members open mdcondesa.com/reto/entrar/ → "Entrar con WhatsApp" → this number gets "Hola, quiero entrar a mis cursos del Reto [CURSOS]". New gate 3a (after opt-out, before campaign tagging) relays it to the site (`RETO_LOGIN_URL`), which checks the Airtable `fundamentos` tag and returns the reply text (one-time login link or "not found"); the bot sends it in-window. No brain, no approval, no Leads row, no drip.
 - To turn on: `wrangler secret put RETO_BOT_SECRET` (same value as the md-condesa-site Pages secret). `RETO_LOGIN_URL` is already in wrangler.jsonc. Without the secret the message goes through the normal pipeline.
 - Ops notes (🎓, #bot-ops): site failure (fallback text sent) and "number without the `fundamentos` tag".
 - Site side: evancaguilar/md-condesa-site#14.
 
-### Reminders, drips and post-trial chains do the right thing — WP2 of the 2026-10-09 audit (2026-10-11) — ON BRANCH, not pushed
+### Reminders, drips and post-trial chains do the right thing — WP2 of the 2026-10-09 audit (2026-10-11) — SHIPPED (code 1a7fe66 2026-10-11, merged 2026-10-12 via PR #7, 6dc1945)
 
 - **Reminder send guard** (`shouldSendReminder`, followups.ts): before `day_before` / `same_day` goes out the Airtable record is re-read by id (`getBookingRecord`, airtable.ts) and the row is skipped + cancelled when the class already started, the date was cleared or moved away from the one the row was armed for (armed epoch in the row note `trial:<epoch>` — no migration), `Resultado` says Asistió / No asistió / Se inscribió, the contact is student / opted out, the lead cancelled in chat after arming, or the reminder no longer matches the class day. One `same_day` per phone per CDMX date (kv claim `same_day_sent:`). Airtable down ⇒ local checks only. (Emilio …9340, Joss, Luciano.)
 - **syncBookings:** a cleared date cancels that record's reminders + no-show touch; a past date cancels its reminders; a future date on a record that says Asistió / Se inscribió is NOT re-armed (Joss: date moved 10-03 → 10-05 after "Asistió"). `rescheduleFollowup` now refreshes the note when only the hour moved, without reviving a sent row.
@@ -141,7 +165,7 @@ When the front desk marks a lead "Se inscribió", the welcome already went out; 
 - [ ] **Evan:** review + submit the v2 template drafts (docs/templates.md §11–§16; `_kids` / `_baby` twins). Until approved, those touches go free-form inside the 24h window only and skip silently outside it.
 - [ ] **Evan:** OK that "at most one nudge per CDMX day" also drops the same-day closing nudge (nudge_8h) when nudge_1h already went out that day.
 
-### Sábado 12 pm = Blindaje 8 everywhere, not just one rule line (2026-10-10) — ON BRANCH `claude/gracious-clarke-y0c16e`
+### Sábado 12 pm = Blindaje 8 everywhere, not just one rule line (2026-10-10) — SHIPPED (PR #6 merged 2026-10-10, e997af2; branch `claude/gracious-clarke-y0c16e` fully merged)
 
 - **Symptom (Montserrat, sáb 09:47):** the bot offered "hoy a las 12 pm (Jiu-Jitsu) o 2 pm (Box)" a day after the 2026-10-09 KB fix. That fix was one intake.md line; the three schedule tables (by discipline ES/EN, by day) still said "Sáb 12:00 PM Jiu-Jitsu (Gi)" because the site's `schedule-data.js` still does, intake.md had three more stale "12 pm Jiu-Jitsu" mentions (incl. a canned teen reply that is almost word-for-word the bad message), and nudge CTAs labeled the slot with `disciplineLabel("jiu")`.
 - **Fix:** `RENAMED_CLASSES` in `clients/md-condesa/kb-build.mjs` relabels the sáb 12:00 adult `jiu` row as "Blindaje 8 (Defensa Personal)" in every rendered table (own line in the by-discipline view) and stamps `name: "Blindaje 8"` on the generated slot. The booking key stays `jiu` (what `book_trial`/Airtable and the BLINDAJE_8 campaign expect). `next-slot.ts`: a renamed slot carries `name`, nudge CTAs say it instead of the program, and a lead who asked for Jiu-Jitsu is never offered it. The per-turn context reads "hoy a las 12:00 pm (Blindaje 8)". intake.md: the three stale lines fixed, the Saturday rule trimmed (KB 11744/11750 tok). Tests 998 → **1001**.
@@ -153,13 +177,13 @@ When the front desk marks a lead "Se inscribió", the welcome already went out; 
 - **Fix:** `hasRealQuestion(text, trigger, knownPhrases)` now also treats the campaign's own vocabulary as boilerplate — campaign `name`, `ad_keywords`, and the referral `headline` — and the "meaningfully longer" length baseline uses the longest of those phrases, not just the trigger. The inbound gate 5c passes all three. A real question ("¿es apto para niños?", "¿cuánto cuesta?") still gets both the welcome and a brain reply. Tests 998 green.
 - Not changed: the ad BODY is deliberately excluded (long marketing copy would swallow real questions that reuse its words).
 
-### Post-trial d0 "ayer" variant (2026-10-07) — SHIPPED (on branch, unpushed)
+### Post-trial d0 "ayer" variant (2026-10-07) — SHIPPED (pushed 2026-10-07, 3fe733c; the duplicate commit b6b4196 on a stray worktree branch is patch-equivalent)
 
 d0 fires 30 min after the attended card and spills to 09:30 the next day for every class from ~17:30 on, so leads got "verte **hoy**" the morning after (real case: class Tue 6 Oct 18:00 → d0 Wed 7 Oct 09:32). `computePostTrialSequence` now tags d0 with note `ayer` when its effective send moment (max(dueAt, now)) is on a later CDMX date than the class; send time picks `copy.postTrialD0AyerEs/En` and, window closed, template `post_trial_d0_ayer_es/_en` (docs/templates.md §7b). Rows armed before this deploy have no note and keep the "hoy" copy.
 
 - [ ] **Evan:** submit `post_trial_d0_ayer_es` / `_en` to Meta. Until approved, the closed-window path returns `template_missing` and posts the existing once-a-day Slack note (free-form in-window sends are unaffected).
 
-### Meta CAPI: Airtable-driven funnel sweep + CRM columns, dataset get-or-create, customer-list audiences (2026-10-07) — ON BRANCH `claude/happy-pascal-0z28dv`, INERT
+### Meta CAPI: Airtable-driven funnel sweep + CRM columns, dataset get-or-create, customer-list audiences (2026-10-07) — SHIPPED to main (PR #1 a2c320f, 2026-10-07; follow-ups PR #2 a3d8381 / PR #3 1a529f4; branch `claude/happy-pascal-0z28dv` tip landed via PR #5 0f0eea5, which also turned the audience sync flag on), CAPI sending INERT until the token + dataset id below
 
 Goal: let click-to-WhatsApp campaigns optimize for bookings/purchases, and keep two customer-list audiences in sync. Docs: **docs/meta-capi.md** (updated) and **docs/meta-audiences.md** (new). Verified against Meta's guide this session: token scopes `whatsapp_business_management` + `whatsapp_business_manage_events`; `POST /<WABA_ID>/dataset` = get-or-create; `QualifiedLead` is accepted for business messaging (so no custom "TrialAttended"); no API links an existing web pixel to a WABA.
 
@@ -187,7 +211,7 @@ Evan: "prepare responses for every chat that needs a response and leave it in Ap
 
 - [ ] **Evan:** Aprobar will fill over ~5–30 min after the deploy (≈6 per 5-min tick). Review each: Aprobar / Editar / Descartar. Drafts expire after 12 h like any card.
 
-### D1 outage with no alarm → infra alert that does not depend on D1 (2026-10-06) — ON BRANCH `claude/fervent-dirac-j0a2wu`
+### D1 outage with no alarm → infra alert that does not depend on D1 (2026-10-06) — SHIPPED (fix commits 0173e06..449b4f3 of 2026-10-06; branch `claude/fervent-dirac-j0a2wu` tip 671ff49 merged to main 2026-10-07 with PR #1, a2c320f; the 10-06 deploy below predates that merge)
 
 **Incident (2026-10-06, from ~00:00 CDMX, still open at 13:00):** Workers Observability shows `D1_ERROR: D1 DB is overloaded. Requests queued for too long.` on dashboard calls, intermittent (info and error rows interleaved). Effect: the early inbound gates (dedupe, campaign tag, canned welcome) kept working — 8 "⚡ Nuevo lead" notes went out today (00:14 → 12:47) — but every brain turn died on one of its ~20 D1 calls: **no draft, no Aprobar card, no booking, no Slack note since 23:59 on 10-05.** Cron ran (gasto + recon at 10:31). Cloudflare billing is fine (Workers Paid active, renews Oct 18); Anthropic is not it (the `api_error` path would have produced holding-line drafts + the 🧠⚠️ note — it sits AFTER the failing D1 calls). **Root cause (D1 Query insights, Evan's screenshot):** `listConversations` (Chats inbox, `conversationsSql`) — 196 calls, **964k rows and 1.6 s per call, 96.9% of D1's runtime**, 191M rows read in 24 h (+6,390%). Reproduced in node:sqlite with 5k contacts / 300k messages: WITHOUT planner statistics (D1 never runs ANALYZE) SQLite picks `idx_pending_approvals_status` for the three per-row approval counts and `idx_messages_direction_ts` for `inboundCount` — "scan every approved approval / every inbound message" once per listed contact: 2.9 s per call; after `ANALYZE`: 38 ms. The 09-11 plan test only asserted that *some* probe used the phone index, so this slipped through. 4th D1 incident, all from this one query (rows-read limit on 09-10, 09-16, 09-17; this one throughput).
 
@@ -203,11 +227,11 @@ Evan: "prepare responses for every chat that needs a response and leave it in Ap
 - [ ] Add an external probe on `/health` (`dbOk:false` ⇒ alert) — in-worker alerts cannot fire if the worker itself is down. Cloudflare Health Checks or UptimeRobot, 1 min.
 - [ ] Channel redesign proposal: **docs/slack-channels-review.md** (≈5 % of #wa-leads is a task; #ventas Airtable automations duplicate the bot). Evan decides §6.
 
-### Enrolment welcome rewritten + `student_welcome` template (2026-10-03) — ON BRANCH `claude/gallant-brahmagupta-ke72uk`
+### Enrolment welcome rewritten + `student_welcome` template (2026-10-03) — SHIPPED (merged 2026-10-03, 4df20ae; branch `claude/gallant-brahmagupta-ke72uk` fully merged)
 
 - **Copy** (`copy.welcomeEs/En`, client.mjs): the old text garbled the gear discount ("10% si te inscribes en equipo"). New: family greeting → members' WhatsApp group link (`links.group`) → new-member guide `https://mdcondesa.com/bienvenida/` (`links.welcome`: horarios, lo básico de cada disciplina, qué incluye el plan, equipo Venum 25%). `renderCopy` gained `{group}`.
 - **KB** (intake.md): gear line is now "25% de descuento en equipo Venum (sobre el precio de venum.com; no aplica a ofertas)" + the guide link. Evan: it was called 10% because that is 10% off the member price; vs the Venum site price it is 25%. The bienvenida page's own gear section is being updated separately in the site repo.
-- **Closed-window path** (followups.ts, enrolled branch): tries the new Utility template `student_welcome_es/_en` (docs/templates.md §10, same body as the free-form copy, no name variable) and, while Meta has not approved it, falls back to `human_followup` as before with one Slack note. **Pendiente Evan: submit `student_welcome_es` / `_en` in WhatsApp Manager** (or via `/admin/api/blast/templates/create`) with the §10 body, category Utility, no variables.
+- **Closed-window path** (followups.ts, enrolled branch): tries the new Utility template `student_welcome_es/_en` (docs/templates.md §10, same body as the free-form copy, no name variable) and, while Meta has not approved it, falls back to `human_followup` as before with one Slack note. **Pendiente Evan: submit `student_welcome_es` / `_en` in WhatsApp Manager** (or via `/admin/api/blast/templates/create`) with the §10 body, category Utility, no variables. (Superseded 2026-10-13: the worker now self-submits `student_welcome_*`, 4cf14f1.)
 
 ### Blindaje 8 campaign, seeded from the worker (2026-10-02)
 
@@ -216,7 +240,7 @@ Evan launched the Blindaje 8 ad (8-week self-defense fundamentals, Saturdays 12:
 - [ ] Evan: paste the ad ID(s) into the campaign once the evergreen ad is live (phrase matching works meanwhile).
 - [ ] Nudge drips are not campaign-aware: a Blindaje lead who stalls gets "soonest adult class" copy (e.g. lunes 7 am). Make nudges point at sábado 12 pm for this campaign if volume justifies it.
 
-### Website-form bookings flagged "NO se creó ningún booking en Airtable" (2026-09-30) — ON BRANCH
+### Website-form bookings flagged "NO se creó ningún booking en Airtable" (2026-09-30) — SHIPPED (pushed 2026-09-29, 21208c3)
 
 - **Case (Ana, Kids campaign, 5215540085609):** booked through the website form (Airtable record reccNItjc91fuz6J2, Wed 30 Sep 5:00 pm, "Agendó Clase Prueba"); the sync armed her reminders; after the day-before reminder she wrote "Sii gracias" and the bot's "¡Nos vemos mañana, Ana!" arrived as a low draft with the ⚠️ unbacked-booking warning. **The booking was real.**
 - **Cause:** `guardUnbackedBookingClaim` (and the prompt's "Reserva YA registrada" line) only trust kv `booking_recorded:<phone>`, which ONLY chat/human bookings write. `syncBookings` (website form → Airtable → sequence) never wrote it, so every form booker's post-booking ack was flagged, and the brain did not know they were booked (duplicate book_trial risk).
@@ -264,16 +288,16 @@ Every draft came out as the holding line "¡Gracias por escribir! 🙌 En un mom
 - [ ] **Evan: console.anthropic.com → Billing → top up + turn ON auto-reload** (open since August).
 - [ ] The affected leads (Mel/Melissa — Saturday 2 pm Baby booking never registered; PatRa; the others with the holding-line card) need a human reply: Descartar the apology draft, answer from the Chats composer, and book Mel in Airtable by hand.
 
-### Buy-intent first message, Silver online sign-up link, post-trial d0 copy (2026-09-21) — ⚠️ NEEDS `npm run build` ON A MACHINE WITH THE SITE REPO
+### Buy-intent first message, Silver online sign-up link, post-trial d0 copy (2026-09-21) — SHIPPED (pushed 2026-09-21, 9dcff29); the compiled KB + client.gen were rebuilt the same day in 6494e7b, so the build warning in the last bullet is resolved
 
 - **Bug (Daniel, 2026-09-21 15:07):** a "Sitio web" lead wrote "quiero inscribirme en línea en el plan Silver…" and got the canned trial welcome ("¿la clase es para ti o para un peque?"). `firstReplyDecision` now returns `none` when the first message matches `hasBuyIntent` (src/cron/nudge-signals.ts), so the brain answers instead. Test added.
-- **KB:** new intake section «Inscripción en línea (link de pago)» — Silver (5 clases/sem, $2,500 c/4 sem) → Stripe link; every other plan still escalates (Diamond/Gold/Bronze links added 2026-09-21 on branch `claude/plan-links`; kids/teens/Baby/Mini still escalate). Persona: the "escala DE INMEDIATO, no mandes links" rule is replaced by "if the KB has a link for that plan, confirm and send it"; sureness checklist items 3 and 6 adjusted to match.
+- **KB:** new intake section «Inscripción en línea (link de pago)» — Silver (5 clases/sem, $2,500 c/4 sem) → Stripe link; every other plan still escalates (Diamond/Gold/Bronze links added 2026-09-21 on branch `claude/plan-links`, merged and pushed the same day, 0e95b16 + 6b07bb5; kids/teens/Baby/Mini still escalate). Persona: the "escala DE INMEDIATO, no mandes links" rule is replaced by "if the KB has a link for that plan, confirm and send it"; sureness checklist items 3 and 6 adjusted to match.
 - **Post-trial d0 copy** (client.mjs + docs/template-submission.md §13–14): "¿Te apartamos tu lugar…?" read like offering another trial (Evan). New: "¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo." In-window sends pick this up on deploy; **the `post_trial_d0_es/en` templates pending at Meta still carry the OLD body — edit them in WhatsApp Manager (pending templates can be edited in place) or resubmit via `/admin/api/blast/templates/create` with the new text.**
 - **Attended card delayed (Evan, 2026-09-21):** the 🔥 "asistió y no se inscribió" card is now a `followups` row kind **`post_trial_card`** due at class start + 60 min + 30 min (`computePostTrialCardAt`; a result marked after that posts immediately). The drain posts the Block Kit card (name from the row's note); a lead who became a student before it fires gets no card. `post_trial_card` joined `POST_TRIAL_ALL_KINDS`, so "Se inscribió" retires it. d0 send unchanged: 3 h after class start. No D1 migration (comment-only kind).
 - **Meta templates updated automatically:** `src/cron/template-sync.ts` runs once per key (`tpl_sync:post_trial_d0:2026-09-21`) on the first cron tick after deploy and edits `post_trial_d0_es/en` IN PLACE via `POST /{template_id}` with the client.mjs copy — one 📝/⚠️ Slack note. Manual path / future edits: `POST /admin/api/blast/templates/update {name, language, body, footer}`. Requires the local build first (client.gen.ts carries the copy).
 - Tests 821 → **912** on this branch (includes main's). Build NOT run here (sandbox cannot reach mdcondesa.com and has no site checkout): `src/client.gen.ts` / `kb/compiled/kb.md` are stale until `npm run build` runs locally and the result is committed.
 
-### What the blasts cost, in the dashboard (2026-09-21, branch `blast-cost`, NOT pushed)
+### What the blasts cost, in the dashboard (2026-09-21, branch `blast-cost` — pushed 2026-09-21, c188ab4)
 
 Evan asked "can we add the cost of the blasts to Inicio or Envíos?" — "Costo del mes" on Inicio is the Anthropic/brain bill; Meta's per-message charge for bulk sends was invisible.
 
@@ -293,7 +317,7 @@ Anything saying "the Google-lead attribution script hasn't shipped" is stale. Li
 - **Google Ads conversion:** the WhatsApp-click conversion now waits for the beacon before navigating (it recorded 0 before).
 - **Evidence:** Leads tagged Campaña "Google Search": 5 on 09-27/28; untagged "Sitio web" leads since 09-25: 0.
 - **Still open:** Google Ads final-URL suffix (needed for `kw:`), Business Profile/Maps WhatsApp link → bot number with the same phrase, Google spend import + rollups (no Google ROAS yet), real-phone end-to-end check.
-- **2026-10-12 — gclid in its own columns** (branch `claude/serene-mendel-xpc0dp` in BOTH repos, not merged). Leads gained text fields **`gclid`** (`fldaPb5kqn7tEGAQ3`; raw gclid, iOS ids as `gbraid:<id>` / `wbraid:<id>`) and **`gclid_time`** (`fldfcXORZZ3Ti5Pn4`; click time, ISO with the CDMX offset, `2026-10-12T14:46:10-06:00`). Form path: `attribution.js?v=7` adds `prefill_gclid` / `prefill_gclid_time` (+ `hide_` always). WhatsApp path: the prefill becomes `Hola, vi su anuncio en Google (kw: …) [ref gclid:<id>:<unix s>]`; `src/services/google-click.ts` strips the ref before the body is stored (brain/Slack/dashboard never see it, the campaign trigger still matches), keeps it on the bubble's `meta.googleClick` and in kv `gclick:<phone>` (first click wins), and `syncLead` writes both columns fill-if-empty as a pair (`airtableLeads.gclid` / `gclidTime` in client.mjs). Verified locally: `/jiu-jitsu/?gclid=TEST123` → form iframe and WA text both yield `TEST123` + the same timestamp. **Form path without editing the forms** (the MCP cannot edit forms, and Airtable ignores prefills for questions a form lacks): the site also appends `| t: <click ISO>` to the Google `Ad` answer, and the cron's **`gclidFromAdSweep`** (metrics slot, 1 list + 1 PATCH, write-once: `AND({gclid}='', REGEX_MATCH({Ad},'(gclid|gbraid|wbraid): '))`) copies id + time into the columns; older rows get the id only. The `prefill_gclid*` params stay, harmless, in case the hidden questions are ever added. **Live-verified 2026-10-12** (PRs wa-agent #8 / site #8): Evan's phone click on `/jiu-jitsu/?gclid=EVANTEST1` → his Leads row got `gclid` EVANTEST1 + `gclid_time` 2026-10-12T15:47:14-06:00; the cron backfilled the 10-05 form lead's gclid. **v8 short code (same day):** a real gclid is ~100 chars and the visible `[ref gclid:…]` would be deleted or look like spam, so attribution.js v8 POSTs `{code, kind, id, ts}` to the worker's public **`/g`** (`src/routes/google-click.ts`: strict validation, write-once kv `gref:<code>`, ≤1000 new codes per CDMX day, always 204 + CORS; daily cleanup past 90 days in the 10:00 cron) at page load and the prefill ends with just `[K7M2QX]`; inbound swaps the code for the click (`meta.googleCode`). The long `[ref …]` is still parsed for pages cached before v8.
+- **2026-10-12 — gclid in its own columns** (branch `claude/serene-mendel-xpc0dp` in BOTH repos; wa-agent side merged and pushed 2026-10-12 via PR #8, 370e70d, and the v8 short code via PR #10, 75efbaa — site side not checked from this repo). Leads gained text fields **`gclid`** (`fldaPb5kqn7tEGAQ3`; raw gclid, iOS ids as `gbraid:<id>` / `wbraid:<id>`) and **`gclid_time`** (`fldfcXORZZ3Ti5Pn4`; click time, ISO with the CDMX offset, `2026-10-12T14:46:10-06:00`). Form path: `attribution.js?v=7` adds `prefill_gclid` / `prefill_gclid_time` (+ `hide_` always). WhatsApp path: the prefill becomes `Hola, vi su anuncio en Google (kw: …) [ref gclid:<id>:<unix s>]`; `src/services/google-click.ts` strips the ref before the body is stored (brain/Slack/dashboard never see it, the campaign trigger still matches), keeps it on the bubble's `meta.googleClick` and in kv `gclick:<phone>` (first click wins), and `syncLead` writes both columns fill-if-empty as a pair (`airtableLeads.gclid` / `gclidTime` in client.mjs). Verified locally: `/jiu-jitsu/?gclid=TEST123` → form iframe and WA text both yield `TEST123` + the same timestamp. **Form path without editing the forms** (the MCP cannot edit forms, and Airtable ignores prefills for questions a form lacks): the site also appends `| t: <click ISO>` to the Google `Ad` answer, and the cron's **`gclidFromAdSweep`** (metrics slot, 1 list + 1 PATCH, write-once: `AND({gclid}='', REGEX_MATCH({Ad},'(gclid|gbraid|wbraid): '))`) copies id + time into the columns; older rows get the id only. The `prefill_gclid*` params stay, harmless, in case the hidden questions are ever added. **Live-verified 2026-10-12** (PRs wa-agent #8 / site #8): Evan's phone click on `/jiu-jitsu/?gclid=EVANTEST1` → his Leads row got `gclid` EVANTEST1 + `gclid_time` 2026-10-12T15:47:14-06:00; the cron backfilled the 10-05 form lead's gclid. **v8 short code (same day):** a real gclid is ~100 chars and the visible `[ref gclid:…]` would be deleted or look like spam, so attribution.js v8 POSTs `{code, kind, id, ts}` to the worker's public **`/g`** (`src/routes/google-click.ts`: strict validation, write-once kv `gref:<code>`, ≤1000 new codes per CDMX day, always 204 + CORS; daily cleanup past 90 days in the 10:00 cron) at page load and the prefill ends with just `[K7M2QX]`; inbound swaps the code for the click (`meta.googleCode`). The long `[ref …]` is still parsed for pages cached before v8.
 
 ### ROAS program — what went LIVE on 2026-09-21 (pushed `a525f78`, deploy verified)
 
@@ -309,7 +333,7 @@ Goal and plan: 3–5x ROAS on the owner's definition (new sign-ups from ad leads
 
 **What happens.** `clients/md-condesa/kb-build.mjs` reads the site sources from the sibling checkout `<repo>/../md-condesa-site`. Only two of them — `js/schedule-data.js` and `content/site.js` — are also served in raw form by the live site, so `loadSource` can fetch those. **`content/pages/*`, `en-hub.js` and `founder.js` are compiled into HTML and can ONLY come from a local checkout**, and `loadContent()` simply returned nothing when it was missing. No error, no warning: the build just produced a KB **~8 038 tokens instead of ~10 340** — no disciplines, no FAQs, no founder — and exited 0.
 
-**Who this bit.** (1) Every **git worktree** build: the sibling path resolves to `<repo>/.claude/worktrees/<id>/../md-condesa-site`, which does not exist (a symlink there is what makes it work today). (2) **Very likely production.** Workers Builds runs `npm run build` on every push (docs/phase0-checklist.md §5) and does **not** check out the site repo, so CI has been recompiling the committed 10 340-token `kb.md` down to the 8 038-token version at deploy time. That is consistent with the long-standing "served `kbVersion` never matches the local one" gotcha. **UNVERIFIED** — confirm by comparing the `kbVersion` at `/health` with `kb/compiled/kb.md`'s header, or by asking the bot something only the disciplines/FAQ sections answer.
+**Who this bit.** (1) Every **git worktree** build: the sibling path resolves to `<repo>/.claude/worktrees/<id>/../md-condesa-site`, which does not exist (a symlink there is what makes it work today). (2) **Very likely production.** Workers Builds runs `npm run build` on every push (docs/phase0-checklist.md §5) and does **not** check out the site repo, so CI has been recompiling the committed 10 340-token `kb.md` down to the 8 038-token version at deploy time. That is consistent with the long-standing "served `kbVersion` never matches the local one" gotcha. **UNVERIFIED at the time (later confirmed: the ROAS entry above records `/health` kbVersion = the committed kb.md hash after the 2026-09-21 push, a525f78; the loud-fail + guard fix 9d4e5b1 is on main)** — original check: compare the `kbVersion` at `/health` with `kb/compiled/kb.md`'s header, or by asking the bot something only the disciplines/FAQ sections answer.
 
 **Fixed:**
 - **`MD_SITE_DIR`** env override (absolute, or relative to the repo) picks the checkout explicitly.
