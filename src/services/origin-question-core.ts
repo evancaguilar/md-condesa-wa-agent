@@ -230,10 +230,14 @@ export function originSendGate(
   messages: readonly GateMessage[],
   nowSec: number,
 ): "send" | "defer" {
-  const newest = messages[0];
+  // Newest first whatever the caller passed: recentMessages() is oldest-first,
+  // and reading [0] as the newest let the question go out over …1122's
+  // unanswered message (2026-10-22 10:02).
+  const byNewest = [...messages].sort((a, b) => b.ts - a.ts);
+  const newest = byNewest[0];
   if (!newest) return "send";
   if (newest.direction === "in" && nowSec - newest.ts < 15 * 60) return "defer";
-  for (const m of messages) {
+  for (const m of byNewest) {
     if (m.direction === "in") break;
     if ((m.direction === "out_human" || m.direction === "out_human_echo") && nowSec - m.ts < 3600) return "defer";
     if (m.direction === "out_bot" && /\?\s*\S{0,3}\s*$/u.test(m.body.trim()) && nowSec - m.ts < 2 * 3600) {

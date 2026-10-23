@@ -28,7 +28,7 @@ import {
 } from "./nightly-audit.js";
 import { KB } from "../kb.js";
 import { cdmxParts, cdmxDateStr } from "./time.js";
-import { alertNote, type CronDeps } from "./deps.js";
+import { alertNote, taskNote, type CronDeps } from "./deps.js";
 import { kvGet, kvSet, kvClaimIfAbsentOrOlder } from "../db/queries.js";
 import { reportInfraError } from "../services/infra-alert.js";
 import { ensureIndexes } from "../db/indexes.js";
@@ -54,6 +54,7 @@ import { seedChainTemplates } from "./template-seed-chains.js";
 import { seedConfirmTemplates, seedCuestionarioTemplates } from "./template-seed-cuestionario.js";
 import { seedNivel0Templates } from "./template-seed-nivel0.js";
 import { runRedrive } from "./redrive.js";
+import { runMissedTurnRescue } from "./missed-turns.js";
 import { gcGoogleRefs } from "../routes/google-click.js";
 import { gcCuestionarioRate } from "../services/cuestionario.js";
 import { copyStep, startCursor, type CopyCursor, type DbLike } from "../services/d1-copy.js";
@@ -196,6 +197,22 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
       runRedrive(
         env,
         { turn: (row, now) => turn(row, now), postNote: (t) => cronDeps.slack.postNote(t, { kind: "redrive" }) },
+        nowEpoch,
+      ),
+    );
+  }
+  // Missed-turn rescue (src/cron/missed-turns.ts): a live turn that died past
+  // the webhook's ~30 s waitUntil cap left the lead with nothing — run it again.
+  if (cronDeps.rescueTurn) {
+    const turn = cronDeps.rescueTurn;
+    await safe("missedTurns", () =>
+      runMissedTurnRescue(
+        env,
+        {
+          turn: (row, now) => turn(row, now),
+          postNote: (t) => cronDeps.slack.postNote(t, { kind: "redrive" }),
+          postTask: (t) => taskNote(cronDeps.slack, t),
+        },
         nowEpoch,
       ),
     );

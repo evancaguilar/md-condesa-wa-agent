@@ -42,6 +42,11 @@ export function classifyReminderReply(opts: {
   return recent ? which : null;
 }
 
+/** A typed "ahí estaré"-style confirmation (the gate answers it with silence). */
+export function isReminderConfirmText(body: string): boolean {
+  return CONFIRM.has(normalizeText(body));
+}
+
 /** "{name}" filled with the first word of the contact name (or dropped). */
 export function reminderAckText(template: string, name: string | null): string {
   const first = (name ?? "").trim().split(/\s+/)[0] ?? "";
