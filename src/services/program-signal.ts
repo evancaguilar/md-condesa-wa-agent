@@ -102,6 +102,21 @@ export function mergeProgramSignal(
 // tapped) fills qualification.discipline when it is still empty, so the
 // <context> can put that discipline's class first.
 
+// ---- adult talking about themselves (2026-10-24) ----
+//
+// The "Jiu-Jitsu Kids" ad (copy: "para todas las edades … hasta adultos")
+// prefills "Quiero info de las clases de Jiu-Jitsu para adulto": 6 adults got
+// the kids welcome and a context that said "programa: Kids". "Para mí" counts
+// only when nothing follows it but punctuation or the lead's own next words —
+// "para mi hijo" is a parent.
+const ADULT_SELF_RE =
+  /\bpara\s+(?:un\s+|una\s+)?adult[oa]s?(?![\p{L}\d])|\bsoy\s+(?:un\s+|una\s+)?adult[oa](?![\p{L}\d])|\bpara\s+m[ií](?:\s+mism[oa])?\s*(?:$|[.,;:!?¡¿)]|\s+(?:y\s+)?(?:quiero|me|por|porque|que|es|soy|tengo|gracias)(?![\p{L}\d]))|\bfor\s+(?:me|myself|adults?)\b|\bi'?m\s+an?\s+adult\b/iu;
+
+/** Pure. True when the lead says the classes are for an adult / themselves. */
+export function adultSelfSignal(text: string | null | undefined): boolean {
+  return ADULT_SELF_RE.test((text ?? "").trim());
+}
+
 /** Did our last message ask for the child's age? Then a bare "5" is an age. */
 const ASKS_AGE_RE = /\bedad(es)?\b|a[ñn]os\s+tiene|cu[aá]ntos\s+a[ñn]os|how\s+old/i;
 
@@ -145,9 +160,21 @@ export interface SignalInput {
  * ad's discipline when none is stored yet.
  */
 export function programSignalUpdate(current: Qualification, input: SignalInput): Qualification | null {
-  let next: Qualification = mergeProgramSignal(current, programSignalFromText(input.body)) ?? { ...current };
+  const childSignal = programSignalFromText(input.body);
+  let next: Qualification = mergeProgramSignal(current, childSignal) ?? { ...current };
 
   const months = childAgeMonthsFromText(input.body, { expectingAge: botAskedAge(input.lastOutboundBody) });
+  // "Es para mí" with no child in the same message and no child's age on
+  // file: an adult student, whatever the ad was about.
+  if (
+    adultSelfSignal(input.body) &&
+    childSignal === null &&
+    months === null &&
+    typeof current.child_age_months !== "number"
+  ) {
+    next = { ...next, audience: "adult", program: "adults" };
+    if ((next.discipline ?? "").toLowerCase().includes("baby")) delete next.discipline;
+  }
   if (months !== null && months !== current.child_age_months) {
     const band = bandFromAgeMonths(months);
     next = { ...next, child_age_months: months, program: band, audience: band === "adults" ? next.audience : "kid" };
