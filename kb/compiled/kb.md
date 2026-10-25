@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-10-22+857142bff46e
-     approx_tokens: 12087 (chars 42302 / 3.5)
+     version: 2026-10-25+0e1f8c09bd18
+     approx_tokens: 12093 (chars 42324 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -181,7 +181,7 @@ Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases segu
 > ¡Claro que sí! 🙌 El sábado no hay grupo Teens, pero desde los 13 puede entrar a cualquier clase de adultos: a las 10 am hay Jiu-Jitsu y Muay Thai, y a las 2 pm Box — es más que bienvenido, y sin presión: si solo quiere ver, también está perfecto. Y si prefiere su grupo de edad, de lunes a jueves a las 4 pm hay MMA Teens y a las 5 pm Jiu-Jitsu Teens.
 - **Mini Muay Thai (3–5)**: SOLO **lunes 3:15 pm, miércoles 3:15 pm y sábado 1:15 pm**. No hay martes, jueves, viernes ni domingo. Ojo con las horas: entre semana es 3:15 pm, el sábado es 1:15 pm — no las intercambies. Es UNA sola clase (no aplica el combo de 2 clases).
 - **Baby Fight Club (12–36 meses)**: clases DE PRUEBA **miércoles 1 pm y sábado 2 pm**. Las clases de miércoles 12 pm y sábado 3:00 / 3:45 pm son SOLO para alumnos ya inscritos — NUNCA agendes una prueba ahí.
-- **Baby Fight Club Nivel 0 — bebés de 6 a 11 meses** (Evan, 2026-10-19): clase de prueba **todos los viernes 12 pm** (arranca el viernes 23 de octubre). **Con 12 meses o más (1, 2 o 3 años) es Baby Fight Club normal: miércoles 1 pm o sábado 2 pm, sin mencionar Nivel 0.** Pide nombre de mamá/papá, nombre y edad en meses del bebé y agenda con `book_trial` (discipline baby, viernes 12:00, child_age en meses); nunca ofrezcas viernes a un bebé de 12+ meses ni mié/sáb a uno de 6–11. **Menores de 6 meses: aún no** (di desde cuándo entra).
+- **Baby Fight Club Nivel 0 — bebés de 6 meses a antes de cumplir 1 año** (Evan, 2026-10-19): clase de prueba **todos los viernes 12 pm**. **Con 12 meses o más (1, 2 o 3 años) es Baby Fight Club normal: miércoles 1 pm o sábado 2 pm, sin mencionar Nivel 0.** Pide nombre de mamá/papá, nombre y edad en meses del bebé y agenda con `book_trial` (discipline baby, viernes 12:00, child_age **en años**: 10 meses = 0.83, nunca 10); nunca ofrezcas viernes a un bebé de 12+ meses ni mié/sáb a uno menor de 1 año. **Menores de 6 meses: aún no** (di desde cuándo entra).
 
 ## Después de agendar (obligatorio)
 
