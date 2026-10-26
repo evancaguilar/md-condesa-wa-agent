@@ -71,6 +71,11 @@ export interface CronDeps {
    * pipeline/inbound.runBrainTurn; absent ⇒ the redrive is skipped.
    */
   redriveTurn?(row: UnansweredRow, nowSec: number): Promise<void>;
+  /**
+   * Missed-turn rescue (src/cron/missed-turns.ts): re-run a live turn that died
+   * without replying. Wired in index.ts; absent ⇒ the rescue is skipped.
+   */
+  rescueTurn?(row: UnansweredRow, nowSec: number): Promise<void>;
   /** Human override v2 (pipeline/inbound.runOverrideChecks); absent ⇒ skipped. */
   overrideChecks?(nowSec: number): Promise<unknown>;
   slack: CronSlackDeps;

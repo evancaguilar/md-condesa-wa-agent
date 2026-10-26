@@ -136,6 +136,17 @@ test("originSendGate: never talks over a live exchange", () => {
   assert.equal(originSendGate([m("out_bot", "¿Vienes solo o acompañado? 😊", 3 * 3600)], NOW), "send");
   // Staff spoke < 60 min ago.
   assert.equal(originSendGate([m("out_human", "Te esperamos!", 600)], NOW), "defer");
+  // Oldest-first, as recentMessages() returns it (…1122, 2026-10-22): the lead's
+  // names 8 min ago are the NEWEST message → defer.
+  const asc = [
+    m("out_bot", "Listo Lorena, ya tienes tu lugar! 🙌🔥", 1184),
+    m("out_bot", "[video]", 1183),
+    m("in", "Iríamos 3, mi hija de 13 y mi esposo por favor", 1176),
+    m("in", "[reaccionó ❤️]", 1138),
+    m("out_bot", "¿me confirmas sus nombres y la edad de tu hija?", 551),
+    m("in", "Juan Carlos Martinez\nDaniela Martinez 13 años", 482),
+  ];
+  assert.equal(originSendGate(asc, NOW), "defer");
 });
 
 test("origin state: awaiting until answered, two misses, or 48h", () => {

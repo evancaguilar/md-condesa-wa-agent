@@ -2,6 +2,13 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-22** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Missed-turn rescue + origin-question gate fix (2026-10-23) — merged into main 2026-10-26, NOT pushed
+
+- **Bug (…1122, 2026-10-22 09:54–10:02):** the lead's names for a family booking and then her "3" (Google Maps) got no reply, no Aprobar card, nothing in Slack. Same window: …2513 ("¿clases los domingos?") — the only 3 silent drops in 3 days. Every inbound turn runs in the webhook's `ctx.waitUntil`, which Cloudflare cuts ~30 s after the 200; draft latencies over 6 days stop dead at 30 s (77 ≤15 s, 51 16–20, 12 21–25, 3 26–30, **0 in 31–60**). The 09:54 turn was at 21 s when `book_trial` failed (teen at 16:00 kids) and needed another brain call. The "3" was captured (Canal = Google Maps written) but its turn died too.
+- **Rescue** (`src/cron/missed-turns.ts`, every cron tick): leads whose newest message is theirs, 4 min–3 h old, no approval row of any status since it, no human override, status lead, bot on, not a reaction / "ahí estaré" → `runBrainTurn` again, once per wamid (kv `rescue:<wamid>` claimed BEFORE the brain call). < 1 h late = normal routing; ≥ 1 h = Aprobar only + `<respuesta_tardia>`. The `<origen>` hint is re-anchored on the message (the live 5-min window has passed). ops_log note per rescue; a failed retry opens a #wa-leads task. Index-driven (`idx_messages_direction_ts`), ~3 h of inbound per tick.
+- **Origin gate bug:** `recentMessages()` is oldest-first but `originSendGate` read `[0]` as the newest → the question went out 8 min after the lead's unanswered names. Gate now sorts by ts itself; regression test with that exact chat.
+- The 30 s cap itself: fixed by the turn runner (docs/turn-runner.md). Keep this rescue as the net for turns killed by a deploy.
+
 ### Adults on the "Jiu-Jitsu Kids" ad + English leads answered in Spanish (2026-10-24) — SHIPPED (pushed 2026-10-24)
 
 - **Adult on a kids welcome.** Ad `120250914981170518` ("Jiu-Jitsu Kids", copy says "hasta adultos") also prefills "Quiero info de las clases de Jiu-Jitsu para adulto"; 6 adults (Oct 16–24) got the Jiu-Jitsu niños welcome asking "¿qué edad tiene tu peque?". Now `adultSelfSignal` (program-signal.ts: "para adulto(s)", "soy adulto", "para mí" not followed by a child word, "for me") (a) makes `shouldSkipCannedWelcome` skip a kids/teens/baby welcome so the brain answers, and (b) stores `audience: adult, program: adults` so the <context> stops offering kids hours. Never overrides a stated child's age. Ad `120249703090510518` is mapped to BOTH campaign 11 (muay thai) and 13 (jiu-jitsu kids) — Evan to pick one.

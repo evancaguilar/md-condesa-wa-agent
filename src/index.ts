@@ -10,6 +10,8 @@ import { HOOK_PATH, handleEnrolledHook, makeEnrolledHookDeps } from "./routes/ai
 import { getCronDeps, runCron, setCronDeps } from "./cron/dispatcher.js";
 import { runBrainTurn, runOverrideChecks } from "./pipeline/inbound.js";
 import { staleReplyFor } from "./cron/redrive.js";
+import { rescueTurnOptions } from "./cron/missed-turns.js";
+import { readOriginState } from "./services/origin-question.js";
 import { createBrainWithKb, makeOverlayLoader } from "./brain/index.js";
 import { accrueUsage, kvClaimIfAbsentOrOlder } from "./db/queries.js";
 import { reportInfraError } from "./services/infra-alert.js";
@@ -79,6 +81,15 @@ function makePorts(env: Env): Ports {
           nowSec,
           undefined,
           { forceReview: true, stale: staleReplyFor(row, nowSec) },
+        ),
+      rescueTurn: async (row, nowSec) =>
+        runBrainTurn(
+          env,
+          cachedPorts!,
+          { wamid: row.wamid, phone: row.phone, body: row.body, ts: row.ts },
+          nowSec,
+          undefined,
+          rescueTurnOptions(row, nowSec, await readOriginState(env, row.phone)),
         ),
     });
     cronDepsInstalled = true;
