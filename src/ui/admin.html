@@ -194,6 +194,18 @@ pre.base{white-space:pre-wrap;word-break:break-word;background:var(--panel2);bor
 .adcard{font-size:12px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex:none}
 .adcard img{width:38px;height:38px;object-fit:cover;border-radius:6px;flex:none}
 .filterbar{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+/* agenda (trial classes) */
+.agslot{padding:0;overflow:hidden}
+.agslot .aghead{display:flex;align-items:baseline;gap:10px;padding:12px 16px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.agslot .aghead .agtime{font-size:18px;font-weight:800}
+.agrow{padding:12px 16px;border-top:1px solid var(--line)}
+.aghead + .agrow{border-top:none}
+.agrow .agwho{font-weight:700;font-size:16px}
+.agrow .agwho .kid{color:var(--gold)}
+.agrow .agcontact{color:var(--muted);font-size:13px;margin-top:2px}
+.agrow .agchips{margin-top:6px}
+.agrow .agacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.agrow.agdone{opacity:.75}
 .filterbar .chip{cursor:pointer;user-select:none}
 .filterbar .chip.on{background:var(--gold);color:#181a1f;font-weight:700}
 .windowhint{font-size:12px;color:var(--muted);margin-top:6px}
@@ -368,6 +380,7 @@ var TABS=[
   {id:"inicio",   icon:"🏠",label:"Inicio"},
   {id:"chats",    icon:"💬",label:"Chats"},
   {id:"aprobaciones",icon:"✅",label:"Aprobar",badge:true},
+  {id:"agenda",   icon:"📅",label:"Agenda"},
   {id:"kb",       icon:"📚",label:"KB"},
   {id:"editor",   icon:"✨",label:"Editor"},
   {id:"campanas", icon:"📣",label:"Camp"},
@@ -2650,6 +2663,165 @@ function wireBlastForm(cat){
       toast("Envío en cola","ok"); lastPreview=0; el("bConfirm").checked=false; loadBlastRuns();
     }catch(e){ el("bQueueOut").textContent="❌ "+((e.data&&e.data.error)||"no se pudo encolar"); el("bQueue").disabled=false; }
   };
+}
+
+// ---------- AGENDA (trial classes from Airtable Leads; docs/dashboard-plan.md §11) ----------
+var AGENDA_VIEWS=[["hoy","Hoy"],["manana","Mañana"],["por_confirmar","Por confirmar"],["no_asistieron","No asistieron"]];
+var agendaState={view:"hoy",seq:0,data:null,busy:{}};
+var AG_CONFIRM_REASONS={no_phone:"el registro no tiene teléfono",not_found:"sin registro en Airtable",opted_out:"el lead está dado de baja",
+  student:"ya es alumno",result_marked:"ya tiene resultado (Asistió / Se inscribió)",already_sent:"hoy ya se le envió la confirmación",
+  date_cleared:"el registro no tiene fecha",not_due:"la clase no es hoy ni mañana",send_failed:"falló el envío"};
+VIEWS.agenda=function(){
+  var sub=(location.hash.split("/")[1]||"").trim();
+  if(AGENDA_VIEWS.some(function(v){ return v[0]===sub; })) agendaState.view=sub;
+  var m=el("main");
+  m.innerHTML='<div class="between"><h1>Agenda</h1><button class="btn sm" id="agRefresh">↻ Refrescar</button></div>'
+    +'<div class="muted sm" style="margin-bottom:10px">Clases prueba de Airtable (Leads) agrupadas por hora. <b>Quién entrena</b> en grande; el contacto de WhatsApp (mamá/papá) debajo cuando es distinto.</div>'
+    +'<div class="filterbar" id="agFilters"></div>'
+    +'<div id="agBody"><div class="loading"><span class="spin"></span></div></div>';
+  renderAgendaFilters();
+  el("agRefresh").onclick=function(){ loadAgenda(true); };
+  el("agBody").onclick=onAgendaClick;
+  loadAgenda(false);
+  startPoll(function(){ loadAgenda(false); },120000);
+};
+function renderAgendaFilters(){
+  var f=el("agFilters"); if(!f) return;
+  f.innerHTML=AGENDA_VIEWS.map(function(v){
+    return '<span class="chip'+(v[0]===agendaState.view?" on":"")+'" data-agview="'+v[0]+'">'+esc(v[1])+'</span>';
+  }).join("");
+  qa("[data-agview]",f).forEach(function(c){ c.onclick=function(){
+    agendaState.view=c.getAttribute("data-agview");
+    history.replaceState(null,"",location.pathname+location.search+"#agenda/"+agendaState.view);
+    renderAgendaFilters(); loadAgenda(false);
+  }; });
+}
+async function loadAgenda(fresh){
+  var body=el("agBody"); if(!body) return;
+  var seq=++agendaState.seq;
+  if(!agendaState.data || agendaState.data.view!==agendaState.view) body.innerHTML='<div class="loading"><span class="spin"></span></div>';
+  var d;
+  try{ d=await api("/agenda?view="+encodeURIComponent(agendaState.view)+(fresh?"&fresh=1":"")); }
+  catch(e){
+    if(seq!==agendaState.seq || !el("agBody")) return;
+    body.innerHTML='<div class="card muted">No se pudo leer la agenda de Airtable'+(e&&e.data&&e.data.detail?' ('+esc(e.data.detail)+')':'.')+'</div>';
+    return;
+  }
+  if(seq!==agendaState.seq || !el("agBody")) return;
+  agendaState.data=d;
+  renderAgenda();
+}
+function agendaDayFor(view){
+  var now=Date.now();
+  if(view==="hoy") return "Hoy · "+cdmxDayKey(now);
+  if(view==="manana") return "Mañana · "+cdmxDayKey(now+864e5);
+  if(view==="por_confirmar") return "Próximos 7 días sin resultado";
+  return "No asistieron en los últimos 7 días";
+}
+function renderAgenda(){
+  var body=el("agBody"), d=agendaState.data; if(!body||!d) return;
+  var head='<div class="muted sm" style="margin-bottom:8px">'+esc(agendaDayFor(d.view))+' · '+d.total+' clase'+(d.total===1?"":"s")
+    +(d.cachedAt?' · leído '+esc(relTime(d.cachedAt)):'')
+    +(d.stale?' · <span class="chip amber" title="Airtable no respondió; se muestra la última lectura">⚠ datos de la última lectura</span>':'')+'</div>';
+  if(!d.groups.length){ body.innerHTML=head+'<div class="card muted">Sin clases prueba en esta vista.</div>'; return; }
+  body.innerHTML=head+d.groups.map(agendaGroupHtml).join("");
+}
+function agendaGroupHtml(g){
+  var when=g.timeLabel?'<span class="agtime">'+esc(g.timeLabel)+'</span><span class="muted sm">'+esc(g.dayLabel||"")+'</span>':'<span class="agtime">Sin fecha</span>';
+  return '<div class="card agslot"><div class="aghead">'+when+'<span class="chip" style="margin-left:auto">'+g.rows.length+'</span></div>'
+    +g.rows.map(agendaRowHtml).join("")+'</div>';
+}
+function agendaResultChip(r){
+  if(r.enrolled) return '<span class="chip gold">🎓 Se inscribió</span>';
+  if(r.resultClass==="attended") return '<span class="chip green">✅ Asistió</span>';
+  if(r.resultClass==="no_show") return '<span class="chip red">❌ No asistió</span>';
+  if(r.result) return '<span class="chip">'+esc(r.result)+'</span>';
+  return '';
+}
+function agendaCqChip(r){
+  if(!r.cuestionario) return '';
+  var done=/✅|complet/i.test(r.cuestionario);
+  return '<span class="chip'+(done?" green":"")+'" title="'+esc(r.cuestionario)+'">'+(done?'✅ cuestionario':'⏳ cuestionario')+'</span>';
+}
+function agendaRowHtml(r){
+  var isKid=!!(r.childName && r.childName!==r.leadName);
+  var who=r.whoTrains||r.leadName||r.phoneRaw||"(sin nombre)";
+  var contactName=(r.contact&&r.contact.name)||r.leadName||"";
+  var waId=(r.contact&&r.contact.phone)||r.phone||"";
+  var contactLine='';
+  if(isKid) contactLine='<div class="agcontact">👤 Contacto: '+esc(r.leadName||contactName||"—")+(waId?' · '+esc(fmtPhone(waId)):'')+'</div>';
+  else if(waId) contactLine='<div class="agcontact">'+esc(fmtPhone(waId))+(contactName&&contactName!==who?' · '+esc(contactName):'')+'</div>';
+  else contactLine='<div class="agcontact">'+esc(r.phoneRaw||"sin teléfono")+'</div>';
+  var chips=[];
+  if(r.programa) chips.push('<span class="chip blue">'+esc(r.programa)+'</span>');
+  (r.actividad||[]).forEach(function(a){ chips.push('<span class="chip">'+esc(a)+'</span>'); });
+  var cq=agendaCqChip(r); if(cq) chips.push(cq);
+  var res=agendaResultChip(r); if(res) chips.push(res);
+  if(r.lost) chips.push('<span class="chip dim">Perdido</span>');
+  if(r.sameDaySent) chips.push('<span class="chip green" title="Recordatorio del día ya enviado">📨 confirmación enviada</span>');
+  if(!r.contact) chips.push('<span class="chip dim" title="Este número no ha escrito al bot">sin chat</span>');
+  else if(r.contact.status==="student") chips.push('<span class="chip gold">Alumno</span>');
+  else if(r.contact.status==="opted_out") chips.push('<span class="chip red">Baja</span>');
+  else if(!r.windowOpen) chips.push('<span class="chip dim" title="Última escritura del lead hace más de 24 h: solo plantillas">ventana cerrada</span>');
+  var acts=[];
+  var rid=esc(r.recordId);
+  if(waId) acts.push('<button class="btn sm" data-agact="chat" data-phone="'+esc(waId)+'"'+(r.contact?'':' title="No ha escrito al bot: se abre por número"')+'>💬 Abrir chat</button>');
+  var dk=r.trialEpoch?cdmxDayKey(r.trialEpoch):"", today=cdmxDayKey(Date.now()), tomorrow=cdmxDayKey(Date.now()+864e5);
+  var confirmable=r.phone && r.trialEpoch && !r.enrolled && r.resultClass!=="attended" && (dk===today||dk===tomorrow);
+  if(confirmable) acts.push('<button class="btn sm" data-agact="confirm" data-rid="'+rid+'" data-phone="'+esc(r.phone)+'" data-epoch="'+r.trialEpoch+'"'+(r.sameDaySent?' title="Ya enviada hoy; vuelve a enviar"':'')+'>📨 '+(r.sameDaySent?'Reenviar':'Enviar')+' confirmación</button>');
+  if(state.me && state.me.role==="owner" && r.phone && !r.enrolled) acts.push('<button class="btn sm" data-agact="cq" data-phone="'+esc(r.phone)+'">📋 Enviar cuestionario</button>');
+  if(!r.enrolled){
+    acts.push('<button class="btn sm'+(r.resultClass==="attended"?" green":"")+'" data-agact="mark" data-rid="'+rid+'" data-mark="'+(r.resultClass==="attended"?"clear":"attended")+'">✅ Asistió</button>');
+    acts.push('<button class="btn sm'+(r.resultClass==="no_show"?" red":"")+'" data-agact="mark" data-rid="'+rid+'" data-mark="'+(r.resultClass==="no_show"?"clear":"no_show")+'">❌ No asistió</button>');
+  }
+  return '<div class="agrow'+(r.enrolled||r.resultClass?" agdone":"")+'" id="agrow-'+rid+'">'
+    +'<div class="agwho">'+(isKid?'<span class="kid">🧒 '+esc(who)+'</span>':esc(who))+'</div>'
+    +contactLine
+    +'<div class="chips agchips">'+chips.join("")+'</div>'
+    +'<div class="agacts">'+acts.join("")+'</div></div>';
+}
+function onAgendaClick(ev){
+  var b=ev.target&&ev.target.closest?ev.target.closest("[data-agact]"):null;
+  if(!b) return;
+  var act=b.getAttribute("data-agact");
+  if(act==="chat"){ location.hash="#chats/"+String(b.getAttribute("data-phone")||"").replace(/\D/g,""); return; }
+  if(act==="cq"){ agendaSendCq(b); return; }
+  if(act==="confirm"){ agendaConfirm(b); return; }
+  if(act==="mark"){ agendaMark(b); return; }
+}
+function agendaBusy(b,on){ qa("[data-agact]",b.closest(".agrow")).forEach(function(x){ x.disabled=on; }); }
+async function agendaMark(b){
+  var rid=b.getAttribute("data-rid"), mark=b.getAttribute("data-mark");
+  agendaBusy(b,true);
+  try{
+    var r=await api("/agenda/result",{method:"POST",body:{recordId:rid,mark:mark}});
+    if(r&&r.ok) toast(mark==="clear"?"Resultado quitado":(mark==="attended"?"Marcado: Asistió":"Marcado: No asistió"),"ok");
+    else toast("No se pudo marcar: "+((r&&(r.detail||r.reason))||"error"),"err");
+  }catch(e){ toast("No se pudo marcar: "+((e&&e.data&&(e.data.detail||e.data.error))||("HTTP "+(e&&e.status))),"err"); }
+  loadAgenda(true);
+}
+async function agendaConfirm(b){
+  var rid=b.getAttribute("data-rid"), phone=b.getAttribute("data-phone"), epoch=Number(b.getAttribute("data-epoch"));
+  var resend=/Reenviar/.test(b.textContent||"");
+  if(!confirm(resend?"¿Volver a enviar la confirmación de la clase a este número?":"¿Enviar la confirmación de la clase (recordatorio del día / de la noche anterior) a este número?")) return;
+  agendaBusy(b,true);
+  try{
+    var r=await api("/agenda/confirm",{method:"POST",body:{recordId:rid,phone:phone,trialEpoch:epoch,force:resend}});
+    if(r&&r.ok) toast(r.how==="sent"?"Confirmación enviada ("+(r.kind==="same_day"?"hoy":"noche anterior")+")":"No se envió: ventana cerrada","ok");
+    else toast("No enviada: "+((r&&(AG_CONFIRM_REASONS[r.reason]||r.reason))||"error")+(r&&r.detail?" ("+r.detail+")":""),"err");
+  }catch(e){ toast("No enviada: "+((e&&e.data&&(AG_CONFIRM_REASONS[e.data.reason]||e.data.detail||e.data.error))||("HTTP "+(e&&e.status))),"err"); }
+  loadAgenda(true);
+}
+async function agendaSendCq(b){
+  var phone=b.getAttribute("data-phone");
+  if(!confirm("¿Enviar el cuestionario pre-clase a este lead por WhatsApp?")) return;
+  agendaBusy(b,true);
+  try{
+    var r=await api("/cuestionario/send",{method:"POST",body:{phone:phone,resend:true}});
+    if(r&&r.ok) toast("Cuestionario enviado ("+r.version+")"+(r.warning?" — "+r.warning:""),"ok");
+    else toast("No enviado: "+((r&&(CQ_REASONS[r.reason]||r.reason))||"error")+(r&&r.detail?" ("+r.detail+")":""),"err");
+  }catch(e){ toast("No enviado: "+((e&&e.data&&e.data.error)||("HTTP "+(e&&e.status))),"err"); }
+  loadAgenda(true);
 }
 
 // ---------- LOGS (ops_log, owner-only) ----------

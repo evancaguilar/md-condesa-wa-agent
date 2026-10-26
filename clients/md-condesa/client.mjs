@@ -118,6 +118,13 @@ export default {
     tags: "Tags",
     optOutTag: "Baja",
     childName: "Nombre Del Niñ@",
+    // Agenda tab (docs/dashboard-plan.md §11). Read-only columns the trial
+    // agenda shows: the formula that resolves WHO trains (child if set, else
+    // the lead — fldnvFCj8xt4IJ97S), the questionnaire state formula, and the
+    // "Se inscribió" checkbox. The worker never writes any of them.
+    whoTrains: "Quién entrena",
+    cuestionarioStatus: "Respuestas cuestionario",
+    enrolled: "Se inscribió",
     // Read-only: enrolment amount (MXN), used as the Purchase value sent to
     // Meta's Conversions API (docs/meta-capi.md). The worker never writes it.
     initialPayment: "Pago Inicial",

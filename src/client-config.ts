@@ -240,6 +240,16 @@ export interface AirtableLeadsMap {
   optOutTag: string;
   /** Child-name column for kid/baby bookings, e.g. "Nombre Del Niñ@". */
   childName: string;
+  /** Formula column resolving who actually trains (child if set, else the
+   *  lead), e.g. "Quién entrena". Read by the Agenda tab; absent ⇒ the worker
+   *  derives it from childName/name. */
+  whoTrains?: string;
+  /** Formula column with the pre-trial questionnaire state as staff see it in
+   *  Airtable (⏳ pending / ✅ completed), e.g. "Respuestas cuestionario".
+   *  Read-only, Agenda tab. */
+  cuestionarioStatus?: string;
+  /** "Se inscribió" checkbox (enrolment). Read-only, Agenda tab. */
+  enrolled?: string;
   /** Amount the lead paid when they enrolled, e.g. "Pago Inicial". Read-only:
    *  the worker never writes it. Used as the Purchase value sent to Meta
    *  (docs/meta-capi.md). Absent/blank column ⇒ Purchase without value. */

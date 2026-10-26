@@ -2,6 +2,16 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-26** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Agenda tab: clases prueba sin abrir Airtable (2026-10-26) — on branch `missed-turn-rescue`, NOT pushed (needs Evan's review)
+
+Spec: docs/dashboard-plan.md §11. New tab **Agenda** (all roles) mirrors the Airtable Interface views reception used (Hoy / Mañana / Por confirmar / No asistieron): rows grouped by class time, **quién entrena** (child, via the new Leads formula "Quién entrena") in large type and the WhatsApp contact (Nombre de Lead) underneath, programa / actividad / cuestionario state / resultado chips, "📨 confirmación enviada" when today's reminder already went out, and per row: 💬 Abrir chat (deep link), 📨 Enviar confirmación (the cron's own same_day / day_before reminder, `sendTrialReminderNow`), 📋 Enviar cuestionario (owner, existing endpoint), ✅ Asistió / ❌ No asistió (writes only that pair in `Resultado Clase Prueba`).
+
+- Routes `GET /admin/api/agenda`, `POST /admin/api/agenda/confirm`, `POST /admin/api/agenda/result`. Airtable read cached 60 s in kv; one batched contacts lookup + one batched kv lookup per load (D1 budget rule). New `airtableLeads` keys `whoTrains` / `cuestionarioStatus` / `enrolled` (client.mjs, passed through the compiler as part of `airtableLeads`; verified in client.gen.ts).
+- Tests 1383 → **1401** (`test/agenda-core.test.ts`, fake clocks).
+- Not verified live (no Airtable PAT locally): the formula against the real base, and the exact text the "Respuestas cuestionario" formula returns (the chip treats ✅/"complet…" as done, anything else as pending).
+- [ ] **Evan:** review + merge/push; then probe `GET /admin/api/agenda?view=hoy` (logged in) → 200 with `groups[]`, and open /admin#agenda. A 502 `airtable_error` means a column name in client.mjs does not match the base.
+- [ ] **Evan (decide):** should staff (not only the owner) be able to send the cuestionario from the Agenda? Today the button reuses the owner-only endpoint.
+
 ### Auditor nocturno → Opus 5.5, esfuerzo medio (2026-10-26) — on branch `missed-turn-rescue`, NOT pushed
 
 - `AUDIT_MODEL` = `claude-opus-5-5`, effort `medium` (was `claude-opus-5` high; Evan's call). Pricing constants updated to $4/$20 per MTok, cache read $0.20 → usage_log accrual now ≈ $0.15–0.30/night. Header reads "esfuerzo medio". Nothing else changes: adaptive thinking, same prompt, full report → ops_log kind `audit`, one summary → #evan-alerts.

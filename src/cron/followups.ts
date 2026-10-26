@@ -1131,6 +1131,74 @@ async function sendReminder(
   }
 }
 
+export type ManualReminderResult =
+  | { ok: true; kind: "same_day" | "day_before"; how: "sent" | "cancelled"; trialEpoch: number | null }
+  | { ok: false; reason: "no_phone" | "not_found" | "opted_out" | "student" | "result_marked" | "already_sent" | "date_cleared" };
+
+/**
+ * "Enviar confirmación" from the Agenda tab (docs/dashboard-plan.md §11): the
+ * SAME day-of / night-before reminder the cron sends, fired by reception on
+ * demand. Reuses the copy, template fallback and the one-per-day claim of
+ * processOne's day_before / same_day branch — nothing is reimplemented:
+ * - re-reads the Leads row (date cleared / Asistió / Se inscribió ⇒ refuse);
+ * - same_day claims kv `same_day_sent:<phone>:<date>` so the cron's own row
+ *   skips later; an existing claim refuses unless `force` (a resend).
+ * Send errors propagate (the route maps them to a 502).
+ */
+export async function sendTrialReminderNow(
+  env: Env,
+  deps: { slack: Pick<CronSlackDeps, "postNote">; getRecord?: FollowupDeps["getRecord"] },
+  input: { phone: string; recordId: string; kind: "same_day" | "day_before"; force?: boolean },
+): Promise<ManualReminderResult> {
+  const phone = input.phone;
+  if (!phone) return { ok: false, reason: "no_phone" };
+  const contact = await getContact(env.DB, phone);
+  if (contact?.status === "opted_out") return { ok: false, reason: "opted_out" };
+  if (contact?.status === "student") return { ok: false, reason: "student" };
+  const recId = airtableRecId(input.recordId);
+  let record: BookingRecord | null = null;
+  if (recId) record = await (deps.getRecord ?? getBookingRecord)(env, recId);
+  if (!record) return { ok: false, reason: "not_found" };
+  if (!record.trialDateTimeIso) return { ok: false, reason: "date_cleared" };
+  const r = normalizeResult(record.result);
+  if (r.includes("asistio") || r.includes("se inscribio")) return { ok: false, reason: "result_marked" };
+  const t = Math.floor(Date.parse(record.trialDateTimeIso) / 1000);
+  const trialEpoch = Number.isFinite(t) ? t : null;
+  const lang = contact?.lang ?? "es";
+  const name = greetingName(contact?.name);
+  let claim: string | null = null;
+  if (input.kind === "same_day") {
+    claim = sameDaySentKey(phone, trialEpoch ?? nowSec());
+    const won = await kvSetIfAbsent(env.DB, claim, String(nowSec()));
+    if (!won && !input.force) return { ok: false, reason: "already_sent" };
+    if (!won) claim = null; // forced resend: the existing claim stays
+  }
+  const motivoText =
+    input.kind === "day_before"
+      ? dayBeforeMotivoText({
+          lang: lang === "en" ? "en" : "es",
+          name,
+          trialEpoch,
+          motivoPrincipal: record.motivoPrincipal,
+          meta6Meses: record.meta6Meses,
+          ...reminderAudience(record),
+        })
+      : null;
+  try {
+    const how = await sendReminder(env, deps, phone, {
+      template: input.kind === "same_day" ? "trial_reminder_same_day" : "trial_reminder_day_before",
+      lang,
+      name,
+      freeform: motivoText ?? messengerReminderText(input.kind, name, lang),
+      preferFreeform: motivoText !== null,
+    });
+    return { ok: true, kind: input.kind, how, trialEpoch };
+  } catch (err) {
+    if (claim) await kvDelete(env.DB, claim);
+    throw err;
+  }
+}
+
 /**
  * utm attribution for the booking links this contact receives: their first-
  * touch ad (contacts.ad_ref) + the D1 campaign name. Fail-soft: no ad → plain
