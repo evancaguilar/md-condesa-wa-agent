@@ -4,8 +4,8 @@
 // ONE summary message (auditSummaryMessage) linking to it. It REPORTS — it never edits code, campaigns, or the KB, and
 // it never messages a lead. Structural fixes stay with a human + Claude Code.
 //
-// Cost note: claude-opus-5 at $5/$25 per MTok over a compacted day (~30–60K
-// input, ~2K output incl. thinking) ≈ $0.20–0.40 per night. Usage is accrued
+// Cost note: claude-opus-5-5 at $4/$20 per MTok over a compacted day (~30–60K
+// input, ~2K output incl. thinking) ≈ $0.15–0.30 per night. Usage is accrued
 // into the same usage_log the budget report reads, at OPUS rates.
 
 import type { Env } from "../types.js";
@@ -17,8 +17,9 @@ import { listApprovalHistory, namesForPhones } from "../db/queries-admin.js";
 import { cdmxDateStr } from "./time.js";
 import { dashboardUrl } from "../services/dashboard-link.js";
 
-export const AUDIT_MODEL = "claude-opus-5";
-const AUDIT_EFFORT = "high" as const;
+export const AUDIT_MODEL = "claude-opus-5-5";
+// Owner call 2026-10-26: Opus 5.5 at medium effort (was opus-5 high).
+const AUDIT_EFFORT = "medium" as const;
 /** Thinking spends from this too; the digest itself is ~1–2K tokens. */
 const AUDIT_MAX_TOKENS = 12000;
 /** Compacted transcript budget (chars ≈ tokens×3.5). Oldest convos drop first. */
@@ -29,8 +30,8 @@ const MAX_DATA_CHARS = 220_000;
 // the header posted). Keep headroom for mrkdwn escaping.
 const SLACK_CHUNK = 2800;
 
-const PRICE_IN = 5 / 1_000_000;
-const PRICE_OUT = 25 / 1_000_000;
+const PRICE_IN = 4 / 1_000_000;
+const PRICE_OUT = 20 / 1_000_000;
 
 export interface AuditMessageRow {
   phone: string;
@@ -373,7 +374,7 @@ export async function runNightlyAudit(env: Env, deps: NightlyAuditDeps): Promise
     .join("\n")
     .trim();
 
-  const header = `🌙 *Auditor nocturno* (${AUDIT_MODEL}, esfuerzo alto) — ${windowLabel}`;
+  const header = `🌙 *Auditor nocturno* (${AUDIT_MODEL}, esfuerzo medio) — ${windowLabel}`;
   // Full report to the ops_log first (one row, no Slack size limit), then the
   // one summary to #evan-alerts. A Slack failure throws ⇒ the dispatcher's
   // retry runs the audit again (a duplicate log row is harmless).
@@ -389,7 +390,7 @@ export async function runNightlyAudit(env: Env, deps: NightlyAuditDeps): Promise
     const cost =
       (u.input_tokens ?? 0) * PRICE_IN +
       (u.cache_creation_input_tokens ?? 0) * PRICE_IN * 2 + // 1h cache write ≈ 2× base
-      cached * PRICE_IN * 0.1 +
+      cached * PRICE_IN * 0.05 + // opus-5-5 cache read $0.20/MTok
       outTok * PRICE_OUT;
     await accrueUsage(env.DB, cdmxDateStr(now), inTok, cached, outTok, cost);
   } catch (err) {

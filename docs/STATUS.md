@@ -1,6 +1,11 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-22** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-26** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### Auditor nocturno → Opus 5.5, esfuerzo medio (2026-10-26) — on branch `missed-turn-rescue`, NOT pushed
+
+- `AUDIT_MODEL` = `claude-opus-5-5`, effort `medium` (was `claude-opus-5` high; Evan's call). Pricing constants updated to $4/$20 per MTok, cache read $0.20 → usage_log accrual now ≈ $0.15–0.30/night. Header reads "esfuerzo medio". Nothing else changes: adaptive thinking, same prompt, full report → ops_log kind `audit`, one summary → #evan-alerts.
+- **Verify after deploy:** the next 05:00 report header shows `claude-opus-5-5`; a 400 from the API would show up as the "day lost" #bot-ops/ops_log note.
 
 ### Missed-turn rescue + origin-question gate fix (2026-10-23) — on branch `missed-turn-rescue`, NOT pushed (needs Evan's OK)
 
