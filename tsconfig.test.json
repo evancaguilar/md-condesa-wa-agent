@@ -65,6 +65,7 @@
     "src/brain/overlay.ts",
     "src/pipeline/campaigns.ts",
     "src/pipeline/reto-login.ts",
+    "src/pipeline/turn-queue-core.ts",
     "src/services/reto-login.ts",
     "src/services/meta-insights.ts",
     "src/services/metrics-airtable.ts",

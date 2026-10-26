@@ -5,6 +5,7 @@ import { KB } from "../kb.js";
 // kbVersion only moves when KB content moves, so code-only deploys need this
 // to be verifiable at all.
 import { REV } from "../rev.gen.js";
+import { turnRunnerEnabled } from "../pipeline/turn-offload.js";
 
 // Parsed once per isolate from the compiled KB's header comment. Lets /health
 // prove WHICH knowledge base a deploy is actually serving (deploys have failed
@@ -28,5 +29,6 @@ export async function handleHealth(env: Env): Promise<Response> {
     botEnabled,
     kbVersion: KB_VERSION,
     rev: REV,
+    turnRunner: turnRunnerEnabled(env),
   });
 }

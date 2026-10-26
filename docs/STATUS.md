@@ -2,6 +2,11 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-22** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Turn runner: brain turns out of the webhook's 30 s waitUntil (2026-10-26) — BUILT on branch `turn-runner`, NOT pushed, ships dark
+
+Turns past ~30 s (8 s debounce + slow Anthropic call / booking retry) were cancelled silently with `waitUntil`. Step 6 of `processInbound` (debounce → brain) now hands the turn to a per-phone Durable Object (`TurnRunner`, `src/pipeline/turn-runner.ts`) whose alarm runs it with 15 min wall time; alarms never overlap per phone, so one lead's turns no longer run in parallel (the debounce race). Gate order untouched; fail-soft to the inline path when the binding/var is missing or the enqueue fails. Design + options compared (Queues, Workflows, self-fetch): **docs/turn-runner.md**. `/health` → `turnRunner`. Tests → **1390**.
+- [ ] **Evan:** merge `turn-runner` (dark), then uncomment the `durable_objects` + `migrations` blocks and `TURN_RUNNER` in wrangler.jsonc and push; verify `/health` shows `"turnRunner":true`, then one test message (Logs show a `TurnRunner` alarm). Steps + rollback in docs/turn-runner.md. Keep `missed-turn-rescue` as the net.
+
 ### Adults on the "Jiu-Jitsu Kids" ad + English leads answered in Spanish (2026-10-24) — SHIPPED (pushed 2026-10-24)
 
 - **Adult on a kids welcome.** Ad `120250914981170518` ("Jiu-Jitsu Kids", copy says "hasta adultos") also prefills "Quiero info de las clases de Jiu-Jitsu para adulto"; 6 adults (Oct 16–24) got the Jiu-Jitsu niños welcome asking "¿qué edad tiene tu peque?". Now `adultSelfSignal` (program-signal.ts: "para adulto(s)", "soy adulto", "para mí" not followed by a child word, "for me") (a) makes `shouldSkipCannedWelcome` skip a kids/teens/baby welcome so the brain answers, and (b) stores `audience: adult, program: adults` so the <context> stops offering kids hours. Never overrides a stated child's age. Ad `120249703090510518` is mapped to BOTH campaign 11 (muay thai) and 13 (jiu-jitsu kids) — Evan to pick one.
