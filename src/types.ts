@@ -19,6 +19,10 @@ export interface Env {
   DB_TARGET?: D1Database;
   /** Workers AI (Whisper transcription). Optional so local/sandbox runs skip it. */
   AI?: Ai;
+  /** Per-phone turn runner (src/pipeline/turn-runner.ts, docs/turn-runner.md).
+   *  Unset until the durable_objects block in wrangler.jsonc is deployed;
+   *  inbound turns then run inline in the webhook's waitUntil, as before. */
+  TURNS?: DurableObjectNamespace;
 
   // Secrets
   META_APP_SECRET: string;
@@ -97,6 +101,9 @@ export interface Env {
    *  Leads record and acts only if Airtable itself says "Se inscribió". Unset ⇒
    *  the endpoint refuses every call (the cron still handles enrolments). */
   AIRTABLE_HOOK_KEY?: string;
+  /** "1" ⇒ inbound brain turns run in the TURNS Durable Object (needs that
+   *  binding too). Anything else ⇒ inline in the webhook's waitUntil. */
+  TURN_RUNNER?: string;
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;

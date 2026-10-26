@@ -2,6 +2,11 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-22** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Turn runner: brain turns out of the webhook's 30 s waitUntil (2026-10-26) — merged into main 2026-10-26, NOT pushed, ships dark
+
+Turns past ~30 s (8 s debounce + slow Anthropic call / booking retry) were cancelled silently with `waitUntil`. Step 6 of `processInbound` (debounce → brain) now hands the turn to a per-phone Durable Object (`TurnRunner`, `src/pipeline/turn-runner.ts`) whose alarm runs it with 15 min wall time; alarms never overlap per phone, so one lead's turns no longer run in parallel (the debounce race). Gate order untouched; fail-soft to the inline path when the binding/var is missing or the enqueue fails. Design + options compared (Queues, Workflows, self-fetch): **docs/turn-runner.md**. `/health` → `turnRunner`. Tests → **1390**.
+- [ ] **Evan:** push main (dark), then uncomment the `durable_objects` + `migrations` blocks and `TURN_RUNNER` in wrangler.jsonc and push; verify `/health` shows `"turnRunner":true`, then one test message (Logs show a `TurnRunner` alarm). Steps + rollback in docs/turn-runner.md.
+
 ### Missed-turn rescue + origin-question gate fix (2026-10-23) — merged into main 2026-10-26, NOT pushed
 
 - **Bug (…1122, 2026-10-22 09:54–10:02):** the lead's names for a family booking and then her "3" (Google Maps) got no reply, no Aprobar card, nothing in Slack. Same window: …2513 ("¿clases los domingos?") — the only 3 silent drops in 3 days. Every inbound turn runs in the webhook's `ctx.waitUntil`, which Cloudflare cuts ~30 s after the 200; draft latencies over 6 days stop dead at 30 s (77 ≤15 s, 51 16–20, 12 21–25, 3 26–30, **0 in 31–60**). The 09:54 turn was at 21 s when `book_trial` failed (teen at 16:00 kids) and needed another brain call. The "3" was captured (Canal = Google Maps written) but its turn died too.

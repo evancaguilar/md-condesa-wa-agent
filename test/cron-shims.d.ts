@@ -17,6 +17,10 @@ interface D1PreparedStatement {
 interface D1Database {
   prepare(query: string): D1PreparedStatement;
 }
+/** Env.TURNS (turn runner); never called under test. */
+interface DurableObjectNamespace {
+  idFromName(name: string): unknown;
+}
 
 declare const console: {
   log(...a: unknown[]): void;

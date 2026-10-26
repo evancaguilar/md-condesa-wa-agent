@@ -26,6 +26,16 @@
   "ai": {
     "binding": "AI"
   },
+  // Turn runner (docs/turn-runner.md): runs each inbound brain turn in a
+  // per-phone Durable Object alarm instead of the webhook's 30 s waitUntil.
+  // SHIPS COMMENTED OUT (Evan's go-live). To turn it on, uncomment BOTH blocks
+  // below and the TURN_RUNNER var, then push; /health shows turnRunner:true.
+  // Off again: set TURN_RUNNER to "0" and push (keep the binding + migration:
+  // a deployed migration tag must never be removed or reordered).
+  // "durable_objects": {
+  //   "bindings": [{ "name": "TURNS", "class_name": "TurnRunner" }]
+  // },
+  // "migrations": [{ "tag": "v1-turn-runner", "new_sqlite_classes": ["TurnRunner"] }],
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
@@ -55,6 +65,8 @@
     // Needs the secrets CUESTIONARIO_SECRET (+ CUESTIONARIO_SEND_KEY for the
     // Airtable automation). LIVE since 2026-10-15 (Evan).
     "CUESTIONARIO_ENABLED": "1"
+    // Turn runner switch (see the durable_objects block above).
+    // ,"TURN_RUNNER": "1"
     // Conversions API for Business Messaging (docs/meta-capi.md). Uncomment and
     // paste the dataset id linked to WA_WABA_ID once it exists in Events Manager
     // (GET /admin/api/capi/dataset reads it). Non-secret, so a var is fine. The

@@ -9,6 +9,7 @@ import { handleCuestionario } from "./routes/cuestionario.js";
 import { HOOK_PATH, handleEnrolledHook, makeEnrolledHookDeps } from "./routes/airtable-hooks.js";
 import { getCronDeps, runCron, setCronDeps } from "./cron/dispatcher.js";
 import { runBrainTurn, runOverrideChecks } from "./pipeline/inbound.js";
+import { turnRunnerClass } from "./pipeline/turn-runner.js";
 import { staleReplyFor } from "./cron/redrive.js";
 import { rescueTurnOptions } from "./cron/missed-turns.js";
 import { readOriginState } from "./services/origin-question.js";
@@ -97,6 +98,9 @@ function makePorts(env: Env): Ports {
 
   return cachedPorts;
 }
+
+/** Durable Object class bound as TURNS (wrangler.jsonc, docs/turn-runner.md). */
+export const TurnRunner = turnRunnerClass(makePorts);
 
 /**
  * Re-throws after reporting an INFRA failure (D1 saturated, etc.) to Slack,

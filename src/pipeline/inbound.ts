@@ -79,6 +79,7 @@ import {
 import { applyLeadCancellation } from "../services/trial-cancel.js";
 import { captureOriginAnswer, readOriginState } from "../services/origin-question.js";
 import { recentOriginAnswer } from "../services/origin-question-core.js";
+import { offloadTurn } from "./turn-offload.js";
 import {
   OVERRIDE_CHECK_PREFIX,
   armOverrideCheck,
@@ -746,11 +747,47 @@ export async function processInbound(
   }
 
   // 6. Debounce: wait ~8s, then only the newest inbound proceeds so we consume
-  // all unanswered messages in one brain call.
+  // all unanswered messages in one brain call. With the turn runner on
+  // (docs/turn-runner.md) the per-phone Durable Object does the wait + newest
+  // check + brain in an alarm, outside this webhook's 30 s waitUntil; off, or
+  // if the hand-off fails, the same steps run inline right here.
+  const turn: PendingTurn = {
+    msg,
+    nowSec,
+    ...(justSentWelcome !== undefined ? { justSentWelcome } : {}),
+    ...(reschedule ? { reschedule: true } : {}),
+    ...(leadCancel ? { leadCancel } : {}),
+    ...(originAnswer ? { originAnswer } : {}),
+  };
+  if (await offloadTurn(env, turn)) return;
   await new Promise((r) => setTimeout(r, DEBOUNCE_MS));
   const newest = await newestInboundWamid(env.DB, msg.phone);
   if (newest !== msg.wamid) return;
+  await runPendingTurn(env, ports, turn);
+}
 
+/**
+ * A turn that passed every gate of processInbound, waiting out the debounce.
+ * JSON-serializable: the turn runner stores it in its Durable Object.
+ */
+export interface PendingTurn {
+  msg: InboundMessage;
+  /** processInbound's clock at the gates (history window, 24 h window). */
+  nowSec: number;
+  justSentWelcome?: string;
+  reschedule?: boolean;
+  leadCancel?: LeadCancelIntent;
+  originAnswer?: ConvoContext["originAnswer"];
+}
+
+/**
+ * Step 6's tail, after the debounce and the newest-inbound check: re-read the
+ * burst's markers, then the brain turn. Called inline by processInbound or
+ * from the turn runner's alarm.
+ */
+export async function runPendingTurn(env: Env, ports: Ports, turn: PendingTurn): Promise<void> {
+  const { msg, nowSec, justSentWelcome, reschedule = false } = turn;
+  let { leadCancel = null, originAnswer = null } = turn;
   // A normal turn now owns this lead's reply: any armed override check is moot.
   await kvDelete(env.DB, overrideCheckKey(msg.phone)).catch(() => {});
   // 1c's cancellation may have landed on an EARLIER message of this burst
