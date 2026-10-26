@@ -97,7 +97,6 @@ export const CLIENT: ClientConfig = {
     "childName": "Nombre Del Niñ@",
     "whoTrains": "Quién entrena",
     "cuestionarioStatus": "Respuestas cuestionario",
-    "enrolled": "Se inscribió",
     "initialPayment": "Pago Inicial",
     "ctwaClid": "CTWA Click ID",
     "gclid": "gclid",

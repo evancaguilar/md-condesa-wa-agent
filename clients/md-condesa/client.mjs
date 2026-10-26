@@ -120,11 +120,12 @@ export default {
     childName: "Nombre Del Niñ@",
     // Agenda tab (docs/dashboard-plan.md §11). Read-only columns the trial
     // agenda shows: the formula that resolves WHO trains (child if set, else
-    // the lead — fldnvFCj8xt4IJ97S), the questionnaire state formula, and the
-    // "Se inscribió" checkbox. The worker never writes any of them.
+    // the lead — fldnvFCj8xt4IJ97S) and the questionnaire state formula. There
+    // is NO "Se inscribió" column on Leads (it is a choice inside "Resultado
+    // Clase Prueba"; naming a missing field makes Airtable reject the whole
+    // read), so enrolment comes from classifyResult(). Never written by the worker.
     whoTrains: "Quién entrena",
     cuestionarioStatus: "Respuestas cuestionario",
-    enrolled: "Se inscribió",
     // Read-only: enrolment amount (MXN), used as the Purchase value sent to
     // Meta's Conversions API (docs/meta-capi.md). The worker never writes it.
     initialPayment: "Pago Inicial",
