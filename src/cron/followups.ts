@@ -16,6 +16,9 @@ import {
   cancelFollowupForRecord,
   cancelFollowupsOfOtherRecords,
   markFollowup,
+  claimFollowupForSend,
+  releaseFollowupClaim,
+  releaseStaleSendClaims,
   dueFollowups,
   kvGet,
   phoneForRecordId,
@@ -442,12 +445,22 @@ export async function runDueFollowups(
   env: Env,
   deps: FollowupDeps,
 ): Promise<void> {
+  // A tick that died mid-send leaves rows in 'sending'; after 30 min they are
+  // retried (attempts counter still bounds them).
+  await releaseStaleSendClaims(env.DB, nowSec(), 30 * 60);
   const due = await dueFollowups(env.DB);
   for (const f of due) {
+    // Claim BEFORE any send: an overlapping tick that read the same row loses
+    // the UPDATE race and skips it.
+    if (!(await claimFollowupForSend(env.DB, f.id))) continue;
     try {
       await processOne(env, deps, f);
     } catch (err) {
       await handleSendFailure(env, f, err);
+    } finally {
+      // Branches that marked the row sent/cancelled are untouched; a pushed-back
+      // row (still 'sending') goes back to 'scheduled' with its new due_at.
+      await releaseFollowupClaim(env.DB, f.id);
     }
   }
 }
@@ -976,9 +989,10 @@ function studentKitIo(env: Env, deps: { slack: CronSlackDeps }, f: Followup): Ki
     },
     async reschedule(dueAt, note) {
       // Same status guard as rescheduleRow: a cancel that raced us wins.
+      // 'sending' = this tick's own claim (runDueFollowups), so it is ours to push back.
       await env.DB.prepare(
         `UPDATE followups SET due_at = ?2, note = ?3, status = 'scheduled'
-         WHERE id = ?1 AND status = 'scheduled'`,
+         WHERE id = ?1 AND status IN ('scheduled', 'sending')`,
       )
         .bind(f.id, dueAt, note)
         .run();
@@ -1358,7 +1372,7 @@ async function handleSendFailure(
       `[followups] giving up on #${f.id} (${f.kind}) after ${attempts} attempts: ${String(err)}`,
     );
   } else {
-    // leave status 'scheduled' → retried next tick
+    // runDueFollowups' finally re-arms the claim to 'scheduled' → retried next tick
     console.warn(
       `[followups] send failed #${f.id} (${f.kind}) attempt ${attempts}: ${String(err)}`,
     );
@@ -1394,7 +1408,7 @@ async function rescheduleRow(
   // due-row load and this write must win — never resurrect a cancelled row.
   await env.DB.prepare(
     `UPDATE followups SET due_at = ?2, status = 'scheduled'
-     WHERE id = ?1 AND status = 'scheduled'`,
+     WHERE id = ?1 AND status IN ('scheduled', 'sending')`,
   )
     .bind(f.id, dueAt)
     .run();

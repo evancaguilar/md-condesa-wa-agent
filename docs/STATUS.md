@@ -2,6 +2,18 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-03** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Security review fixes (2026-10-27) — on branch `fix/security-review-mediums`, NOT pushed
+
+Six medium findings from the first `/security-review` of this repo (no critical/high: webhook HMAC, Slack signing, SQL params, admin XSS escaping and secrets all came back clean). Tests 1401 → **1413** (`test/security-review.test.ts` + v3 cookie tests).
+
+- **Slack user allowlist** (`routes/slack.ts`, pure check in `services/slack-timeouts.ts`): button clicks and modal submits are now matched against `SLACK_ALLOWED_USER_IDS` (comma-separated member ids). Unset ⇒ old behaviour (anyone in the channel). Non-allowlisted clicks are logged and ignored; a modal submit shows an error.
+- **Cron**: one tick at a time (kv lease `cron_tick_lease`, 240 s) and every due followup is claimed (`status='sending'`) BEFORE its send, so an overlapping tick can never resend a nudge. Rows stuck in `sending` for 30 min are re-armed. New status value `sending` (transient; `schema.sql` needs no change — status is TEXT).
+- **`wa.sendText` refuses opted-out contacts** (`OptedOutError`) like `sendTemplate` already did; the baja confirmation passes `{force:true}`.
+- **Owner-only writes**: bot on/off, training-wheels, autosend, KB sections/revisions/confirm, campaigns, rules now return 403 for `staff` (`admin-api.ts`, one `ownerWrite` predicate). Staff keep chats, approvals, bookings, agenda.
+- **Revocable sessions**: cookie is now `v3.<user>.<sid>.<exp>.<mac>` with a kv row `admin_sess:<sid>`; logout deletes it, and `POST /admin/api/sessions/revoke-all` (owner) signs everyone out. Signing key = `ADMIN_SESSION_SECRET`, falling back to `ADMIN_PASSWORD` until set. **Everyone is logged out once on deploy** (v2 cookies rejected).
+- **Prompt injection**: the lead's latest message is fenced in `<mensaje_del_lead>` (fake `<context>`/fence tags neutralised), the push name is sanitised before entering `<context>`, and the cached system prefix gains a `<limites_de_confianza>` block (this invalidates the prompt cache once).
+- [ ] **Evan:** `npx wrangler secret put ADMIN_SESSION_SECRET` (32 random bytes hex) and add `"SLACK_ALLOWED_USER_IDS": "U…,U…"` to wrangler.jsonc vars (your id + staff who approve) — both optional but recommended; then push, log in again, probe `POST /admin/api/sessions/revoke-all` → 200 as owner / 403 as staff.
+
 ### Spam safeguards after the Meta flag (2026-11-05) — SHIPPED 2026-11-06 (d03dced, served rev f45543454318)
 Meta flagged the account for spam after a catch-up day sent ~164 cold `nudge_d2` templates. Three changes, all dark until used:
 - **Live 2026-11-06 ~00:30:** deploy verified by `POST /admin/api/nudges/catchup/cancel {all:true,dryRun:true}` → 3,712 paused (568 run 1793890800, 3,144 run 1793977200). All 18 `nudge_d{2,3,4,5,5v2,7}_{adults,kids,baby}_es` edited via templates/update: footer "Toca «No recibir mensajes» para darte de baja." + QUICK_REPLY "No recibir mensajes"; d2 ×3 re-APPROVED, the rest in re-review at 00:40. Still footer-only: no_show_*, post_trial_*, reengage_lead_es, bfc_nivel0_*. Catch-up rows stay paused until Meta answers the review (available until 2027-02-03).

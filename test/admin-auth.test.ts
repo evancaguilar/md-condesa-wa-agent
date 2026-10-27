@@ -10,9 +10,11 @@ import {
   parseCookies,
   recordFailedLogin,
   RL_MAX_FAILS,
-  signAdminCookieV2,
+  signAdminCookie,
+  newSessionId,
+  sessionKey,
   timingSafeEqual,
-  verifyAdminCookieV2,
+  verifyAdminCookie,
   verifyPassword,
   type AdminUserRow,
 } from "../src/routes/admin-auth.js";
@@ -26,69 +28,87 @@ function cookieHeader(value: string): string {
 
 // ---- v2 cookie sign / verify round-trip ----
 
-test("signAdminCookieV2 / verifyAdminCookieV2 round-trip a valid cookie", async () => {
-  const value = await signAdminCookieV2(SECRET, "fer", NOW + 3600);
+const SID = "0123456789abcdef0123456789abcdef";
+
+test("signAdminCookie / verifyAdminCookie round-trip a valid v3 cookie", async () => {
+  const value = await signAdminCookie(SECRET, "fer", SID, NOW + 3600);
   assert.ok(
-    /^v2\.fer\.\d+\.[0-9a-f]{64}$/.test(value),
-    "value is v2.<user>.<exp>.<hexhmac>",
+    /^v3\.fer\.[0-9a-f]{32}\.\d+\.[0-9a-f]{64}$/.test(value),
+    "value is v3.<user>.<sid>.<exp>.<hexhmac>",
   );
-  const session = await verifyAdminCookieV2(SECRET, cookieHeader(value), NOW);
-  assert.deepEqual(session, { user: "fer" });
+  const session = await verifyAdminCookie(SECRET, cookieHeader(value), NOW);
+  assert.deepEqual(session, { user: "fer", sid: SID });
 });
 
-test("verifyAdminCookieV2 rejects a tampered username segment", async () => {
-  const value = await signAdminCookieV2(SECRET, "fer", NOW + 3600);
+test("newSessionId is 32 hex chars and unique", () => {
+  const a = newSessionId();
+  const b = newSessionId();
+  assert.match(a, /^[0-9a-f]{32}$/);
+  assert.notEqual(a, b);
+  assert.equal(sessionKey(a), `admin_sess:${a}`);
+});
+
+test("verifyAdminCookie rejects a tampered username segment", async () => {
+  const value = await signAdminCookie(SECRET, "fer", SID, NOW + 3600);
   const forged = value.replace(".fer.", ".evan.");
-  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(forged), NOW), null);
+  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(forged), NOW), null);
 });
 
-test("verifyAdminCookieV2 rejects a tampered signature", async () => {
-  const value = await signAdminCookieV2(SECRET, "vale", NOW + 3600);
+test("verifyAdminCookie rejects a tampered session id", async () => {
+  const value = await signAdminCookie(SECRET, "fer", SID, NOW + 3600);
+  const forged = value.replace(SID, "f".repeat(32));
+  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(forged), NOW), null);
+});
+
+test("verifyAdminCookie rejects a tampered signature", async () => {
+  const value = await signAdminCookie(SECRET, "vale", SID, NOW + 3600);
   const last = value.slice(-1);
   const tampered = value.slice(0, -1) + (last === "0" ? "1" : "0");
-  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(tampered), NOW), null);
+  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(tampered), NOW), null);
 });
 
-test("verifyAdminCookieV2 rejects a tampered expiry", async () => {
-  const value = await signAdminCookieV2(SECRET, "evan", NOW + 3600);
+test("verifyAdminCookie rejects a tampered expiry", async () => {
+  const value = await signAdminCookie(SECRET, "evan", SID, NOW + 3600);
   const parts = value.split(".");
-  parts[2] = String(NOW + 999_999);
+  parts[3] = String(NOW + 999_999);
   assert.equal(
-    await verifyAdminCookieV2(SECRET, cookieHeader(parts.join(".")), NOW),
+    await verifyAdminCookie(SECRET, cookieHeader(parts.join(".")), NOW),
     null,
   );
 });
 
-test("verifyAdminCookieV2 rejects an expired cookie", async () => {
-  const value = await signAdminCookieV2(SECRET, "evan", NOW - 10);
-  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(value), NOW), null);
+test("verifyAdminCookie rejects an expired cookie", async () => {
+  const value = await signAdminCookie(SECRET, "evan", SID, NOW - 10);
+  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(value), NOW), null);
 });
 
-test("verifyAdminCookieV2 rejects the wrong secret", async () => {
-  const value = await signAdminCookieV2("other_secret", "evan", NOW + 3600);
-  assert.equal(await verifyAdminCookieV2(SECRET, cookieHeader(value), NOW), null);
+test("verifyAdminCookie rejects the wrong secret", async () => {
+  const value = await signAdminCookie("other_secret", "evan", SID, NOW + 3600);
+  assert.equal(await verifyAdminCookie(SECRET, cookieHeader(value), NOW), null);
 });
 
-test("verifyAdminCookieV2 rejects legacy v1 and malformed values", async () => {
-  // Legacy v1 format: <exp>.<mac>
+test("verifyAdminCookie rejects legacy v1/v2 and malformed values", async () => {
   assert.equal(
-    await verifyAdminCookieV2(SECRET, cookieHeader(`${NOW + 3600}.deadbeef`), NOW),
+    await verifyAdminCookie(SECRET, cookieHeader(`${NOW + 3600}.deadbeef`), NOW),
     null,
   );
-  assert.equal(await verifyAdminCookieV2(SECRET, null, NOW), null);
-  assert.equal(await verifyAdminCookieV2(SECRET, "", NOW), null);
-  assert.equal(await verifyAdminCookieV2(SECRET, "md_admin=garbage", NOW), null);
+  // A v2 cookie signed with the same secret is still rejected (forced re-login).
+  const v2mac = "a".repeat(64);
   assert.equal(
-    await verifyAdminCookieV2(SECRET, "md_admin=v2.evan.123", NOW),
+    await verifyAdminCookie(SECRET, `md_admin=v2.evan.${NOW + 3600}.${v2mac}`, NOW),
+    null,
+  );
+  assert.equal(await verifyAdminCookie(SECRET, null, NOW), null);
+  assert.equal(await verifyAdminCookie(SECRET, "", NOW), null);
+  assert.equal(await verifyAdminCookie(SECRET, "md_admin=garbage", NOW), null);
+  assert.equal(await verifyAdminCookie(SECRET, "md_admin=v3.evan.123.abc", NOW), null);
+  // Invalid username charset / sid shape.
+  assert.equal(
+    await verifyAdminCookie(SECRET, `md_admin=v3.EVAN.${SID}.123.abc`, NOW),
     null,
   );
   assert.equal(
-    await verifyAdminCookieV2(SECRET, "md_admin=v3.evan.123.abc", NOW),
-    null,
-  );
-  // Invalid username charset (dot split makes this structurally off anyway).
-  assert.equal(
-    await verifyAdminCookieV2(SECRET, "md_admin=v2.EVAN.123.abc", NOW),
+    await verifyAdminCookie(SECRET, `md_admin=v3.evan.notasid.123.abc`, NOW),
     null,
   );
 });

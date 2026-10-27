@@ -353,7 +353,7 @@ test("runDueFollowups: opted-out contact → skipped_optout, no send", async () 
       return { all: [followupRow({ kind: "day_before" })] };
     if (sql.includes("SELECT * FROM contacts"))
       return { first: { phone: "5215512345678", status: "opted_out", lang: "es", name: "Ana" } };
-    if (sql.startsWith("UPDATE followups SET status")) {
+    if (sql.startsWith("UPDATE followups SET status = ?2")) {
       marks.push({ id: binds[0], status: binds[1] });
       return {};
     }
@@ -372,7 +372,7 @@ test("runDueFollowups: no_show_1 with attendance=yes → cancelled (no template)
     if (sql.includes("SELECT * FROM contacts"))
       return { first: { phone: "5215512345678", status: "lead", lang: "es", name: "Ana" } };
     if (sql.includes("SELECT value FROM kv")) return { first: { value: "yes" } };
-    if (sql.startsWith("UPDATE followups SET status")) {
+    if (sql.startsWith("UPDATE followups SET status = ?2")) {
       marks.push({ status: "cancelled" });
       return {};
     }
@@ -391,7 +391,7 @@ test("runDueFollowups: legacy attendance_check custom → posts NOTHING, row clo
       return { all: [followupRow({ kind: "custom", note: "attendance_check" })] };
     if (sql.includes("SELECT * FROM contacts"))
       return { first: { phone: "5215512345678", status: "lead", lang: "es", name: "Ana" } };
-    if (sql.startsWith("UPDATE followups SET status")) {
+    if (sql.startsWith("UPDATE followups SET status = ?2")) {
       marked = binds[1];
       return {};
     }
@@ -431,7 +431,7 @@ test("runDueFollowups: send failure re-arms (stays scheduled), gives up after 3"
       noteWrites.push(String(binds[1]));
       return {};
     }
-    if (sql.startsWith("UPDATE followups SET status")) {
+    if (sql.startsWith("UPDATE followups SET status = ?2")) {
       if (binds[1] === "cancelled") cancelled = true;
       return {};
     }

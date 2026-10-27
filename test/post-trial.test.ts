@@ -564,11 +564,19 @@ test("runDueFollowups: a post-trial row sends and is marked sent", async () => {
   await atMidday(async () => {
     stubFetchOk();
     const marks: { id: unknown; status: unknown }[] = [];
+    const claims: unknown[] = [];
     const { db } = fakeDb((sql, binds) => {
       if (sql.includes("SELECT * FROM followups WHERE status = 'scheduled'"))
         return { all: [dueRow("post_trial_d0")] };
       if (sql.includes("SELECT * FROM contacts")) return { first: contact({}) };
       if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
+      // The tick's own claim / release / stale-sweep (security review
+      // 2026-10-27) are status writes too; only the final mark is asserted.
+      if (sql.startsWith("UPDATE followups SET status = 'sending'")) {
+        claims.push(binds[0]);
+        return {};
+      }
+      if (sql.startsWith("UPDATE followups SET status = 'scheduled'")) return {};
       if (sql.startsWith("UPDATE followups SET status")) {
         marks.push({ id: binds[0], status: binds[1] });
         return {};
@@ -578,6 +586,7 @@ test("runDueFollowups: a post-trial row sends and is marked sent", async () => {
     await runDueFollowups(envWith(db), {
       slack: { async postNote() {}, async postAttendanceCheck() {} },
     });
+    assert.deepEqual(claims, [9], "row is claimed before the send");
     assert.deepEqual(marks, [{ id: 9, status: "sent" }]);
   });
 });

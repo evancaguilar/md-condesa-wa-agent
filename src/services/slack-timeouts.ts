@@ -86,6 +86,8 @@ export interface ParsedInteraction {
   triggerId: string | null;
   /** Who clicked (Slack username, display name, or id) — audit copy only. */
   user: string | null;
+  /** Slack member id (U…) of who clicked — checked against SLACK_ALLOWED_USER_IDS. */
+  userId: string | null;
   actions: ParsedAction[]; // block_actions only
   // view_submission:
   privateMetadata: string | null;
@@ -127,6 +129,7 @@ export function parseInteractionPayload(rawOrJson: string): ParsedInteraction {
   // Slack sends user.username on modern payloads, user.name on older ones.
   const user: string | null =
     obj?.user?.username ?? obj?.user?.name ?? obj?.user?.id ?? null;
+  const userId: string | null = typeof obj?.user?.id === "string" ? obj.user.id : null;
 
   if (type === "block_actions") {
     const actions: ParsedAction[] = [];
@@ -148,6 +151,7 @@ export function parseInteractionPayload(rawOrJson: string): ParsedInteraction {
       kind: "block_actions",
       triggerId: obj?.trigger_id ?? null,
       user,
+      userId,
       actions,
       privateMetadata: null,
       viewValues: {},
@@ -174,6 +178,7 @@ export function parseInteractionPayload(rawOrJson: string): ParsedInteraction {
       kind: "view_submission",
       triggerId: null,
       user,
+      userId,
       actions: [],
       privateMetadata: view?.private_metadata ?? null,
       viewValues,
@@ -189,6 +194,7 @@ function emptyInteraction(kind: ParsedInteraction["kind"]): ParsedInteraction {
     kind,
     triggerId: null,
     user: null,
+    userId: null,
     actions: [],
     privateMetadata: null,
     viewValues: {},
@@ -486,3 +492,17 @@ export function adAttributionLine(
   }
   return parts.length > 0 ? parts.join("\n") : null;
 }
+
+/** Pure: allowlist check. Unset/blank allowlist ⇒ allow (legacy). */
+export function isAllowedSlackUser(
+  env: { SLACK_ALLOWED_USER_IDS?: string },
+  userId: string | null,
+): boolean {
+  const allowed = (env.SLACK_ALLOWED_USER_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowed.length === 0) return true;
+  return userId !== null && allowed.includes(userId);
+}
+

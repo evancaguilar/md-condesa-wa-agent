@@ -80,9 +80,11 @@ import {
   isValidUsername,
   newSaltHex,
   recordFailedLogin,
-  signAdminCookieV2,
+  signAdminCookie,
+  newSessionId,
+  sessionKey,
   timingSafeEqual,
-  verifyAdminCookieV2,
+  verifyAdminCookie,
   type AdminUserRow,
 } from "./admin-auth.js";
 import {
@@ -91,6 +93,7 @@ import {
   cancelPendingApprovals,
   kvGet,
   kvSet,
+  kvDelete,
   getContact,
   recentMessages,
   getPendingApprovals,
@@ -367,12 +370,16 @@ export async function handleAdminApi(
   }
 
   // ---- auth gate (everything else) ----
-  const cookieSession = await verifyAdminCookieV2(
-    env.ADMIN_PASSWORD,
+  const cookieSession = await verifyAdminCookie(
+    sessionSecret(env),
     req.headers.get("cookie"),
     nowSec(),
   );
   if (!cookieSession) return json({ error: "unauthorized" }, 401);
+  // Server-side session row: logout / revoke-all delete it, so a leaked cookie
+  // stops working immediately instead of living out its 30 days.
+  const sessRow = await kvGet(env.DB, sessionKey(cookieSession.sid));
+  if (sessRow !== cookieSession.user) return json({ error: "unauthorized" }, 401);
 
   // Per-request user lookup: makes "disable user" effective immediately.
   // Pre-migration (table absent) only evan's break-glass session exists.
@@ -391,8 +398,17 @@ export async function handleAdminApi(
     return json({ error: "unauthorized" }, 401); // deleted/unknown user
   }
 
+  const forbidden = json({ error: "forbidden" }, 403);
+
   // ---- session ----
   if (path === "/admin/api/logout" && method === "POST") {
+    await kvDelete(env.DB, sessionKey(cookieSession.sid));
+    return jsonWithCookie({ ok: true }, buildSetCookie("", 0));
+  }
+  // Owner panic button: signs everyone out (stolen laptop, ex-staff, leaked cookie).
+  if (path === "/admin/api/sessions/revoke-all" && method === "POST") {
+    if (session.role !== "owner") return forbidden;
+    await env.DB.prepare(`DELETE FROM kv WHERE key LIKE 'admin_sess:%'`).run();
     return jsonWithCookie({ ok: true }, buildSetCookie("", 0));
   }
   if (path === "/admin/api/me" && method === "GET") {
@@ -813,6 +829,26 @@ export async function handleAdminApi(
     return handleOverview(env, session);
   }
 
+  // ---- owner-only writes (security review 2026-10-27) ----
+  // Anything that changes what the bot says or whether a human reviews it:
+  // bot on/off, supervision toggles, KB overlay + revisions, Editor confirm,
+  // campaigns (first_reply goes to leads with no approval), Airtable rules.
+  // Staff keep the chat/approval/booking tools, which are their job.
+  const ownerWrite =
+    (method === "POST" &&
+      (path === "/admin/api/bot" ||
+        path === "/admin/api/training-wheels" ||
+        path === "/admin/api/autosend" ||
+        path === "/admin/api/kb/sections" ||
+        path === "/admin/api/kb/confirm" ||
+        path === "/admin/api/campaigns" ||
+        /^\/admin\/api\/kb\/revisions\/\d+\/revert$/.test(path))) ||
+    ((method === "PUT" || method === "DELETE") &&
+      (/^\/admin\/api\/kb\/sections\/\d+$/.test(path) ||
+        /^\/admin\/api\/campaigns\/\d+$/.test(path) ||
+        /^\/admin\/api\/rules\/\d+$/.test(path)));
+  if (ownerWrite && session.role !== "owner") return forbidden;
+
   // ---- toggles ----
   if (path === "/admin/api/bot" && method === "POST") {
     return handleBotToggle(req, env, ctx);
@@ -1127,15 +1163,24 @@ async function handleLogin(req: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: "invalid" }, 401);
   }
 
-  const cookieValue = await signAdminCookieV2(
-    env.ADMIN_PASSWORD,
+  const sid = newSessionId();
+  await kvSet(env.DB, sessionKey(sid), decision2.user);
+  const cookieValue = await signAdminCookie(
+    sessionSecret(env),
     decision2.user,
+    sid,
     now + THIRTY_DAYS,
   );
   return jsonWithCookie(
     { ok: true, user: decision2.user, role: decision2.role },
     buildSetCookie(cookieValue, THIRTY_DAYS),
   );
+}
+
+/** Cookie-signing key: a dedicated secret, falling back to the master password
+ *  until ADMIN_SESSION_SECRET is set (docs/STATUS.md). */
+function sessionSecret(env: Env): string {
+  return env.ADMIN_SESSION_SECRET || env.ADMIN_PASSWORD;
 }
 
 // ---- staff users (owner-only handlers) ----

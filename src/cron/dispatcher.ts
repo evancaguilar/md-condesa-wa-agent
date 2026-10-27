@@ -92,11 +92,22 @@ export function getCronDeps(): CronDeps {
   return cronDeps;
 }
 
+/** A tick holds the lease this long; the next five-minute tick waits for it to expire. */
+export const CRON_TICK_LEASE_SECONDS = 240;
+
 export async function runCron(env: Env, _ports: Ports): Promise<void> {
   const nowEpoch = Math.floor(Date.now() / 1000);
   const safe = (label: string, fn: () => Promise<unknown>): Promise<void> =>
     safeWith(env, label, fn);
   const p = cdmxParts(nowEpoch);
+
+  // One tick at a time (security review 2026-10-27): a slow tick overlapping
+  // the next one used to read the same due rows twice. Lease, not lock — if
+  // the isolate dies the next tick after 4 min takes over.
+  if (!(await kvClaimIfAbsentOrOlder(env.DB, "cron_tick_lease", nowEpoch, CRON_TICK_LEASE_SECONDS))) {
+    console.warn("[cron] previous tick still holds the lease — skipping this tick");
+    return;
+  }
 
   // One-time (kv-guarded, retried until it succeeds): additive index from
   // schema.sql, applied from the worker at Evan's explicit request

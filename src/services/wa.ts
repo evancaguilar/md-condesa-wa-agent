@@ -87,6 +87,9 @@ async function recordOutbound(
 export interface SendTextOpts {
   direction?: MessageDirection;
   metaExtra?: Record<string, unknown>;
+  /** Send even to an opted-out contact. ONLY for the baja confirmation itself
+   *  (pipeline/inbound.ts); every other caller must let OptedOutError stop it. */
+  force?: boolean;
 }
 
 /**
@@ -116,6 +119,12 @@ export async function sendText(
   opts?: SendTextOpts,
 ): Promise<string> {
   const contact = await getContact(env.DB, phone);
+  // Opt-out is enforced HERE, not only in the callers (security review
+  // 2026-10-27): a new caller that forgets its own check can no longer text a
+  // contact who asked for the baja.
+  if (opts?.force !== true && contact?.status === "opted_out") {
+    throw new OptedOutError(phone);
+  }
   const last = contact?.last_inbound_at ?? 0;
   const nowSec = Math.floor(Date.now() / 1000);
   if (nowSec - last >= WINDOW_SECONDS) {

@@ -66,7 +66,7 @@ function memDb(w: World): D1Database {
           w.kv.set(key, String(b[1]));
         } else if (sql.includes("DELETE FROM kv")) {
           w.kv.delete(key);
-        } else if (sql.startsWith("UPDATE followups SET status")) {
+        } else if (sql.startsWith("UPDATE followups SET status = ?2")) {
           w.marks.push({ id: b[0], status: b[1] });
         }
         return { results: [], meta: { changes } };

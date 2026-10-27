@@ -22,6 +22,7 @@ import {
   POST_TRIAL_CLAIM_VERB,
 } from "../cron/post-trial.js";
 import {
+  isAllowedSlackUser,
   parseInteractionPayload,
   verifySlackSignature,
   type ParsedAction,
@@ -81,6 +82,19 @@ export async function handleSlackInteractive(
   if (!ok) return new Response("invalid signature", { status: 401 });
 
   const interaction = parseInteractionPayload(raw);
+
+  // Signature proves Slack sent it; this proves WHO clicked. Anyone who can
+  // see the channel could otherwise approve/edit a reply to a customer.
+  if (!isAllowedSlackUser(env, interaction.userId)) {
+    console.warn("[slack] interaction from non-allowlisted user ignored", interaction.userId, interaction.user);
+    if (interaction.kind === "view_submission") {
+      return json({
+        response_action: "errors",
+        errors: { _: "Tu usuario de Slack no está autorizado para esta acción." },
+      });
+    }
+    return new Response("", { status: 200 });
+  }
 
   if (interaction.kind === "view_submission") {
     // Modal submit: ack by clearing the view, then do the work off-path.

@@ -343,10 +343,28 @@ function buildInitialMessages(ctx: ConvoContext): ApiMessage[] {
     return ensureUserFirst(msgs);
   }
 
-  // Append the context to the last user message.
+  // Append the context to the last user message, with the lead's text fenced
+  // so a message that *contains* "<context>…" can never pass as pipeline state.
   const last = msgs[msgs.length - 1]!;
-  last.content = `${String(last.content)}\n\n${contextBlock}`;
+  last.content = `${wrapLeadMessage(String(last.content))}\n\n${contextBlock}`;
   return ensureUserFirst(msgs);
+}
+
+/** Opening/closing fence for the lead's own text on the turn that carries
+ *  <context>. The system prompt tells the model the fenced text is DATA. */
+export const LEAD_MESSAGE_TAG = "mensaje_del_lead";
+
+/**
+ * Fences the lead's text. Any literal fence or `<context>` tag typed by the
+ * lead is neutralised (angle brackets swapped for full-width ones) so the
+ * fence cannot be closed early and no fake context block parses as ours.
+ */
+export function wrapLeadMessage(body: string): string {
+  const safe = body.replace(
+    new RegExp(`</?\\s*(${LEAD_MESSAGE_TAG}|context)\\s*>`, "gi"),
+    (m) => m.replace("<", "＜").replace(">", "＞"),
+  );
+  return `<${LEAD_MESSAGE_TAG}>\n${safe}\n</${LEAD_MESSAGE_TAG}>`;
 }
 
 /** Placeholder user turn when the window opens with our own message. Marked as

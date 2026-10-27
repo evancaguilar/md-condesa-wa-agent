@@ -635,6 +635,41 @@ export async function dueFollowups(
   return results;
 }
 
+/**
+ * Atomically claims a due followup for sending. True only if the row was still
+ * 'scheduled' — a second tick overlapping this one gets false and skips it, so a
+ * nudge can never go out twice (security review 2026-10-27).
+ */
+export async function claimFollowupForSend(db: D1Database, id: number): Promise<boolean> {
+  const res = await db
+    .prepare(`UPDATE followups SET status = 'sending' WHERE id = ?1 AND status = 'scheduled'`)
+    .bind(id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** Re-arms a row left in 'sending' (pushed back, or the tick died mid-send). */
+export async function releaseFollowupClaim(db: D1Database, id: number): Promise<void> {
+  await db
+    .prepare(`UPDATE followups SET status = 'scheduled' WHERE id = ?1 AND status = 'sending'`)
+    .bind(id)
+    .run();
+}
+
+/** Rows stuck in 'sending' for over `maxAgeSec` (isolate died) go back to 'scheduled'. */
+export async function releaseStaleSendClaims(
+  db: D1Database,
+  nowSec: number,
+  maxAgeSec: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE followups SET status = 'scheduled' WHERE status = 'sending' AND due_at <= ?1`,
+    )
+    .bind(nowSec - maxAgeSec)
+    .run();
+}
+
 export async function markFollowup(
   db: D1Database,
   id: number,

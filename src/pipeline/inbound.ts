@@ -414,6 +414,7 @@ export async function processInbound(
         env,
         msg.phone,
         "Listo, no te enviaremos más mensajes. Si cambias de opinión, escríbenos cuando quieras. 🙌",
+        { force: true }, // the one legitimate text to an opted-out contact
       );
     } catch (err) {
       if (!(err instanceof WindowClosedError)) throw err;

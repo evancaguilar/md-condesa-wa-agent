@@ -157,50 +157,69 @@ export async function authenticateLogin(input: {
   return { ok: false };
 }
 
-// ---- signed session cookie (v2: carries the username) ----
+// ---- signed session cookie (v3: username + server-side session id) ----
+
+export const SESSION_ID_BYTES = 16;
+
+/** Random session id (hex). Stored in kv as `admin_sess:<sid>` → username. */
+export function newSessionId(): string {
+  const b = new Uint8Array(SESSION_ID_BYTES);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+export function sessionKey(sid: string): string {
+  return `admin_sess:${sid}`;
+}
+
+const SID_RE = /^[0-9a-f]{32}$/;
 
 /**
- * Signs a v2 session cookie. Value format:
- * `v2.<user>.<exp>.<hexhmac>` where the MAC is HMAC-SHA256 over
- * `admin:v2:<user>:<exp>`, keyed by ADMIN_PASSWORD. Legacy (v1) cookies are
- * rejected by the verifier — one forced re-login at rollout.
+ * Signs a v3 session cookie. Value format:
+ * `v3.<user>.<sid>.<exp>.<hexhmac>` where the MAC is HMAC-SHA256 over
+ * `admin:v3:<user>:<sid>:<exp>`, keyed by ADMIN_SESSION_SECRET (or, until it
+ * is set, ADMIN_PASSWORD). The route also requires kv `admin_sess:<sid>` to
+ * hold `<user>`, so logout / revoke-all kill the cookie server-side. v1/v2
+ * cookies are rejected — one forced re-login at rollout.
  */
-export async function signAdminCookieV2(
+export async function signAdminCookie(
   secret: string,
   user: string,
+  sid: string,
   expEpoch: number,
 ): Promise<string> {
   const exp = String(Math.floor(expEpoch));
-  const mac = await hmacSha256Hex(secret, `admin:v2:${user}:${exp}`);
-  return `v2.${user}.${exp}.${mac}`;
+  const mac = await hmacSha256Hex(secret, `admin:v3:${user}:${sid}:${exp}`);
+  return `v3.${user}.${sid}.${exp}.${mac}`;
 }
 
 /**
- * Verifies the `md_admin` v2 cookie. Returns `{user}` only when the format is
- * v2, the username charset is valid, the signature matches (constant-time,
- * checked before freshness so validity isn't leaked via the expiry
- * short-circuit) AND the expiry is in the future. Anything else ⇒ null.
+ * Verifies the `md_admin` v3 cookie. Returns `{user, sid}` only when the format
+ * is v3, the username charset and sid shape are valid, the signature matches
+ * (constant-time, checked before freshness so validity isn't leaked via the
+ * expiry short-circuit) AND the expiry is in the future. Anything else ⇒ null.
+ * The caller still has to check the kv session row.
  */
-export async function verifyAdminCookieV2(
+export async function verifyAdminCookie(
   secret: string,
   cookieHeader: string | null,
   now: number,
-): Promise<{ user: string } | null> {
+): Promise<{ user: string; sid: string } | null> {
   const cookies = parseCookies(cookieHeader);
   const value = cookies[COOKIE_NAME];
   if (!value) return null;
 
   const parts = value.split(".");
-  if (parts.length !== 4) return null;
-  const [ver, user, expStr, providedMac] = parts as [string, string, string, string];
-  if (ver !== "v2" || !isValidUsername(user)) return null;
-  if (!/^\d+$/.test(expStr) || !providedMac) return null;
+  if (parts.length !== 5) return null;
+  const [ver, user, sid, expStr, providedMac] = parts as [string, string, string, string, string];
+  if (ver !== "v3" || !isValidUsername(user) || !SID_RE.test(sid)) return null;
+  if (!/^\d+$/.test(expStr) || !/^[0-9a-f]{64}$/.test(providedMac)) return null;
 
   const exp = parseInt(expStr, 10);
-  const expectedMac = await hmacSha256Hex(secret, `admin:v2:${user}:${expStr}`);
+  const expectedMac = await hmacSha256Hex(secret, `admin:v3:${user}:${sid}:${expStr}`);
   const macOk = timingSafeEqual(hexToBytes(expectedMac), hexToBytes(providedMac));
   if (!macOk) return null;
-  return exp > now ? { user } : null;
+  return exp > now ? { user, sid } : null;
 }
 
 /** Parses a Cookie header into a name→value map. Tolerant of stray whitespace. */

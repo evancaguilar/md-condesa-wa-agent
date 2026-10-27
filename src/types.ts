@@ -43,6 +43,10 @@ export interface Env {
   META_CAPI_TOKEN?: string;
   SLACK_BOT_TOKEN: string;
   SLACK_SIGNING_SECRET: string;
+  /** Comma-separated Slack member ids (U…) allowed to click bot buttons /
+   *  submit modals (Aprobar, Editar, autosend…). Unset ⇒ any member of the
+   *  channel can (pre-2026-10-27 behaviour); set it before adding guests. */
+  SLACK_ALLOWED_USER_IDS?: string;
   AIRTABLE_PAT: string;
 
   // Vars
@@ -107,6 +111,9 @@ export interface Env {
 
   // Admin dashboard secret (Cloudflare secret; auth for /admin)
   ADMIN_PASSWORD: string;
+  /** Signs admin session cookies. Falls back to ADMIN_PASSWORD when unset —
+   *  set it (32 random bytes, hex) so the master password is never a MAC key. */
+  ADMIN_SESSION_SECRET?: string;
 }
 
 export type Language = "es" | "en";
@@ -357,6 +364,9 @@ export type FollowupKind =
  *  student_kit rows (gave up after its retries, one Slack note posted). */
 export type FollowupStatus =
   | "scheduled"
+  /** Claimed by a cron tick that is mid-send (cron/followups.ts). Transient:
+   *  the tick re-arms it to 'scheduled' or marks it sent/cancelled. */
+  | "sending"
   | "sent"
   | "cancelled"
   | "skipped_optout"
