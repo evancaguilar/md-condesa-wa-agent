@@ -217,6 +217,29 @@ function previousKbIfLarger(kbPath, body) {
   return chars > body.length * 1.05 ? { version, chars } : null;
 }
 
+/**
+ * Dashboard "📹 Videos" clips: keep rows with a slug id, a label and an https
+ * url; drop the rest (and duplicate ids) so a typo can't ship a dead button.
+ */
+function savedVideos(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const v of list) {
+    const id = String(v?.id ?? "").trim();
+    const label = String(v?.label ?? "").trim();
+    const url = String(v?.url ?? "").trim();
+    if (!/^[a-z0-9_-]{1,40}$/.test(id) || !label || !/^https:\/\//.test(url) || seen.has(id)) {
+      console.warn(`[compile-kb] savedVideos: skipped invalid row ${JSON.stringify(v)}`);
+      continue;
+    }
+    seen.add(id);
+    const caption = String(v?.caption ?? "").trim();
+    out.push({ id, label, url, ...(caption ? { caption } : {}) });
+  }
+  return out;
+}
+
 function renderClientTs(cfg, persona, version) {
   // Persona rides in from persona.md; everything else from client.mjs. The
   // object is emitted as literal TS so the worker bundles it with zero I/O.
@@ -257,6 +280,7 @@ function renderClientTs(cfg, persona, version) {
     ...(cfg.airtableMetrics ? { airtableMetrics: cfg.airtableMetrics } : {}),
     ...(cfg.whatsappPricing ? { whatsappPricing: cfg.whatsappPricing } : {}),
     ...(cfg.metaAudiences ? { metaAudiences: cfg.metaAudiences } : {}),
+    savedVideos: savedVideos(cfg.savedVideos),
     copy: cfg.copy,
   };
   return (

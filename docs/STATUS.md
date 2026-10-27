@@ -34,6 +34,13 @@ await (await fetch("/admin/api/nudges/catchup", { method: "POST", headers: { "co
 - [ ] **Evan:** approve (or rewrite) the d7 copy and the new d5 value-touch copy (docs/templates.md "nudge_d7").
 - [ ] **Evan:** submit `nudge_d7_{adults,kids,baby}_es` to Meta; when they are APPROVED, also edit the 3 `nudge_d5_*_es` templates (they still say "último mensaje"), then flip `features.nudgeDay7: true`, `npm run build`, commit, push.
 
+### 📹 Videos: prerecorded clips sent with one tap from Chats / Agenda (2026-10-27) — branch `feat/saved-videos`, rebased on 9c57465 (pushed by Evan)
+
+Staff send hosted clips by link (like the booking video) because iPhone gallery uploads (.mov/HEVC, 16 MB) fail. Config `savedVideos` in client.mjs (first clip: `tour` → https://mdcondesa.com/media/tour-academia.mp4); route `POST /admin/api/conversations/:phone/send-video {id, caption?}` (any role, BOT send: no takeover, approvals untouched, 24h window enforced, baja refused, ops note kind `panel`); 📹 menu in the Chats composer + one button per clip on Agenda rows. 📎 is now disabled with a closed window too. Spec: docs/dashboard-plan.md §12. Tests 1411 → 1424 (`test/saved-videos.test.ts`).
+
+- **Evan:** the clip `media/tour-academia.mp4` is committed in the sibling site repo (`md-condesa-site`, e0c4898, Cloudflare Pages) — pushed 2026-10-27 (e0c4898), push the site first, or the button sends a dead link. Probe after both deploys: `curl -sI https://mdcondesa.com/media/tour-academia.mp4` → 200 `video/mp4`, and `/admin/api/me` lists `savedVideos`.
+- "Fer se presenta": add the mp4 to the site's `media/` + one `savedVideos` row, `npm run build`.
+
 ### Halloween promo "Sí, quiero saber" goes to Evan, not the bot (2026-10-31) — SHIPPED
 
 Tapping "Sí, quiero saber" on template `halloween_promo_prueba_oct26` sends no auto-reply: it alerts #evan-alerts with the chat link and pauses the bot 12 h for that lead (src/pipeline/promo-button.ts, gate after student). Other templates' buttons and typed text keep the normal flow. Tapping "No me interesa" on it is a baja (opt-out). The gate runs before the student gate. To reuse for another promo, add a row to `PROMO_BUTTONS`.

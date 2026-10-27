@@ -211,10 +211,17 @@ import {
   markRead,
   sendMedia,
   sendText,
+  sendVideo,
   uploadMedia,
   WindowClosedError,
   type OutboundMediaKind,
 } from "../services/send.js";
+import {
+  findSavedVideo,
+  publicSavedVideos,
+  savedVideoStatus,
+  sendSavedVideo,
+} from "../services/saved-videos.js";
 import { channelOf } from "../services/channel.js";
 import { fetchMediaResponse } from "../services/media.js";
 import { flagOptOutInAirtable } from "../services/lead-sync.js";
@@ -394,6 +401,8 @@ export async function handleAdminApi(
       user: session.user,
       displayName: session.displayName,
       role: session.role,
+      // Dashboard 📹 Videos menu (Chats composer + Agenda): id + label only.
+      savedVideos: publicSavedVideos(CLIENT.savedVideos),
     });
   }
 
@@ -838,7 +847,7 @@ export async function handleAdminApi(
     return handleMediaRemuxCheck(req, session);
   }
   const convoMatch = path.match(
-    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-later|booking\/parse|booking))?$/,
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-video|send-later|booking\/parse|booking))?$/,
   );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
@@ -854,6 +863,9 @@ export async function handleAdminApi(
     }
     if (sub === "send-media" && method === "POST") {
       return handleStaffSendMedia(req, env, ports, phone, session);
+    }
+    if (sub === "send-video" && method === "POST") {
+      return handleSendSavedVideo(req, env, ports, phone, session);
     }
     if (sub === "send-later" && method === "POST") {
       return handleSendLater(req, env, phone, session);
@@ -1429,6 +1441,34 @@ async function handleStaffSendMedia(
     return json({ error: "too_long" }, 400);
   }
   return json(result);
+}
+
+/**
+ * POST /admin/api/conversations/:phone/send-video {id, caption?} — sends a
+ * prerecorded CLIENT.savedVideos clip by link as a BOT send (no takeover, no
+ * approval cancel; services/saved-videos.ts). Any role.
+ */
+async function handleSendSavedVideo(
+  req: Request,
+  env: Env,
+  ports: Ports,
+  phone: string,
+  session: Session,
+): Promise<Response> {
+  const body = await readJson<{ id?: unknown; caption?: unknown }>(req);
+  if (!findSavedVideo(CLIENT.savedVideos, body.id)) {
+    return json({ ok: false, reason: "unknown_video" }, 404);
+  }
+  // Link sends are WA-only (IG/FB have no video-by-link path here).
+  if (channelOf(phone) !== "wa") return json({ ok: false, reason: "channel_unsupported" }, 400);
+  const by = session.displayName || session.user;
+  const r = await sendSavedVideo(env, phone, { id: body.id, caption: body.caption }, by, {
+    videos: CLIENT.savedVideos,
+    sendVideo: (e, p, u, c, metaExtra) => sendVideo(e, p, u, c, { metaExtra }),
+    isWindowClosed: (err) => err instanceof WindowClosedError,
+    postNote: (text) => ports.slack.postNote(text, { kind: "panel" }),
+  });
+  return json(r, savedVideoStatus(r));
 }
 
 /**

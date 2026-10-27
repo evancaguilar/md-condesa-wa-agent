@@ -184,3 +184,11 @@ Reception used five Airtable Interface views for trial classes ("Clases Prueba H
 
 Airtable automations and the Interface views are untouched; the tab is a read + two narrow writes.
 
+
+## 12. 📹 Videos — prerecorded clips sent with one tap (2026-10-27, branch `feat/saved-videos`)
+
+Reception (Fer) sends prerecorded clips to leads: "Tour de la academia" today, "Fer se presenta" next. iPhone gallery uploads fail (.mov/HEVC, >16 MB), so each clip is hosted ONCE on the site and sent **by link** (`video.link`), exactly like the booking video (`DEFAULT_BOOKING_VIDEO_URL`).
+
+- **Config** (data-driven): top-level `savedVideos: [{ id, label, url, caption? }]` in `clients/md-condesa/client.mjs`. Whitelisted + validated in `tools/compile-kb.mjs` (slug id, non-empty label, https url, no duplicate ids — bad rows are dropped with a warning), typed as `SavedVideo` in `src/client-config.ts`. Adding a clip = host the mp4 in the site repo (`md-condesa-site/media/`, H.264/AAC, ≤16 MB) + one row here + `npm run build`.
+- **Route** `POST /admin/api/conversations/:phone/send-video {id, caption?}` (any role). Logic in `services/saved-videos.ts` (deps-injected, `test/saved-videos.test.ts`): unknown id → 404 `unknown_video`; IG/FB → 400 `channel_unsupported`; no contact → `no_contact`; baja → `opted_out`; closed 24h window → `window_closed` (no template fallback yet). Sent as a **BOT** send (`out_bot`, meta `{type:"video", link, savedVideo, by}`) — it does NOT pause the bot and does NOT cancel pending approvals (outreach, not a human taking the chat). Ops note kind `panel`: "📹 <user> envió el video '<label>' a <name (phone)>".
+- **SPA**: `/admin/api/me` now returns `savedVideos: [{id,label}]`. Chats composer: 📹 button (WA chats only) toggles a menu of labels → confirm → POST → toast + thread refresh. 📹, 📎, 🎤, 🎥 are all disabled while the window is closed. Agenda rows: one "📹 <label>" button per clip, sent to the contact's exact wa_id; hidden without a chat or on baja, disabled when the window is closed. Link-sent videos (incl. the booking clip) now render inline in the thread (`meta.link`), and saved-video bubbles carry a "📹 <user>" label.

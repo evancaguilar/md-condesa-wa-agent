@@ -506,7 +506,21 @@ export interface ClientConfig {
   /** Names of the customer-list audiences the daily sync maintains
    *  (docs/meta-audiences.md). Required when features.metaAudiences. */
   metaAudiences?: MetaAudiencesConfig;
+  /** Prerecorded hosted clips staff send by link (dashboard 📹 Videos). */
+  savedVideos?: SavedVideo[];
   copy: ClientCopy;
+}
+
+/** A prerecorded clip hosted on the client's site, sent by link (WA `video.link`). */
+export interface SavedVideo {
+  /** Stable slug (route body `id`, message meta `savedVideo`). */
+  id: string;
+  /** What staff see on the button/menu. */
+  label: string;
+  /** Public https mp4 (H.264/AAC, ≤16 MB — WhatsApp's video limit). */
+  url: string;
+  /** Default caption; a per-send caption overrides it. */
+  caption?: string;
 }
 
 /** Custom-audience names on the client's ad account (created when missing). */

@@ -149,6 +149,7 @@ export async function sendVideo(
   phone: string,
   videoUrl: string,
   caption?: string,
+  opts?: { metaExtra?: Record<string, unknown> },
 ): Promise<string> {
   const contact = await getContact(env.DB, phone);
   const last = contact?.last_inbound_at ?? 0;
@@ -165,9 +166,11 @@ export async function sendVideo(
     type: "video",
     video,
   });
-  await recordOutbound(env, phone, wamid, caption ?? "[video]", {
+  await recordOutbound(env, phone, wamid, caption || "[video]", {
     type: "video",
     link: videoUrl,
+    ...(caption ? { caption } : {}),
+    ...(opts?.metaExtra ?? {}),
   });
   return wamid;
 }

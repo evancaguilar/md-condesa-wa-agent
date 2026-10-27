@@ -774,12 +774,18 @@ async function openChat(phone){
     +'<button class="btn ic" id="chatAttach" title="Adjuntar imagen, video o PDF" style="flex:none">📎</button>'
     +'<button class="btn ic" id="chatMic" title="Grabar nota de voz">🎤</button>'
     +'<button class="btn ic" id="chatCam" title="Grabar video">🎥</button>'
+    +(savedVideoList().length && chanOf(phone)==="wa"?'<button class="btn ic" id="chatVid" title="Enviar un video guardado">📹</button>':'')
     +'<input type="file" id="chatFile" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" style="display:none">'
     +'<input type="file" id="chatCamFile" accept="video/*" capture="user" style="display:none">'
     +'<textarea class="field" id="chatTa" placeholder="Escribe un mensaje…"></textarea>'
     +'<button class="btn" id="chatLater" title="Programar envío" style="flex:none">⏰</button>'
     +'<button class="btn gold" id="chatSend">Enviar</button></div>'
     +'<div class="editbox recbox hidden" id="recBox" style="margin-top:8px;flex:none"></div>'
+    +'<div class="editbox hidden" id="vidBox" style="margin-top:8px;flex:none">'
+    +'<div class="muted sm" style="margin-bottom:6px">📹 Videos guardados — se envían por el bot (no pausa la conversación)</div>'
+    +'<div class="row" style="flex-wrap:wrap">'
+    +savedVideoList().map(function(v){ return '<button class="btn sm" data-vid="'+esc(v.id)+'">'+esc(v.label)+'</button>'; }).join("")
+    +'</div></div>'
     +'<div class="editbox hidden" id="laterBox" style="margin-top:8px;flex:none">'
     +'<div class="row" style="flex-wrap:wrap">'
     +'<button class="btn sm" data-later="tomorrow8">Mañana 8:00</button>'
@@ -798,6 +804,8 @@ async function openChat(phone){
   el("chatMic").onclick=function(){ startVoiceRec(); };
   el("chatCam").onclick=function(){ startVideoRec(); };
   el("chatCamFile").onchange=function(){ sendCamFile(); };
+  if(el("chatVid")) el("chatVid").onclick=function(){ el("vidBox").classList.toggle("hidden"); };
+  qa("#vidBox [data-vid]").forEach(function(b){ b.onclick=function(){ chatSendSavedVideo(b); }; });
   el("chatLater").onclick=function(){ el("laterBox").classList.toggle("hidden"); };
   el("laterGo").onclick=scheduleChatMsg;
   qa("#laterBox [data-later]").forEach(function(b){
@@ -906,9 +914,13 @@ function renderChatHeader(nowSec){
   if(laterGo) laterGo.disabled=!chatState.windowOpen;
   if(laterBox && !chatState.windowOpen) laterBox.classList.add("hidden");
   // Voice/video recording needs the window too; a closed window kills any take.
-  var mic=el("chatMic"), cam=el("chatCam");
+  var mic=el("chatMic"), cam=el("chatCam"), att=el("chatAttach"), vid=el("chatVid");
   if(mic) mic.disabled=!chatState.windowOpen;
   if(cam) cam.disabled=!chatState.windowOpen;
+  // Attachments + saved videos are free-form sends too: same 24h rule.
+  if(att) att.disabled=!chatState.windowOpen;
+  if(vid) vid.disabled=!chatState.windowOpen;
+  if(!chatState.windowOpen && el("vidBox")) el("vidBox").classList.add("hidden");
   if(!chatState.windowOpen){
     if(chatState.rec) stopRecorder();
     if(el("recBox")) el("recBox").classList.add("hidden");
@@ -1307,6 +1319,34 @@ async function sendChatBlob(blob, filename, opts){
   loadChats();
   return true;
 }
+// ── 📹 Saved videos (CLIENT.savedVideos via /me; docs/dashboard-plan.md §12) ──
+// Prerecorded clips hosted on the site, sent BY LINK as a bot send: no takeover,
+// pending approvals untouched. Used by the Chats composer and the Agenda tab.
+function savedVideoList(){ return (state.me && Array.isArray(state.me.savedVideos))?state.me.savedVideos:[]; }
+var SAVED_VIDEO_REASONS={window_closed:"ventana de 24h cerrada",opted_out:"el contacto está dado de baja",
+  no_contact:"este número no ha escrito al bot",unknown_video:"video no encontrado",
+  channel_unsupported:"solo disponible en WhatsApp",too_long:"texto demasiado largo"};
+// Returns true when sent. Confirms first; toasts either way.
+async function postSavedVideo(phone, id, label, who){
+  if(!confirm("¿Enviar el video '"+label+"' a "+(who||fmtPhone(phone))+"?")) return false;
+  var r;
+  try{ r=await api("/conversations/"+encodeURIComponent(phone)+"/send-video",{method:"POST",body:{id:id}}); }
+  catch(e){ r=(e&&e.data&&e.data.reason)?e.data:{ok:false,reason:(e&&e.data&&e.data.error)||("HTTP "+(e&&e.status))}; }
+  if(r&&r.ok){ toast("📹 Video enviado: "+label,"ok"); return true; }
+  toast("No enviado: "+((r&&(SAVED_VIDEO_REASONS[r.reason]||r.reason))||"error"),"err");
+  return false;
+}
+async function chatSendSavedVideo(b){
+  var phone=chatState.phone; if(!phone) return;
+  var id=b.getAttribute("data-vid");
+  var v=savedVideoList().filter(function(x){ return x.id===id; })[0]; if(!v) return;
+  var c=chatState.contact||{};
+  b.disabled=true;
+  var ok=await postSavedVideo(phone, v.id, v.label, c.name||"");
+  b.disabled=false;
+  if(ok){ if(el("vidBox")) el("vidBox").classList.add("hidden"); detailTick(false); }
+}
+
 async function sendChatMedia(){
   if(!chatState.phone || chatState.sending) return;
   var input=el("chatFile"); if(!input || !input.files || !input.files.length) return;
@@ -1657,8 +1697,10 @@ function mediaHtml(meta){
   if(!meta) return "";
   // WA media goes through the authed proxy; IG/FB attachments are direct CDN
   // urls (they expire after a while — accepted v1 limitation).
+  // meta.link = video sent by public url (booking clip, 📹 saved videos).
   var src=meta.mediaId?mediaProxy(meta.mediaId)
-    :(meta.mediaUrl && /^https:\/\//.test(String(meta.mediaUrl))?String(meta.mediaUrl):"");
+    :(meta.mediaUrl && /^https:\/\//.test(String(meta.mediaUrl))?String(meta.mediaUrl)
+    :(meta.link && /^https:\/\//.test(String(meta.link))?String(meta.link):""));
   if(!src) return "";
   if(meta.type==="image"||meta.type==="sticker"){
     return '<img class="med" loading="lazy" src="'+esc(src)+'" onclick="window.open(this.src)"'
@@ -1682,7 +1724,7 @@ function adCtxHtml(meta){
 }
 function bubbleHtml(msg){
   var dir=msg.direction, cls="in", who="";
-  if(dir==="out_bot"){ cls="bot"; }
+  if(dir==="out_bot"){ cls="bot"; var vm=msgMeta(msg); if(vm.savedVideo) who='<div class="who">📹 '+esc(vm.by||"equipo")+'</div>'; }
   else if(dir==="out_human"){ cls="human"; var by=msgBy(msg); who='<div class="who">🙋 '+esc(by||"equipo")+'</div>'; }
   else if(dir==="out_human_echo"){ cls="human"; who='<div class="who">🙋 tú</div>'; }
   var meta=msgMeta(msg);
@@ -2769,6 +2811,13 @@ function agendaRowHtml(r){
   var dk=r.trialEpoch?cdmxDayKey(r.trialEpoch):"", today=cdmxDayKey(Date.now()), tomorrow=cdmxDayKey(Date.now()+864e5);
   var confirmable=r.phone && r.trialEpoch && !r.enrolled && r.resultClass!=="attended" && (dk===today||dk===tomorrow);
   if(confirmable) acts.push('<button class="btn sm" data-agact="confirm" data-rid="'+rid+'" data-phone="'+esc(r.phone)+'" data-epoch="'+r.trialEpoch+'"'+(r.sameDaySent?' title="Ya enviada hoy; vuelve a enviar"':'')+'>📨 '+(r.sameDaySent?'Reenviar':'Enviar')+' confirmación</button>');
+  // 📹 saved videos: to the contact's exact wa_id; hidden without a chat or on baja.
+  if(r.contact && r.contact.phone && r.contact.status!=="opted_out" && chanOf(r.contact.phone)==="wa"){
+    savedVideoList().forEach(function(v){
+      acts.push('<button class="btn sm" data-agact="video" data-vid="'+esc(v.id)+'" data-phone="'+esc(r.contact.phone)+'" data-who="'+esc(contactName||who)+'"'
+        +(r.windowOpen?'':' disabled title="Ventana de 24h cerrada"')+'>📹 '+esc(v.label)+'</button>');
+    });
+  }
   if(state.me && state.me.role==="owner" && r.phone && !r.enrolled) acts.push('<button class="btn sm" data-agact="cq" data-phone="'+esc(r.phone)+'">📋 Enviar cuestionario</button>');
   if(!r.enrolled){
     acts.push('<button class="btn sm'+(r.resultClass==="attended"?" green":"")+'" data-agact="mark" data-rid="'+rid+'" data-mark="'+(r.resultClass==="attended"?"clear":"attended")+'">✅ Asistió</button>');
@@ -2788,6 +2837,14 @@ function onAgendaClick(ev){
   if(act==="cq"){ agendaSendCq(b); return; }
   if(act==="confirm"){ agendaConfirm(b); return; }
   if(act==="mark"){ agendaMark(b); return; }
+  if(act==="video"){ agendaSendVideo(b); return; }
+}
+async function agendaSendVideo(b){
+  var id=b.getAttribute("data-vid");
+  var v=savedVideoList().filter(function(x){ return x.id===id; })[0]; if(!v) return;
+  agendaBusy(b,true);
+  var ok=await postSavedVideo(b.getAttribute("data-phone"), v.id, v.label, b.getAttribute("data-who")||"");
+  if(ok) loadAgenda(true); else agendaBusy(b,false);
 }
 function agendaBusy(b,on){ qa("[data-agact]",b.closest(".agrow")).forEach(function(x){ x.disabled=on; }); }
 async function agendaMark(b){

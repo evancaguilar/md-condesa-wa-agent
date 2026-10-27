@@ -257,6 +257,18 @@ export default {
       provisional: "Provisional",
     },
   },
+  // Prerecorded clips staff send by link from the dashboard (Chats 📹 / Agenda).
+  // Hosted on the site repo (md-condesa-site/media/, Cloudflare Pages) because
+  // iPhone gallery uploads (.mov/HEVC, >16 MB) fail. Data-driven: add a row per
+  // clip (id = stable slug, label = what staff see, caption optional).
+  savedVideos: [
+    {
+      id: "tour",
+      label: "Tour de la academia",
+      url: "https://mdcondesa.com/media/tour-academia.mp4",
+      caption: "",
+    },
+  ],
   // Customer-list audiences on act_1334257084455191 (docs/meta-audiences.md).
   metaAudiences: {
     paid: "MD Condesa - Alumnos que han pagado (Airtable)",

@@ -31,9 +31,10 @@ export async function sendVideo(
   phone: string,
   videoUrl: string,
   caption?: string,
+  opts?: Parameters<typeof wa.sendVideo>[4],
 ): Promise<string> {
   return channelOf(phone) === "wa"
-    ? wa.sendVideo(env, phone, videoUrl, caption)
+    ? wa.sendVideo(env, phone, videoUrl, caption, opts)
     : messenger.sendAttachmentUrl(env, phone, "video", videoUrl, caption);
 }
 
