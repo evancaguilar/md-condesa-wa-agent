@@ -379,3 +379,42 @@ test("kids Jiu-Jitsu lead: the per-turn hours never offer 5 pm as the arrival (a
   const days = block.split("\n").find((l) => l.startsWith("todas las opciones"))!;
   assert.ok(!/(: |, )5:00 pm Jiu-Jitsu Kids/.test(days), days);
 });
+
+// ---- imminent class: the 1h buffer is for what the bot proposes, not for a lead who wants to come now (Evan, 2026-10-27) ----
+
+function kidsCtxAt(nowCdmx: string): ConvoContext {
+  return ctx({
+    nowCdmx,
+    contact: contact({ qualification: JSON.stringify({ discipline: "jiu", audience: "kid", child_age_months: 107 }) }),
+  });
+}
+
+test("imminent class: 16:31 Monday, kids Jiu-Jitsu → the 5 pm Kids class is flagged as joinable, 4 pm (31 min in) is not", () => {
+  // Claudia / Julieta, 2026-10-26: "perdón me refería a hoy!" at 16:31 was answered "ya no alcanzamos".
+  const block = buildContextBlock(kidsCtxAt("2026-10-26T16:31:00-06:00"));
+  const line = block.split("\n").find((l) => l.startsWith("clase inminente HOY"))!;
+  assert.ok(line, block);
+  assert.match(line, /5:00 pm Jiu-Jitsu Kids \(empieza en 29 min\)/, line);
+  assert.ok(!/4:00 pm/.test(line), line);
+  assert.match(line, /si el lead pide venir hoy\/ahorita SÍ puede llegar/);
+  assert.match(line, /nunca digas "ya no alcanzamos"/);
+  // The proposal list still respects the buffer: nothing for today at 5 pm.
+  const soon = block.split("\n").find((l) => l.startsWith("próximos horarios"))!;
+  assert.ok(!/hoy a las 5:00 pm/.test(soon), soon);
+});
+
+test("imminent class: 16:05 → both halves (4 pm started 5 min ago, 5 pm in 55 min); 15:20 → only the 4 pm arrival; 14:00 → no line", () => {
+  const at1605 = buildContextBlock(kidsCtxAt("2026-10-26T16:05:00-06:00")).split("\n").find((l) => l.startsWith("clase inminente"))!;
+  assert.match(at1605, /4:00 pm Muay Thai Kids \(empezó hace 5 min\)/, at1605);
+  assert.match(at1605, /5:00 pm Jiu-Jitsu Kids \(empieza en 55 min\)/, at1605);
+  const at1520 = buildContextBlock(kidsCtxAt("2026-10-26T15:20:00-06:00")).split("\n").find((l) => l.startsWith("clase inminente"))!;
+  assert.match(at1520, /4:00 pm Muay Thai Kids \(empieza en 40 min\)/, at1520);
+  assert.ok(!/5:00 pm/.test(at1520), at1520);
+  const at1400 = buildContextBlock(kidsCtxAt("2026-10-26T14:00:00-06:00"));
+  assert.ok(!/clase inminente/.test(at1400), at1400);
+});
+
+test("persona: the 1h buffer only governs the bot's own offers; a lead asking to come now is told yes", () => {
+  assert.match(PERSONA_AND_POLICIES, /El buffer de 1 hora es SOLO para lo que TÚ propones/);
+  assert.match(PERSONA_AND_POLICIES, /NUNCA digas "ya no alcanzamos"/);
+});

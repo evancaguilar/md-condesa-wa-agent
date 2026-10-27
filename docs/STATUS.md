@@ -2,6 +2,13 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-27** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### A lead who wants to come NOW can join a class starting in minutes (2026-10-27) — branch `worktree-join-now-rule`, NOT pushed
+
+- **Bug (…2255 Claudia/Julieta, 2026-10-26 16:31):** "perdón me refería a hoy!" for the 5 pm Jiu-Jitsu Kids was answered "Hoy ya no alcanzamos a tiempo". The persona's 1-hour buffer (meant for what the bot PROPOSES) was applied to the lead's own request. Evan's rule: the bot never proactively offers a class under an hour away, but a lead who asks to come may join even if the class starts in a couple of minutes.
+- **Fix:** persona bullet under "Flujo de agendado" (buffer = only for what the bot proposes; a lead asking for today's imminent class gets "¡Claro, vente!" + book_trial for today; never "ya no alcanzamos"). New `<context>` line `clase inminente HOY: …` (`prompt.ts imminentSlotLine`): the band's class starting within the next hour, or started < 15 min ago, including a kids second half (5 pm after the 4 pm arrival). The "próximos horarios" proposal list is unchanged.
+- Same chat, not fixed here: the 15:20 draft offered "mañana" while 5 pm was still 1h40 away (steered by `preferred_days: ["mar"]` from two weeks earlier), sat unapproved and auto-sent at 16:20; and "ah mañana no pueden!" was read as a question. Tests 1411 → **1414**.
+- [ ] **Evan:** merge + push; probe: the next day-of "¿puedo ir hoy?" within the hour gets a yes.
+
 ### No-show chain survives a staff send (2026-10-27) — branch `fix/no-show-after-staff-send`, NOT pushed
 
 Bug: any dashboard staff send (text / voice note / media) pauses the bot for a year (`STAFF_TAKEOVER_HOURS`, staff-send.ts — kept: Evan's "until Reanudar" rule for BRAIN replies). `processPostTrial` skipped every post-trial / no-show touch while that override was live, silently, and since `no_show_d2` / `no_show_d7` are armed only after `no_show_hoy` the whole no-show chain was stranded (06:45 voice note for a 07:00 class → lead no-showed → nothing ever sent).

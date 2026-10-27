@@ -25,6 +25,7 @@ import {
   time12h,
   upcomingBandSlots,
   type BandDay,
+  type BandSlotOpts,
   type NextSlot,
 } from "../cron/next-slot.js";
 import { bandLabel, isNivel0, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
@@ -244,6 +245,8 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
       soon.push({ label: s.label, whats: [slotWhat(s, band)] });
     }
   }
+  const imminent = imminentSlotLine(band, disc, now, opts);
+  if (imminent) lines.push(imminent);
   if (soon.length > 0) {
     lines.push(
       `próximos horarios válidos${disc ? ` de ${disciplineLabel(disc)}` : ""} (más próximo primero, con buffer de 1h): ${soon
@@ -281,6 +284,64 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
     "Ofrece SOLO filas de su grupo de edad, la más próxima primero, salvo que el lead haya pedido otro día.",
   );
   return lines;
+}
+
+/** A class that started up to this long ago still takes a lead who asks to come now. */
+export const IMMINENT_GRACE_SECONDS = 15 * 60;
+
+/** Epoch of a slot's CDMX start ("YYYY-MM-DD" + "HH:mm"); null when unparseable. */
+function slotStartEpoch(s: Pick<NextSlot, "date" | "time">): number | null {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.date);
+  const t = /^(\d{2}):(\d{2})$/.exec(s.time);
+  if (!d || !t) return null;
+  return cdmxToEpoch(Number(d[1]), Number(d[2]), Number(d[3]), Number(t[1]), Number(t[2]));
+}
+
+/**
+ * Pure. The band's class that starts within the next hour (or started less
+ * than IMMINENT_GRACE_SECONDS ago). The 1h buffer keeps it OUT of the
+ * "próximos horarios" list the model proposes from, but a lead who asks to
+ * come today can still join it (Evan, 2026-10-27: the buffer is for what the
+ * bot offers, never for a lead who wants to come — …2255 at 16:31 was told
+ * "ya no alcanzamos" for the 5 pm Jiu-Jitsu Kids). One line, or null.
+ */
+export function imminentSlotLine(
+  band: ProgramBand,
+  disc: string | null,
+  now: number,
+  opts: BandSlotOpts = {},
+): string | null {
+  // Scan back far enough that a kids ARRIVAL row already past (4 pm) still
+  // surfaces its second half (5 pm Jiu-Jitsu Kids), which is never a row of
+  // its own (next-slot.isKidSecondHalf).
+  const soonest = upcomingBandSlots(band, disc, now, 8, { ...opts, leadSeconds: -3 * 3600 });
+  const tag = band === "kids" ? " Kids" : band === "teens" ? " Teens" : "";
+  const cands: { time: string; what: string; start: number }[] = [];
+  for (const s of soonest) {
+    const start = slotStartEpoch(s);
+    if (start !== null) {
+      const what = band === "kids" || band === "teens" ? `${disciplineLabel(s.discipline)}${tag}` : slotWhat(s, band);
+      cands.push({ time: s.time, what, start });
+    }
+    if (s.then) {
+      const ts = slotStartEpoch({ date: s.date, time: s.then.time });
+      if (ts !== null) cands.push({ time: s.then.time, what: `${s.then.name ?? disciplineLabel(s.then.discipline)}${tag}`, start: ts });
+    }
+  }
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const c of cands.sort((a, b) => a.start - b.start)) {
+    const delta = c.start - now;
+    if (delta < -IMMINENT_GRACE_SECONDS || delta >= TODAY_BUFFER_SECONDS) continue;
+    const key = `${c.time} ${c.what}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const mins = Math.round(delta / 60);
+    const when = mins > 0 ? `empieza en ${mins} min` : mins === 0 ? "empieza ahora" : `empezó hace ${-mins} min`;
+    parts.push(`${time12h(c.time)} ${c.what} (${when})`);
+  }
+  if (parts.length === 0) return null;
+  return `clase inminente HOY: ${parts.join(" · ")} — NO la propongas tú (queda dentro del buffer de 1h), pero si el lead pide venir hoy/ahorita SÍ puede llegar: dile que sí y agéndala con book_trial para hoy; nunca digas "ya no alcanzamos".`;
 }
 
 const DAY_WORDS: Record<string, string> = {
