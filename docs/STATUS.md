@@ -24,6 +24,12 @@ Spec: docs/dashboard-plan.md §11. New tab **Agenda** (all roles) mirrors the Ai
 - **Origin gate bug:** `recentMessages()` is oldest-first but `originSendGate` read `[0]` as the newest → the question went out 8 min after the lead's unanswered names. Gate now sorts by ts itself; regression test with that exact chat.
 - Not fixed here (follow-up): the 30 s cap itself — moving turns to a Queue/Durable Object would remove it.
 
+### Adults on the "Jiu-Jitsu Kids" ad + English leads answered in Spanish (2026-10-24) — SHIPPED (pushed 2026-10-24)
+
+- **Adult on a kids welcome.** Ad `120250914981170518` ("Jiu-Jitsu Kids", copy says "hasta adultos") also prefills "Quiero info de las clases de Jiu-Jitsu para adulto"; 6 adults (Oct 16–24) got the Jiu-Jitsu niños welcome asking "¿qué edad tiene tu peque?". Now `adultSelfSignal` (program-signal.ts: "para adulto(s)", "soy adulto", "para mí" not followed by a child word, "for me") (a) makes `shouldSkipCannedWelcome` skip a kids/teens/baby welcome so the brain answers, and (b) stores `audience: adult, program: adults` so the <context> stops offering kids hours. Never overrides a stated child's age. Ad `120249703090510518` is mapped to BOTH campaign 11 (muay thai) and 13 (jiu-jitsu kids) — Evan to pick one.
+- **English → Spanish.** `contacts.lang` was never written after creation (every contact "es"), so the brain saw `lang: es` even when the lead wrote English (Thilo, +41: "Hey team" → Spanish welcome; "But thanks for the info!" → Spanish goodbye). New pure `detectLanguage` (lang-detect.ts, stopword count; null when unclear) runs on every inbound and updates `contacts.lang`.
+- **Verify live:** next English-speaking lead → their contact shows `lang: en` in `/admin/api/conversations/<phone>` and the reply is English; next "para adulto" lead on the kids ad → no canned kids welcome, brain reply in Aprobar.
+
 ### Slack routing restructure: #wa-leads = team tasks, #evan-alerts = Evan, #bot-ops → D1 ops_log (2026-10-22): SHIPPED (pushed 2026-10-22 at Evan's request; live probes below)
 
 Full routing table (event → old → new): **docs/slack-routing.md**.

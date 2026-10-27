@@ -150,6 +150,7 @@ import {
 import { armNudges, BOOKING_KINDS, cancelNudges } from "../cron/nudges.js";
 import { parseQualification } from "../cron/nudge-copy.js";
 import { mergeQualUpdate, programSignalUpdate } from "../services/program-signal.js";
+import { detectLanguage } from "../services/lang-detect.js";
 import { setQualification } from "../db/queries.js";
 import type { InboundReferral } from "../routes/webhook-parse.js";
 
@@ -514,6 +515,19 @@ export async function processInbound(
     }
   } catch (err) {
     console.warn("[inbound] program signal failed", msg.phone, err);
+  }
+
+  // Language of what the lead just wrote (2026-10-24): contacts.lang was never
+  // updated, so every lead stayed "es" and the brain answered English in
+  // Spanish. Unclear messages keep the stored language. Fail-soft.
+  try {
+    const lang = detectLanguage(body);
+    if (lang && lang !== contact.lang) {
+      await upsertContact(env.DB, { phone: msg.phone, lang });
+      contact = { ...contact, lang };
+    }
+  } catch (err) {
+    console.warn("[inbound] language update failed", msg.phone, err);
   }
 
   // Airtable sync — ONE sequential chain, never parallel calls: a first ad

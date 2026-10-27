@@ -5,6 +5,7 @@
 
 import type { Campaign } from "../types.js";
 import { childAgeMonthsFromText } from "../services/age-band.js";
+import { adultSelfSignal } from "../services/program-signal.js";
 
 /**
  * Normalize free text for trigger matching:
@@ -307,6 +308,9 @@ const DISCIPLINE_WORDS: [RegExp, string][] = [
   [/\b(karate|taekwondo|judo|lucha)\b/, "other"],
 ];
 
+/** A welcome written for parents or teens (normalized text). */
+const YOUTH_WELCOME_RE = /\b(ninos?|ninas?|kids?|infantil|peques?|teens?|adolescentes?|bebes?|baby)\b/;
+
 function disciplinesIn(norm: string): Set<string> {
   const out = new Set<string>();
   for (const [re, key] of DISCIPLINE_WORDS) if (re.test(norm)) out.add(key);
@@ -319,7 +323,9 @@ function disciplinesIn(norm: string): Set<string> {
  *  - the message states a child's age ("una niña de 4 años" — joss_bfc_mini
  *    got the 12–36-month Baby Fight Club pitch),
  *  - it names a weekday or an hour ("Jueves 7:00am" — the lead is booking),
- *  - it names a discipline the campaign/welcome never mentions.
+ *  - it names a discipline the campaign/welcome never mentions,
+ *  - it says the classes are for an adult / themselves on a kids, teens or
+ *    baby welcome ("Jiu-Jitsu para adulto" got the Jiu-Jitsu niños pitch).
  * Words of the campaign's own prefill never count (the ad put them there).
  * Bare prefills keep the instant welcome.
  */
@@ -337,6 +343,12 @@ export function shouldSkipCannedWelcome(
   if (!own) return false;
   if (childAgeMonthsFromText(own) !== null) return true;
   if (DAY_OR_HOUR_RE.test(own)) return true;
+  if (
+    adultSelfSignal(own) &&
+    YOUTH_WELCOME_RE.test(normalizeText(`${campaign.name} ${campaign.first_reply ?? ""}`))
+  ) {
+    return true;
+  }
   const asked = disciplinesIn(own);
   if (asked.size === 0) return false;
   const covered = disciplinesIn(
