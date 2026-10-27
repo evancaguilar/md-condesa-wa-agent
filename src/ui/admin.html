@@ -2740,7 +2740,7 @@ function agendaResultChip(r){
 }
 function agendaCqChip(r){
   if(!r.cuestionario) return '';
-  var done=/✅|complet/i.test(r.cuestionario);
+  var done=/✅/.test(r.cuestionario)||(/complet/i.test(r.cuestionario)&&!/incomplet/i.test(r.cuestionario));
   return '<span class="chip'+(done?" green":"")+'" title="'+esc(r.cuestionario)+'">'+(done?'✅ cuestionario':'⏳ cuestionario')+'</span>';
 }
 function agendaRowHtml(r){
