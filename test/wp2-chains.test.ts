@@ -522,10 +522,17 @@ async function runChainRow(
     windowClosed?: boolean;
     templateFails?: boolean;
     c?: Contact;
+    /** A staff message (dashboard composer or WhatsApp-app echo) at this epoch. */
+    staffAt?: { ts: number; direction: "out_human" | "out_human_echo" };
   },
 ) {
   const { raw, db } = sqliteDb();
   insertContact(raw, opts.c ?? contact({}));
+  if (opts.staffAt) {
+    raw
+      .prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES('wamid.staff', '5215512345678', ?, '[audio]', ?)`)
+      .run(opts.staffAt.direction, opts.staffAt.ts);
+  }
   const sent: string[] = [];
   const armed: string[] = [];
   const params: string[] = [];
@@ -617,6 +624,90 @@ test("no-show chain: a reply from the lead since class start stops it", async ()
   // …but "ok, ahí nos vemos" the night before does not
   const r2 = await runChainRow("no_show_hoy", { trial: t, now: t + 2 * H, c: contact({ last_inbound_at: t - 12 * H }) });
   assert.equal(r2.res.outcome, "sent");
+});
+
+// ---- human override vs the no-show chain (2026-10-27) ----------------------
+// Incident: staff sent a voice note at 06:45 for a 07:00 class (staff-send.ts
+// pauses the bot "until Reanudar"), the lead no-showed and NOTHING was ever
+// sent — no_show_hoy was skipped and d2 / d7 were never armed.
+
+test("override: a staff message BEFORE the class is outreach → no_show_hoy still sends and arms d2 / d7", async () => {
+  const t = cdmxToEpoch(2026, 10, 27, 7, 0);
+  const r = await runChainRow("no_show_hoy", {
+    trial: t,
+    now: t + 2 * H,
+    c: contact({ human_override_until: t + 365 * DAY }),
+    staffAt: { ts: t - 15 * 60, direction: "out_human" },
+  });
+  assert.deepEqual(r.res, { outcome: "sent" });
+  assert.equal(r.sent.length, 1);
+  assert.deepEqual(r.armed, ["no_show_d2", "no_show_d7"]);
+});
+
+test("override: a staff message AFTER the class → no_show_hoy skipped with an ops note, d2 / d7 still armed", async () => {
+  const t = cdmxToEpoch(2026, 10, 27, 7, 0);
+  const r = await runChainRow("no_show_hoy", {
+    trial: t,
+    now: t + 2 * H,
+    c: contact({ human_override_until: t + 365 * DAY }),
+    staffAt: { ts: t + 90 * 60, direction: "out_human_echo" },
+  });
+  assert.equal(r.res.outcome, "cancelled");
+  assert.ok(!("stopChain" in r.res && r.res.stopChain), JSON.stringify(r.res));
+  assert.deepEqual(r.sent, []);
+  assert.deepEqual(r.armed, ["no_show_d2", "no_show_d7"], "the chain is never stranded");
+  const note = "note" in r.res ? r.res.note ?? "" : "";
+  assert.ok(note.includes("no_show_hoy no enviado a Ana (5215512345678)"), note);
+  assert.ok(note.includes("último mensaje del equipo a las 08:30 después de la clase"), note);
+  assert.ok(note.includes("no_show_d2 / d7 siguen armados"), note);
+});
+
+test("override: no staff message at all (Pausar aquí / Tomar control) → skipped, d2 / d7 still armed", async () => {
+  const t = cdmxToEpoch(2026, 10, 27, 7, 0);
+  const r = await runChainRow("no_show_hoy", {
+    trial: t,
+    now: t + 2 * H,
+    c: contact({ human_override_until: t + 365 * DAY }),
+  });
+  assert.equal(r.res.outcome, "cancelled");
+  assert.deepEqual(r.sent, []);
+  assert.deepEqual(r.armed, ["no_show_d2", "no_show_d7"]);
+  const note = "note" in r.res ? r.res.note ?? "" : "";
+  assert.ok(note.includes("sin mensajes del equipo"), note);
+});
+
+test("override: d2 re-checks the same rule (pre-class staff message → sends; post-class → skipped with a dated note)", async () => {
+  const t = cdmxToEpoch(2026, 10, 27, 7, 0);
+  const now = cdmxToEpoch(2026, 10, 29, 11, 0);
+  const before = await runChainRow("no_show_d2", {
+    trial: t,
+    now,
+    c: contact({ human_override_until: t + 365 * DAY }),
+    staffAt: { ts: t - 15 * 60, direction: "out_human" },
+  });
+  assert.equal(before.res.outcome, "sent");
+  const after = await runChainRow("no_show_d2", {
+    trial: t,
+    now,
+    c: contact({ human_override_until: t + 365 * DAY }),
+    staffAt: { ts: cdmxToEpoch(2026, 10, 28, 18, 5), direction: "out_human" },
+  });
+  assert.equal(after.res.outcome, "cancelled");
+  assert.deepEqual(after.sent, []);
+  const note = "note" in after.res ? after.res.note ?? "" : "";
+  assert.ok(note.includes("último mensaje del equipo ayer a las 18:05 después de la clase"), note);
+});
+
+test("override: a skipped no_show_d7 still hands the 'Marcar Perdido' task to a human", async () => {
+  const t = cdmxToEpoch(2026, 10, 27, 7, 0);
+  const r = await runChainRow("no_show_d7", {
+    trial: t,
+    now: cdmxToEpoch(2026, 11, 3, 11, 0),
+    c: contact({ human_override_until: t + 365 * DAY }),
+  });
+  assert.equal(r.res.outcome, "cancelled");
+  assert.deepEqual(r.sent, []);
+  assert.ok("task" in r.res && r.res.task === "Marcar Perdido: Ana · 5215512345678", JSON.stringify(r.res));
 });
 
 // ---- 6. attended-not-enrolled v2 ------------------------------------------------------

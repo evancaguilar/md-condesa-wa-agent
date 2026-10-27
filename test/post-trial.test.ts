@@ -423,11 +423,13 @@ test("processPostTrial: a reply since the row was armed stops the chain", async 
   );
 });
 
-test("processPostTrial: a human takeover skips this touch only", async () => {
+test("processPostTrial: a human takeover (no staff message, no trial) skips this touch only, with an ops note", async () => {
   const { sent, deps } = sendDeps([]);
   const { db } = contactDb(contact({ human_override_until: WED_TRIAL + 3600 }));
   const res = await processPostTrial(envWith(db), ROW, deps, WED_TRIAL);
-  assert.deepEqual(res, { outcome: "cancelled" }); // no stopChain
+  assert.equal(res.outcome, "cancelled");
+  assert.ok(!("stopChain" in res && res.stopChain), "the rest of the chain survives");
+  assert.ok("note" in res && /post_trial_d0 no enviado a .*5215512345678.*bot en pausa/.test(res.note ?? ""), JSON.stringify(res));
   assert.equal(sent.length, 0);
 });
 
@@ -577,6 +579,43 @@ test("runDueFollowups: a post-trial row sends and is marked sent", async () => {
       slack: { async postNote() {}, async postAttendanceCheck() {} },
     });
     assert.deepEqual(marks, [{ id: 9, status: "sent" }]);
+  });
+});
+
+test("runDueFollowups: a touch skipped for a human override posts a post_trial ops note and keeps the chain", async () => {
+  await atMidday(async () => {
+    stubFetchOk();
+    const marks: { id: unknown; status: unknown }[] = [];
+    const notes: { text: string; kind: unknown }[] = [];
+    let kindCancels = 0;
+    const { db } = fakeDb((sql, binds) => {
+      if (sql.includes("SELECT * FROM followups WHERE status = 'scheduled'"))
+        return { all: [dueRow("post_trial_d3")] };
+      if (sql.includes("SELECT * FROM contacts"))
+        return { first: contact({ human_override_until: cdmxToEpoch(2027, 1, 1, 0, 0, 0) }) };
+      if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
+      if (sql.startsWith("UPDATE followups SET status") && sql.includes("kind IN")) {
+        kindCancels++;
+        return {};
+      }
+      if (sql.startsWith("UPDATE followups SET status")) {
+        marks.push({ id: binds[0], status: binds[1] });
+        return {};
+      }
+      return {};
+    });
+    await runDueFollowups(envWith(db), {
+      slack: {
+        async postNote(text: string, opts?: { kind?: string }) {
+          notes.push({ text, kind: opts?.kind });
+        },
+        async postAttendanceCheck() {},
+      },
+    });
+    assert.deepEqual(marks, [{ id: 9, status: "cancelled" }]);
+    assert.equal(kindCancels, 0, "the rest of the chain is not cancelled");
+    const note = notes.find((n) => n.kind === "post_trial");
+    assert.ok(note && /post_trial_d3 no enviado .*bot en pausa/.test(note.text), JSON.stringify(notes));
   });
 });
 

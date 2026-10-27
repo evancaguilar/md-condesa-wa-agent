@@ -683,6 +683,10 @@ async function processOne(
         // End of the no-show chain: a human marks Perdido (the bot never does).
         await taskNote(deps.slack, `📝 ${res.task}`);
       }
+      if (res.outcome === "cancelled" && res.note) {
+        // Skipped because a human holds the conversation — never silently.
+        await deps.slack.postNote(res.note, { kind: "post_trial", meta: { phone: f.phone, followupKind: f.kind } });
+      }
       if (res.outcome === "cancelled" && res.stopChain) {
         // They enrolled / wrote in / booked again: drop the rest of the chain
         // rather than letting each remaining row re-discover it.
