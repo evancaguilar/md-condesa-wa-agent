@@ -2,6 +2,10 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-10-27** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Halloween promo "Sí, quiero saber" goes to Evan, not the bot (2026-10-31) — SHIPPED
+
+Tapping "Sí, quiero saber" on template `halloween_promo_prueba_oct26` sends no auto-reply: it alerts #evan-alerts with the chat link and pauses the bot 12 h for that lead (src/pipeline/promo-button.ts, gate after student). Other templates' buttons and typed text keep the normal flow. To reuse for another promo, add a row to `HANDOFF_BUTTONS`.
+
 ### A lead who wants to come NOW can join a class starting in minutes (2026-10-27) — branch `worktree-join-now-rule`, NOT pushed
 
 - **Bug (…2255 Claudia/Julieta, 2026-10-26 16:31):** "perdón me refería a hoy!" for the 5 pm Jiu-Jitsu Kids was answered "Hoy ya no alcanzamos a tiempo". The persona's 1-hour buffer (meant for what the bot PROPOSES) was applied to the lead's own request. Evan's rule: the bot never proactively offers a class under an hour away, but a lead who asks to come may join even if the class starts in a couple of minutes.
