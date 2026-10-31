@@ -1,5 +1,5 @@
 // Inbound pipeline. Gate order is EXACTLY as architecture.md §Inbound pipeline:
-// dedupe → kill switch → opt-out → reto login → campaign tagging → student → promo button → human override
+// dedupe → kill switch → opt-out → reto login → campaign tagging → promo button → student → human override
 // → crisis → campaign first-reply → 8s debounce → brain → route reply.
 // Brain/Slack/Airtable arrive as injected ports.
 
@@ -125,7 +125,7 @@ import { CLIENT } from "../client.gen.js";
 import { isNoReplySentinel } from "../brain/prompt.js";
 import { dashboardChatUrl } from "../services/dashboard-link.js";
 import { alertNote, taskNote } from "../cron/deps.js";
-import { handoffButtonTemplate } from "./promo-button.js";
+import { handoffButtonTemplate, isOptOutButton } from "./promo-button.js";
 import {
   fetchMediaBytes,
   fetchMediaBytesFromUrl,
@@ -385,6 +385,14 @@ export async function processInbound(
   // v2: the last ≤3 inbound messages within 2 min count as ONE text (2026-10-10
   // …4595: "No me interesa…" / "Gracias" / "Ya no me manden mensaje.").
   let optOut = isOptOut(body);
+  if (!optOut && msg.kind === "button") {
+    try {
+      const recent = await recentMessages(env.DB, msg.phone, 20, Math.floor(Date.now() / 1000) - HISTORY_WINDOW_SECONDS);
+      optOut = isOptOutButton(msg.kind, body, recent);
+    } catch (err) {
+      console.warn("[inbound] opt-out button read failed", msg.phone, err);
+    }
+  }
   if (!optOut) {
     try {
       const recent = await recentMessages(env.DB, msg.phone, 6, msg.ts - OPT_OUT_BURST_SECONDS);
@@ -552,15 +560,7 @@ export async function processInbound(
     }
   }
 
-  // 4. Student on the lead line: silent, ping Slack.
-  if (contact.status === "student") {
-    await taskNote(ports.slack, 
-      `Alumno conocido escribió en la línea de leads (${msg.phone}): ${body}`,
-    );
-    return;
-  }
-
-  // 4b. Promo button a human answers (promo-button.ts): no auto-reply, alert
+  // 3z. Promo button a human answers (promo-button.ts): no auto-reply, alert
   // Evan with the chat link, and pause the bot so a follow-up text doesn't get
   // an answer about promos it knows nothing about.
   if (msg.kind === "button") {
@@ -581,6 +581,14 @@ export async function processInbound(
       }
       return;
     }
+  }
+
+  // 4. Student on the lead line: silent, ping Slack.
+  if (contact.status === "student") {
+    await taskNote(ports.slack, 
+      `Alumno conocido escribió en la línea de leads (${msg.phone}): ${body}`,
+    );
+    return;
   }
 
   // 5. Human override active.

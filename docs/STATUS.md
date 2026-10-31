@@ -4,7 +4,7 @@
 
 ### Halloween promo "Sí, quiero saber" goes to Evan, not the bot (2026-10-31) — SHIPPED
 
-Tapping "Sí, quiero saber" on template `halloween_promo_prueba_oct26` sends no auto-reply: it alerts #evan-alerts with the chat link and pauses the bot 12 h for that lead (src/pipeline/promo-button.ts, gate after student). Other templates' buttons and typed text keep the normal flow. To reuse for another promo, add a row to `HANDOFF_BUTTONS`.
+Tapping "Sí, quiero saber" on template `halloween_promo_prueba_oct26` sends no auto-reply: it alerts #evan-alerts with the chat link and pauses the bot 12 h for that lead (src/pipeline/promo-button.ts, gate after student). Other templates' buttons and typed text keep the normal flow. Tapping "No me interesa" on it is a baja (opt-out). The gate runs before the student gate. To reuse for another promo, add a row to `PROMO_BUTTONS`.
 
 ### A lead who wants to come NOW can join a class starting in minutes (2026-10-27) — branch `worktree-join-now-rule`, NOT pushed
 
