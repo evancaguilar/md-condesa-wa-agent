@@ -418,3 +418,26 @@ test("persona: the 1h buffer only governs the bot's own offers; a lead asking to
   assert.match(PERSONA_AND_POLICIES, /El buffer de 1 hora es SOLO para lo que TÚ propones/);
   assert.match(PERSONA_AND_POLICIES, /NUNCA digas "ya no alcanzamos"/);
 });
+
+test("<quiere_inscribirse>: a lead who asked to enrol is never pushed to a trial", () => {
+  const msg = (body: string, direction: "in" | "out_bot" = "in") => ({
+    wamid: body,
+    phone: "5215512345678",
+    direction,
+    body,
+    ts: 0,
+    meta: null,
+  });
+  const wants = [msg("Hola, vi el anuncio de muay thai"), msg("¿te late el sábado?", "out_bot"), msg("Me quiero inscribir directo sin clase de prueba")];
+  const block = buildContextBlock(ctx({ history: wants }));
+  assert.match(block, /<quiere_inscribirse>[\s\S]*NO le ofrezcas clase de prueba[\s\S]*<\/quiere_inscribirse>/);
+  // It comes after campaign_info, so a trial-first campaign can't outweigh it.
+  const withCampaign = buildContextBlock(ctx({ history: wants, campaign: { name: "Muay Thai", info: "ofrece clase de prueba" } }));
+  assert.ok(withCampaign.indexOf("<quiere_inscribirse>") > withCampaign.indexOf("</campaign_info>"));
+
+  // Absent: no enrol words, a booked trial, a student, or the bot's own words.
+  assert.ok(!buildContextBlock(ctx({ history: [msg("info de muay thai")] })).includes("quiere_inscribirse"));
+  assert.ok(!buildContextBlock(ctx({ history: wants, recordedBooking: { ts: 0 } })).includes("quiere_inscribirse"));
+  assert.ok(!buildContextBlock(ctx({ history: wants, contact: contact({ status: "student" }) })).includes("quiere_inscribirse"));
+  assert.ok(!buildContextBlock(ctx({ history: [msg("¿Quieres inscribirte? quiero inscribirme", "out_bot")] })).includes("quiere_inscribirse"));
+});

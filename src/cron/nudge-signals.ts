@@ -46,12 +46,34 @@ export function ageConflictsWithProgram(program: Program, bodies: readonly strin
   return false;
 }
 
-const BUY_INTENT_RE =
-  /(?:^|[^a-záéíóúñ])(?:ya\s+pagu[eé]|quiero\s+(?:pagar|inscribir(?:me|nos|lo|la)?|comprar)|inscribir(?:me|nos)\s+(?:ya|en\s+l[ií]nea|online)|c[oó]mo\s+(?:pago|me\s+inscribo)|link\s+de\s+pago|d[oó]nde\s+(?:pago|deposito|transfiero)|comprobante|i\s+want\s+to\s+(?:pay|sign\s*up|enrol+)|already\s+paid)/i;
+/** Paying, or already paid. Never about the (free) trial. */
+const PAY_INTENT_RE =
+  /(?:^|[^a-záéíóúñ])(?:ya\s+pagu[eé]|(?:quiero|quisiera)\s+pagar|c[oó]mo\s+pago|link\s+de\s+pago|d[oó]nde\s+(?:pago|deposito|transfiero)|comprobante|i\s+want\s+to\s+pay|already\s+paid)/i;
 
-/** The lead said they want to pay / enrol (or already paid): a human's job, not a nudge's. */
+/** Enrolling. Luis Ortega (2026-10-30) asked to sign up without a trial and
+ *  got pushed to one, then escalated; "me quiero inscribir", "quisiera
+ *  inscribirme", "inscribirme directo" all count. */
+const ENROL_INTENT_RE =
+  /(?:^|[^a-záéíóúñ])(?:(?:quiero|quisiera|me\s+gustar[ií]a|deseo|puedo|podr[ií]a|para)\s+(?:inscribir(?:me|nos|lo|la|le)?|comprar|contratar)|inscribir(?:me|nos)\s+(?:ya|en\s+l[ií]nea|online|direct(?:o|amente)|de\s+una\s+vez)|me\s+inscribo|(?:quiero|quisiera)\s+(?:la\s+|una\s+|el\s+)?(?:membres[ií]a|mensualidad|plan\s+(?:silver|gold|diamond|bronze))|i\s+want\s+to\s+(?:sign\s*up|enrol+|join)|sign\s+me\s+up)/i;
+
+/** "inscribirme a la clase de prueba" is booking a trial, not enrolling. */
+const TRIAL_SCOPED_RE = /clase\s+(?:de\s+)?(?:prueba|muestra|gratis)|prueba\s+gratis|free\s+(?:trial|class)|trial\s+class/i;
+
+/** …unless they say they want to skip it. */
+const SKIP_TRIAL_RE =
+  /sin\s+(?:tomar\s+|hacer\s+)?(?:la\s+|una\s+|el\s+)?(?:clase\s+)?(?:de\s+)?(?:prueba|muestra)|no\s+(?:necesito|quiero|ocupo)\s+(?:tomar\s+)?(?:la\s+|una\s+)?(?:clase\s+)?(?:de\s+)?(?:prueba|muestra)|without\s+(?:a\s+)?trial|skip\s+the\s+trial/i;
+
+function saysBuyIntent(body: string): boolean {
+  if (PAY_INTENT_RE.test(body)) return true;
+  if (!ENROL_INTENT_RE.test(body)) return false;
+  return !TRIAL_SCOPED_RE.test(body) || SKIP_TRIAL_RE.test(body);
+}
+
+/** The lead said they want to pay / enrol (or already paid): no class push —
+ *  nudges stop, the canned welcome is skipped, and the brain is told to enrol
+ *  them (src/brain/prompt.ts <quiere_inscribirse>). */
 export function hasBuyIntent(bodies: readonly string[]): boolean {
-  return bodies.some((b) => BUY_INTENT_RE.test(b));
+  return bodies.some(saysBuyIntent);
 }
 
 /** Same text already sent to this lead recently → a duplicate row, not a new touch. */

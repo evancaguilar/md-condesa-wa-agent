@@ -29,6 +29,22 @@ test("hasBuyIntent catches pay/enrol phrasing, not casual price questions", () =
   assert.equal(hasBuyIntent(["me interesa el reto"]), false);
 });
 
+test("hasBuyIntent: enrol-without-trial phrasing (Luis Ortega, 2026-10-30)", () => {
+  assert.equal(hasBuyIntent(["Me quiero inscribir directo, sin clase de prueba"]), true);
+  assert.equal(hasBuyIntent(["quisiera inscribirme a muay thai"]), true);
+  assert.equal(hasBuyIntent(["¿Puedo inscribirme sin tomar la clase muestra?"]), true);
+  assert.equal(hasBuyIntent(["no necesito clase de prueba, quiero inscribirme de una vez"]), true);
+  assert.equal(hasBuyIntent(["quiero el plan silver"]), true);
+  assert.equal(hasBuyIntent(["sign me up please"]), true);
+});
+
+test("hasBuyIntent: signing up FOR the trial is not enrolling", () => {
+  assert.equal(hasBuyIntent(["quiero inscribirme a la clase de prueba"]), false);
+  assert.equal(hasBuyIntent(["¿cómo me inscribo a la clase gratis?"]), false);
+  assert.equal(hasBuyIntent(["no quiero clase de prueba, gracias"]), false);
+  assert.equal(hasBuyIntent(["ya pagué, ¿cuándo es mi clase de prueba?"]), true);
+});
+
 test("isDuplicateSend: same text within 24h only", () => {
   const now = 1_000_000;
   assert.equal(isDuplicateSend("Hola  🥋\nvengan", [{ body: "Hola 🥋 vengan", ts: now - 60 }], now), true);

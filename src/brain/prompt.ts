@@ -32,6 +32,7 @@ import { bandLabel, isNivel0, slotMatchesBand, type ProgramBand } from "../servi
 import { SLOTS } from "./slots.gen.js";
 import { isKnownDiscipline, normalizeDiscipline } from "./tools.js";
 import { cdmxToEpoch } from "../cron/time.js";
+import { hasBuyIntent } from "../cron/nudge-signals.js";
 
 /**
  * Persona + hard policies. Stable across all turns (the KB is appended).
@@ -537,6 +538,26 @@ export function buildContextBlock(ctx: ConvoContext): string {
       "<origen>",
       `El lead acaba de responder a nuestra pregunta de cómo nos encontró${ctx.originAnswer.canal ? ` (${ctx.originAnswer.canal})` : ""}; ya quedó registrado. Si su mensaje es solo esa respuesta, agradece en UNA frase corta (sin repetir las opciones ni preguntar nada más). Si trae otra pregunta, agradece en media frase y contéstala. Nunca vuelvas a preguntar cómo nos encontró.`,
       "</origen>",
+    );
+  }
+
+  // The lead asked to enrol / pay (2026-10-30, Luis Ortega: "quiero
+  // inscribirme sin clase de prueba" got a Saturday trial pitch, then a
+  // silent escalation). Last in the block so a trial-first campaign_info
+  // can't outweigh it. Not once a trial is booked or they are a student.
+  if (
+    !ctx.recordedBooking &&
+    ctx.contact.status !== "student" &&
+    hasBuyIntent(ctx.history.filter((m) => m.direction === "in").map((m) => m.body))
+  ) {
+    lines.push(
+      "<quiere_inscribirse>",
+      "El lead dijo que quiere inscribirse o pagar. Ésa es la meta: inscríbelo. La clase de prueba es OPCIONAL, nunca un requisito ni un paso previo.",
+      "- NO le ofrezcas clase de prueba, día ni horario, y no trates \"sin clase de prueba\" como una objeción. Solo si él/ella misma pide venir a probar primero, agenda normal.",
+      "- Adulto que nombró plan: confirma en una línea qué incluye y cuánto cuesta y manda SU link de «Inscripción en línea» (en línea, antes de venir, la inscripción de $999 es gratis).",
+      "- Adulto que NO nombró plan: si ya dijo cuántas veces por semana entrenará, recomienda UN plan y manda su link; si no, pregunta solo eso. No lo escales solo porque no nombró plan.",
+      "- Escala (escalate_to_human) solo si es para un niño/teen/bebé, ya pagó, pide descuento, factura o domiciliación, quiere 3 clases por semana, o tiene un problema con el cobro.",
+      "</quiere_inscribirse>",
     );
   }
 

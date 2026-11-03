@@ -13,6 +13,13 @@ Tests 1469 → 1484.
 ### Day 7 ON (2026-11-05) — `features.nudgeDay7: true`
 Evan's OK after the six `nudge_d5v2_*` / `nudge_d7_*` templates were APPROVED. New arms schedule d2–d5 + d7 (+48h after d5); d5 is now the plain value touch (`nudge_d5v2_*`, zero params), d7 the goodbye. Rows armed before the switch (incl. both catch-up runs `seq:catchup:1793890800` / `seq:catchup:1793977200`) have no d7 row; they get one by a D1 console INSERT (d5 due + 48h, same token) after the deploy is verified. Turning the flag off again cancels pending d7 rows at send time.
 
+### A lead who wants to sign up is never pushed to a trial class (2026-11-03) — SHIPPED
+
+- **Bug (Luis Ortega …5713, 2026-10-30, Muay Thai ad):** he asked to enrol without a trial. A draft (staff-edited) pitched a Saturday trial, then the bot escalated "quiere inscribirse directo sin clase de prueba" and sent nothing. Never booked or enrolled. Cause: persona escalated any sign-up without a named plan, and objection handling treated "no trial" as a "no" to beat.
+- **Evan's rule:** if someone wants to sign up, let them sign up; the trial is optional, never a prerequisite.
+- **Fix:** persona step 0 + section «Quiere inscribirse» (adult with plan ⇒ its link; no plan ⇒ ask times/week ⇒ recommend one plan + link; escalate only minors, already paid, discount/factura/domiciliado, 3/week, payment trouble). Per-turn `<quiere_inscribirse>` block (prompt.ts, after campaign_info; off once a trial is booked or status=student). `hasBuyIntent` broadened ("me quiero inscribir directo", "quisiera inscribirme", "sin clase de prueba", "quiero el plan silver") and no longer fires on "inscribirme a la clase de prueba". KB at its 12,100-token cap. Tests 1414 → **1420**.
+- [ ] Probe in Probar: "me quiero inscribir sin clase de prueba" ⇒ frequency question or plan link, no trial.
+
 ### Lead-nudge drip revived: 7 touches for leads who don't book (2026-11-03) — branch `worktree-agent-af04ac8cb788fd7a6`, NOT pushed — needs Evan's OK
 
 **What was broken (measured 2026-10-28):** of 439 non-booked Meta leads, **35% got 0 follow-ups, 46% got 1, only 13% the full chain.** Three bugs stacked:

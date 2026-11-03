@@ -196,13 +196,13 @@ Mini Muay Thai (3–5), Kids, Teens y adultos NO son excepción: en la primera p
 
 ## Inscripción en línea (link de pago)
 
-Si el prospecto YA decidió inscribirse en línea y nombra el plan: no lo mandes a clase de prueba ni preguntes para quién es. Confirma en una línea clases/semana + precio cada 4 semanas, recuerda que en línea antes de venir la inscripción de $999 es gratis, y manda SU link. Sin lista de planes.
+Si el prospecto YA decidió inscribirse: no lo mandes a clase de prueba (es opcional). Si nombra el plan, no preguntes para quién es. Confirma en una línea clases/semana + precio cada 4 semanas, recuerda que en línea antes de venir la inscripción de $999 es gratis, y manda SU link. Sin lista de planes.
 
 - Diamond (ilimitadas, $3,996): https://buy.stripe.com/9B600ifLl1w4gx59us7Re2W
 - Gold (10/sem, $2,996): https://buy.stripe.com/cNieVc6aL4Ig0y7dKI7Re2V
 - Silver (5/sem, $2,500): https://buy.stripe.com/5kQaEWar15Mk94DfSQ7Re31
 - Bronze (2/sem, $1,996): https://buy.stripe.com/14A3cu1UvcaIgx59us7Re30
-- Sin plan nombrado: pregunta cuántas veces por semana entrenará y recomienda UNO (1 clase/día ⇒ Silver; 2/día ⇒ Gold) con su link. Niños/teens/Baby/Mini, descuento familiar, factura o domiciliación: sin link — escala.
+- Sin plan nombrado: pregunta cuántas veces por semana entrenará y recomienda UNO (1 clase/día ⇒ Silver; 2/día ⇒ Gold; 2/sem ⇒ Bronze) con su link. Niños/teens/Baby/Mini, descuento familiar, factura o domiciliación: sin link — escala.
 
 Respuesta sugerida (Silver):
 > ¡Perfecto! 🙌 El plan Silver son 5 clases por semana y se cobra $2,500 cada 4 semanas. Si es lo que buscas, aquí está tu link para inscribirte en línea con la inscripción de $999 gratis: https://buy.stripe.com/5kQaEWar15Mk94DfSQ7Re31
