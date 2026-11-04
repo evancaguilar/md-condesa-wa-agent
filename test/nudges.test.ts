@@ -11,6 +11,7 @@ import {
   processNudge,
   NUDGE_KINDS,
   SCHEDULED_NUDGE_KINDS,
+  EXTENDED_NUDGE_KINDS,
   NUDGE_CAP,
   NUDGE_CAP_WINDOW_SECONDS,
   endsWithQuestion,
@@ -315,7 +316,7 @@ test("classifyResult matches all accent/case variants", () => {
 
 // ---- armNudges: cancels then inserts fresh for an eligible lead ----
 
-test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges", async () => {
+test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges + the d2–d5 chain", async () => {
   const inserted: { kind: unknown; recordId: unknown }[] = [];
   let cancelledNudges = false;
   // Daytime base so all three nudges land outside quiet hours (deterministic).
@@ -334,7 +335,7 @@ test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges
     if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
     // kv cap read → empty
     if (sql.includes("SELECT value FROM kv")) return { first: null };
-    if (sql.includes("INSERT OR IGNORE INTO followups")) {
+    if (sql.includes("INTO followups(")) {
       inserted.push({ kind: binds[1], recordId: binds[3] });
       return {};
     }
@@ -343,12 +344,17 @@ test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges
 
   await armNudges(envWith(db), "5215512345678");
   assert.equal(cancelledNudges, true);
+  // 2026-11: the extended chain is armed with the day-1 plan, every time.
   assert.deepEqual(
     inserted.map((i) => i.kind),
-    [...SCHEDULED_NUDGE_KINDS],
+    [...SCHEDULED_NUDGE_KINDS, ...EXTENDED_NUDGE_KINDS],
   );
-  // record id is '' for nudges (dedupe key)
-  assert.ok(inserted.every((i) => i.recordId === ""));
+  // Day-1 rows carry a per-inbound token (d1:<last_inbound_at>), never '' — the
+  // '' token let one cancelled row block every later re-arm of that kind.
+  const dayOne = inserted.filter((i) => String(i.kind).match(/^nudge_\d+h$/));
+  assert.ok(dayOne.every((i) => i.recordId === `d1:${nowEpoch}`));
+  const ext = inserted.filter((i) => String(i.kind).startsWith("nudge_d"));
+  assert.ok(ext.every((i) => String(i.recordId).startsWith("seq:")));
 });
 
 test("armNudges: contact with active booking → clears nudges, schedules nothing", async () => {
@@ -359,7 +365,7 @@ test("armNudges: contact with active booking → clears nudges, schedules nothin
       return { first: contact({ last_inbound_at: nowEpoch, status: "lead" }) };
     if (sql.includes("SELECT 1 AS n FROM followups")) return { first: { n: 1 } }; // booking exists
     if (sql.includes("SELECT value FROM kv")) return { first: null };
-    if (sql.includes("INSERT OR IGNORE INTO followups")) {
+    if (sql.includes("INTO followups(")) {
       inserted.push(binds);
       return {};
     }
@@ -374,7 +380,7 @@ test("armNudges: student status → no schedule", async () => {
   const { db } = fakeDb((sql, binds) => {
     if (sql.includes("SELECT * FROM contacts"))
       return { first: contact({ status: "student" }) };
-    if (sql.includes("INSERT OR IGNORE INTO followups")) {
+    if (sql.includes("INTO followups(")) {
       inserted.push(binds);
       return {};
     }
@@ -384,7 +390,7 @@ test("armNudges: student status → no schedule", async () => {
   assert.equal(inserted.length, 0);
 });
 
-test("armNudges: over cap → no schedule", async () => {
+test("armNudges: over cap → no day-1 rows; the uncapped extended chain still arms", async () => {
   const inserted: unknown[] = [];
   const nowEpoch = Math.floor(Date.now() / 1000);
   const { db } = fakeDb((sql, binds) => {
@@ -393,14 +399,14 @@ test("armNudges: over cap → no schedule", async () => {
     if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
     if (sql.includes("SELECT value FROM kv"))
       return { first: { value: JSON.stringify({ sends: [nowEpoch, nowEpoch, nowEpoch] }) } };
-    if (sql.includes("INSERT OR IGNORE INTO followups")) {
-      inserted.push(binds);
+    if (sql.includes("INTO followups(")) {
+      inserted.push(binds[1]);
       return {};
     }
     return {};
   });
   await armNudges(envWith(db), "5215512345678");
-  assert.equal(inserted.length, 0);
+  assert.deepEqual(inserted, [...EXTENDED_NUDGE_KINDS]);
 });
 
 test("cancelNudges: issues a kind-scoped cancel UPDATE", async () => {

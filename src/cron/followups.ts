@@ -88,7 +88,6 @@ import {
 import {
   processNudge,
   processExtendedNudge,
-  maybeArmExtended,
   gateNudge,
   ALL_NUDGE_KINDS,
   BOOKING_KINDS,
@@ -596,11 +595,13 @@ async function processOne(
           );
         },
       });
-      await markFollowup(env.DB, f.id, status);
-      // Nudge 3 actually landed → arm the extended chain (d2–d5) off its real
-      // send time, once per lead per 30 days.
-      if (f.kind === "nudge_8h" && status === "sent") {
-        await maybeArmExtended(env, f.phone, nowSec());
+      // Deferred (a draft waits in Aprobar, or a day-1 send < 2h ago): the row
+      // stays scheduled at the new time. The extended chain is armed with the
+      // day-1 plan (armNudges), no longer off nudge_8h's send.
+      if (typeof status === "object") {
+        await rescheduleRow(env, f, status.retryAt);
+      } else {
+        await markFollowup(env.DB, f.id, status);
       }
       return;
     }
@@ -608,7 +609,8 @@ async function processOne(
     case "nudge_d2":
     case "nudge_d3":
     case "nudge_d4":
-    case "nudge_d5": {
+    case "nudge_d5":
+    case "nudge_d7": {
       // Extended drip. Quiet re-check first, then free-form-first / template-
       // fallback. A missing/unapproved template → skip + one throttled Slack note.
       if (isQuietHour(nowSec())) {
@@ -632,6 +634,10 @@ async function processOne(
           await noteTemplateFailure(env, deps, f.phone, res);
         }
         await markFollowup(env.DB, f.id, "cancelled");
+      } else if (res.outcome === "deferred") {
+        // Pending Aprobar draft (+60 min) or another extended step already went
+        // today (next 08:00): wait, never cancel.
+        await rescheduleRow(env, f, res.retryAt);
       } else {
         await markFollowup(env.DB, f.id, res.outcome);
       }

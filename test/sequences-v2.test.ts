@@ -10,6 +10,7 @@ import {
 import {
   computeDayOnePlan,
   computeExtendedChain,
+  extendedChainKinds,
   maybeArmExtended,
   processExtendedNudge,
   classifyProgram,
@@ -240,41 +241,72 @@ test("extendedCopy: program links + CTA present, last step is a warm goodbye", (
   assert.ok(/último mensaje/i.test(babyD5));
 });
 
-// ---- 30d guard (maybeArmExtended) ----
+// ---- resume (maybeArmExtended) — replaced the 30d seq_done guard, 2026-11 ----
 
-test("maybeArmExtended: first run schedules d2–d5 + sets seq_done", async () => {
-  const inserted: unknown[] = [];
+test("maybeArmExtended: nothing sent yet → schedules d2–d5 under the seq:<anchor> token, no seq_done", async () => {
+  const inserted: { kind: unknown; token: unknown; dueAt: unknown }[] = [];
   let seqDoneSet = false;
   const { db } = fakeDb((sql, binds) => {
-    if (sql.includes("SELECT value FROM kv")) return { first: null }; // not done yet
-    if (sql.includes("INSERT OR IGNORE INTO followups")) {
-      inserted.push(binds[1]);
+    if (sql.includes("SELECT DISTINCT kind FROM followups")) return { all: [] };
+    if (sql.includes("INTO followups(")) {
+      inserted.push({ kind: binds[1], dueAt: binds[2], token: binds[3] });
       return {};
     }
-    if (sql.startsWith("INSERT INTO kv") && String(binds[0]).startsWith("seq_done:")) {
-      seqDoneSet = true;
-      return {};
-    }
+    if (sql.startsWith("INSERT INTO kv") && String(binds[0]).startsWith("seq_done:")) seqDoneSet = true;
     return {};
   });
-  await maybeArmExtended(envWith(db), "5215512345678", D15(10));
-  assert.deepEqual(inserted, [...EXTENDED_NUDGE_KINDS]);
-  assert.equal(seqDoneSet, true);
+  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false);
+  assert.deepEqual(inserted.map((i) => i.kind), [...EXTENDED_NUDGE_KINDS]);
+  assert.ok(inserted.every((i) => i.token === `seq:${D15(10)}`));
+  assert.equal(inserted[0]?.dueAt, D16(10));
+  assert.equal(seqDoneSet, false);
 });
 
-test("maybeArmExtended: within 30d → no re-schedule", async () => {
-  const inserted: unknown[] = [];
-  const recent = Math.floor(Date.now() / 1000) - 5 * DAY; // 5 days ago
-  const { db } = fakeDb((sql) => {
-    if (sql.includes("SELECT value FROM kv")) return { first: { value: String(recent) } };
-    if (sql.includes("INSERT OR IGNORE INTO followups")) {
-      inserted.push(1);
+test("maybeArmExtended: steps already sent in 30d are skipped, the rest follow the new anchor", async () => {
+  const inserted: { kind: unknown; dueAt: unknown }[] = [];
+  const { db } = fakeDb((sql, binds) => {
+    if (sql.includes("SELECT DISTINCT kind FROM followups")) {
+      return { all: [{ kind: "nudge_d2" }, { kind: "nudge_d3" }] };
+    }
+    if (sql.includes("INTO followups(")) {
+      inserted.push({ kind: binds[1], dueAt: binds[2] });
       return {};
     }
     return {};
   });
-  await maybeArmExtended(envWith(db), "5215512345678", D15(10));
+  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false);
+  assert.deepEqual(inserted, [
+    { kind: "nudge_d4", dueAt: D16(10) },
+    { kind: "nudge_d5", dueAt: cdmxToEpoch(2026, 7, 17, 10, 0, 0) },
+  ]);
+});
+
+test("maybeArmExtended: the whole chain already sent → nothing new; a failed lookup arms nothing", async () => {
+  const inserted: unknown[] = [];
+  const { db } = fakeDb((sql) => {
+    if (sql.includes("SELECT DISTINCT kind FROM followups")) {
+      return { all: EXTENDED_NUDGE_KINDS.map((kind) => ({ kind })) };
+    }
+    if (sql.includes("INTO followups(")) inserted.push(1);
+    return {};
+  });
+  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false);
   assert.equal(inserted.length, 0);
+
+  const { db: broken } = fakeDb((sql) => {
+    if (sql.includes("SELECT DISTINCT kind FROM followups")) throw new Error("D1 overloaded");
+    if (sql.includes("INTO followups(")) inserted.push(1);
+    return {};
+  });
+  await maybeArmExtended(envWith(broken), "5215512345678", D15(10), false);
+  assert.equal(inserted.length, 0);
+});
+
+test("computeExtendedChain: with d7 the closing step lands 48h after d5", () => {
+  const chain = computeExtendedChain(D15(10), extendedChainKinds(true));
+  assert.deepEqual(chain.map((c) => c.kind), [...EXTENDED_NUDGE_KINDS, "nudge_d7"]);
+  assert.equal(chain[4]!.dueAt - chain[3]!.dueAt, 2 * DAY);
+  assert.deepEqual(extendedChainKinds(false), [...EXTENDED_NUDGE_KINDS]);
 });
 
 // ---- extended-drip template fallback (the 2026-09-21 param audit) ---------

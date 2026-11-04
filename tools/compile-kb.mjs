@@ -245,6 +245,7 @@ function renderClientTs(cfg, persona, version) {
     features: {
       booking: !!cfg.features?.booking,
       nudges: !!cfg.features?.nudges,
+      nudgeDay7: !!cfg.features?.nudgeDay7,
       airtableSync: !!cfg.features?.airtableSync,
       safety: !!cfg.features?.safety,
       marketingMetrics: !!cfg.features?.marketingMetrics,

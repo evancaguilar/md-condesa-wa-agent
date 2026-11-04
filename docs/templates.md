@@ -247,6 +247,69 @@ kids & baby → https://mdcondesa.com/clase-prueba-ninos/
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
+## nudge_d7 — Marketing — **DRAFT, pending owner approval**
+
+The 7th touch for leads who never book (2026-11): +48h after d5, quiet-shifted.
+Behind `features.nudgeDay7` (client.mjs, **off**). With the flag on, d7 takes
+over the goodbye and d5 becomes a plain value touch; with it off nothing here
+is sent and d5 stays the goodbye. Same shape as d2–d5: free-form first,
+template only when the 24h window is closed.
+
+- Base names → sent name: `nudge_d7_adults` → `nudge_d7_adults_es`, same for
+  `_kids` / `_baby` (3 templates, es only — `_en` not authored yet).
+- **{{1}}** = first name (`qué tal` filler when unknown). **BAJA footer** required.
+- **Before flipping the flag:** the 3 approved `nudge_d5_*_es` templates still
+  say "último mensaje". Edit them in WhatsApp Manager to the value-touch text
+  below (an edit re-enters review), or the window-closed d5 says goodbye two
+  days before the real goodbye.
+- No price, no discount, no deadline, no invented quotes.
+
+### Free-form (in-window) text — as coded in src/cron/nudge-copy.ts
+
+d7 (link-only CTA, no slot proposal):
+- adults: «¡Hola Ana! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, aquí estamos.» + link
+- kids: «¡Hola Ana! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le guardamos su lugar. ¡Aquí estamos!» + link
+- baby: «¡Hola Ana! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita. ¡Aquí estamos!» + link
+
+d5 with the flag on (value touch, concrete slot CTA like d2–d4):
+- adults: «¡Hola Ana! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti.» + slot CTA
+- kids: «¡Hola Ana! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso.» + slot CTA
+- baby: «¡Hola Ana! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá.» + slot CTA
+
+### Template bodies (window closed)
+
+**`nudge_d7_adults_es`**
+> ¡Hola {{1}}! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d7_kids_es`**
+> ¡Hola {{1}}! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le apartamos su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d7_baby_es`**
+> ¡Hola {{1}}! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+Suggested edits for the d5 templates (only when the flag goes on):
+
+**`nudge_d5_adults_es`**
+> ¡Hola {{1}}! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti. Agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d5_kids_es`**
+> ¡Hola {{1}}! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso. Aparta su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d5_baby_es`**
+> ¡Hola {{1}}! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá. Aparta su clase gratis aquí: https://mdcondesa.com/clase-prueba-ninos/
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
 
 ---
 

@@ -224,7 +224,7 @@ function historyDb(signal: "marker" | "row" | "none" | "probe_fails", sink: { in
       return { first: { value: JSON.stringify({ ts, trialDate: "2026-10-01", trialTime: "18:00" }) } };
     }
     if (sql.includes("SELECT value FROM kv")) return { first: null };
-    if (sql.includes("INSERT OR IGNORE INTO followups")) sink.inserted++;
+    if (sql.includes("INTO followups(")) sink.inserted++;
     return {};
   });
 }

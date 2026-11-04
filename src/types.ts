@@ -326,6 +326,7 @@ export type FollowupKind =
   | "nudge_d3"
   | "nudge_d4"
   | "nudge_d5"
+  | "nudge_d7"
   /** Owner-approved template blast row (src/services/blast.ts BlastPayload in
    *  note; airtable_record_id = 'blast:<runId>' so UNIQUE(phone,kind,record)
    *  dedupes per run). Drained by src/cron/blasts.ts, NOT by runDueFollowups. */
