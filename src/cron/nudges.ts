@@ -523,8 +523,8 @@ export function extendedChainKinds(day7: boolean): ExtendedKind[] {
   return day7 ? [...ALL_EXTENDED_KINDS] : [...EXTENDED_NUDGE_KINDS];
 }
 
-/** Gap before a step, measured from the previous one: d7 waits 48h, the rest 24h. */
-function extendedGap(kind: ExtendedKind): number {
+/** Gap before a step, measured from the previous one: d7 waits 48h, the rest 24h. Pure. */
+export function extendedGap(kind: ExtendedKind): number {
   return kind === DAY7_KIND ? 48 * HOUR : 24 * HOUR;
 }
 

@@ -153,6 +153,7 @@ CREATE INDEX IF NOT EXISTS idx_followups_kind_status_due ON followups(kind, stat
 CREATE INDEX IF NOT EXISTS idx_contacts_updated ON contacts(updated_at);
 CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts);  -- ALSO worker-applied since 2026-09-17 (kv guard migr_idx_2026_09_17): the console migration above was never run in prod
 CREATE INDEX IF NOT EXISTS idx_contacts_last10 ON contacts(substr(phone,-10));  -- worker-applied (kv guard migr_idx_2026_10_19): dashboard deep-link resolve
+CREATE INDEX IF NOT EXISTS idx_contacts_created ON contacts(created_at);  -- worker-applied (kv guard migr_idx_2026_11_03): nudge catch-up scan
 
 -- ---- ops_log: the bot's own log, replaces the #bot-ops Slack channel (2026-10-22) ----
 -- Prod migration (Evan pastes in D1 console): the CREATE TABLE + 3 indexes below.

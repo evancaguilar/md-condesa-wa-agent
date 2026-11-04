@@ -140,6 +140,8 @@ import {
 } from "../db/queries-admin.js";
 import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
+import { parseCatchupBody } from "../services/nudge-catchup.js";
+import { runNudgeCatchup } from "../services/nudge-catchup-db.js";
 import { migrationState, runMigrationStep, type MigrationInput } from "../services/wa-migrate.js";
 import {
   displayTemplateSend,
@@ -652,6 +654,27 @@ export async function handleAdminApi(
       done.push(phone);
     }
     return json({ ok: true, rearmed: done.length, phones: done });
+  }
+
+  // Nudge-drip catch-up (owner-only, 2026-11-03): resume the extended chain
+  // for recent leads the broken drip left at 0–1 follow-ups. dryRun (default)
+  // returns counts + a sample; apply only INSERTS followups rows (token
+  // seq:catchup:<runId>) — the cron sends them through processExtendedNudge.
+  // D1 only (no Airtable/Graph calls); ~110 statements for 2,000 leads.
+  if (path === "/admin/api/nudges/catchup" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const now = nowSec();
+    const parsed = parseCatchupBody(await readJson<Record<string, unknown>>(req), now, (p) =>
+      normalizeMxPhone(p.replace(/\D/g, "")),
+    );
+    if (!parsed.ok) return json({ error: parsed.error }, 400);
+    await ensureIndexes(env.DB);
+    return json(
+      await runNudgeCatchup(env.DB, parsed.opts, now, {
+        day7: CLIENT.features.nudgeDay7 === true,
+        postNote: (t) => ports.slack.postNote(t, { kind: "followup" }),
+      }),
+    );
   }
 
   // ---- marketing metrics (owner-only; docs/marketing-metrics.md) ----

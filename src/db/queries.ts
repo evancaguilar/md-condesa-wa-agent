@@ -492,7 +492,15 @@ export async function scheduleOrReviveFollowup(
   db: D1Database,
   input: ScheduleFollowupInput,
 ): Promise<void> {
-  await db
+  await scheduleOrReviveFollowupStmt(db, input).run();
+}
+
+/** The prepared statement behind scheduleOrReviveFollowup, for `db.batch` callers. */
+export function scheduleOrReviveFollowupStmt(
+  db: D1Database,
+  input: ScheduleFollowupInput,
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO followups(phone, kind, due_at, status, airtable_record_id, note, created_at)
        VALUES(?1, ?2, ?3, 'scheduled', ?4, ?5, ?6)
@@ -507,8 +515,7 @@ export async function scheduleOrReviveFollowup(
       input.airtableRecordId ?? "",
       input.note ?? null,
       now(),
-    )
-    .run();
+    );
 }
 
 /**

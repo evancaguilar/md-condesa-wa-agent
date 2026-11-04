@@ -17,6 +17,7 @@ Binding spec. Extends the nudge engine from docs/followups-pack-plan.md using th
 ## R3 — Extended sequences (all programs, 7 touchpoints total)
 - Timing: 3 day-1 nudges (existing kinds) + **nudge_d2** (24h after nudge 3's actual send), **nudge_d3** (+24h after d2), **nudge_d4** (+24h), **nudge_d5** (+24h). All shifted out of quiet hours (defer to 08:00) if needed.
 - One extended sequence per lead per 30 days (kv `seq_done:<phone>` = epoch; day-1 nudges may re-arm per current logic but d2–d5 schedule only once per 30d).
+- 2026-11: `seq_done` was replaced by resume (STATUS "Lead-nudge drip revived"); leads the broken drip skipped are caught up once via `POST /admin/api/nudges/catchup` (dryRun first; src/services/nudge-catchup.ts).
 - Cancel semantics identical to day-1 nudges (reply → cancel pending + d-steps stay cancelled until re-arm allowed; booking/opt-out/student → cancel all).
 - Cap change: the 3-per-7d kv cap applies ONLY to day-1 nudges (re-arms), not to d2–d5 (they run once per sequence).
 - Sending d2–d5: usually OUTSIDE the 24h window → try free-form first when window open (CTWA 72h windows make this common), else sendTemplate; template missing/unapproved → mark skipped + one Slack note per day (kv `tmpl_missing_note:<YYYY-MM-DD>`).

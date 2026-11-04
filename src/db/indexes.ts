@@ -33,7 +33,9 @@ import { kvGet, kvSet } from "./queries.js";
 // 2026-10-19: contacts(substr(phone,-10)) for the dashboard deep link
 //   /admin#chats/<digits> -> GET /conversations/resolve (last-10-digit match
 //   when the exact wa_id misses). Expression must match the query byte for byte.
-export const INDEX_MIGRATION_KEY = "migr_idx_2026_10_19";
+// 2026-11-03: contacts(created_at) for the nudge catch-up scan
+//   (/admin/api/nudges/catchup: "leads created in the last N days", newest first).
+export const INDEX_MIGRATION_KEY = "migr_idx_2026_11_03";
 
 export const INDEX_SQL: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_pending_approvals_phone ON pending_approvals(phone)`,
@@ -44,6 +46,7 @@ export const INDEX_SQL: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_followups_kind_status_due ON followups(kind, status, due_at)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_phone_ts ON messages(phone, ts)`,
   `CREATE INDEX IF NOT EXISTS idx_contacts_last10 ON contacts(substr(phone,-10))`,
+  `CREATE INDEX IF NOT EXISTS idx_contacts_created ON contacts(created_at)`,
 ];
 
 // Per-isolate memo so a warm worker pays the kv read once, not per request.

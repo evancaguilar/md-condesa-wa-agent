@@ -19,6 +19,17 @@
 - `dueFollowups` now orders `due_at, id` so two extended steps due at the same 08:00 go in chain order.
 - Tests 1417 → **1432** (new test/nudge-drip-v2.test.ts on real SQLite with a fake CDMX clock; seq_done tests replaced by resume tests; armNudges / same-minute tests updated to the new rules).
 
+**Catch-up endpoint (2026-11-03, branch `worktree-agent-a0a768151c7b6d4fa`, NOT pushed):** `POST /admin/api/nudges/catchup` (owner-only) resumes the extended chain for leads the broken drip left behind. Picks `status = lead` contacts created in the last `sinceDays` (21, max 45) that wrote at least once, WhatsApp only, not `lang = en` (no `_en` nudge templates), no live override, never booked (60d marker / booking rows), no draft in Aprobar, not already in a live chain, chain not done (steps sent in the last 30d are skipped, resume semantics), **nothing sent to them in the last 48h** (blasts count) and no buy intent in their last 7 days of messages. Schedules only the remaining d2–d5 (+ d7 with the flag): `perDay` (150, 1–400) leads start per day, freshest first, first steps spread 09:00–19:00 CDMX from `startAt` (default next 09:00), the rest +24h. Rows carry `seq:catchup:<runId>` (runId = startAt epoch; rerunning the same apply is a no-op), kv `nudge_catchup:<runId>` holds the summary, one ops_log note (kind `followup`). Every send still goes through the cron (processExtendedNudge re-checks eligibility, template fallback, one-per-day claim). D1 only, ~110 statements for 2,000 leads; new index `idx_contacts_created` (worker-applied, kv guard `migr_idx_2026_11_03`). Logic: src/services/nudge-catchup.ts (pure) + nudge-catchup-db.ts; tests test/nudge-catchup.test.ts.
+
+```js
+// from the logged-in /admin tab (DevTools console), owner session
+await (await fetch("/admin/api/nudges/catchup", { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ dryRun: true }) })).json();                       // counts + 20-row sample
+await (await fetch("/admin/api/nudges/catchup", { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ dryRun: false, perDay: 150, excludePhones: [] }) })).json(); // apply
+```
+- [ ] **Evan (after the drip fix is live):** run the dry run; review `candidates`, `byNextStep`, `skipped`, `days` and `estTemplateSends` (≈ paid marketing templates; every window is closed) and the sample; add anyone to leave out to `excludePhones`; OK; run apply with the SAME body except `dryRun: false`. Keep `perDay` ≤ 150: each due send can cost 2 Graph subrequests (free-form try + template) and steps stack (day 4 carries ~4×perDay sends).
+
 - [ ] **Evan:** review + merge + push. Probe after deploy: a fresh lead who replies before +1h gets a new `nudge_1h` row (`d1:<ts>` token) and `nudge_d2..d5` rows are scheduled right after the first bot reply (Chats → followups).
 - [ ] **Evan:** approve (or rewrite) the d7 copy and the new d5 value-touch copy (docs/templates.md "nudge_d7").
 - [ ] **Evan:** submit `nudge_d7_{adults,kids,baby}_es` to Meta; when they are APPROVED, also edit the 3 `nudge_d5_*_es` templates (they still say "último mensaje"), then flip `features.nudgeDay7: true`, `npm run build`, commit, push.
