@@ -814,6 +814,34 @@ export async function listRecentBookings(
 }
 
 /**
+ * Leads rows matching an arbitrary formula, restricted to `fields` (Airtable
+ * returns only those columns — the Agenda tab needs ~10 of 80+). Paginates.
+ * Throws on a non-ok response (the caller decides whether to serve stale data).
+ */
+export async function listLeadsByFormula(
+  env: Env,
+  formula: string,
+  fields: readonly string[],
+  opts: { maxRecords?: number } = {},
+): Promise<AirtableRecord[]> {
+  const out: AirtableRecord[] = [];
+  const max = opts.maxRecords ?? 500;
+  let offset: string | undefined;
+  do {
+    const qs = [`filterByFormula=${encodeURIComponent(formula)}`, "pageSize=100"];
+    for (const f of fields) qs.push(`fields%5B%5D=${encodeURIComponent(f)}`);
+    if (offset) qs.push(`offset=${encodeURIComponent(offset)}`);
+    const url = `${baseUrl(env, env.AIRTABLE_TRIALS_TABLE)}?${qs.join("&")}`;
+    const res = await airtableFetch(env, url, { method: "GET" });
+    if (!res.ok) throw new Error(`airtable listLeadsByFormula failed: HTTP ${res.status}`);
+    const data = (await res.json()) as { records?: AirtableRecord[]; offset?: string };
+    for (const r of data.records ?? []) out.push(r);
+    offset = data.offset;
+  } while (offset && out.length < max);
+  return out;
+}
+
+/**
  * One booking record by id, re-read right before a trial reminder / no-show
  * touch goes out (src/cron/followups.ts shouldSendReminder). null when the
  * record no longer exists (404); throws on any other failure so the caller's
@@ -828,6 +856,15 @@ export async function getBookingRecord(
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`airtable getBookingRecord failed: HTTP ${res.status}`);
   return toBookingRecord((await res.json()) as AirtableRecord, resultFieldName(env));
+}
+
+/** The raw Leads record by id (all fields); null on 404, throws otherwise. */
+export async function getBookingRecordRaw(env: Env, recordId: string): Promise<AirtableRecord | null> {
+  const url = `${baseUrl(env, env.AIRTABLE_TRIALS_TABLE)}/${encodeURIComponent(recordId)}`;
+  const res = await airtableFetch(env, url, { method: "GET" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`airtable getBookingRecordRaw failed: HTTP ${res.status}`);
+  return (await res.json()) as AirtableRecord;
 }
 
 function toBookingRecord(r: AirtableRecord, resultField: string): BookingRecord {

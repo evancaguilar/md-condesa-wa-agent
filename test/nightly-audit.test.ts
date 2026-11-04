@@ -95,7 +95,7 @@ test("chunkForSlack: splits on line boundaries under the cap", () => {
 });
 
 test("audit prompt: opus model, rubric, and the REAL slot grid ride along", () => {
-  assert.equal(AUDIT_MODEL, "claude-opus-5");
+  assert.equal(AUDIT_MODEL, "claude-opus-5-5");
   const sys = buildAuditSystem("KB_DE_PRUEBA");
   assert.equal(sys.length, 2);
   assert.ok(sys[0]!.text.includes("auditor nocturno"));

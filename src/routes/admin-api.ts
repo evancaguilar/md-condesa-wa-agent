@@ -31,6 +31,9 @@ import type {
 } from "../types.js";
 import { CLIENT } from "../client.gen.js";
 import { recordIdForPhone, sendCuestionario } from "../services/cuestionario.js";
+import { sendTrialReminderNow } from "../cron/followups.js";
+import { buildAgenda, invalidateAgendaCache, markAttendance } from "../services/agenda.js";
+import { isAgendaView, isMarkResult, reminderKindFor } from "../services/agenda-core.js";
 import { isCuestionarioVersion } from "../services/cuestionario-token.js";
 import { cdmxDateStr, DAY } from "../cron/time.js";
 import { probeMetaAds } from "../services/meta-insights.js";
@@ -506,6 +509,72 @@ export async function handleAdminApi(
       },
     );
     return json(r);
+  }
+
+  // ---- Agenda tab (owner + staff; docs/dashboard-plan.md §11) ----
+  // Trial classes read from Airtable Leads, joined to D1 contacts by wa_id.
+  if (path.startsWith("/admin/api/agenda")) {
+    if (path === "/admin/api/agenda" && method === "GET") {
+      const view = url.searchParams.get("view") ?? "hoy";
+      if (!isAgendaView(view)) return json({ error: "view inválida (hoy|manana|por_confirmar|no_asistieron)" }, 400);
+      try {
+        return json(await buildAgenda(env, view, nowSec(), { fresh: url.searchParams.get("fresh") === "1" }));
+      } catch (err) {
+        console.error("[agenda] load failed", err);
+        return json({ error: "airtable_error", detail: String(err) }, 502);
+      }
+    }
+    // Asistió / No asistió → Airtable `Resultado Clase Prueba` (only that pair changes).
+    if (path === "/admin/api/agenda/result" && method === "POST") {
+      const body = await readJson<{ recordId?: unknown; mark?: unknown }>(req);
+      const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
+      if (!/^rec[A-Za-z0-9]{14}$/.test(recordId)) return json({ error: "recordId requerido" }, 400);
+      if (!isMarkResult(body.mark)) return json({ error: "mark inválido (attended|no_show|clear)" }, 400);
+      const r = await markAttendance(env, recordId, body.mark);
+      if (r.ok) {
+        const by = session.displayName || session.user;
+        ctx.waitUntil(invalidateAgendaCache(env, nowSec()));
+        ctx.waitUntil(
+          ports.slack
+            .postNote(`📋 Agenda: ${by} marcó ${r.result.join(", ") || "(sin resultado)"} en ${recordId}`, { kind: "agenda" })
+            .catch(() => {}),
+        );
+      }
+      return json(r, r.ok ? 200 : r.reason === "not_found" ? 404 : 502);
+    }
+    // "Enviar confirmación": the cron's own day-of / night-before reminder, on demand.
+    if (path === "/admin/api/agenda/confirm" && method === "POST") {
+      const body = await readJson<{ recordId?: unknown; phone?: unknown; kind?: unknown; force?: unknown; trialEpoch?: unknown }>(req);
+      const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
+      const phone = normalizeMxPhone(typeof body.phone === "string" ? body.phone.trim() : "");
+      if (!/^rec[A-Za-z0-9]{14}$/.test(recordId)) return json({ error: "recordId requerido" }, 400);
+      if (!/^\d{8,15}$/.test(phone)) return json({ error: "phone requerido" }, 400);
+      let kind: "same_day" | "day_before" | null = null;
+      if (body.kind === "same_day" || body.kind === "day_before") kind = body.kind;
+      else if (typeof body.trialEpoch === "number") kind = reminderKindFor(body.trialEpoch, nowSec());
+      if (!kind) return json({ ok: false, reason: "not_due" });
+      const by = session.displayName || session.user;
+      try {
+        const r = await sendTrialReminderNow(
+          env,
+          { slack: { postNote: (t, o) => ports.slack.postNote(t, { kind: "agenda", ...o }) } },
+          { phone, recordId, kind, force: body.force === true },
+        );
+        if (r.ok) {
+          ctx.waitUntil(invalidateAgendaCache(env, nowSec()));
+          ctx.waitUntil(
+            ports.slack
+              .postNote(`📋 Agenda: ${by} envió la confirmación (${kind}) a ${phone} → ${r.how}`, { kind: "agenda" })
+              .catch(() => {}),
+          );
+        }
+        return json(r);
+      } catch (err) {
+        console.error("[agenda] confirm failed", err);
+        return json({ ok: false, reason: "send_failed", detail: String(err) }, 502);
+      }
+    }
+    return json({ error: "not found" }, 404);
   }
 
   // ---- template blasts (owner-only; docs/blasts.md, services/blast.ts) ----

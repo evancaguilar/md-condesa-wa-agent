@@ -48,6 +48,7 @@
     "src/cron/nudges.ts",
     "src/cron/budget.ts",
     "src/services/airtable.ts",
+    "src/services/agenda-core.ts",
     "src/services/airtable-rules.ts",
     "src/services/rule-actions.ts",
     "src/services/booking-claims.ts",

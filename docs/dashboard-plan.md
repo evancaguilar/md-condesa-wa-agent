@@ -167,3 +167,20 @@ Why: staff sent the day-of confirmation from the SUPPORT number (their own phone
 - #bot-ops gets a note "envió una nota de voz 🎤" per voice send.
 
 Tests 1269 → 1287.
+
+## 11. Agenda tab — trial classes without Airtable (2026-10-26, branch `missed-turn-rescue`)
+
+Reception used five Airtable Interface views for trial classes ("Clases Prueba Hoy + Cuestionario", "Confirmar Clases En Turno", "Confirmar Clases Día Anterior", "No Llegaron A Clase Prueba", "Por Confirmar"). The **Agenda** tab (all roles) shows the same rows inside /admin, grouped by class time, and acts on them with the endpoints that already exist.
+
+**Data.** `GET /admin/api/agenda?view=hoy|manana|por_confirmar|no_asistieron[&fresh=1]` reads Leads (`AIRTABLE_TRIALS_TABLE`) with `filterByFormula` on `Fecha Clase Prueba` for the view's CDMX window (today / tomorrow / next 7 days / last 7 days), restricted to the mapped columns (`airtableLeads` in client.mjs: trialDateTime, name, childName, phone, audience, discipline, result + the new `whoTrains` "Quién entrena", `cuestionarioStatus` "Respuestas cuestionario", `enrolled` "Se inscribió"). Pure filtering/grouping in `services/agenda-core.ts` (fake-clock tests in `test/agenda-core.test.ts`): `por_confirmar` = upcoming, no outcome, not Perdido; `no_asistieron` = plain no-shows (not re-marked, not Perdido). Each row carries **who trains** (formula → child → lead) and the **contact** (Nombre de Lead = the parent/adult on WhatsApp) separately.
+
+**Budget.** The Airtable read is cached 60 s in kv (`agenda_cache:<view>:<fromEpoch>`, served stale when Airtable fails); per load there is ONE chunked `contacts WHERE phone IN (...)` (PK) and ONE chunked `kv WHERE key IN (...)` for `same_day_sent:<phone>:<date>` (shows "📨 confirmación enviada"). No per-row queries. Phones go through `normalizeMxPhone()`; the row's "💬 Abrir chat" is the existing `#chats/<digits>` deep link.
+
+**Actions (all reuse existing code).**
+- `POST /admin/api/agenda/confirm {recordId, phone, trialEpoch|kind, force?}` → `cron/followups.sendTrialReminderNow`: the cron's own `same_day` (class today) / `day_before` (class tomorrow) reminder — same copy, same template fallback when the 24h window is closed, same `same_day_sent` claim (so the cron row skips later; `force` = resend). Refuses when the row has Asistió / Se inscribió, no date, the contact is a student / opted out, or the class is further out (`not_due`). The button only shows for today/tomorrow.
+- `POST /admin/api/agenda/result {recordId, mark: attended|no_show|clear}` → PATCH `Resultado Clase Prueba`, swapping ONLY the Asistió / No asistió pair (Reprogramó, Perdido, Se inscribió stay). The result watcher then reacts exactly as to a manual Airtable edit.
+- "📋 Enviar cuestionario" calls the existing owner-only `/admin/api/cuestionario/send`, so it shows for the owner only.
+- Every action invalidates the cache and reloads the view; a note goes to ops_log kind `agenda`.
+
+Airtable automations and the Interface views are untouched; the tab is a read + two narrow writes.
+

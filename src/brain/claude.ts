@@ -428,7 +428,7 @@ export async function callAnthropic(
     thinking?: { type: "adaptive" } | { type: "disabled" };
     /** output_config.effort — only sent when provided. */
     effort?: "low" | "medium" | "high";
-    /** Model override — the nightly auditor runs claude-opus-5 (owner
+    /** Model override — the nightly auditor runs claude-opus-5-5 (owner
      *  directive 2026-08-28: "at least opus high"); everything else stays on
      *  the default MODEL. NOTE: opus-5 rejects thinking:{type:"disabled"}
      *  above effort high, and thinking-disabled on opus risks tool calls

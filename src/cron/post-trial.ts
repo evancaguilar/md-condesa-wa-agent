@@ -30,7 +30,7 @@
 // template).
 
 import type { Contact, Env, ProgramBand } from "../types.js";
-import { getContact, kvGet } from "../db/queries.js";
+import { getContact, kvGet, lastStaffMessageTs } from "../db/queries.js";
 import { hasScheduledFollowupOfKind } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
 import { renderCopy } from "../client-config.js";
@@ -634,8 +634,10 @@ export function attendedCardText(name: string, phone: string): string {
 export type PostTrialOutcome =
   /** `task` ⇒ post this text to the Slack TASK channel (end of the no-show chain). */
   | { outcome: "sent"; task?: string }
-  /** `stopChain` ⇒ the remaining rows of this chain are pointless now. */
-  | { outcome: "cancelled"; stopChain?: boolean; task?: string }
+  /** `stopChain` ⇒ the remaining rows of this chain are pointless now.
+   *  `note` ⇒ post this ops note (#bot-ops → D1 ops_log): the touch was skipped
+   *  because a human holds the conversation (the chain itself continues). */
+  | { outcome: "cancelled"; stopChain?: boolean; task?: string; note?: string }
   | { outcome: "skipped_optout" }
   /** `missing` ⇒ Meta says the template does not exist (132001), i.e. it is not
    *  approved yet; anything else is our bug and `error` carries Graph's words.
@@ -723,10 +725,6 @@ export async function processPostTrial(
   if (contact.status === "opted_out") return { outcome: "skipped_optout" };
   // Enrolled since the row was armed (student sync, Airtable, or a human).
   if (contact.status === "student") return { outcome: "cancelled", stopChain: true };
-  if (contact.human_override_until && contact.human_override_until > nowEpoch) {
-    // A human is on this conversation right now — skip this touch only.
-    return { outcome: "cancelled" };
-  }
   // The lead wrote in: they are in a real conversation now. For the first
   // no-show touch (armed together with the booking) only messages since the
   // class started count — "ok, ahí nos vemos" the night before is not a stop.
@@ -758,27 +756,6 @@ export async function processPostTrial(
     }
   }
 
-  const campaign =
-    contact.campaign_id !== null && deps.campaignName
-      ? await deps.campaignName(env, contact.campaign_id)
-      : null;
-  const band = bandForContact(contact, campaign);
-  const lang = langOf(contact);
-  const step: "hoy" | "d2" | "d7" | null = !noShow
-    ? null
-    : row.kind === "no_show_hoy"
-      ? "hoy"
-      : row.kind === "no_show_d7"
-        ? "d7"
-        : "d2";
-  const body = step
-    ? noShowTouchCopy(contact, step, chain.trial, nowEpoch, campaign, band)
-    : postTrialCopy(contact, row.kind as PostTrialKind, campaign, isAyerNote(row.note), {
-        band,
-        trialEpoch: chain.trial,
-        now: nowEpoch,
-      });
-
   const finish = async (sent: boolean): Promise<PostTrialOutcome> => {
     // The first touch hands over to d2 / d7 (keyed per phone + trial date, so
     // a re-run or a second Airtable row never arms a second chain).
@@ -801,6 +778,58 @@ export async function processPostTrial(
     const base: PostTrialOutcome = sent ? { outcome: "sent" } : { outcome: "cancelled" };
     return task ? { ...base, task } : base;
   };
+
+  // A human holds the conversation (Tomar control / Pausar aquí / any staff
+  // send from the dashboard composer — staff-send.ts pauses the bot "until
+  // Reanudar"). 2026-10-27 (Evan): a staff message BEFORE the class is
+  // outreach (the 06:45 voice note confirming a 07:00 class), not ownership —
+  // the touch goes out. A staff message AFTER the class, or an explicit pause
+  // with no staff message at all, means a human is handling the lead: skip
+  // this touch, but never strand the chain (no_show_hoy still hands over to
+  // d2 / d7, each re-checked here when due) and say so in #bot-ops.
+  if (contact.human_override_until && contact.human_override_until > nowEpoch) {
+    const staffTs = await lastStaffMessageTs(env.DB, row.phone);
+    const outreachBeforeClass = chain.trial !== null && staffTs !== null && staffTs < chain.trial;
+    if (!outreachBeforeClass) {
+      const skipped = await finish(false);
+      const lead = `${(contact.name ?? "").trim() || postTrialName(contact) || "Lead"} (${row.phone})`;
+      const at = staffTs === null ? "" : `${sameCdmxDate(staffTs, nowEpoch) ? "" : `${dayWord(staffTs, nowEpoch, "es")} `}a las ${hhmm(staffTs)}`;
+      const why =
+        staffTs === null
+          ? "bot en pausa (Pausar / Tomar control), sin mensajes del equipo"
+          : chain.trial !== null
+            ? `bot en pausa, último mensaje del equipo ${at} después de la clase`
+            : `bot en pausa, último mensaje del equipo ${at}`;
+      const next = row.kind === "no_show_hoy" && chain.trial !== null ? " no_show_d2 / d7 siguen armados." : "";
+      console.log(`[post-trial] ${row.kind} ${row.phone} skipped: human override (${why})`);
+      const note = `⏸️ ${row.kind} no enviado a ${lead}: ${why}.${next}`;
+      // finish(false) is always "cancelled" (+ the d7 "Marcar Perdido" task).
+      const task = "task" in skipped ? skipped.task : undefined;
+      return task ? { outcome: "cancelled", task, note } : { outcome: "cancelled", note };
+    }
+    console.log(`[post-trial] ${row.kind} ${row.phone}: override set but last staff message was before the class — sending`);
+  }
+
+  const campaign =
+    contact.campaign_id !== null && deps.campaignName
+      ? await deps.campaignName(env, contact.campaign_id)
+      : null;
+  const band = bandForContact(contact, campaign);
+  const lang = langOf(contact);
+  const step: "hoy" | "d2" | "d7" | null = !noShow
+    ? null
+    : row.kind === "no_show_hoy"
+      ? "hoy"
+      : row.kind === "no_show_d7"
+        ? "d7"
+        : "d2";
+  const body = step
+    ? noShowTouchCopy(contact, step, chain.trial, nowEpoch, campaign, band)
+    : postTrialCopy(contact, row.kind as PostTrialKind, campaign, isAyerNote(row.note), {
+        band,
+        trialEpoch: chain.trial,
+        now: nowEpoch,
+      });
 
   try {
     await deps.sendText(env, row.phone, body);

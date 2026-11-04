@@ -1,5 +1,5 @@
 // Inbound pipeline. Gate order is EXACTLY as architecture.md §Inbound pipeline:
-// dedupe → kill switch → opt-out → reto login → campaign tagging → student → human override
+// dedupe → kill switch → opt-out → reto login → campaign tagging → promo button → student → human override
 // → crisis → campaign first-reply → 8s debounce → brain → route reply.
 // Brain/Slack/Airtable arrive as injected ports.
 
@@ -124,7 +124,9 @@ import {
 } from "../services/auto-send.js";
 import { CLIENT } from "../client.gen.js";
 import { isNoReplySentinel } from "../brain/prompt.js";
-import { taskNote } from "../cron/deps.js";
+import { dashboardChatUrl } from "../services/dashboard-link.js";
+import { alertNote, taskNote } from "../cron/deps.js";
+import { handoffButtonTemplate, isOptOutButton } from "./promo-button.js";
 import {
   fetchMediaBytes,
   fetchMediaBytesFromUrl,
@@ -165,6 +167,7 @@ const HISTORY_LIMIT = 20;
 // 7 days (was 48h, 2026-10-11): the brain trims to 48h itself unless the lead
 // has a child qualification or a live booking (claude.ts trimHistory).
 const HISTORY_WINDOW_SECONDS = 7 * 24 * 3600;
+const PROMO_HANDOFF_PAUSE_HOURS = 12;
 const WINDOW_SECONDS = 24 * 3600;
 
 export interface InboundMessage {
@@ -383,6 +386,14 @@ export async function processInbound(
   // v2: the last ≤3 inbound messages within 2 min count as ONE text (2026-10-10
   // …4595: "No me interesa…" / "Gracias" / "Ya no me manden mensaje.").
   let optOut = isOptOut(body);
+  if (!optOut && msg.kind === "button") {
+    try {
+      const recent = await recentMessages(env.DB, msg.phone, 20, Math.floor(Date.now() / 1000) - HISTORY_WINDOW_SECONDS);
+      optOut = isOptOutButton(msg.kind, body, recent);
+    } catch (err) {
+      console.warn("[inbound] opt-out button read failed", msg.phone, err);
+    }
+  }
   if (!optOut) {
     try {
       const recent = await recentMessages(env.DB, msg.phone, 6, msg.ts - OPT_OUT_BURST_SECONDS);
@@ -547,6 +558,29 @@ export async function processInbound(
           }
         })(),
       );
+    }
+  }
+
+  // 3z. Promo button a human answers (promo-button.ts): no auto-reply, alert
+  // Evan with the chat link, and pause the bot so a follow-up text doesn't get
+  // an answer about promos it knows nothing about.
+  if (msg.kind === "button") {
+    const recent = await recentMessages(env.DB, msg.phone, 20, Math.floor(Date.now() / 1000) - HISTORY_WINDOW_SECONDS);
+    const template = handoffButtonTemplate(msg.kind, body, recent);
+    if (template) {
+      await setHumanOverride(env.DB, msg.phone, PROMO_HANDOFF_PAUSE_HOURS);
+      const url = dashboardChatUrl(env, msg.phone);
+      const text =
+        `🎃 *${contact.name ?? msg.phone}* (${msg.phone}) tocó "${body}" en \`${template}\`. El bot no respondió; contéstale tú.` +
+        (url ? `\n<${url}|💬 Abrir chat>` : "");
+      try {
+        await alertNote(ports.slack, text, { kind: "approvals", meta: { phone: msg.phone, template } });
+      } catch (err) {
+        // A lost alert means a lead nobody answers: fall back to the team channel.
+        console.error("[inbound] promo button alert failed", msg.phone, err);
+        await taskNote(ports.slack, text);
+      }
+      return;
     }
   }
 
