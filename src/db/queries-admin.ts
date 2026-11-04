@@ -795,6 +795,30 @@ export async function hasAnyFollowupOfKind(
 }
 
 /**
+ * The distinct kinds (out of `kinds`) this phone has a SENT followup of, due at
+ * or after `sinceDueAt` (followups has no sent_at; a row fires within one tick
+ * of its due_at). The extended drip's resume set (nudges.maybeArmExtended).
+ * Rides the UNIQUE(phone, kind, airtable_record_id) autoindex.
+ */
+export async function sentFollowupKinds(
+  db: D1Database,
+  phone: string,
+  kinds: readonly string[],
+  sinceDueAt: number,
+): Promise<string[]> {
+  if (kinds.length === 0) return [];
+  const placeholders = kinds.map((_, i) => `?${i + 3}`).join(", ");
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT kind FROM followups
+       WHERE phone = ?1 AND status = 'sent' AND due_at >= ?2 AND kind IN (${placeholders})`,
+    )
+    .bind(phone, sinceDueAt, ...kinds)
+    .all<{ kind: string }>();
+  return results.map((r) => r.kind);
+}
+
+/**
  * The scheduled followups of `kinds` for a phone, with their due_at — the
  * slot-aware version of hasScheduledFollowupOfKind. booking-guard maps each
  * row's due_at back to the trial date it was derived from, so an OLD booking

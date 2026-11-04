@@ -182,8 +182,11 @@ export interface ClientCopy {
 export interface ClientFeatures {
   /** book_trial tool + slot validation + Airtable record creation. */
   booking: boolean;
-  /** Lead-nudge drip (nudge_1h/6h/8h). */
+  /** Lead-nudge drip (nudge_1h/6h/8h + the extended d2–d5 chain). */
   nudges: boolean;
+  /** Extended drip gets a 7th touch, nudge_d7 (+48h after d5), which takes over
+   *  the goodbye from d5. Needs the nudge_d7_* templates APPROVED. Absent = off. */
+  nudgeDay7?: boolean;
   /** Cron Airtable syncs (bookings + result watcher + daily students). */
   airtableSync: boolean;
   /** Crisis-safety gate (see SafetyConfig). */

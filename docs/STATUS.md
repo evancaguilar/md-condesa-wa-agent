@@ -1,6 +1,27 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-10-27** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-03** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### Lead-nudge drip revived: 7 touches for leads who don't book (2026-11-03) — branch `worktree-agent-af04ac8cb788fd7a6`, NOT pushed — needs Evan's OK
+
+**What was broken (measured 2026-10-28):** of 439 non-booked Meta leads, **35% got 0 follow-ups, 46% got 1, only 13% the full chain.** Three bugs stacked:
+1. **Day-1 re-arm was a no-op.** Day-1 rows used record id `''`; every inbound cancels and re-arms, and `INSERT OR IGNORE` hit the old cancelled/sent row under `UNIQUE(phone, kind, record)`. A lead who replied before +1h never got a day-1 nudge again.
+2. **d2–d5 almost never armed.** They hung off nudge_8h actually SENDING, and nudge_8h lost the one-per-CDMX-day claim to nudge_1h on every normal day → cancelled → chain never armed. A lost claim cancelled the row for good.
+3. **`seq_done:<phone>` blocked re-arming for 30 days** even when the lead's reply had cancelled the pending rows.
+
+**What changed (src/cron/nudges.ts, followups.ts):**
+- Day-1 rows carry `d1:<last_inbound_at>`; re-arm uses `scheduleOrReviveFollowup` (a CANCELLED row with the same token goes back on schedule, a SENT one never re-sends). 3-per-7-days cap still gates day-1 only.
+- `armNudges` arms the extended chain every time, anchored on the quiet-shifted +8h time of the plan (independent of nudge_8h sending), and clears all pending nudge rows first. The "arm on nudge_8h sent" hook is gone.
+- **Resume, not seq_done:** a re-arm schedules only the extended steps NOT sent in the last 30 days, in order, from the new anchor (+24h each, quiet-shifted), token `seq:<anchor>`. A failed history lookup arms nothing (never re-sends d2).
+- Day-1 kinds no longer take `nudge_day:<phone>:<date>`; a 2h timestamp claim (`nudge_d1_gap:<phone>`) keeps them ≥2h apart and race-safe — the loser is deferred, not cancelled. Extended kinds keep the day claim, but losing it DEFERS the row to the next 08:00 CDMX.
+- **A draft waiting in Aprobar holds nudges back:** day-1 and extended rows defer +60 min (quiet-shifted) while the phone has a pending approval.
+- **Day 7 (dark):** new kind `nudge_d7`, +48h after d5, templates `nudge_d7_adults|kids|baby` (+ `_es`/`_en`). Behind `features.nudgeDay7` (client.mjs, **false**; added to the compile-kb whitelist). With it on, d7 is the "último mensaje" goodbye (link-only CTA) and d5 becomes a plain value touch with the slot CTA; with it off the chain ends at d5 exactly as before. Copy drafts in docs/templates.md "nudge_d7" (DRAFT).
+- `dueFollowups` now orders `due_at, id` so two extended steps due at the same 08:00 go in chain order.
+- Tests 1417 → **1432** (new test/nudge-drip-v2.test.ts on real SQLite with a fake CDMX clock; seq_done tests replaced by resume tests; armNudges / same-minute tests updated to the new rules).
+
+- [ ] **Evan:** review + merge + push. Probe after deploy: a fresh lead who replies before +1h gets a new `nudge_1h` row (`d1:<ts>` token) and `nudge_d2..d5` rows are scheduled right after the first bot reply (Chats → followups).
+- [ ] **Evan:** approve (or rewrite) the d7 copy and the new d5 value-touch copy (docs/templates.md "nudge_d7").
+- [ ] **Evan:** submit `nudge_d7_{adults,kids,baby}_es` to Meta; when they are APPROVED, also edit the 3 `nudge_d5_*_es` templates (they still say "último mensaje"), then flip `features.nudgeDay7: true`, `npm run build`, commit, push.
 
 ### Halloween promo "Sí, quiero saber" goes to Evan, not the bot (2026-10-31) — SHIPPED
 

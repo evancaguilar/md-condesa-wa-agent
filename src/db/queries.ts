@@ -482,6 +482,36 @@ export async function scheduleFollowup(
 }
 
 /**
+ * Re-arm variant for the lead-nudge drip: inserts the row, or — when the same
+ * (phone, kind, record) row exists but was CANCELLED (the re-arm's own clear,
+ * an inbound reset) — puts it back on schedule at the new due time. A row that
+ * was SENT (or skipped for opt-out) stays as it is, so two arms off the same
+ * token still dedupe and never send twice.
+ */
+export async function scheduleOrReviveFollowup(
+  db: D1Database,
+  input: ScheduleFollowupInput,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO followups(phone, kind, due_at, status, airtable_record_id, note, created_at)
+       VALUES(?1, ?2, ?3, 'scheduled', ?4, ?5, ?6)
+       ON CONFLICT(phone, kind, airtable_record_id) DO UPDATE SET
+         status = 'scheduled', due_at = excluded.due_at, note = excluded.note
+       WHERE followups.status = 'cancelled'`,
+    )
+    .bind(
+      input.phone,
+      input.kind,
+      input.dueAt,
+      input.airtableRecordId ?? "",
+      input.note ?? null,
+      now(),
+    )
+    .run();
+}
+
+/**
  * Date-anchored variant for the anti-no-show reminders (day_before/same_day):
  * a re-run for the SAME slot is a no-op (a row already sent stays sent), but a
  * MOVED slot re-arms the row at its new due time whatever its status — the
@@ -591,7 +621,7 @@ export async function dueFollowups(
 ): Promise<Followup[]> {
   const { results } = await db
     .prepare(
-      `SELECT * FROM followups WHERE status = 'scheduled' AND due_at <= ?1 AND kind <> 'blast' ORDER BY due_at ASC`,
+      `SELECT * FROM followups WHERE status = 'scheduled' AND due_at <= ?1 AND kind <> 'blast' ORDER BY due_at ASC, id ASC`,
     )
     .bind(at)
     .all<Followup>();

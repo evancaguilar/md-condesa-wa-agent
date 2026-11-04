@@ -52,19 +52,29 @@ export type NudgeKind = (typeof NUDGE_KINDS)[number];
  */
 export const SCHEDULED_NUDGE_KINDS = ["nudge_1h", "nudge_8h"] as const;
 
-/** Extended (multi-day) drip kinds (in send order). */
+/** Extended (multi-day) drip kinds (in send order) — the base chain, d2–d5. */
 export const EXTENDED_NUDGE_KINDS = [
   "nudge_d2",
   "nudge_d3",
   "nudge_d4",
   "nudge_d5",
 ] as const;
-export type ExtendedKind = (typeof EXTENDED_NUDGE_KINDS)[number];
+
+/**
+ * The optional closing step (+48h after d5), behind `features.nudgeDay7`. With
+ * the flag on, d7 carries the "último mensaje" goodbye and d5 becomes a plain
+ * value touch; with it off the chain ends at d5 exactly as before.
+ */
+export const DAY7_KIND = "nudge_d7" as const;
+
+/** Every extended kind, d7 included — the type and the cancellation surface. */
+export const ALL_EXTENDED_KINDS = [...EXTENDED_NUDGE_KINDS, DAY7_KIND] as const;
+export type ExtendedKind = (typeof ALL_EXTENDED_KINDS)[number];
 
 /** Every nudge kind (day-1 + extended) — used for kind-scoped cancellation. */
 export const ALL_NUDGE_KINDS = [
   ...NUDGE_KINDS,
-  ...EXTENDED_NUDGE_KINDS,
+  ...ALL_EXTENDED_KINDS,
 ] as const;
 
 /**
@@ -444,13 +454,15 @@ function dayOneEnInner(
   }
 }
 
-// ---- extended copy (nudge_d2 … nudge_d5) ----
+// ---- extended copy (nudge_d2 … nudge_d5, nudge_d7) ----
 
 /**
  * Program-specific extended-drip copy. Pure over (contact, kind, program, now).
  * d2–d4 keep their ManyChat-derived value prop and close with the same concrete
- * slot CTA as day-1; d5 is the goodbye, so it keeps the link-only close (no
- * point proposing a class in the message that says we'll stop writing).
+ * slot CTA as day-1. The LAST step is the goodbye and keeps the link-only close
+ * (no point proposing a class in the message that says we'll stop writing):
+ * d5 while `day7` is off, d7 when it is on — d5 then reads as one more value
+ * touch with the slot CTA (EXTENDED_D5_VALUE_*).
  */
 export function extendedCopy(
   contact: Contact | null,
@@ -459,16 +471,21 @@ export function extendedCopy(
   nowEpoch: number = Math.floor(Date.now() / 1000),
   schedule: readonly Slot[] = SLOTS,
   campaignName: string | null = null,
+  day7: boolean = false,
 ): string {
   const q = parseQualification(contact);
   const lang: Language = contact?.lang === "en" ? "en" : "es";
   const sp = nameSuffix(firstName(contact, q));
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
-  const slot = kind === "nudge_d5" ? null : nudgeSlot(contact, program, nowEpoch, schedule, campaignName);
+  const goodbye = kind === "nudge_d7" || (kind === "nudge_d5" && !day7);
+  const slot = goodbye ? null : nudgeSlot(contact, program, nowEpoch, schedule, campaignName);
   const cta = slotCta(program, lang, slot, link, nowEpoch);
+  const legacy = legacyProgram(program);
+  if (kind === "nudge_d5" && day7) {
+    return (lang === "en" ? EXTENDED_D5_VALUE_EN : EXTENDED_D5_VALUE_ES)[legacy](sp, cta);
+  }
   const table = lang === "en" ? EXTENDED_EN : EXTENDED_ES;
-  const line = table[legacyProgram(program)][kind];
-  return line(sp, cta);
+  return table[legacy][kind](sp, cta);
 }
 
 type ExtendedLine = (sp: string, cta: string) => string;
@@ -486,6 +503,8 @@ const EXTENDED_ES: ExtendedTable = {
       `¡Hola${sp}! A veces el cambio no empieza con una decisión enorme… empieza con una clase. Una hora. Un primer paso 🥋\n${cta}`,
     nudge_d5: (sp, cta) =>
       `¡Hola${sp}! Parece que por ahora quizá no es el momento, y está bien 🙂 Este será nuestro último mensaje de seguimiento por ahora. Si algo cambia y te gustaría ponerte en forma, aprender a defenderte y ganar confianza, aquí estamos.\n${cta}`,
+    nudge_d7: (sp, cta) =>
+      `¡Hola${sp}! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, aquí estamos.\n${cta}`,
   },
   kids: {
     nudge_d2: (sp, cta) =>
@@ -496,6 +515,8 @@ const EXTENDED_ES: ExtendedTable = {
       `¡Hola${sp}! Además de moverse y salir un rato de las pantallas, los niños hacen amigos, ganan disciplina y se divierten muchísimo 🙌\n${cta}`,
     nudge_d5: (sp, cta) =>
       `¡Hola${sp}! Parece que quizá no es el momento, y está perfecto 🙂 Este será nuestro último mensaje por ahora. Si más adelante quieren que tu peque pruebe una clase, con gusto les guardamos lugar.\n${cta}`,
+    nudge_d7: (sp, cta) =>
+      `¡Hola${sp}! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le guardamos su lugar. ¡Aquí estamos!\n${cta}`,
   },
   baby: {
     nudge_d2: (sp, cta) =>
@@ -506,6 +527,8 @@ const EXTENDED_ES: ExtendedTable = {
       `¡Hola${sp}! A esta edad, estimular movimiento, equilibrio, coordinación y confianza hace una gran diferencia. En Baby Fight Club tu bebé se mueve, juega y gana seguridad, siempre acompañado por mamá o papá 💪\n${cta}`,
     nudge_d5: (sp, cta) =>
       `¡Hola${sp}! Parece que quizá no es el momento para ustedes, y está bien 🙂 Este será nuestro último mensaje de seguimiento por el momento. Si más adelante quieren que tu bebé pruebe Baby Fight Club, aquí estamos.\n${cta}`,
+    nudge_d7: (sp, cta) =>
+      `¡Hola${sp}! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita. ¡Aquí estamos!\n${cta}`,
   },
 };
 
@@ -519,6 +542,8 @@ const EXTENDED_EN: ExtendedTable = {
       `Hi${sp}! Change doesn't always start with a huge decision… it starts with one class. One hour. One first step 🥋\n${cta}`,
     nudge_d5: (sp, cta) =>
       `Hi${sp}! Maybe now isn't the moment, and that's okay 🙂 This'll be our last follow-up for now. If anything changes and you'd like to get fit, learn to defend yourself and build confidence, we're here.\n${cta}`,
+    nudge_d7: (sp, cta) =>
+      `Hi${sp}! This is our last message, so we don't crowd your chat 🙂 Your free day at MD Condesa still stands: whenever you'd like to get fit and learn to defend yourself, we're here.\n${cta}`,
   },
   kids: {
     nudge_d2: (sp, cta) =>
@@ -529,6 +554,8 @@ const EXTENDED_EN: ExtendedTable = {
       `Hi${sp}! Beyond moving and getting off screens for a while, kids make friends, gain discipline and have a blast 🙌\n${cta}`,
     nudge_d5: (sp, cta) =>
       `Hi${sp}! Looks like maybe now isn't the moment, and that's perfectly fine 🙂 This'll be our last message for now. If later you'd like your kid to try a class, we'd be happy to save them a spot.\n${cta}`,
+    nudge_d7: (sp, cta) =>
+      `Hi${sp}! This is our last message, so we don't crowd your chat 🙂 Whenever you'd like your kid to try a class, we'll happily save them a spot. We're here!\n${cta}`,
   },
   baby: {
     nudge_d2: (sp, cta) =>
@@ -539,7 +566,32 @@ const EXTENDED_EN: ExtendedTable = {
       `Hi${sp}! At this age, stimulating movement, balance, coordination and confidence makes a big difference. In Baby Fight Club your baby moves, plays and gains security, always with mom or dad 💪\n${cta}`,
     nudge_d5: (sp, cta) =>
       `Hi${sp}! Looks like maybe now isn't the moment for you, and that's okay 🙂 This'll be our last follow-up for now. If later you'd like your baby to try Baby Fight Club, we're here.\n${cta}`,
+    nudge_d7: (sp, cta) =>
+      `Hi${sp}! This is our last message, so we don't crowd your chat 🙂 If later you'd like your baby to try Baby Fight Club, we'd be happy to save you a free class. We're here!\n${cta}`,
   },
+};
+
+/**
+ * d5 while `features.nudgeDay7` is on: no longer the goodbye (that moved to d7),
+ * one more light touch with the concrete slot CTA. DRAFT — pending owner
+ * approval (docs/templates.md, "nudge_d7").
+ */
+const EXTENDED_D5_VALUE_ES: { [P in LegacyProgram]: ExtendedLine } = {
+  adults: (sp, cta) =>
+    `¡Hola${sp}! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti.\n${cta}`,
+  kids: (sp, cta) =>
+    `¡Hola${sp}! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso.\n${cta}`,
+  baby: (sp, cta) =>
+    `¡Hola${sp}! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá.\n${cta}`,
+};
+
+const EXTENDED_D5_VALUE_EN: { [P in LegacyProgram]: ExtendedLine } = {
+  adults: (sp, cta) =>
+    `Hi${sp}! Just a quick reminder that your free day at MD Condesa is still available 🙌 It's the easiest way to try it with no commitment and see if it's for you.\n${cta}`,
+  kids: (sp, cta) =>
+    `Hi${sp}! Just a quick reminder that your kid's trial class is still available 🙌 It's the best way to see if they like it, no commitment.\n${cta}`,
+  baby: (sp, cta) =>
+    `Hi${sp}! Just a quick reminder that the Baby Fight Club trial class is still available 🙌 Your baby moves, plays and explores, always with mom or dad.\n${cta}`,
 };
 
 /**

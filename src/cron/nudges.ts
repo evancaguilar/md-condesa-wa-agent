@@ -1,5 +1,7 @@
 // Lead-nudge drip. Day-1 (nudge_1h + nudge_8h, in the 24h window → free-form)
-// plus the extended multi-day sequence (nudge_d2…d5) from sequences-v2.
+// plus the extended multi-day sequence (nudge_d2…d5, + nudge_d7 behind
+// features.nudgeDay7) from sequences-v2. Both are armed together by armNudges
+// on every bot reply; the extended chain resumes where the last one stopped.
 // Scheduling honors CDMX quiet hours (21:00–08:00): nudge 1 defers out of quiet,
 // the closing nudge uses the window-aware placement rule, and the extended chain
 // is quiet-shifted (see ./quiet.ts). The old +6h middle step is no longer
@@ -15,7 +17,9 @@ import type { Contact, Env, ProgramBand, Qualification } from "../types.js";
 import {
   cancelFollowups,
   getContact,
-  scheduleFollowup,
+  getPendingApprovals,
+  kvClaimIfAbsentOrOlder,
+  scheduleOrReviveFollowup,
   kvGet,
   kvSet,
   kvSetIfAbsent,
@@ -31,6 +35,7 @@ import {
   cancelFollowupsByKinds,
   hasAnyFollowupOfKind,
   hasScheduledFollowupOfKind,
+  sentFollowupKinds,
 } from "../db/queries-admin.js";
 import { CLIENT } from "../client.gen.js";
 import { greetingName } from "./display-name.js";
@@ -39,11 +44,13 @@ import {
   templateFirstName,
 } from "../services/template-params.js";
 import { DAY, cdmxDateStr, cdmxIso } from "./time.js";
-import { shiftOutOfQuiet, placeNudge3 } from "./quiet.js";
+import { shiftOutOfQuiet, placeNudge3, next8am } from "./quiet.js";
 import {
   NUDGE_KINDS,
   SCHEDULED_NUDGE_KINDS,
   EXTENDED_NUDGE_KINDS,
+  ALL_EXTENDED_KINDS,
+  DAY7_KIND,
   ALL_NUDGE_KINDS,
   nudgeCopy,
   classifyProgram,
@@ -64,6 +71,8 @@ export {
   NUDGE_KINDS,
   SCHEDULED_NUDGE_KINDS,
   EXTENDED_NUDGE_KINDS,
+  ALL_EXTENDED_KINDS,
+  DAY7_KIND,
   ALL_NUDGE_KINDS,
   nudgeCopy,
   classifyProgram,
@@ -80,14 +89,24 @@ export type { NudgeKind, ExtendedKind, Program };
 export const BOOKING_KINDS = ["trial_confirm", "day_before", "same_day"] as const;
 
 // Rolling cap: at most 3 day-1 nudges per contact per 7 days. NOT applied to the
-// extended chain (d2–d5 run once per sequence, guarded by seq_done below).
+// extended chain (each step goes once per 30 days — see EXTENDED_RESUME_WINDOW_SECONDS).
 export const NUDGE_CAP = 3;
 export const NUDGE_CAP_WINDOW_SECONDS = 7 * 86400;
 
-// One extended sequence per lead per 30 days.
-export const SEQ_GUARD_SECONDS = 30 * DAY;
+// An extended step SENT within this window is not re-sent when the chain is
+// re-armed: the lead's reply cancels the pending steps and the next arm resumes
+// from the first step not yet sent (replaced the 30-day seq_done kv guard,
+// which kept the chain from ever re-arming after a reply — 2026-11).
+export const EXTENDED_RESUME_WINDOW_SECONDS = 30 * DAY;
 
 const HOUR = 3600;
+
+// Day-1 nudges keep at least this far apart (and two ticks racing the same row
+// can never both send): kv `nudge_d1_gap:<phone>` holds the last day-1 send.
+export const DAY1_MIN_GAP_SECONDS = 2 * HOUR;
+
+// A draft waiting in Aprobar holds every nudge back this long (re-checked).
+export const PENDING_APPROVAL_DEFER_SECONDS = 1 * HOUR;
 
 
 // ---- program band → copy inputs (pure) ----
@@ -303,9 +322,36 @@ async function bookedBefore(env: Env, phone: string): Promise<boolean> {
   return hasBookingHistory(await kvGet(env.DB, bookingRecordedKey(phone)), row, now);
 }
 
-/** kv claim: at most ONE nudge (day-1 or extended) per phone per CDMX day. */
+/**
+ * kv claim: at most ONE extended nudge (d2…d7) per phone per CDMX day. Day-1
+ * kinds do not take it — they are ≥2h apart by construction and capped, and
+ * taking it made nudge_8h lose to nudge_1h every normal day, so the chain that
+ * hung off nudge_8h never armed (2026-10-28: 35% of non-booked leads got 0
+ * follow-ups). A lost claim defers the row to the next 08:00, never cancels it.
+ */
 export function nudgeDayClaimKey(phone: string, now: number): string {
   return `nudge_day:${phone}:${cdmxDateStr(now)}`;
+}
+
+/** kv timestamp claim spacing day-1 sends by DAY1_MIN_GAP_SECONDS. */
+export function day1GapKey(phone: string): string {
+  return `nudge_d1_gap:${phone}`;
+}
+
+/** A due nudge that must wait: the row is rescheduled to `retryAt`, not cancelled. */
+export interface NudgeDeferred {
+  outcome: "deferred";
+  retryAt: number;
+}
+
+/** When a nudge held back by a pending Aprobar draft comes back. Pure. */
+export function pendingApprovalRetryAt(now: number): number {
+  return shiftOutOfQuiet(now + PENDING_APPROVAL_DEFER_SECONDS);
+}
+
+/** True while the phone has a draft waiting in Aprobar (indexed on phone). */
+async function hasPendingApproval(env: Env, phone: string): Promise<boolean> {
+  return (await getPendingApprovals(env.DB, phone)).length > 0;
 }
 
 // ---- day-1 scheduling (pure) ----
@@ -400,8 +446,12 @@ export interface DayOnePlan {
   scheduled: NudgeTime[];
   /** True when nudge 3 was dropped (R2) → the extended day-2 message covers it. */
   nudge3Dropped: boolean;
-  /** Anchor for the extended chain when nudge 3 is dropped (else null). */
-  extendedAnchor: number | null;
+  /**
+   * Anchor for the extended chain: the quiet-shifted natural +8h time, whether
+   * or not nudge_8h is placed (the chain is armed with the day-1 plan, never off
+   * nudge_8h's send — that hook rarely fired, 2026-10-28).
+   */
+  extendedAnchor: number;
 }
 
 /**
@@ -440,18 +490,25 @@ export function computeDayOnePlan(base: number, now: number): DayOnePlan {
     shiftOutOfQuiet(base + 1 * HOUR);
 
   const natural3 = base + 8 * HOUR;
+  const extendedAnchor = shiftOutOfQuiet(natural3);
   const p3 = placeNudge3(natural3, nudge2Time, windowEnd, now);
   if ("dueAt" in p3) {
     scheduled.push({ kind: "nudge_8h", dueAt: p3.dueAt });
-    return { scheduled, nudge3Dropped: false, extendedAnchor: null };
+    return { scheduled, nudge3Dropped: false, extendedAnchor };
   }
-  // Dropped → anchor the extended chain off the (quiet-shifted) natural nudge-3
-  // time so the day-2 message takes over.
-  return {
-    scheduled,
-    nudge3Dropped: true,
-    extendedAnchor: shiftOutOfQuiet(natural3),
-  };
+  // Dropped → the day-2 message takes over.
+  return { scheduled, nudge3Dropped: true, extendedAnchor };
+}
+
+/**
+ * Day-1 row token: `d1:<base>`, base = the last_inbound_at the plan hangs off.
+ * Two arms off the SAME inbound still dedupe under UNIQUE(phone, kind, record);
+ * a new inbound gets fresh rows. With the old '' token the first cancelled or
+ * sent row blocked every later insert of that kind for the phone, so a lead who
+ * replied before +1h never got a day-1 nudge again (2026-10-28). Pure.
+ */
+export function dayOneToken(base: number): string {
+  return `d1:${base}`;
 }
 
 // ---- extended scheduling (pure) ----
@@ -461,19 +518,41 @@ export interface ExtendedTime {
   dueAt: number;
 }
 
+/** The extended steps in send order: d2–d5, plus d7 when `day7` is on. Pure. */
+export function extendedChainKinds(day7: boolean): ExtendedKind[] {
+  return day7 ? [...ALL_EXTENDED_KINDS] : [...EXTENDED_NUDGE_KINDS];
+}
+
+/** Gap before a step, measured from the previous one: d7 waits 48h, the rest 24h. */
+function extendedGap(kind: ExtendedKind): number {
+  return kind === DAY7_KIND ? 48 * HOUR : 24 * HOUR;
+}
+
 /**
- * The extended chain relative to nudge 3's actual send: d2 = +24h, d3 = +24h
- * after d2, … each quiet-shifted to the next 08:00 when it lands in quiet hours.
- * Pure over the anchor.
+ * The extended chain relative to its anchor: each step +24h after the previous
+ * one (d7: +48h), each quiet-shifted to the next 08:00 when it lands in quiet
+ * hours. `kinds` is the subset still to send, in order — a resumed chain starts
+ * its first remaining step one gap after the new anchor. Pure.
  */
-export function computeExtendedChain(anchorSend: number): ExtendedTime[] {
+export function computeExtendedChain(
+  anchorSend: number,
+  kinds: readonly ExtendedKind[] = EXTENDED_NUDGE_KINDS,
+): ExtendedTime[] {
   const out: ExtendedTime[] = [];
   let t = anchorSend;
-  for (const kind of EXTENDED_NUDGE_KINDS) {
-    t = shiftOutOfQuiet(t + 24 * HOUR);
+  for (const kind of kinds) {
+    t = shiftOutOfQuiet(t + extendedGap(kind));
     out.push({ kind, dueAt: t });
   }
   return out;
+}
+
+/** The chain steps not yet sent (resume semantics), in order. Pure. */
+export function remainingExtendedKinds(
+  chain: readonly ExtendedKind[],
+  sent: readonly string[],
+): ExtendedKind[] {
+  return chain.filter((k) => !sent.includes(k));
 }
 
 // ---- rolling cap (pure) ----
@@ -516,10 +595,6 @@ function nudgeCountKey(phone: string): string {
   return `nudge_count:${phone}`;
 }
 
-function seqDoneKey(phone: string): string {
-  return `seq_done:${phone}`;
-}
-
 // ---- arming / cancelling (DB) ----
 
 function nowSec(): number {
@@ -527,9 +602,10 @@ function nowSec(): number {
 }
 
 /**
- * Whether the day-1 drip may be armed for this contact now: status lead, no
- * active override, never booked (no active/future booking AND no past one —
- * see bookedBefore), and under the rolling cap.
+ * Whether the drip may be armed for this contact now: status lead, no active
+ * override, never booked (no active/future booking AND no past one — see
+ * bookedBefore). The rolling cap is checked separately: it gates the day-1
+ * kinds only, never the extended chain.
  */
 async function canArm(env: Env, contact: Contact): Promise<boolean> {
   if (!CLIENT.features.nudges) return false;
@@ -545,68 +621,73 @@ async function canArm(env: Env, contact: Contact): Promise<boolean> {
   );
   if (hasBooking) return false;
   if (await bookedBefore(env, contact.phone)) return false;
-  const kv = await kvGet(env.DB, nudgeCountKey(contact.phone));
-  if (!underNudgeCap(kv, now)) return false;
   return true;
 }
 
 /**
- * Arm (or re-arm) the day-1 lead-nudge drip after a bot reply was SENT to a lead.
- * Clears existing pending day-1 nudges, then inserts the quiet-aware schedule
- * (computeDayOnePlan). If nudge 3 is dropped, the extended sequence is armed
- * immediately so the day-2 message takes over. No-op when conditions aren't met.
+ * Arm (or re-arm) the lead-nudge drip after a bot reply was SENT to a lead.
+ * Clears every pending nudge row (day-1 + extended), then inserts the
+ * quiet-aware day-1 schedule (computeDayOnePlan, under the rolling cap) AND the
+ * extended chain anchored on the plan's quiet-shifted +8h time — resumed from
+ * the first step not yet sent (maybeArmExtended). No-op when conditions aren't met.
  */
 export async function armNudges(env: Env, phone: string): Promise<void> {
   const contact = await getContact(env.DB, phone);
   if (!contact) return;
 
-  // Always clear existing pending day-1 nudges first (re-arm / suppression).
-  await cancelFollowupsByKinds(env.DB, phone, NUDGE_KINDS);
+  // Always clear pending nudges first (re-arm / suppression). The extended
+  // rows go too: the re-arm below reschedules the remaining steps off the new
+  // anchor, so a second arm never leaves two chains running.
+  await cancelFollowupsByKinds(env.DB, phone, ALL_NUDGE_KINDS);
 
   if (!(await canArm(env, contact))) return;
 
-  const base = contact.last_inbound_at ?? nowSec();
   const now = nowSec();
+  const base = contact.last_inbound_at ?? now;
   const plan = computeDayOnePlan(base, now);
-  for (const t of plan.scheduled) {
-    await scheduleFollowup(env.DB, {
-      phone,
-      kind: t.kind,
-      dueAt: t.dueAt,
-      airtableRecordId: "", // '' → UNIQUE(phone,kind,'') dedupe
-      note: null,
-    });
+  if (underNudgeCap(await kvGet(env.DB, nudgeCountKey(phone)), now)) {
+    const token = dayOneToken(base);
+    for (const t of plan.scheduled) {
+      await scheduleOrReviveFollowup(env.DB, {
+        phone,
+        kind: t.kind,
+        dueAt: t.dueAt,
+        airtableRecordId: token,
+        note: null,
+      });
+    }
   }
-  if (plan.nudge3Dropped && plan.extendedAnchor !== null) {
-    await maybeArmExtended(env, phone, plan.extendedAnchor);
-  }
+  // A stale base (an old draft approved late) must not land the chain in the past.
+  await maybeArmExtended(env, phone, Math.max(plan.extendedAnchor, now));
 }
 
 /**
- * Schedule the extended chain (d2–d5) once per lead per 30 days, anchored at
- * `anchorSend` (nudge 3's actual send, or the dropped-nudge-3 anchor). Guarded by
- * kv `seq_done:<phone>` (epoch). Rows carry a per-sequence record-id token so a
- * later (>30d) sequence can be re-inserted despite the followups UNIQUE index.
+ * Schedule the extended chain (d2–d5, + d7 with `features.nudgeDay7`) anchored
+ * at `anchorSend`, RESUMING: a step already sent in the last 30 days is not
+ * scheduled again, the remaining ones follow the anchor in order (+24h each,
+ * d7 +48h, quiet-shifted). Rows carry the token `seq:<anchor>` so the followups
+ * UNIQUE index never blocks a re-arm. A failed history lookup arms nothing —
+ * re-sending d2 to someone who already got it is worse than one missed arm.
  */
 export async function maybeArmExtended(
   env: Env,
   phone: string,
   anchorSend: number,
+  day7: boolean = CLIENT.features.nudgeDay7 === true,
 ): Promise<void> {
   if (!CLIENT.features.nudges) return;
   const now = nowSec();
-  const key = seqDoneKey(phone);
-  const prev = await kvGet(env.DB, key);
-  if (prev) {
-    const prevEpoch = Number(prev);
-    if (Number.isFinite(prevEpoch) && now - prevEpoch < SEQ_GUARD_SECONDS) {
-      return; // already ran an extended sequence within the last 30 days
-    }
+  const chain = extendedChainKinds(day7);
+  let sent: string[];
+  try {
+    sent = await sentFollowupKinds(env.DB, phone, chain, now - EXTENDED_RESUME_WINDOW_SECONDS);
+  } catch (err) {
+    console.warn(`[nudges] extended resume lookup failed for ${phone}: ${String(err)}`);
+    return;
   }
-  await kvSet(env.DB, key, String(now));
   const token = `seq:${anchorSend}`;
-  for (const t of computeExtendedChain(anchorSend)) {
-    await scheduleFollowup(env.DB, {
+  for (const t of computeExtendedChain(anchorSend, remainingExtendedKinds(chain, sent))) {
+    await scheduleOrReviveFollowup(env.DB, {
       phone,
       kind: t.kind,
       dueAt: t.dueAt,
@@ -629,7 +710,8 @@ export async function cancelNudges(
  * Send-time processing for a due DAY-1 nudge. Re-verifies eligibility (lead / not
  * opted / not overridden / no booking / under cap), sends the free-form nudge,
  * and records the send in the rolling cap. A closed window → cancel (no template
- * for day-1 nudges; they are in-window by construction).
+ * for day-1 nudges; they are in-window by construction). A pending Aprobar
+ * draft or a day-1 send < 2h ago → `deferred` (the caller reschedules the row).
  */
 export async function processNudge(
   env: Env,
@@ -644,7 +726,7 @@ export async function processNudge(
     /** Called when the nudge is dropped because the lead wants to pay/enrol. */
     onBuyIntent?: (env: Env, phone: string) => Promise<void>;
   },
-): Promise<"sent" | "cancelled" | "skipped_optout"> {
+): Promise<"sent" | "cancelled" | "skipped_optout" | NudgeDeferred> {
   const contact = await getContact(env.DB, phone);
   if (!contact) return "cancelled";
   if (contact.status === "opted_out") return "skipped_optout";
@@ -661,6 +743,11 @@ export async function processNudge(
   // agendado" would be false.
   if (await bookedBefore(env, phone)) {
     return "cancelled";
+  }
+  // A draft for this lead is waiting in Aprobar: a nudge now would talk over
+  // the reply staff is about to approve. Wait, don't cancel.
+  if (await hasPendingApproval(env, phone)) {
+    return { outcome: "deferred", retryAt: pendingApprovalRetryAt(now) };
   }
   const kvKey = nudgeCountKey(phone);
   const kv = await kvGet(env.DB, kvKey);
@@ -687,14 +774,20 @@ export async function processNudge(
   const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
   if (isDuplicateSend(body, outbound, now)) return "cancelled";
 
-  // Claim BEFORE sending: one nudge per phone per CDMX day, and two ticks (or
-  // two rows) racing in the same minute can never both send (…3373, …5417).
-  const claim = nudgeDayClaimKey(phone, now);
-  if (!(await kvSetIfAbsent(env.DB, claim, String(now)))) return "cancelled";
+  // Claim BEFORE sending, but NOT the one-per-day extended claim (that made
+  // nudge_8h lose to nudge_1h every day). A 2h timestamp claim instead: two
+  // ticks (or two rows) racing in the same minute can never both send
+  // (…3373, …5417), and the loser is deferred to the end of the gap.
+  const gapKey = day1GapKey(phone);
+  if (!(await kvClaimIfAbsentOrOlder(env.DB, gapKey, now, DAY1_MIN_GAP_SECONDS))) {
+    const held = Number(await kvGet(env.DB, gapKey));
+    const from = Number.isFinite(held) && held > 0 ? held : now;
+    return { outcome: "deferred", retryAt: shiftOutOfQuiet(Math.max(from + DAY1_MIN_GAP_SECONDS, now + 60)) };
+  }
   try {
     await deps.sendText(env, phone, body);
   } catch (err) {
-    await kvDelete(env.DB, claim); // nothing went out — free the day again
+    await kvDelete(env.DB, gapKey); // nothing went out — free the gap again
     if (deps.isWindowClosed(err)) return "cancelled";
     throw err;
   }
@@ -703,11 +796,12 @@ export async function processNudge(
 }
 
 /**
- * Send-time processing for a due EXTENDED nudge (d2–d5). Re-verifies eligibility
- * (NO cap check — the extended chain is not capped). Tries free-form first (CTWA
- * 72h windows make this common); on a closed window falls back to the per-program
- * template. When the template is missing/unapproved the caller is told to skip
- * (returns null) so it can post the throttled Slack note.
+ * Send-time processing for a due EXTENDED nudge (d2–d5, d7). Re-verifies
+ * eligibility (NO cap check — the extended chain is not capped). Tries free-form
+ * first (CTWA 72h windows make this common); on a closed window falls back to
+ * the per-program template. When the template is missing/unapproved the caller
+ * is told to skip so it can post the throttled Slack note. A pending Aprobar
+ * draft (+60 min) or a lost one-per-day claim (next 08:00) → `deferred`.
  */
 export async function processExtendedNudge(
   env: Env,
@@ -730,6 +824,7 @@ export async function processExtendedNudge(
   | { outcome: "sent" }
   | { outcome: "cancelled" }
   | { outcome: "skipped_optout" }
+  | NudgeDeferred
   /** The template send failed. `missing` ⇒ it is not approved yet (132001),
    *  which is Evan's to fix; anything else is OURS, so `error` carries the
    *  Graph text verbatim into the Slack note instead of being laundered. */
@@ -749,6 +844,12 @@ export async function processExtendedNudge(
   if (await bookedBefore(env, phone)) {
     return { outcome: "cancelled" };
   }
+  // A d7 row armed while the flag was on, after it was switched off: drop it.
+  const day7 = CLIENT.features.nudgeDay7 === true;
+  if (kind === DAY7_KIND && !day7) return { outcome: "cancelled" };
+  if (await hasPendingApproval(env, phone)) {
+    return { outcome: "deferred", retryAt: pendingApprovalRetryAt(now) };
+  }
 
   const campaignName =
     contact.campaign_id !== null
@@ -756,7 +857,7 @@ export async function processExtendedNudge(
       : null;
   const c = copyInputsForBand(contact, campaignName, bandForContact(contact, campaignName));
   const program = c.program;
-  const body = extendedCopy(c.contact, kind, program, now, c.schedule, c.campaignName);
+  const body = extendedCopy(c.contact, kind, program, now, c.schedule, c.campaignName, day7);
   const recent = await recentMessages(env.DB, phone, 30, now - 7 * DAY);
   if (hasBuyIntent(recent.filter((m) => m.direction === "in").map((m) => m.body ?? ""))) {
     return { outcome: "cancelled" };
@@ -764,8 +865,12 @@ export async function processExtendedNudge(
   const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
   if (isDuplicateSend(body, outbound, now)) return { outcome: "cancelled" };
 
+  // One extended nudge per CDMX day. Losing the claim used to cancel the row
+  // for good; now it just waits for tomorrow's 08:00.
   const claim = nudgeDayClaimKey(phone, now);
-  if (!(await kvSetIfAbsent(env.DB, claim, String(now)))) return { outcome: "cancelled" };
+  if (!(await kvSetIfAbsent(env.DB, claim, String(now)))) {
+    return { outcome: "deferred", retryAt: next8am(now) };
+  }
   try {
     await deps.sendText(env, phone, body); // free-form (window open)
     return { outcome: "sent" };

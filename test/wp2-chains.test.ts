@@ -410,7 +410,7 @@ test("nudgeDayClaimKey: one key per phone per CDMX day", () => {
   assert.notEqual(nudgeDayClaimKey("521", a), nudgeDayClaimKey("521", a + DAY));
 });
 
-test("processNudge: two nudges in the same minute → only the first one sends (claim before send)", async () => {
+test("processNudge: two nudges in the same minute → only the first one sends; the second waits out the 2h gap (claim before send)", async () => {
   const { raw, db } = sqliteDb();
   const now = Math.floor(Date.now() / 1000);
   insertContact(raw, contact({ last_inbound_at: now - H }));
@@ -425,8 +425,14 @@ test("processNudge: two nudges in the same minute → only the first one sends (
   const first = await processNudge(envWith(db), "5215512345678", "nudge_1h", deps);
   const second = await processNudge(envWith(db), "5215512345678", "nudge_8h", deps);
   assert.equal(first, "sent");
-  assert.equal(second, "cancelled");
+  // 2026-11: day-1 kinds no longer take the one-per-day claim (that killed
+  // nudge_8h every normal day). The loser is DEFERRED to the end of the 2h gap,
+  // not cancelled — and the day claim the extended chain uses stays free.
+  assert.equal(typeof second, "object");
+  assert.ok(typeof second === "object" && second.outcome === "deferred" && second.retryAt >= now + 2 * H - 5);
   assert.equal(sent.length, 1);
+  const dayClaim = raw.prepare(`SELECT value FROM kv WHERE key = ?`).get(nudgeDayClaimKey("5215512345678", now));
+  assert.equal(dayClaim, undefined);
 });
 
 test("processNudge: a live booking marker cancels the nudge", async () => {
