@@ -248,9 +248,23 @@ export function weekdaySet(days: readonly string[] | undefined): Set<number> {
  * The closing call-to-action: a concrete slot first ("Te puedo apartar lugar en
  * Muay Thai mañana viernes 7:00 am — ¿te late?"), the booking link second. With
  * no slot available it degrades to the pre-B link-only CTA. Exported so the
- * no-show rebook copy closes exactly like a nudge does.
+ * no-show rebook copy closes exactly like a nudge does. `writeUs` appends
+ * "o escríbenos aquí 🙂" after the link (d5-with-d7 and d7, Evan 2026-11-05).
  */
 export function slotCta(
+  program: Program,
+  lang: Language,
+  slot: NextSlot | null,
+  link: string,
+  nowEpoch: number,
+  writeUs: boolean = false,
+): string {
+  const base = slotCtaBase(program, lang, slot, link, nowEpoch);
+  if (!writeUs) return base;
+  return lang === "en" ? `${base} or message us here 🙂` : `${base} o escríbenos aquí 🙂`;
+}
+
+function slotCtaBase(
   program: Program,
   lang: Language,
   slot: NextSlot | null,
@@ -463,6 +477,11 @@ function dayOneEnInner(
  * (no point proposing a class in the message that says we'll stop writing):
  * d5 while `day7` is off, d7 when it is on — d5 then reads as one more value
  * touch with the slot CTA (EXTENDED_D5_VALUE_*).
+ *
+ * The two steps that only exist with `day7` on (d5 value touch, d7 goodbye) are
+ * GENERIC (Evan, 2026-11-05): no name in the greeting ("¡Hola! …") and the CTA
+ * ends with "o escríbenos aquí 🙂" — their templates carry zero parameters
+ * (see isGenericExtendedStep).
  */
 export function extendedCopy(
   contact: Contact | null,
@@ -475,11 +494,12 @@ export function extendedCopy(
 ): string {
   const q = parseQualification(contact);
   const lang: Language = contact?.lang === "en" ? "en" : "es";
-  const sp = nameSuffix(firstName(contact, q));
+  const generic = isGenericExtendedStep(kind, day7);
+  const sp = generic ? "" : nameSuffix(firstName(contact, q));
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
   const goodbye = kind === "nudge_d7" || (kind === "nudge_d5" && !day7);
   const slot = goodbye ? null : nudgeSlot(contact, program, nowEpoch, schedule, campaignName);
-  const cta = slotCta(program, lang, slot, link, nowEpoch);
+  const cta = slotCta(program, lang, slot, link, nowEpoch, generic);
   const legacy = legacyProgram(program);
   if (kind === "nudge_d5" && day7) {
     return (lang === "en" ? EXTENDED_D5_VALUE_EN : EXTENDED_D5_VALUE_ES)[legacy](sp, cta);
@@ -573,8 +593,9 @@ const EXTENDED_EN: ExtendedTable = {
 
 /**
  * d5 while `features.nudgeDay7` is on: no longer the goodbye (that moved to d7),
- * one more light touch with the concrete slot CTA. DRAFT — pending owner
- * approval (docs/templates.md, "nudge_d7").
+ * one more light touch with the concrete slot CTA + "o escríbenos aquí". Called
+ * with sp = "" (generic, no name). Approved by Evan 2026-11-05 (docs/templates.md,
+ * "nudge_d7").
  */
 const EXTENDED_D5_VALUE_ES: { [P in LegacyProgram]: ExtendedLine } = {
   adults: (sp, cta) =>
@@ -595,9 +616,26 @@ const EXTENDED_D5_VALUE_EN: { [P in LegacyProgram]: ExtendedLine } = {
 };
 
 /**
+ * True for the steps that only exist with `features.nudgeDay7` on — d7, and d5
+ * as the value touch. Their copy greets generically and their templates declare
+ * NO {{1}}, so the sender must send zero parameters (a parameter to a
+ * placeholder-less template fails at Graph with 132000).
+ */
+export function isGenericExtendedStep(kind: ExtendedKind, day7: boolean): boolean {
+  return kind === "nudge_d7" || (kind === "nudge_d5" && day7);
+}
+
+/**
  * Template base name for a program's extended step (e.g. "nudge_d2_adults"). The
  * WA sender appends the language suffix (_es/_en). See docs/templates.md.
+ * d5 with `day7` on is the value touch → `nudge_d5v2_<program>` (new templates,
+ * so the approved goodbye `nudge_d5_*` keep serving while the flag is off).
  */
-export function extendedTemplateName(kind: ExtendedKind, program: Program): string {
-  return `${kind}_${legacyProgram(program)}`;
+export function extendedTemplateName(
+  kind: ExtendedKind,
+  program: Program,
+  day7: boolean = false,
+): string {
+  const base = kind === "nudge_d5" && day7 ? "nudge_d5v2" : kind;
+  return `${base}_${legacyProgram(program)}`;
 }

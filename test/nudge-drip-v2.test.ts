@@ -16,6 +16,7 @@ import {
   cancelNudges,
   dayOneToken,
   extendedCopy,
+  extendedTemplateName,
   nudgeDayClaimKey,
   pendingApprovalRetryAt,
   processExtendedNudge,
@@ -379,6 +380,53 @@ test("extendedCopy: with day7 the goodbye moves to d7 (link-only) and d5 becomes
       assert.ok(d5On.includes("https://mdcondesa.com/clase-prueba-"), `${program}/${lang} d5 link`);
     }
   }
+});
+
+test("extendedCopy: d5-with-d7 and d7 are generic (no name) and close with the link + 'o escríbenos aquí'", () => {
+  for (const program of ["adults", "kids", "baby"] as const) {
+    const link = program === "adults"
+      ? "https://mdcondesa.com/clase-prueba-adultos/"
+      : "https://mdcondesa.com/clase-prueba-ninos/";
+    const c = contact({ name: "Ana" });
+    const d7 = extendedCopy(c, "nudge_d7", program, T0, undefined, null, true);
+    const d5On = extendedCopy(c, "nudge_d5", program, T0, undefined, null, true);
+    for (const [label, text] of [["d7", d7], ["d5 on", d5On]] as const) {
+      assert.ok(text.startsWith("¡Hola! "), `${program} ${label} generic opener: ${text}`);
+      assert.doesNotMatch(text, /Ana/, `${program} ${label} has no name`);
+      assert.ok(text.includes(link), `${program} ${label} link`);
+      assert.match(text, /o escríbenos aquí 🙂$/, `${program} ${label} write-us close`);
+    }
+    // d7 keeps the link-only close; d5 keeps the concrete slot CTA of d2–d4.
+    assert.doesNotMatch(d7, /apartar lugar en|¿te late\?|¿les late\?/, `${program} d7 no slot`);
+    assert.match(d5On, /(Te|Les) puedo apartar lugar en .* — ¿(te|les) late\?/, `${program} d5 slot CTA`);
+    const en7 = extendedCopy(contact({ name: "Ana", lang: "en" }), "nudge_d7", program, T0, undefined, null, true);
+    assert.ok(en7.startsWith("Hi! ") && !en7.includes("Ana") && en7.endsWith("or message us here 🙂"), en7);
+  }
+});
+
+test("extendedCopy: d2–d4 and the flag-off d5 still greet by name and have no 'escríbenos'", () => {
+  for (const program of ["adults", "kids", "baby"] as const) {
+    for (const kind of ["nudge_d2", "nudge_d3", "nudge_d4"] as const) {
+      for (const day7 of [false, true]) {
+        const t = extendedCopy(contact({ name: "Ana" }), kind, program, T0, undefined, null, day7);
+        assert.match(t, /Ana/, `${program} ${kind} day7=${day7}`);
+        assert.doesNotMatch(t, /escríbenos/, `${program} ${kind} day7=${day7}`);
+      }
+    }
+    const d5Off = extendedCopy(contact({ name: "Ana" }), "nudge_d5", program, T0, undefined, null, false);
+    assert.match(d5Off, /¡Hola Ana!/);
+    assert.doesNotMatch(d5Off, /escríbenos/);
+  }
+});
+
+test("extendedTemplateName: d5 → nudge_d5v2_* only with the flag on; d7 and d2–d4 unchanged", () => {
+  assert.equal(extendedTemplateName("nudge_d5", "adults"), "nudge_d5_adults");
+  assert.equal(extendedTemplateName("nudge_d5", "kids", false), "nudge_d5_kids");
+  assert.equal(extendedTemplateName("nudge_d5", "adults", true), "nudge_d5v2_adults");
+  assert.equal(extendedTemplateName("nudge_d5", "kids", true), "nudge_d5v2_kids");
+  assert.equal(extendedTemplateName("nudge_d5", "baby", true), "nudge_d5v2_baby");
+  assert.equal(extendedTemplateName("nudge_d7", "baby", true), "nudge_d7_baby");
+  assert.equal(extendedTemplateName("nudge_d2", "adults", true), "nudge_d2_adults");
 });
 
 test("processExtendedNudge: a d7 row left over after the flag is switched off is cancelled, not sent", async () => {

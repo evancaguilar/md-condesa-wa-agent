@@ -15,7 +15,7 @@
 - **Resume, not seq_done:** a re-arm schedules only the extended steps NOT sent in the last 30 days, in order, from the new anchor (+24h each, quiet-shifted), token `seq:<anchor>`. A failed history lookup arms nothing (never re-sends d2).
 - Day-1 kinds no longer take `nudge_day:<phone>:<date>`; a 2h timestamp claim (`nudge_d1_gap:<phone>`) keeps them ≥2h apart and race-safe — the loser is deferred, not cancelled. Extended kinds keep the day claim, but losing it DEFERS the row to the next 08:00 CDMX.
 - **A draft waiting in Aprobar holds nudges back:** day-1 and extended rows defer +60 min (quiet-shifted) while the phone has a pending approval.
-- **Day 7 (dark):** new kind `nudge_d7`, +48h after d5, templates `nudge_d7_adults|kids|baby` (+ `_es`/`_en`). Behind `features.nudgeDay7` (client.mjs, **false**; added to the compile-kb whitelist). With it on, d7 is the "último mensaje" goodbye (link-only CTA) and d5 becomes a plain value touch with the slot CTA; with it off the chain ends at d5 exactly as before. Copy drafts in docs/templates.md "nudge_d7" (DRAFT).
+- **Day 7 (dark):** new kind `nudge_d7`, +48h after d5, templates `nudge_d7_adults|kids|baby` (+ `_es`/`_en`). Behind `features.nudgeDay7` (client.mjs, **false**; added to the compile-kb whitelist). With it on, d7 is the "último mensaje" goodbye (link-only CTA) and d5 becomes a plain value touch with the slot CTA; with it off the chain ends at d5 exactly as before. Copy approved 2026-11-05 (docs/templates.md "nudge_d7 + nudge_d5v2"): generic, no name; with the flag on d5 sends `nudge_d5v2_*` and both d5/d7 templates take zero params.
 - `dueFollowups` now orders `due_at, id` so two extended steps due at the same 08:00 go in chain order.
 - Tests 1417 → **1432** (new test/nudge-drip-v2.test.ts on real SQLite with a fake CDMX clock; seq_done tests replaced by resume tests; armNudges / same-minute tests updated to the new rules).
 
@@ -31,8 +31,8 @@ await (await fetch("/admin/api/nudges/catchup", { method: "POST", headers: { "co
 - [ ] **Evan (after the drip fix is live):** run the dry run; review `candidates`, `byNextStep`, `skipped`, `days` and `estTemplateSends` (≈ paid marketing templates; every window is closed) and the sample; add anyone to leave out to `excludePhones`; OK; run apply with the SAME body except `dryRun: false`. Keep `perDay` ≤ 150: each due send can cost 2 Graph subrequests (free-form try + template) and steps stack (day 4 carries ~4×perDay sends).
 
 - [ ] **Evan:** review + merge + push. Probe after deploy: a fresh lead who replies before +1h gets a new `nudge_1h` row (`d1:<ts>` token) and `nudge_d2..d5` rows are scheduled right after the first bot reply (Chats → followups).
-- [ ] **Evan:** approve (or rewrite) the d7 copy and the new d5 value-touch copy (docs/templates.md "nudge_d7").
-- [ ] **Evan:** submit `nudge_d7_{adults,kids,baby}_es` to Meta; when they are APPROVED, also edit the 3 `nudge_d5_*_es` templates (they still say "último mensaje"), then flip `features.nudgeDay7: true`, `npm run build`, commit, push.
+- [x] **Evan:** approved the d7 + d5 value-touch copy 2026-11-05 (generic "¡Hola!", no name, link + "o escríbenos aquí"; docs/templates.md "nudge_d7 + nudge_d5v2"). Code: branch `feat/d7-generic-copy` (d5-flag-on + d7 send zero template params, d5 → `nudge_d5v2_*` with the flag on).
+- [ ] **Evan:** create the 6 templates `nudge_d7_{adults,kids,baby}_es` + `nudge_d5v2_{adults,kids,baby}_es` via `POST /admin/api/blast/templates/create` (the approved `nudge_d5_*_es` stay untouched — no edit in WhatsApp Manager); when all 6 are APPROVED, flip `features.nudgeDay7: true`, `npm run build`, commit, push.
 
 ### 📹 Videos: prerecorded clips sent with one tap from Chats / Agenda (2026-10-27) — branch `feat/saved-videos`, rebased on 9c57465 (pushed by Evan)
 

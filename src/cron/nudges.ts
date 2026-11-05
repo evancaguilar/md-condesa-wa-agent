@@ -56,6 +56,7 @@ import {
   classifyProgram,
   extendedCopy,
   extendedTemplateName,
+  isGenericExtendedStep,
   noShowCopy,
   parseQualification,
   programLink,
@@ -78,6 +79,7 @@ export {
   classifyProgram,
   extendedCopy,
   extendedTemplateName,
+  isGenericExtendedStep,
   noShowCopy,
   programLink,
   slotCta,
@@ -883,20 +885,31 @@ export async function processExtendedNudge(
 
   // Window closed → per-program template fallback.
   const lang = contact.lang === "en" ? "en" : "es";
-  const base = extendedTemplateName(kind, program);
+  const base = extendedTemplateName(kind, program, day7);
   const template = deps.templateName(base, lang);
-  // Every one of the 12 nudge_d* templates declares {{1}} = first name. Sending
-  // ZERO parameters (the bug until 2026-09-21) fails at Graph with 132000, and
-  // the bare `catch` then reported it as "not approved yet" — which would have
-  // sent Evan hunting in WhatsApp Manager for a template sitting there approved.
-  const firstName = templateFirstName(
-    greetingName(parseQualification(contact).name) || greetingName(contact.name),
-    lang,
-  );
+  // The 12 nudge_d2..d5 templates declare {{1}} = first name. Sending ZERO
+  // parameters to them (the bug until 2026-09-21) fails at Graph with 132000,
+  // and the bare `catch` then reported it as "not approved yet". The generic
+  // steps (d7, and d5 → nudge_d5v2_* with the flag on) declare NO placeholder,
+  // and a parameter there fails with the same 132000 — so they send none.
+  const components = isGenericExtendedStep(kind, day7)
+    ? []
+    : [
+        {
+          type: "body",
+          parameters: [
+            {
+              type: "text",
+              text: templateFirstName(
+                greetingName(parseQualification(contact).name) || greetingName(contact.name),
+                lang,
+              ),
+            },
+          ],
+        },
+      ];
   try {
-    await deps.sendTemplate(env, phone, template, lang, [
-      { type: "body", parameters: [{ type: "text", text: firstName }] },
-    ]);
+    await deps.sendTemplate(env, phone, template, lang, components);
     return { outcome: "sent" };
   } catch (err) {
     await kvDelete(env.DB, claim);

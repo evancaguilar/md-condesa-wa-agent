@@ -18,6 +18,7 @@ import {
   EXTENDED_NUDGE_KINDS,
 } from "../src/cron/nudges.js";
 import { cdmxToEpoch, cdmxParts, DAY } from "../src/cron/time.js";
+import { CLIENT } from "../src/client.gen.js";
 import type { Contact, Env } from "../src/types.js";
 
 // ---- tiny fake D1 (mirrors nudges.test.ts) ----
@@ -383,6 +384,60 @@ test("processExtendedNudge: a nameless lead gets the readable filler, never ''",
   assert.deepEqual(calls[0]![2], [
     { type: "body", parameters: [{ type: "text", text: "qué tal" }] },
   ]);
+});
+
+async function withDay7(on: boolean, fn: () => Promise<void>): Promise<void> {
+  const flags = CLIENT.features as { nudgeDay7?: boolean };
+  const prev = flags.nudgeDay7;
+  flags.nudgeDay7 = on;
+  try {
+    await fn();
+  } finally {
+    flags.nudgeDay7 = prev;
+  }
+}
+
+test("processExtendedNudge: flag off, d5 sends the approved nudge_d5_* with {{1}}", async () => {
+  await withDay7(false, async () => {
+    const calls: unknown[][] = [];
+    const { db } = extendedDb("Ana");
+    const res = await processExtendedNudge(envWith(db), "5215512345678", "nudge_d5", extendedDeps(calls));
+    assert.deepEqual(res, { outcome: "sent" });
+    assert.deepEqual(calls[0], [
+      "nudge_d5_adults_es",
+      "es",
+      [{ type: "body", parameters: [{ type: "text", text: "Ana" }] }],
+    ]);
+  });
+});
+
+test("processExtendedNudge: flag on, d5 sends nudge_d5v2_* with ZERO parameters", async () => {
+  // The v2 bodies have no {{1}}: a parameter there fails at Graph with 132000.
+  await withDay7(true, async () => {
+    const calls: unknown[][] = [];
+    const { db } = extendedDb("Ana");
+    const res = await processExtendedNudge(envWith(db), "5215512345678", "nudge_d5", extendedDeps(calls));
+    assert.deepEqual(res, { outcome: "sent" });
+    assert.deepEqual(calls[0], ["nudge_d5v2_adults_es", "es", []]);
+  });
+});
+
+test("processExtendedNudge: flag on, d7 sends nudge_d7_* with ZERO parameters; d2 keeps {{1}}", async () => {
+  await withDay7(true, async () => {
+    const calls: unknown[][] = [];
+    const { db } = extendedDb("Ana");
+    const res = await processExtendedNudge(envWith(db), "5215512345678", "nudge_d7", extendedDeps(calls));
+    assert.deepEqual(res, { outcome: "sent" });
+    assert.deepEqual(calls[0], ["nudge_d7_adults_es", "es", []]);
+
+    const { db: db2 } = extendedDb("Ana");
+    await processExtendedNudge(envWith(db2), "5215512345678", "nudge_d2", extendedDeps(calls));
+    assert.deepEqual(calls[1], [
+      "nudge_d2_adults_es",
+      "es",
+      [{ type: "body", parameters: [{ type: "text", text: "Ana" }] }],
+    ]);
+  });
 });
 
 test("processExtendedNudge: 132001 is 'not approved'; 132000 is our bug", async () => {

@@ -247,66 +247,77 @@ kids & baby → https://mdcondesa.com/clase-prueba-ninos/
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
-## nudge_d7 — Marketing — **DRAFT, pending owner approval**
+## nudge_d7 + nudge_d5v2 — Marketing — approved by Evan 2026-11-05
 
 The 7th touch for leads who never book (2026-11): +48h after d5, quiet-shifted.
 Behind `features.nudgeDay7` (client.mjs, **off**). With the flag on, d7 takes
 over the goodbye and d5 becomes a plain value touch; with it off nothing here
-is sent and d5 stays the goodbye. Same shape as d2–d5: free-form first,
-template only when the 24h window is closed.
+is sent and d5 stays the goodbye (approved `nudge_d5_*_es`, unchanged). Same
+shape as d2–d5: free-form first, template only when the 24h window is closed.
 
-- Base names → sent name: `nudge_d7_adults` → `nudge_d7_adults_es`, same for
-  `_kids` / `_baby` (3 templates, es only — `_en` not authored yet).
-- **{{1}}** = first name (`qué tal` filler when unknown). **BAJA footer** required.
-- **Before flipping the flag:** the 3 approved `nudge_d5_*_es` templates still
-  say "último mensaje". Edit them in WhatsApp Manager to the value-touch text
-  below (an edit re-enters review), or the window-closed d5 says goodbye two
-  days before the real goodbye.
+Copy approved by Evan 2026-11-05, submitted 2026-11-05 ~07:15 CDMX via
+`POST /admin/api/blast/templates/create` — all six PENDING in Meta (ids: d5v2 adults 4558557071138729, kids 2347138176023829, baby 2043357480385259; d7 adults 2597445350775543, kids 1299011142363278, baby 1071776929161949). (owner-only; docs/blasts.md §1).
+
+- **6 new templates, es only** (`_en` not authored yet):
+  - d7 goodbye: `nudge_d7_adults_es`, `nudge_d7_kids_es`, `nudge_d7_baby_es`.
+  - d5 value touch: `nudge_d5v2_adults_es`, `nudge_d5v2_kids_es`,
+    `nudge_d5v2_baby_es`. NEW names instead of editing the approved
+    `nudge_d5_*_es`, so those keep serving while the flag is off and never
+    re-enter Meta review. `extendedTemplateName("nudge_d5", p, true)` returns the
+    v2 base; with the flag off it returns `nudge_d5_<p>`.
+- **No name, zero parameters** (Evan 2026-11-05): generic "¡Hola! …" opener, no
+  {{1}}. `processExtendedNudge` sends NO body component for these six (sending a
+  parameter to a placeholder-less template fails at Graph with 132000); d2–d4 and
+  the flag-off d5 still send {{1}} = first name.
+- **Close:** booking link for the program, then "o escríbenos aquí 🙂"
+  (adults → https://mdcondesa.com/clase-prueba-adultos/ · kids & baby →
+  https://mdcondesa.com/clase-prueba-ninos/).
+- **BAJA footer** required: _Responde BAJA para dejar de recibir mensajes._
 - No price, no discount, no deadline, no invented quotes.
 
 ### Free-form (in-window) text — as coded in src/cron/nudge-copy.ts
 
-d7 (link-only CTA, no slot proposal):
-- adults: «¡Hola Ana! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, aquí estamos.» + link
-- kids: «¡Hola Ana! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le guardamos su lugar. ¡Aquí estamos!» + link
-- baby: «¡Hola Ana! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita. ¡Aquí estamos!» + link
+d7 (link-only CTA + "o escríbenos aquí", no slot proposal):
+- adults: «¡Hola! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, aquí estamos.» + «Puedes agendar tu día gratuito aquí: <link> o escríbenos aquí 🙂»
+- kids: «¡Hola! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le guardamos su lugar. ¡Aquí estamos!» + «Pueden apartar su clase gratis aquí: <link> o escríbenos aquí 🙂»
+- baby: «¡Hola! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita. ¡Aquí estamos!» + «Pueden apartar su clase gratis aquí: <link> o escríbenos aquí 🙂»
 
-d5 with the flag on (value touch, concrete slot CTA like d2–d4):
-- adults: «¡Hola Ana! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti.» + slot CTA
-- kids: «¡Hola Ana! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso.» + slot CTA
-- baby: «¡Hola Ana! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá.» + slot CTA
+d5 with the flag on (value touch, concrete slot CTA like d2–d4 + "o escríbenos aquí"):
+- adults: «¡Hola! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti.» + «Te puedo apartar lugar en Jiu-Jitsu hoy a las 6:00 pm — ¿te late? Si prefieres otro horario: <link> o escríbenos aquí 🙂»
+- kids: «¡Hola! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso.» + «Les puedo apartar lugar en … — ¿les late? Si prefieren otro horario: <link> o escríbenos aquí 🙂»
+- baby: «¡Hola! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá.» + same slot CTA as kids
+- No slot available → the link-only CTA of d7 + "o escríbenos aquí 🙂".
+- English leads get the same shape ("Hi! …" … "or message us here 🙂").
 
 ### Template bodies (window closed)
 
+**`nudge_d5v2_adults_es`**
+> ¡Hola! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti. Agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/ o escríbenos aquí 🙂
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d5v2_kids_es`**
+> ¡Hola! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso. Aparta su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
+**`nudge_d5v2_baby_es`**
+> ¡Hola! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá. Aparta su clase gratis aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
+>
+> _Responde BAJA para dejar de recibir mensajes._
+
 **`nudge_d7_adults_es`**
-> ¡Hola {{1}}! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/
+> ¡Hola! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/ o escríbenos aquí 🙂
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
 **`nudge_d7_kids_es`**
-> ¡Hola {{1}}! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le apartamos su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
+> ¡Hola! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le apartamos su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
 **`nudge_d7_baby_es`**
-> ¡Hola {{1}}! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita aquí: https://mdcondesa.com/clase-prueba-ninos/
->
-> _Responde BAJA para dejar de recibir mensajes._
-
-Suggested edits for the d5 templates (only when the flag goes on):
-
-**`nudge_d5_adults_es`**
-> ¡Hola {{1}}! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti. Agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/
->
-> _Responde BAJA para dejar de recibir mensajes._
-
-**`nudge_d5_kids_es`**
-> ¡Hola {{1}}! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso. Aparta su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
->
-> _Responde BAJA para dejar de recibir mensajes._
-
-**`nudge_d5_baby_es`**
-> ¡Hola {{1}}! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá. Aparta su clase gratis aquí: https://mdcondesa.com/clase-prueba-ninos/
+> ¡Hola! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
 >
 > _Responde BAJA para dejar de recibir mensajes._
 
