@@ -219,9 +219,7 @@ export interface CreateTemplateInput {
   header?: { type: "IMAGE"; handle: string };
   /** URL buttons may end in `{{1}}` (dynamic suffix); Meta then needs one full
    *  sample URL in `example`. */
-  buttons?:
-    | { type: "URL"; text: string; url: string; example?: string[] }[]
-    | { type: "QUICK_REPLY"; text: string }[];
+  buttons?: ({ type: "URL"; text: string; url: string; example?: string[] } | { type: "QUICK_REPLY"; text: string })[];
 }
 
 export interface CreateTemplateResult {
@@ -306,6 +304,52 @@ export interface UpdateTemplateInput {
   body: string;
   footer?: string;
   bodyExamples?: string[];
+  /**
+   * The template's FULL button list after the edit (2026-11-05: adds the
+   * one-tap opt-out quick reply to approved marketing templates). Meta
+   * REPLACES every component on an edit, so a template that already has
+   * buttons must send them all here; omitting `buttons` on such a template is
+   * refused (checkTemplateUpdate) rather than silently dropping them. `[]`
+   * removes them on purpose.
+   */
+  buttons?: TemplateButton[];
+}
+
+export type TemplateButton = NonNullable<CreateTemplateInput["buttons"]>[number];
+
+/** Meta's limit on a quick-reply / URL button's text. */
+const BUTTON_TEXT_MAX = 25;
+/** Meta's limit on the FOOTER text. */
+export const FOOTER_MAX = 60;
+
+/**
+ * Pure. Can this edit go to Meta without losing anything? `existing` is the
+ * catalog row. Refuses: a media header (the edit cannot carry the sample
+ * handle, so it would be dropped), existing buttons with no `buttons` in the
+ * input, a malformed button, a footer over 60 chars. Spanish reason or null.
+ */
+export function checkTemplateUpdate(existing: TemplateSummary, input: UpdateTemplateInput): string | null {
+  if (existing.headerFormat) {
+    return `la plantilla lleva encabezado ${existing.headerFormat}; esta edición lo borraría (edítala en WhatsApp Manager)`;
+  }
+  if (input.footer !== undefined && input.footer.length > FOOTER_MAX) {
+    return `footer de ${input.footer.length} caracteres (máximo ${FOOTER_MAX})`;
+  }
+  if (input.buttons === undefined) {
+    return existing.buttons.length
+      ? `la plantilla ya tiene botones (${existing.buttons.join(", ")}); mándalos todos en "buttons" ([] para quitarlos)`
+      : null;
+  }
+  if (!Array.isArray(input.buttons)) return '"buttons" debe ser una lista';
+  for (const b of input.buttons as unknown[]) {
+    const btn = (b ?? {}) as { type?: unknown; text?: unknown; url?: unknown };
+    const text = typeof btn.text === "string" ? btn.text.trim() : "";
+    if (!text || text.length > BUTTON_TEXT_MAX) return `botón con texto vacío o de más de ${BUTTON_TEXT_MAX} caracteres`;
+    if (btn.type === "QUICK_REPLY") continue;
+    if (btn.type === "URL" && typeof btn.url === "string" && /^https:\/\//.test(btn.url)) continue;
+    return 'botón inválido: { type: "QUICK_REPLY", text } o { type: "URL", text, url: "https://…" }';
+  }
+  return null;
 }
 
 /** Pure. Graph payload for POST /{template_id} (edit in place — allowed while
@@ -318,6 +362,7 @@ export function buildUpdateTemplatePayload(input: UpdateTemplateInput): Record<s
     body: input.body,
     footer: input.footer,
     bodyExamples: input.bodyExamples,
+    buttons: input.buttons,
   });
   return { components: payload.components };
 }
@@ -333,6 +378,8 @@ export async function updateTemplate(
   if (!catalog.ok) return { ok: false, error: catalog.error ?? "catálogo no disponible" };
   const t = findTemplate(catalog.templates, input.name, input.language);
   if (!t?.id) return { ok: false, error: `plantilla ${input.name}/${input.language} no existe en la WABA` };
+  const refused = checkTemplateUpdate(t, input);
+  if (refused) return { ok: false, error: refused };
   try {
     const res = await doFetch(`https://graph.facebook.com/${GRAPH_VERSION}/${t.id}`, {
       method: "POST",

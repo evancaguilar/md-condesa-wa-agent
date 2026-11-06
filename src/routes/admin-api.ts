@@ -140,8 +140,8 @@ import {
 } from "../db/queries-admin.js";
 import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
-import { parseCatchupBody } from "../services/nudge-catchup.js";
-import { runNudgeCatchup } from "../services/nudge-catchup-db.js";
+import { parseCatchupBody, parseCatchupCancelBody } from "../services/nudge-catchup.js";
+import { cancelNudgeCatchup, runNudgeCatchup } from "../services/nudge-catchup-db.js";
 import { migrationState, runMigrationStep, type MigrationInput } from "../services/wa-migrate.js";
 import {
   displayTemplateSend,
@@ -601,7 +601,10 @@ export async function handleAdminApi(
       if (r.ok) ctx.waitUntil(ports.slack.postNote(`📝 Plantilla *${body.name}* (${body.language}) enviada a Meta por ${by} → ${r.status ?? "?"}`, { kind: "template" }).catch(() => {}));
       return json(r, r.ok ? 200 : 400);
     }
-    // Edit an existing template's body/footer in place (2026-09-21).
+    // Edit an existing template's body/footer in place (2026-09-21); since
+    // 2026-11-05 also its full `buttons` list (the one-tap opt-out quick reply).
+    // Body: {name, language, body, bodyExamples?, footer?, buttons?}. Meta
+    // replaces every component, so send the CURRENT body verbatim.
     if (path === "/admin/api/blast/templates/update" && method === "POST") {
       const body = (await req.json().catch(() => null)) as UpdateTemplateInput | null;
       if (!body || typeof body !== "object") return json({ error: "body inválido" }, 400);
@@ -681,6 +684,21 @@ export async function handleAdminApi(
     return json(
       await runNudgeCatchup(env.DB, parsed.opts, now, {
         day7: CLIENT.features.nudgeDay7 === true,
+        postNote: (t) => ports.slack.postNote(t, { kind: "followup" }),
+      }),
+    );
+  }
+  // Cancel a catch-up run's live rows (2026-11-05, after the Meta spam flag):
+  // {runId | all: true, dryRun?: true, status?: "cancelled"} → scheduled OR
+  // paused rows of that token (or every seq:catchup:%) become cancelled.
+  // dryRun (default) only counts.
+  if (path === "/admin/api/nudges/catchup/cancel" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const parsed = parseCatchupCancelBody(await readJson<Record<string, unknown>>(req));
+    if (!parsed.ok) return json({ error: parsed.error }, 400);
+    await ensureIndexes(env.DB);
+    return json(
+      await cancelNudgeCatchup(env.DB, parsed.opts, {
         postNote: (t) => ports.slack.postNote(t, { kind: "followup" }),
       }),
     );

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chainTemplateBody, chainTemplateInputs, SEED_KEY } from "../src/cron/template-seed-chains.js";
 import { postTrialTemplateName } from "../src/cron/post-trial.js";
+import { isOptOutButtonLabel } from "../src/pipeline/promo-button.js";
+import { buildCreateTemplatePayload } from "../src/services/blast-templates.js";
 
 const STEPS2 = ["post_trial_d3", "post_trial_d6", "no_show_hoy", "no_show_d2", "no_show_d7"];
 
@@ -31,7 +33,13 @@ test("chain seeder: names match what the sender asks for per band", () => {
 test("chain seeder: placeholder shapes, examples, footer, category; no leftover {braces}", () => {
   for (const t of chainTemplateInputs()) {
     assert.equal(t.category, "MARKETING");
-    assert.ok(t.footer && /BAJA/.test(t.footer), t.name);
+    // 2026-11-05: one-tap opt-out button + a footer that points at it.
+    const label = t.language === "en" ? "Stop messages" : "No recibir mensajes";
+    assert.ok(t.footer && t.footer.includes(`«${label}»`) && t.footer.length <= 60, t.name);
+    assert.deepEqual(t.buttons, [{ type: "QUICK_REPLY", text: label }], t.name);
+    assert.ok(isOptOutButtonLabel("button", t.buttons![0]!.text), t.name);
+    const payload = buildCreateTemplatePayload(t).components as { type: string; buttons?: unknown[] }[];
+    assert.deepEqual(payload.find((c) => c.type === "BUTTONS")?.buttons, [{ type: "QUICK_REPLY", text: label }]);
     assert.ok(t.body.includes("{{1}}"), t.name);
     assert.equal(/\{(who|kid|day|cta|link)\}/.test(t.body), false, t.body);
     assert.equal(t.body.endsWith("}}"), false, t.body); // Meta rejects a trailing variable

@@ -6,7 +6,13 @@ import {
   syncPostTrialD0Templates,
   templateBodyFromCopy,
 } from "../src/cron/template-sync.js";
-import { buildUpdateTemplatePayload } from "../src/services/blast-templates.js";
+import {
+  buildUpdateTemplatePayload,
+  checkTemplateUpdate,
+  updateTemplate,
+  type TemplateSummary,
+  type UpdateTemplateInput,
+} from "../src/services/blast-templates.js";
 import type { Env } from "../src/types.js";
 import { CLIENT } from "../src/client.gen.js";
 
@@ -53,7 +59,10 @@ test("templateBodyFromCopy: {who} → ' {{1}}'", () => {
   assert.match(inputs[0].body, /^¡Hola \{\{1\}\}!/);
   // client.gen.ts is a build artifact — pin the transform, not the prose.
   assert.equal(inputs[0].body, templateBodyFromCopy(CLIENT.copy.postTrialD0Es));
-  assert.match(inputs[0].footer ?? "", /BAJA/);
+  assert.equal(inputs[0].footer, "Toca «No recibir mensajes» para darte de baja.");
+  assert.deepEqual(inputs[0].buttons, [{ type: "QUICK_REPLY", text: "No recibir mensajes" }]);
+  assert.equal(inputs[1].footer, "Tap «Stop messages» to unsubscribe.");
+  assert.deepEqual(inputs[1].buttons, [{ type: "QUICK_REPLY", text: "Stop messages" }]);
 });
 
 test("buildUpdateTemplatePayload: components only (no name/category)", () => {
@@ -62,6 +71,82 @@ test("buildUpdateTemplatePayload: components only (no name/category)", () => {
   const comps = p.components as Record<string, unknown>[];
   assert.equal(comps[0].type, "BODY");
   assert.deepEqual(comps[1], { type: "FOOTER", text: "F" });
+  assert.equal(comps.length, 2, "no buttons ⇒ no BUTTONS component");
+});
+
+test("buildUpdateTemplatePayload: carries the opt-out quick reply as a BUTTONS component", () => {
+  const p = buildUpdateTemplatePayload({
+    name: "nudge_d2_adults_es",
+    language: "es",
+    body: "¡Hola {{1}}! 👋 ¿Pudiste…",
+    bodyExamples: ["Ana"],
+    footer: "Toca «No recibir mensajes» para darte de baja.",
+    buttons: [{ type: "QUICK_REPLY", text: "No recibir mensajes" }],
+  });
+  assert.deepEqual(p.components, [
+    { type: "BODY", text: "¡Hola {{1}}! 👋 ¿Pudiste…", example: { body_text: [["Ana"]] } },
+    { type: "FOOTER", text: "Toca «No recibir mensajes» para darte de baja." },
+    { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "No recibir mensajes" }] },
+  ]);
+});
+
+const summary = (over: Partial<TemplateSummary> = {}): TemplateSummary => ({
+  id: "T1", name: "nudge_d2_adults_es", language: "es", status: "APPROVED", category: "MARKETING",
+  headerFormat: null, headerText: null, headerVars: 0, body: "¡Hola {{1}}!", bodyVars: 1,
+  footer: "Responde BAJA para dejar de recibir mensajes.", buttons: [], rejectedReason: null, ...over,
+});
+const upd = (over: Partial<UpdateTemplateInput> = {}): UpdateTemplateInput => ({
+  name: "nudge_d2_adults_es", language: "es", body: "¡Hola {{1}}!", ...over,
+});
+
+test("checkTemplateUpdate: adding a quick reply to a button-less template is fine", () => {
+  assert.equal(checkTemplateUpdate(summary(), upd()), null);
+  assert.equal(checkTemplateUpdate(summary(), upd({ buttons: [{ type: "QUICK_REPLY", text: "No recibir mensajes" }] })), null);
+  assert.equal(
+    checkTemplateUpdate(summary(), upd({ buttons: [{ type: "URL", text: "Agendar", url: "https://mdcondesa.com/" }, { type: "QUICK_REPLY", text: "Stop messages" }] })),
+    null,
+  );
+});
+
+test("checkTemplateUpdate: refuses edits that would silently drop components or break Meta limits", () => {
+  // Existing buttons and no `buttons` in the edit → would strip them (incl. the opt-out button).
+  assert.match(checkTemplateUpdate(summary({ buttons: ["No recibir mensajes"] }), upd()) ?? "", /ya tiene botones/);
+  // `[]` removes them on purpose.
+  assert.equal(checkTemplateUpdate(summary({ buttons: ["No recibir mensajes"] }), upd({ buttons: [] })), null);
+  // A media header cannot be carried by this edit.
+  assert.match(checkTemplateUpdate(summary({ headerFormat: "IMAGE" }), upd()) ?? "", /IMAGE/);
+  assert.match(checkTemplateUpdate(summary(), upd({ footer: "x".repeat(61) })) ?? "", /máximo 60/);
+  assert.match(checkTemplateUpdate(summary(), upd({ buttons: [{ type: "QUICK_REPLY", text: "x".repeat(26) }] })) ?? "", /25/);
+  assert.match(
+    checkTemplateUpdate(summary(), upd({ buttons: [{ type: "URL", text: "Ir", url: "http://x" }] as UpdateTemplateInput["buttons"] })) ?? "",
+    /inválido/,
+  );
+  assert.match(
+    checkTemplateUpdate(summary(), upd({ buttons: [{ type: "PHONE_NUMBER", text: "Llamar" }] as unknown as UpdateTemplateInput["buttons"] })) ?? "",
+    /inválido/,
+  );
+});
+
+test("updateTemplate: refused edit never POSTs to the template", async () => {
+  const { db } = fakeDb();
+  const { doFetch, calls } = fakeFetch((url) => {
+    if (url.includes("/message_templates")) {
+      return { body: { data: [{ id: "T9", name: "nudge_d2_adults_es", language: "es", status: "APPROVED", category: "MARKETING",
+        components: [{ type: "BODY", text: "¡Hola {{1}}!" }, { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "No recibir mensajes" }] }] }] } };
+    }
+    return { body: { success: true } };
+  });
+  const env = { DB: db, WA_WABA_ID: "WABA1", WA_ACCESS_TOKEN: "tok" } as unknown as Env;
+  const r = await updateTemplate(env, upd({ footer: "F" }), doFetch);
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? "", /ya tiene botones/);
+  assert.equal(calls.filter((c) => c.method === "POST").length, 0);
+  // With the buttons spelled out, it goes through and sends them.
+  const ok = await updateTemplate(env, upd({ footer: "F", buttons: [{ type: "QUICK_REPLY", text: "No recibir mensajes" }] }), doFetch);
+  assert.equal(ok.ok, true);
+  const post = calls.find((c) => c.method === "POST")!;
+  assert.ok(post.url.endsWith("/T9"));
+  assert.deepEqual((post.body as { components: { type: string }[] }).components.map((c) => c.type), ["BODY", "FOOTER", "BUTTONS"]);
 });
 
 test("syncPostTrialD0Templates: edits both templates by id, sets the guard, runs once", async () => {

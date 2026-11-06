@@ -15,13 +15,15 @@ import {
   defaultCatchupStart,
   normalizeCatchupStart,
   parseCatchupBody,
+  parseCatchupCancelBody,
   planCatchup,
   rowSkipReason,
   type CatchupContactRow,
   type CatchupLead,
   type CatchupProbes,
 } from "../src/services/nudge-catchup.js";
-import { CATCHUP_SQL, runNudgeCatchup } from "../src/services/nudge-catchup-db.js";
+import { CATCHUP_SQL, cancelNudgeCatchup, runNudgeCatchup } from "../src/services/nudge-catchup-db.js";
+import { ALL_EXTENDED_KINDS } from "../src/cron/nudge-copy.js";
 import { extendedChainKinds, EXTENDED_NUDGE_KINDS, type ExtendedKind } from "../src/cron/nudges.js";
 import { INDEX_SQL } from "../src/db/indexes.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "../src/cron/time.js";
@@ -409,4 +411,181 @@ test("catch-up D1: every probe is index-pinned (no full scans of hot tables)", (
     .map((r) => r.detail)
     .join(" ");
   assert.match(contacts, /idx_contacts_created/);
+});
+
+// ---- requireReplyToBot + cancel (2026-11-05, Meta spam flag) ---------------------
+
+test("catch-up body: requireReplyToBot defaults to false, true only when sent as true", () => {
+  const d = parseCatchupBody({}, NOW);
+  assert.ok(d.ok && d.opts.requireReplyToBot === false);
+  const t = parseCatchupBody({ requireReplyToBot: true }, NOW);
+  assert.ok(t.ok && t.opts.requireReplyToBot === true);
+  const s = parseCatchupBody({ requireReplyToBot: "yes" }, NOW);
+  assert.ok(s.ok && s.opts.requireReplyToBot === false);
+});
+
+test("catch-up selection: a paused extended row counts as a live chain", () => {
+  assert.equal(
+    skipOf(row(), probes({ followups: [{ kind: "nudge_d2", status: "paused", due_at: NOW + DAY }] })),
+    "inChain",
+  );
+  assert.equal(
+    skipOf(row(), probes({ followups: [{ kind: "nudge_d2", status: "cancelled", due_at: NOW - DAY }] })),
+    null,
+  );
+});
+
+function seedReplies(raw: DatabaseSync): void {
+  const msg = raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES(?, ?, ?, ?, ?)`);
+  // Ana: bot wrote first (blast) 3 days ago, she answered 2 days ago (seed's w2) → replied.
+  msg.run("r1", "5215500000001", "out_bot", "[template:promo]", NOW - 3 * DAY);
+  // Beto: ad prefill, bot answered, silence since → no reply to the bot.
+  msg.run("r2", "5215500000002", "in", "Hola, quiero info", NOW - 6 * DAY);
+  msg.run("r3", "5215500000002", "out_bot", "¡Hola Beto! …", NOW - 6 * DAY + 30);
+  // Caro: prefill, bot answer, her reply 19 days ago (outside the 7-day probe) → replied.
+  msg.run("r4", "5215500000003", "in", "Hola", NOW - 20 * DAY);
+  msg.run("r5", "5215500000003", "out_bot", "¡Hola Caro!", NOW - 20 * DAY + 30);
+  msg.run("r6", "5215500000003", "in", "¿Qué horarios tienen?", NOW - 19 * DAY);
+}
+
+test("catch-up D1: requireReplyToBot keeps only leads who wrote after our first outbound", async () => {
+  const { raw, db } = sqliteDb();
+  seed(raw);
+  seedReplies(raw);
+  // Old behavior unchanged: all three eligible leads.
+  const off = await runNudgeCatchup(db, optsFor(true), NOW, {});
+  assert.equal(off.requireReplyToBot, false);
+  assert.equal(off.candidates, 3);
+  assert.equal(off.skipped.noReplyToBot, 0);
+
+  const p = parseCatchupBody({ dryRun: true, requireReplyToBot: true }, NOW);
+  assert.ok(p.ok);
+  const on = await runNudgeCatchup(db, p.ok ? p.opts : (null as never), NOW, {});
+  assert.equal(on.requireReplyToBot, true);
+  assert.equal(on.candidates, 2);
+  assert.equal(on.skipped.noReplyToBot, 1);
+  assert.deepEqual(on.sample.map((s) => s.phone).sort(), ["5215500000001", "5215500000003"]);
+  // The other skip counts are the same as without the filter.
+  assert.equal(on.skipped.booked, off.skipped.booked);
+  assert.equal(on.skipped.recentOutbound, off.skipped.recentOutbound);
+});
+
+test("catch-up D1: replied probe semantics (inbound strictly after the first outbound; no outbound = no reply)", async () => {
+  const { raw } = sqliteDb();
+  const msg = raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES(?, ?, ?, ?, ?)`);
+  const contact = raw.prepare(`INSERT INTO contacts(phone, status, created_at, updated_at) VALUES(?, 'lead', ?, ?)`);
+  for (const p of ["a", "b", "c", "d", "e"]) contact.run(p, NOW - DAY, NOW);
+  msg.run("a1", "a", "in", "hola", 100); // only inbound, never answered
+  msg.run("a2", "a", "in", "¿hola?", 200);
+  msg.run("b1", "b", "in", "hola", 100); // answered, then silence
+  msg.run("b2", "b", "out_bot", "¡Hola!", 110);
+  msg.run("b3", "b", "out_bot", "[template:nudge_d2_adults_es]", 900);
+  msg.run("c1", "c", "in", "hola", 100); // answered, wrote back
+  msg.run("c2", "c", "out_bot", "¡Hola!", 110);
+  msg.run("c3", "c", "in", "va, el sábado", 120);
+  msg.run("d1", "d", "out_human_echo", "Hola de recepción", 50); // staff first, lead replied
+  msg.run("d2", "d", "in", "gracias", 60);
+  msg.run("e1", "e", "in", "hola", 100); // reply in the same second as our message: not after it
+  msg.run("e2", "e", "out_bot", "¡Hola!", 110);
+  msg.run("e3", "e", "in", "ok", 110);
+  const got = (raw.prepare(CATCHUP_SQL.replied(5)).all("a", "b", "c", "d", "e") as { phone: string }[])
+    .map((r) => r.phone)
+    .sort();
+  assert.deepEqual(got, ["c", "d"]);
+});
+
+function seedCatchupRows(raw: DatabaseSync): void {
+  const fu = raw.prepare(
+    `INSERT INTO followups(phone, kind, due_at, status, airtable_record_id, created_at) VALUES(?, ?, ?, ?, ?, ?)`,
+  );
+  const A = catchupToken(START);
+  const B = catchupToken(START + DAY);
+  fu.run("5215500000001", "nudge_d2", START, "paused", A, NOW);
+  fu.run("5215500000001", "nudge_d3", START + DAY, "scheduled", A, NOW);
+  fu.run("5215500000002", "nudge_d2", START + 60, "scheduled", A, NOW);
+  fu.run("5215500000009", "nudge_d2", NOW - DAY, "sent", A, NOW); // already sent: untouched
+  fu.run("5215500000003", "nudge_d2", START + DAY, "scheduled", B, NOW);
+  fu.run("5215500000004", "nudge_d2", NOW + DAY, "scheduled", "seq:1", NOW); // regular drip: untouched
+  fu.run("5215500000005", "same_day", NOW + DAY, "scheduled", A, NOW); // not an extended kind: untouched
+}
+
+test("catch-up cancel body: runId or all, status only cancelled, dryRun default", () => {
+  const a = parseCatchupCancelBody({ runId: START });
+  assert.ok(a.ok);
+  if (a.ok) assert.deepEqual(a.opts, { dryRun: true, token: catchupToken(START) });
+  const b = parseCatchupCancelBody({ runId: catchupToken(START), dryRun: false, status: "cancelled" });
+  assert.ok(b.ok);
+  if (b.ok) assert.deepEqual(b.opts, { dryRun: false, token: catchupToken(START) });
+  const c = parseCatchupCancelBody({ all: true });
+  assert.ok(c.ok);
+  if (c.ok) assert.deepEqual(c.opts, { dryRun: true, token: null });
+  assert.equal(parseCatchupCancelBody({}).ok, false);
+  assert.equal(parseCatchupCancelBody({ runId: START, all: true }).ok, false);
+  assert.equal(parseCatchupCancelBody({ all: "true" }).ok, false);
+  assert.equal(parseCatchupCancelBody({ runId: "seq:1" }).ok, false);
+  assert.equal(parseCatchupCancelBody({ runId: "seq:catchup:%" }).ok, false);
+  assert.equal(parseCatchupCancelBody({ all: true, status: "sent" }).ok, false);
+});
+
+test("catch-up D1 cancel: dry run counts, apply cancels scheduled + paused rows of one run, then all", async () => {
+  const { raw, db, sqls } = sqliteDb();
+  seedCatchupRows(raw);
+  const A = catchupToken(START);
+  const B = catchupToken(START + DAY);
+  const statusOf = () =>
+    (raw.prepare(`SELECT phone, kind, status, airtable_record_id AS t FROM followups ORDER BY id`).all() as {
+      status: string;
+    }[]).map((r) => r.status);
+  const before = statusOf();
+
+  const notes: string[] = [];
+  const dry = await cancelNudgeCatchup(db, { dryRun: true, token: A }, { postNote: async (t) => void notes.push(t) });
+  assert.deepEqual(dry.matched, { scheduled: 2, paused: 1 });
+  assert.deepEqual(dry.byRun, { [A]: 3 });
+  assert.equal(dry.cancelled, 0);
+  assert.equal(dry.target, A);
+  assert.deepEqual(statusOf(), before, "dry run writes nothing");
+  assert.ok(sqls.every((s) => /^\s*SELECT/i.test(s)));
+  assert.equal(notes.length, 0);
+
+  const allDry = await cancelNudgeCatchup(db, { dryRun: true, token: null });
+  assert.deepEqual(allDry.byRun, { [A]: 3, [B]: 1 });
+  assert.equal(allDry.target, "all");
+
+  const one = await cancelNudgeCatchup(db, { dryRun: false, token: A }, { postNote: async (t) => void notes.push(t) });
+  assert.equal(one.cancelled, 3);
+  assert.deepEqual(statusOf(), ["cancelled", "cancelled", "cancelled", "sent", "scheduled", "scheduled", "scheduled"]);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0]!, /seq:catchup:/);
+
+  const rest = await cancelNudgeCatchup(db, { dryRun: false, token: null });
+  assert.equal(rest.cancelled, 1);
+  assert.deepEqual(statusOf(), ["cancelled", "cancelled", "cancelled", "sent", "cancelled", "scheduled", "scheduled"]);
+
+  // Nothing left: apply is a no-op (no UPDATE issued).
+  const n = sqls.length;
+  const none = await cancelNudgeCatchup(db, { dryRun: false, token: null });
+  assert.equal(none.cancelled, 0);
+  assert.equal(sqls.length, n + 1);
+});
+
+test("catch-up D1: replied + cancel queries are index-pinned", () => {
+  const { raw } = sqliteDb();
+  const kinds = [...ALL_EXTENDED_KINDS];
+  const plans: [string, unknown[]][] = [
+    [CATCHUP_SQL.replied(2), ["a", "b"]],
+    [CATCHUP_SQL.cancelCount(kinds.length, true), [...kinds, "seq:catchup:1"]],
+    [CATCHUP_SQL.cancelCount(kinds.length, false), kinds],
+    [CATCHUP_SQL.cancel(kinds.length, true), [...kinds, "seq:catchup:1"]],
+    [CATCHUP_SQL.cancel(kinds.length, false), kinds],
+  ];
+  for (const [sql, binds] of plans) {
+    const detail = (raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...(binds as never[])) as { detail: string }[])
+      .map((r) => r.detail)
+      .join(" | ");
+    assert.doesNotMatch(detail, /\bSCAN (c|i|o|contacts|followups|messages)\b(?! USING)/, detail);
+    assert.match(detail, /USING (COVERING )?INDEX|USING PRIMARY KEY/, detail);
+    if (sql.includes("FROM messages")) assert.match(detail, /idx_messages_phone_ts/, detail);
+    if (sql.includes("followups")) assert.match(detail, /idx_followups_kind_status_due/, detail);
+  }
 });

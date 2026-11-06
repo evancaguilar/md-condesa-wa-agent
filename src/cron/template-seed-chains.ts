@@ -22,15 +22,18 @@ import {
 } from "../services/blast-templates.js";
 import { templateBodyFromCopy } from "./template-sync.js";
 import { programLink } from "./nudges.js";
+import { OPT_OUT_FOOTER, optOutQuickReply } from "../pipeline/promo-button.js";
 
 export const SEED_KEY = "tpl_seed:chains:2026-10-15";
 export const SEED_PROGRESS_KEY = `${SEED_KEY}:progress`;
 export const MAX_TRIES = 3;
 
-const FOOTER: Record<Language, string> = {
-  es: "Responde BAJA para dejar de recibir mensajes.",
-  en: "Reply BAJA to stop receiving messages.",
-};
+// 2026-11-05 (Meta spam flag): every chain template carries the one-tap
+// opt-out QUICK_REPLY (promo-button.ts honors it on any template) and a footer
+// that points at it. Was "Responde BAJA para dejar de recibir mensajes.".
+// SEED_KEY is already set live, so this only shapes future/re-seeded
+// submissions; approved templates are edited via /admin/api/blast/templates/update.
+const FOOTER: Record<Language, string> = OPT_OUT_FOOTER;
 
 type Variant = "adults" | "kids" | "baby";
 type Step = "post_trial_d0" | "post_trial_d3" | "post_trial_d6" | "no_show_hoy" | "no_show_d2" | "no_show_d7";
@@ -112,6 +115,7 @@ export function chainTemplateInputs(): CreateTemplateInput[] {
           body: chainTemplateBody(copy, step, variant, lang),
           bodyExamples: ["Ana", ...(p2 === "slot" ? [SLOT_EXAMPLE[variant][lang]] : p2 === "link" ? [programLink(variant)] : [])],
           footer: FOOTER[lang],
+          buttons: [optOutQuickReply(lang)],
         });
       }
     }

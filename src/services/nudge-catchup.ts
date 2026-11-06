@@ -56,6 +56,13 @@ export interface CatchupOptions {
   startAt: number;
   excludePhones: Set<string>;
   limit: number;
+  /**
+   * 2026-11-05 (Meta spam flag after ~164 cold nudge_d2 templates in a day):
+   * keep only leads who wrote at least once AFTER our first outbound message
+   * to them, i.e. people who actually talked to the bot, not just the ad
+   * prefill. Default false (old behavior).
+   */
+  requireReplyToBot: boolean;
 }
 
 /** The token every row of a run carries (UNIQUE never blocks a new run). */
@@ -134,8 +141,41 @@ export function parseCatchupBody(
       startAt,
       excludePhones,
       limit: clampInt(b.limit, CATCHUP_DEFAULTS.limit, 1, CATCHUP_MAX.limit),
+      requireReplyToBot: b.requireReplyToBot === true,
     },
   };
+}
+
+// ---- cancel -----------------------------------------------------------------
+
+export interface CatchupCancelOptions {
+  dryRun: boolean;
+  /** One run's exact token (seq:catchup:<runId>), or null = every catch-up run. */
+  token: string | null;
+}
+
+/**
+ * Parse POST /admin/api/nudges/catchup/cancel. Exactly one of `runId` (the
+ * number, or the full "seq:catchup:<n>" token) or `all: true`. `status` may
+ * only be "cancelled" (the default). dryRun defaults to true. Pure.
+ */
+export function parseCatchupCancelBody(
+  body: Record<string, unknown> | null | undefined,
+): { ok: true; opts: CatchupCancelOptions } | { ok: false; error: string } {
+  const b = body ?? {};
+  if (b.status !== undefined && b.status !== "cancelled") {
+    return { ok: false, error: 'status: solo "cancelled"' };
+  }
+  const hasRun = b.runId !== undefined && b.runId !== null && b.runId !== "";
+  const all = b.all === true;
+  if (hasRun === all) return { ok: false, error: "manda runId o all: true (uno de los dos)" };
+  let token: string | null = null;
+  if (hasRun) {
+    const m = /^(?:seq:catchup:)?(\d{9,11})$/.exec(String(b.runId).trim());
+    if (!m) return { ok: false, error: "runId inválido (número o seq:catchup:<n>)" };
+    token = catchupToken(Number(m[1]));
+  }
+  return { ok: true, opts: { dryRun: b.dryRun !== false, token } };
 }
 
 // ---- selection --------------------------------------------------------------
@@ -154,6 +194,7 @@ export const SKIP_REASONS = [
   "chainDone",
   "recentOutbound",
   "buyIntent",
+  "noReplyToBot",
 ] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
@@ -240,7 +281,11 @@ export function classifyCatchupLead(
   if (probes.pendingApproval) return { skip: "pendingApproval" };
 
   const extended = new Set<string>(ALL_EXTENDED_KINDS);
-  if (fus.some((f) => extended.has(f.kind) && f.status === "scheduled")) return { skip: "inChain" };
+  // A paused row (an owner hold, e.g. the 2026-11-05 catch-up pause) is a live
+  // chain too: a new run must not stack a second chain on top of it.
+  if (fus.some((f) => extended.has(f.kind) && (f.status === "scheduled" || f.status === "paused"))) {
+    return { skip: "inChain" };
+  }
   const sentKinds = [
     ...new Set(
       fus

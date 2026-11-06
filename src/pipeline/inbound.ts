@@ -126,7 +126,7 @@ import { CLIENT } from "../client.gen.js";
 import { isNoReplySentinel } from "../brain/prompt.js";
 import { dashboardChatUrl } from "../services/dashboard-link.js";
 import { alertNote, taskNote } from "../cron/deps.js";
-import { handoffButtonTemplate, isOptOutButton } from "./promo-button.js";
+import { handoffButtonTemplate, isOptOutButton, isOptOutButtonLabel } from "./promo-button.js";
 import {
   fetchMediaBytes,
   fetchMediaBytesFromUrl,
@@ -386,6 +386,8 @@ export async function processInbound(
   // v2: the last ≤3 inbound messages within 2 min count as ONE text (2026-10-10
   // …4595: "No me interesa…" / "Gracias" / "Ya no me manden mensaje.").
   let optOut = isOptOut(body);
+  // One-tap opt-out quick reply on ANY template (promo-button.ts): no D1 read.
+  if (!optOut) optOut = isOptOutButtonLabel(msg.kind, body);
   if (!optOut && msg.kind === "button") {
     try {
       const recent = await recentMessages(env.DB, msg.phone, 20, Math.floor(Date.now() / 1000) - HISTORY_WINDOW_SECONDS);

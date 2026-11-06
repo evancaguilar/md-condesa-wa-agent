@@ -7,6 +7,44 @@ passes `""` when the name is unknown, so keep the greeting readable without it.
 Category per the spec. Same-day reminder uses quick-reply buttons; reengage_lead
 and the two Marketing post-trial ones carry the BAJA opt-out footer.
 
+## One-tap opt-out on every Marketing template (2026-11-05)
+
+After Meta flagged the account for spam (2026-11-05, ~164 cold `nudge_d2`
+templates in one catch-up day), every **Marketing** template — `nudge_d2…d5`,
+`nudge_d5v2`, `nudge_d7` (adults / kids / baby), `reengage_lead_*`,
+`no_show_*`, `post_trial_*` and every future blast template — carries:
+
+- a **QUICK_REPLY button**: es «No recibir mensajes» · en «Stop messages»
+  (`OPT_OUT_BUTTON_ES` / `OPT_OUT_BUTTON_EN` in src/pipeline/promo-button.ts);
+- the **FOOTER**: es _Toca «No recibir mensajes» para darte de baja._ · en
+  _Tap «Stop messages» to unsubscribe._ (`OPT_OUT_FOOTER`, ≤60 chars).
+
+A tap on that button (inbound `kind: "button"`) opts the lead out whatever
+template it answers (`isOptOutButtonLabel`; accepted labels: «No recibir
+mensajes», «No recibir más mensajes», «Dejar de recibir mensajes», «Stop
+promotions», «Stop messages»). Typed "BAJA" / "ya no me manden mensajes" keeps
+working through the typed-text detector. A static quick reply needs NO button
+component at send time, so the senders are unchanged.
+
+Templates the worker seeds (src/cron/template-seed-chains.ts) carry both
+already for any future submission; the ones already APPROVED in Meta are
+edited in place with `POST /admin/api/blast/templates/update`, sending the
+CURRENT body verbatim plus `footer` and `buttons`, e.g.:
+
+```json
+{ "name": "nudge_d2_adults_es", "language": "es",
+  "body": "<current body, exactly as approved, with {{1}}>",
+  "bodyExamples": ["Ana"],
+  "footer": "Toca «No recibir mensajes» para darte de baja.",
+  "buttons": [{ "type": "QUICK_REPLY", "text": "No recibir mensajes" }] }
+```
+
+The edit replaces ALL components, so it refuses a template that already has
+buttons unless `buttons` lists them all, and any template with a header. An
+edited APPROVED template goes back to Meta review. The bodies below show the
+new footer + button. Older copy elsewhere in this file that says "BAJA opt-out
+footer" means this footer + button now.
+
 Template name mapping (base → sent name):
 - `trial_confirm` → `trial_confirm_es` / `trial_confirm_en`
 - `trial_reminder_day_before` → `trial_reminder_day_before_es` / `_en`
@@ -132,12 +170,14 @@ Sent once, 7 days after the lead went cold.
 **ES (`reengage_lead_es`)**
 > ¡Hola {{1}}! Seguimos con un lugar para ti en MD Condesa 🥋 Clases de defensa personal, jiu jitsu y más en el corazón de la Condesa. ¿Agendamos tu clase de prueba gratis esta semana?
 >
-> _Responde BAJA para no recibir más mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **EN (`reengage_lead_en`)**
 > Hi {{1}}! We still have a spot for you at MD Condesa 🥋 Self-defense, jiu jitsu and more in the heart of Condesa. Shall we book your free trial class this week?
 >
-> _Reply BAJA to stop receiving messages._
+> _Tap «Stop messages» to unsubscribe._ (FOOTER)
+> QUICK_REPLY button: «Stop messages»
 
 Variables: {{1}} name. Footer text must be the template FOOTER component.
 
@@ -174,7 +214,10 @@ engine SKIPS the send and posts one Slack note per day (kv `tmpl_missing_note`).
   `nudge_d5_baby` → `nudge_d5_baby_es` (12 templates).
 - Variables: **{{1}}** = contact first name (sender passes `""` when unknown —
   keep the greeting readable without it).
-- Footer (identical on all 12): _Responde BAJA para dejar de recibir mensajes._
+- Footer (identical on all 12): _Toca «No recibir mensajes» para darte de baja._
+  + QUICK_REPLY button «No recibir mensajes» (2026-11-05; was _Responde BAJA
+  para dejar de recibir mensajes._ — the approved ones need the in-place edit at
+  the top of this file).
 - **TODO (Evan, at cutover):** submit these 12 to Meta; the free-form path covers
   most sends in the meantime.
 
@@ -186,66 +229,78 @@ kids & baby → https://mdcondesa.com/clase-prueba-ninos/
 **`nudge_d2_adults_es`**
 > ¡Hola {{1}}! 👋 ¿Pudiste encontrar algún horario que te quede bien para venir a probar tu día gratuito en MD Condesa? 🙌 Si quieres, agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d3_adults_es`**
 > ¡Hola {{1}}! Por si te sirve saberlo: no necesitas estar en forma ni tener experiencia para empezar. Justo por eso existe el día gratuito — vienes, pruebas unas clases reales, conoces la academia y ves si el reto se siente como algo que sí puedes sostener 💪 ¿Lo agendamos? https://mdcondesa.com/clase-prueba-adultos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d4_adults_es`**
 > ¡Hola {{1}}! A veces el cambio no empieza con una decisión enorme… empieza con una clase. Una hora. Un primer paso. Si buscas más condición, más confianza, más comunidad y más disciplina, esta puede ser una gran forma de empezar 🥋 ¿Te gustaría probar una clase gratis? https://mdcondesa.com/clase-prueba-adultos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d5_adults_es`**
 > ¡Hola {{1}}! Parece que por ahora quizá no es el momento, y está bien 🙂 Este será nuestro último mensaje de seguimiento por ahora. Si algo cambia y te gustaría ponerte en forma, aprender a defenderte y ganar confianza, aquí puedes agendar tu día gratuito cuando quieras: https://mdcondesa.com/clase-prueba-adultos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 ## Kids
 
 **`nudge_d2_kids_es`**
 > ¡Hola {{1}}! 👋 ¿Pudiste ver algún horario que le funcione a tu peque para su clase de prueba en MD Condesa? 🙌 Si quieres, aparta su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d3_kids_es`**
 > ¡Hola {{1}}! Muchos papás nos buscan porque su peque es un poco tímido o ha tenido problemas de bullying. Justo ahí es donde más vemos el cambio: aprenden a defenderse, a poner límites sanos y a creer más en sí mismos 💪 ¿Le agendamos su clase gratis? https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d4_kids_es`**
 > ¡Hola {{1}}! Además de moverse y salir un rato de las pantallas, los niños hacen amigos, ganan disciplina y se divierten muchísimo 🙌 Es de las cosas que más nos gusta ver clase con clase. Si ves un horario que les funcione, aparta su clase gratis aquí: https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d5_kids_es`**
 > ¡Hola {{1}}! Parece que quizá no es el momento, y está perfecto 🙂 Este será nuestro último mensaje por ahora. Si más adelante te gustaría que tu peque pruebe una clase, con gusto le apartamos su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 ## Baby (Baby Fight Club)
 
 **`nudge_d2_baby_es`**
 > ¡Hola {{1}}! Algo que nos ha encantado ver en Baby Fight Club es cómo algunos bebés llegan tímidos al inicio y, después de unas clases, empiezan a moverse con más confianza y hasta se adueñan del tatami 😄 Si todavía les interesa probar, cuéntame y apartamos su clase gratis, o resérvala aquí: https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d3_baby_es`**
 > ¡Hola de nuevo {{1}}! Además de la clase, al final tenemos 10 minutos de juego libre. Esa parte ha sido increíble para que los bebés exploren, convivan y empiecen a socializar en un espacio seguro 🙌 ¿Quieres que te ayude a apartar su clase gratuita? https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d4_baby_es`**
 > ¡Hola {{1}}! A esta edad, estimular movimiento, equilibrio, coordinación y confianza puede hacer una gran diferencia. En Baby Fight Club tu bebé se mueve, juega, explora y gana seguridad, siempre acompañado por mamá o papá 💪 Para apartar su clase gratis, resérvala aquí: https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d5_baby_es`**
 > ¡Hola {{1}}! Parece que quizá no es el momento para ustedes, y está bien 🙂 Este será nuestro último mensaje de seguimiento por el momento. Si más adelante te gustaría que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita aquí: https://mdcondesa.com/clase-prueba-ninos/
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 ## nudge_d7 + nudge_d5v2 — Marketing — approved by Evan 2026-11-05
 
@@ -272,7 +327,9 @@ Copy approved by Evan 2026-11-05, submitted 2026-11-05 ~07:15 CDMX via
 - **Close:** booking link for the program, then "o escríbenos aquí 🙂"
   (adults → https://mdcondesa.com/clase-prueba-adultos/ · kids & baby →
   https://mdcondesa.com/clase-prueba-ninos/).
-- **BAJA footer** required: _Responde BAJA para dejar de recibir mensajes._
+- **Opt-out footer + button** required: _Toca «No recibir mensajes» para darte
+  de baja._ + QUICK_REPLY «No recibir mensajes» (2026-11-05; submitted with
+  _Responde BAJA para dejar de recibir mensajes._ and no button).
 - No price, no discount, no deadline, no invented quotes.
 
 ### Free-form (in-window) text — as coded in src/cron/nudge-copy.ts
@@ -294,32 +351,38 @@ d5 with the flag on (value touch, concrete slot CTA like d2–d4 + "o escríbeno
 **`nudge_d5v2_adults_es`**
 > ¡Hola! Solo pasaba a recordarte que tu día gratuito en MD Condesa sigue disponible 🙌 Es la forma más fácil de probar sin compromiso y ver si es para ti. Agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/ o escríbenos aquí 🙂
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d5v2_kids_es`**
 > ¡Hola! Solo pasaba a recordarles que la clase de prueba de tu peque sigue disponible 🙌 Es la mejor forma de ver si le late, sin compromiso. Aparta su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d5v2_baby_es`**
 > ¡Hola! Solo pasaba a recordarles que la clase de prueba de Baby Fight Club sigue disponible 🙌 Tu bebé se mueve, juega y explora, siempre acompañado por mamá o papá. Aparta su clase gratis aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d7_adults_es`**
 > ¡Hola! Este es nuestro último mensaje, para no llenarte el chat 🙂 Tu día gratuito en MD Condesa sigue en pie: cuando quieras ponerte en forma y aprender a defenderte, agéndalo aquí: https://mdcondesa.com/clase-prueba-adultos/ o escríbenos aquí 🙂
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d7_kids_es`**
 > ¡Hola! Este es nuestro último mensaje, para no llenarles el chat 🙂 Cuando quieran que tu peque pruebe una clase, con gusto le apartamos su lugar aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **`nudge_d7_baby_es`**
 > ¡Hola! Este es nuestro último mensaje, para no llenarles el chat 🙂 Si más adelante quieren que tu bebé pruebe Baby Fight Club, con gusto les apartamos una clase gratuita aquí: https://mdcondesa.com/clase-prueba-ninos/ o escríbenos aquí 🙂
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 
 ---
@@ -338,8 +401,9 @@ the send is SKIPPED and one Slack note goes out per day (kv `tmpl_missing_note`)
 - Variables: **{{1}}** = contact first name (sender substitutes `👋` when the
   push name is junk/unknown — keep {{1}} where that still reads naturally).
 - **All three are Marketing**, with the **BAJA opt-out footer** (FOOTER
-  component): _Responde BAJA para dejar de recibir mensajes._ (EN: _Reply BAJA to
-  stop receiving messages._) d0 was briefly written as Utility, but with the
+  component): _Toca «No recibir mensajes» para darte de baja._ (EN: _Tap «Stop
+  messages» to unsubscribe._) + the matching QUICK_REPLY button (2026-11-05;
+  was "Responde BAJA…" / "Reply BAJA…"). d0 was briefly written as Utility, but with the
   offer gone it is a plain re-engagement follow-up and would not survive review
   as Utility — and Meta recategorizes on its own anyway. The send code does not
   care which category comes back.
@@ -360,12 +424,14 @@ marked late the next morning) the row is armed with note `ayer` and uses
 **ES (`post_trial_d0_es`)**
 > ¡Hola {{1}}! Qué gusto verte hoy en el tatami 🥋 ¿Cómo te sentiste en la clase? Si te quedó alguna duda de horarios o paquetes, aquí estamos. ¿Te apartamos tu lugar para tu siguiente clase?
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **EN (`post_trial_d0_en`)**
 > Hi {{1}}! So good to have you on the mats today 🥋 How did the class feel? If you have any questions about schedules or packages, we're right here. Want us to save you a spot for your next class?
 >
-> _Reply BAJA to stop receiving messages._
+> _Tap «Stop messages» to unsubscribe._ (FOOTER)
+> QUICK_REPLY button: «Stop messages»
 
 Variables: {{1}} name. Footer text must be the template FOOTER component.
 
@@ -377,12 +443,14 @@ Added 2026-10-07 — **pending submission/approval**.
 **ES (`post_trial_d0_ayer_es`)**
 > ¡Hola {{1}}! Qué gusto verte ayer en la academia 🥋 ¿Qué te pareció la experiencia? Vi que todavía no queda tu inscripción — ¿ya te decides a dar el paso? Te ayudo a dejarla lista hoy mismo.
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **EN (`post_trial_d0_ayer_en`)**
 > Hi {{1}}! So good to have you at the academy yesterday 🥋 How was the experience? I noticed you haven't signed up yet — ready to take the step? I can get your enrollment done today.
 >
-> _Reply BAJA to stop receiving messages._
+> _Tap «Stop messages» to unsubscribe._ (FOOTER)
+> QUICK_REPLY button: «Stop messages»
 
 Variables: {{1}} name. Footer text must be the template FOOTER component.
 
@@ -395,12 +463,14 @@ Variables: {{1}} name. Footer text must be the template FOOTER component.
 **ES (`post_trial_d2_es`)**
 > ¡Hola {{1}}! ¿Cómo amaneció el cuerpo después de tu clase? 😄 Lo más difícil ya lo hiciste: venir la primera vez. ¿Qué te falta saber para decidirte? Te ayudamos a elegir horario y paquete.
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **EN (`post_trial_d2_en`)**
 > Hi {{1}}! How's the body feeling after your class? 😄 The hardest part is already done: showing up the first time. What else do you need to know to decide? We'll help you pick a schedule and a plan.
 >
-> _Reply BAJA to stop receiving messages._
+> _Tap «Stop messages» to unsubscribe._ (FOOTER)
+> QUICK_REPLY button: «Stop messages»
 
 Variables: {{1}} name. Footer text must be the template FOOTER component.
 
@@ -413,12 +483,14 @@ The goodbye, 11:00 CDMX five days after the trial.
 **ES (`post_trial_d5_es`)**
 > ¡Hola {{1}}! No queremos insistir más 🙂 Este es nuestro último mensaje. Nos dio mucho gusto tenerte en clase y aquí seguimos cuando quieras volver — estos son los horarios: https://mdcondesa.com/#horarios
 >
-> _Responde BAJA para dejar de recibir mensajes._
+> _Toca «No recibir mensajes» para darte de baja._ (FOOTER)
+> Botón QUICK_REPLY: «No recibir mensajes»
 
 **EN (`post_trial_d5_en`)**
 > Hi {{1}}! We won't keep writing 🙂 This is our last message. We loved having you in class and we're here whenever you want to come back — here's the schedule: https://mdcondesa.com/#horarios
 >
-> _Reply BAJA to stop receiving messages._
+> _Tap «Stop messages» to unsubscribe._ (FOOTER)
+> QUICK_REPLY button: «Stop messages»
 
 Variables: {{1}} name. Footer text must be the template FOOTER component.
 
@@ -475,8 +547,10 @@ the window closed and the template unknown it **skips silently** (a console
 line, no Slack note, never a fallback to the old "ayer" template).
 
 All of them: **Category Marketing**, FOOTER component
-_Responde BAJA para dejar de recibir mensajes._ / _Reply BAJA to stop receiving
-messages._ `{{1}}` = first name (sender substitutes "qué tal" / "there" when
+_Toca «No recibir mensajes» para darte de baja._ / _Tap «Stop messages» to
+unsubscribe._ + QUICK_REPLY button «No recibir mensajes» / «Stop messages»
+(2026-11-05, in template-seed-chains.ts; the 2026-10-15 submissions carried
+"Responde BAJA…" and no button — edit those in place). `{{1}}` = first name (sender substitutes "qué tal" / "there" when
 unknown). `{{2}}` (no_show_d2 only; no_show_hoy carries the booking link) = ONE
 concrete slot of the lead's age band, rendered by the code as "<class> <when>", e.g. `Muay Thai el sábado a las 10:00 am`,
 `Mini Muay Thai mañana martes a las 3:15 pm` (never an adult slot for a minor, never
@@ -814,7 +888,10 @@ The dashboard's **Envíos** tab sends ANY approved template on the live WABA
 (`1717538906028335`), so these are guidelines, not a fixed list. What the sender
 supports and what Meta needs:
 
-- **Category: Marketing.** **Footer (FOOTER component):** _Responde BAJA para
+- **Category: Marketing.** **Opt-out (since 2026-11-05):** FOOTER _Toca «No
+  recibir mensajes» para darte de baja._ + a QUICK_REPLY button «No recibir
+  mensajes» (a tap opts out on any template). Older blasts used the footer
+  _Responde BAJA para
   dejar de recibir mensajes._ — the inbound pipeline opts the lead out on that
   exact word and every queued blast row for them is skipped.
 - **Language: plain "Spanish" (`es`)** unless you deliberately create `es_MX`;

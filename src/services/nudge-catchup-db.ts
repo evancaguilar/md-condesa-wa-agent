@@ -11,6 +11,8 @@
 //   followups probe      → sqlite_autoindex_followups_1 (phone, kind, …)
 //   booking markers (kv) → sqlite_autoindex_kv_1 (key)
 //   messages probe       → idx_messages_phone_ts (phone, ts ≥ now−7d)
+//   replied probe        → contacts PK + idx_messages_phone_ts (requireReplyToBot only)
+//   cancel count/update  → idx_followups_kind_status_due (extended kinds, live statuses)
 
 import { PAST_BOOKING_KINDS, ALL_EXTENDED_KINDS, extendedChainKinds } from "../cron/nudges.js";
 import { bookingRecordedKey } from "./booking-core.js";
@@ -24,6 +26,7 @@ import {
   planCatchup,
   rowSkipReason,
   summarizeCatchup,
+  type CatchupCancelOptions,
   type CatchupContactRow,
   type CatchupLead,
   type CatchupOptions,
@@ -50,6 +53,36 @@ export const CATCHUP_SQL = {
   messages: (n: number): string =>
     `SELECT phone, direction, CASE WHEN direction = 'in' THEN body END AS body, ts
        FROM messages WHERE phone IN (${ph(1, n)}) AND ts >= ?${n + 1}`,
+  // requireReplyToBot: phones with an inbound AFTER our first outbound (any
+  // age; the 7-day messages probe above cannot see a 3-week-old first reply).
+  // Per phone, both subqueries walk idx_messages_phone_ts in ts order and stop
+  // early: first outbound (~2 rows in), then the first inbound after it, so a
+  // lead costs a handful of rows, never its whole history. Only run on leads
+  // that passed every other check. INDEXED BY so the planner can never pick
+  // idx_messages_direction_ts (= every inbound message ever) for direction = 'in'.
+  replied: (n: number): string =>
+    `SELECT c.phone FROM contacts c
+      WHERE c.phone IN (${ph(1, n)})
+        AND EXISTS (
+          SELECT 1 FROM messages i INDEXED BY idx_messages_phone_ts
+           WHERE i.phone = c.phone AND i.direction = 'in'
+             AND i.ts > (SELECT o.ts FROM messages o INDEXED BY idx_messages_phone_ts
+                          WHERE o.phone = c.phone AND o.direction <> 'in'
+                          ORDER BY o.ts LIMIT 1))`,
+  // Cancel: kind IN (extended) × status IN (scheduled, paused) on
+  // idx_followups_kind_status_due = only live extended-nudge rows are read.
+  // Pinned: without stats SQLite prefers idx_followups_status_due, which would
+  // read every scheduled/paused row of every kind (blast rows included).
+  cancelCount: (nKinds: number, exact: boolean): string =>
+    `SELECT airtable_record_id AS token, status, COUNT(*) AS n
+       FROM followups INDEXED BY idx_followups_kind_status_due
+      WHERE kind IN (${ph(1, nKinds)}) AND status IN ('scheduled', 'paused')
+        AND airtable_record_id ${exact ? `= ?${nKinds + 1}` : `LIKE 'seq:catchup:%'`}
+      GROUP BY airtable_record_id, status`,
+  cancel: (nKinds: number, exact: boolean): string =>
+    `UPDATE followups INDEXED BY idx_followups_kind_status_due SET status = 'cancelled'
+      WHERE kind IN (${ph(1, nKinds)}) AND status IN ('scheduled', 'paused')
+        AND airtable_record_id ${exact ? `= ?${nKinds + 1}` : `LIKE 'seq:catchup:%'`}`,
 };
 
 function ph(from: number, n: number): string {
@@ -71,6 +104,7 @@ function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
 export interface CatchupResult extends CatchupSummary {
   ok: true;
   dryRun: boolean;
+  requireReplyToBot: boolean;
   runId: number;
   token: string;
   startAt: string;
@@ -157,6 +191,16 @@ export async function runNudgeCatchup(
     else leads.push({ row, sentKinds: v.sentKinds, nextKinds: v.nextKinds });
   }
 
+  if (opts.requireReplyToBot && leads.length > 0) {
+    const replied = new Set<string>();
+    for (const chunk of chunks(leads.map((l) => l.row.phone), PROBE_CHUNK)) {
+      for (const r of await all<{ phone: string }>(CATCHUP_SQL.replied(chunk.length), chunk)) replied.add(r.phone);
+    }
+    const kept = leads.filter((l) => replied.has(l.row.phone));
+    skipped.noReplyToBot += leads.length - kept.length;
+    leads.splice(0, leads.length, ...kept);
+  }
+
   const campaignNames = new Map<number, string>();
   if (leads.length > 0) {
     for (const c of await all<{ id: number; name: string }>(CATCHUP_SQL.campaigns, [])) {
@@ -201,6 +245,7 @@ export async function runNudgeCatchup(
   const result: CatchupResult = {
     ok: true,
     dryRun: opts.dryRun,
+    requireReplyToBot: opts.requireReplyToBot,
     runId,
     token,
     startAt: new Date(opts.startAt * 1000).toISOString(),
@@ -219,11 +264,65 @@ export async function runNudgeCatchup(
     statements++;
     result.statements = statements;
     await deps.postNote?.(
-      `🔁 Catch-up de nudges ${token}: ${scheduled} leads, ${summary.rows} envíos programados ` +
+      `🔁 Catch-up de nudges ${token}${opts.requireReplyToBot ? " (solo quienes le respondieron al bot)" : ""}: ` +
+        `${scheduled} leads, ${summary.rows} envíos programados ` +
         `(${summary.days} días desde ${result.startAt}, ~${summary.estTemplateSends} plantillas). ` +
         `Siguiente paso: ${Object.entries(summary.byNextStep).map(([k, n]) => `${k} ${n}`).join(", ") || "—"}. ` +
         `Omitidos: ${Object.entries(skipped).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ") || "—"}.`,
     );
   }
   return result;
+}
+
+export interface CatchupCancelResult {
+  ok: true;
+  dryRun: boolean;
+  /** The exact run token, or "all" (every seq:catchup:% token). */
+  target: string;
+  /** Live rows matched, by status. */
+  matched: { scheduled: number; paused: number };
+  /** Live rows matched, per run token. */
+  byRun: Record<string, number>;
+  /** Rows actually set to cancelled (0 on a dry run). */
+  cancelled: number;
+  statements: number;
+}
+
+/**
+ * Cancel a catch-up run's live rows (scheduled OR paused → cancelled). dryRun
+ * only counts. Only extended-nudge kinds carry a catch-up token, and the kind
+ * filter keeps the scan on idx_followups_kind_status_due. `postNote` gets one
+ * ops_log line in apply mode. A cancelled row is never revived by a NEW run
+ * (new token); re-applying the SAME startAt would revive it, so don't.
+ */
+export async function cancelNudgeCatchup(
+  db: D1Database,
+  opts: CatchupCancelOptions,
+  deps: { postNote?: (text: string) => Promise<void> } = {},
+): Promise<CatchupCancelResult> {
+  const kinds = [...ALL_EXTENDED_KINDS] as string[];
+  const exact = opts.token !== null;
+  const binds = exact ? [...kinds, opts.token] : kinds;
+  let statements = 1;
+  const { results } = await db
+    .prepare(CATCHUP_SQL.cancelCount(kinds.length, exact))
+    .bind(...binds)
+    .all<{ token: string; status: string; n: number }>();
+  const matched = { scheduled: 0, paused: 0 };
+  const byRun: Record<string, number> = {};
+  for (const r of results) {
+    if (r.status === "scheduled" || r.status === "paused") matched[r.status] += Number(r.n);
+    byRun[r.token] = (byRun[r.token] ?? 0) + Number(r.n);
+  }
+  let cancelled = 0;
+  if (!opts.dryRun && matched.scheduled + matched.paused > 0) {
+    const r = await db.prepare(CATCHUP_SQL.cancel(kinds.length, exact)).bind(...binds).run();
+    statements++;
+    cancelled = Number(r.meta?.changes ?? 0);
+    await deps.postNote?.(
+      `🛑 Catch-up de nudges cancelado (${opts.token ?? "todas las corridas"}): ${cancelled} envíos ` +
+        `(${matched.scheduled} programados, ${matched.paused} en pausa) → cancelled.`,
+    );
+  }
+  return { ok: true, dryRun: opts.dryRun, target: opts.token ?? "all", matched, byRun, cancelled, statements };
 }
