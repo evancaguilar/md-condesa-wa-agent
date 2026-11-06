@@ -375,10 +375,11 @@ test("processExtendedNudge: the template fallback sends {{1}} = first name", asy
 test("processExtendedNudge: a nameless lead gets the readable filler, never ''", async () => {
   const calls: unknown[][] = [];
   const { db } = extendedDb("info@gimnasio.com"); // greetingName rejects it
+  // d4: still a {{1}} template whatever nudgeDay7 is (d5 goes zero-param with it on).
   await processExtendedNudge(
     envWith(db),
     "5215512345678",
-    "nudge_d5",
+    "nudge_d4",
     extendedDeps(calls),
   );
   assert.deepEqual(calls[0]![2], [

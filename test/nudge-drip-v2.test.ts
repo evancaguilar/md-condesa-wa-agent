@@ -22,12 +22,16 @@ import {
   processExtendedNudge,
   processNudge,
   EXTENDED_NUDGE_KINDS,
+  extendedChainKinds,
 } from "../src/cron/nudges.js";
 import { runDueFollowups } from "../src/cron/followups.js";
 import { next8am } from "../src/cron/quiet.js";
 import { cdmxToEpoch, DAY } from "../src/cron/time.js";
 import { CLIENT } from "../src/client.gen.js";
 import type { Contact, Env } from "../src/types.js";
+
+/** The chain armNudges schedules under the shipped config (d7 iff nudgeDay7). */
+const LIVE_CHAIN: string[] = extendedChainKinds(CLIENT.features.nudgeDay7 === true);
 
 const H = 3600;
 const PHONE = "5215512345678";
@@ -236,7 +240,7 @@ test("armNudges: over the day-1 cap the extended chain still arms (only day-1 is
       .run(`nudge_count:${PHONE}`, JSON.stringify({ sends: [T0 - 3 * H, T0 - 2 * H, T0 - H] }));
     await armNudges(envWith(db), PHONE);
   });
-  assert.deepEqual(scheduled(raw).map((r) => r.kind), [...EXTENDED_NUDGE_KINDS]);
+  assert.deepEqual(scheduled(raw).map((r) => r.kind), LIVE_CHAIN);
 });
 
 // ---- 3. day-1 sends stay off the one-per-day claim --------------------------
@@ -318,7 +322,7 @@ test("resume: d2 sent, the lead replies, the re-arm schedules d3..d5 only (no 30
     await armNudges(envWith(db), PHONE);
   });
   const ext = scheduled(raw).filter((r) => r.kind.startsWith("nudge_d"));
-  assert.deepEqual(ext.map((r) => r.kind), ["nudge_d3", "nudge_d4", "nudge_d5"]);
+  assert.deepEqual(ext.map((r) => r.kind), LIVE_CHAIN.filter((k) => k !== "nudge_d2"));
   // Fresh token off the new anchor (+8h after the reply, quiet-shifted).
   assert.ok(ext.every((r) => r.airtable_record_id !== `seq:${T0 + 8 * H}`));
   assert.ok(ext[0]!.due_at > clock.now + DAY - 1);
@@ -443,6 +447,6 @@ test("processExtendedNudge: a d7 row left over after the flag is switched off is
   assert.equal(sent.length, 0);
 });
 
-test("features.nudgeDay7 ships OFF", () => {
-  assert.equal((CLIENT.features as { nudgeDay7?: boolean }).nudgeDay7, false);
+test("features.nudgeDay7 ships ON (Evan OK + nudge_d7/d5v2 templates APPROVED 2026-11-05)", () => {
+  assert.equal((CLIENT.features as { nudgeDay7?: boolean }).nudgeDay7, true);
 });

@@ -65,9 +65,9 @@ export default {
     booking: true,
     nudges: true,
     // 7th drip touch (nudge_d7, +48h after d5; the goodbye moves from d5 to d7).
-    // OFF until Evan approves the copy and the nudge_d7_* templates are APPROVED
-    // in Meta (docs/templates.md "nudge_d7") — flip only with his OK.
-    nudgeDay7: false,
+    // ON since 2026-11-05 (Evan's OK; nudge_d7_* + nudge_d5v2_* APPROVED in Meta,
+    // docs/templates.md "nudge_d7"). Turning it off cancels pending d7 rows at send.
+    nudgeDay7: true,
     airtableSync: true,
     safety: false,
     // IG/FB DM channels ship dark until Meta App Review round 2 approves the

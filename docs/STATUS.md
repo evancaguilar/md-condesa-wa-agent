@@ -2,6 +2,9 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-03** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Day 7 ON (2026-11-05) — `features.nudgeDay7: true`
+Evan's OK after the six `nudge_d5v2_*` / `nudge_d7_*` templates were APPROVED. New arms schedule d2–d5 + d7 (+48h after d5); d5 is now the plain value touch (`nudge_d5v2_*`, zero params), d7 the goodbye. Rows armed before the switch (incl. both catch-up runs `seq:catchup:1793890800` / `seq:catchup:1793977200`) have no d7 row; they get one by a D1 console INSERT (d5 due + 48h, same token) after the deploy is verified. Turning the flag off again cancels pending d7 rows at send time.
+
 ### Lead-nudge drip revived: 7 touches for leads who don't book (2026-11-03) — branch `worktree-agent-af04ac8cb788fd7a6`, NOT pushed — needs Evan's OK
 
 **What was broken (measured 2026-10-28):** of 439 non-booked Meta leads, **35% got 0 follow-ups, 46% got 1, only 13% the full chain.** Three bugs stacked:

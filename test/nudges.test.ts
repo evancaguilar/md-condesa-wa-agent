@@ -17,13 +17,18 @@ import {
   endsWithQuestion,
   gateOnOpenQuestion,
   OPEN_QUESTION_GUARD_SECONDS,
+  extendedChainKinds,
 } from "../src/cron/nudges.js";
+import { CLIENT } from "../src/client.gen.js";
 import { classifyResult, normalizeResult } from "../src/services/airtable.js";
 import { syncBookings } from "../src/cron/followups.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "../src/cron/time.js";
 import { claimsBooking } from "../src/services/booking-claims.js";
 import { isNudgePhrase } from "../src/cron/booking-recon-core.js";
 import type { Contact, Env } from "../src/types.js";
+
+/** The chain armNudges schedules under the shipped config (d7 iff nudgeDay7). */
+const LIVE_CHAIN: string[] = extendedChainKinds(CLIENT.features.nudgeDay7 === true);
 
 /** Next 09:00 CDMX strictly after `now` — a deterministic daytime base so the
  *  quiet-aware day-1 plan always yields all three nudges (no quiet shifting). */
@@ -347,7 +352,7 @@ test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges
   // 2026-11: the extended chain is armed with the day-1 plan, every time.
   assert.deepEqual(
     inserted.map((i) => i.kind),
-    [...SCHEDULED_NUDGE_KINDS, ...EXTENDED_NUDGE_KINDS],
+    [...SCHEDULED_NUDGE_KINDS, ...LIVE_CHAIN],
   );
   // Day-1 rows carry a per-inbound token (d1:<last_inbound_at>), never '' — the
   // '' token let one cancelled row block every later re-arm of that kind.
@@ -406,7 +411,7 @@ test("armNudges: over cap → no day-1 rows; the uncapped extended chain still a
     return {};
   });
   await armNudges(envWith(db), "5215512345678");
-  assert.deepEqual(inserted, [...EXTENDED_NUDGE_KINDS]);
+  assert.deepEqual(inserted, LIVE_CHAIN);
 });
 
 test("cancelNudges: issues a kind-scoped cancel UPDATE", async () => {
