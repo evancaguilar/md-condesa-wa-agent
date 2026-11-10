@@ -147,7 +147,8 @@ Spec: docs/dashboard-plan.md §11. New tab **Agenda** (all roles) mirrors the Ai
 ### Turn runner: brain turns out of the webhook's 30 s waitUntil (2026-10-26) — merged into main 2026-10-26, NOT pushed, ships dark
 
 Turns past ~30 s (8 s debounce + slow Anthropic call / booking retry) were cancelled silently with `waitUntil`. Step 6 of `processInbound` (debounce → brain) now hands the turn to a per-phone Durable Object (`TurnRunner`, `src/pipeline/turn-runner.ts`) whose alarm runs it with 15 min wall time; alarms never overlap per phone, so one lead's turns no longer run in parallel (the debounce race). Gate order untouched; fail-soft to the inline path when the binding/var is missing or the enqueue fails. Design + options compared (Queues, Workflows, self-fetch): **docs/turn-runner.md**. `/health` → `turnRunner`. Tests → **1390**.
-- [ ] **Evan:** push main (dark), then uncomment the `durable_objects` + `migrations` blocks and `TURN_RUNNER` in wrangler.jsonc and push; verify `/health` shows `"turnRunner":true`, then one test message (Logs show a `TurnRunner` alarm). Steps + rollback in docs/turn-runner.md.
+- [x] **Turned ON 2026-11-10** (Evan's OK; wrangler.jsonc blocks + `TURN_RUNNER=1`). Rollback: `TURN_RUNNER` to "0" and push, keep the migration. Still to do: one test message and check Logs for a `TurnRunner` alarm.
+- [x] **Evan:** push main (dark), then uncomment the `durable_objects` + `migrations` blocks and `TURN_RUNNER` in wrangler.jsonc and push; verify `/health` shows `"turnRunner":true`, then one test message (Logs show a `TurnRunner` alarm). Steps + rollback in docs/turn-runner.md.
 
 ### Missed-turn rescue + origin-question gate fix (2026-10-23) — SHIPPED (pushed 2026-10-26, 75a8b30)
 
