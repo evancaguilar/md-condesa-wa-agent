@@ -1,8 +1,17 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-03** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-09** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
-### Lead → `Anuncio` link gap: ad rollups undercounted bookings ~26 % (2026-09-21, branch `claude/xenodochial-kowalevski-319740`, NOT pushed)
+### Release 2026-11-09 (branch `release/2026-11-09`, NOT pushed — lead engineer reviews + pushes)
+
+Contents, cherry-picked onto origin/main f9130c1 (details in each entry below):
+1. **Sign up without a trial** (9c5e6ff) — persona «Quiere inscribirse», `<quiere_inscribirse>` context block, broader `hasBuyIntent`. KB rebuilt (12,100 tok).
+2. **Security review mediums** (be6aef8) — Slack allowlist, cron tick lease + claim-before-send, `sendText` opt-out refusal, owner-only bot/KB/campaign/rule writes, revocable v3 sessions (**everyone is logged out once on deploy**), prompt-injection fencing. Follow-up for code written since: `origin_ask` defer now accepts the cron's `'sending'` claim (it would otherwise re-run every tick), and the crisis containment reply passes `{force:true}`.
+3. **Twin-sweep Anuncio back-fill** (12615cc) — day-linked leads whose ad arrived late get their `Anuncio` link.
+4. **Student sync fixed** — `listStudents` read a non-existent `Students` table (404 ⇒ `[]`), so the daily 10:00 sync never marked anyone. Now reads `Alumnos` via `airtableMetrics` (Teléfono, `Vigencia por Fecha Activa` = 1, Status not Profesor/Seminario/Visitantes de Pago), flips only `lead` → `student` (never touches `opted_out`, never creates/demotes, never sends). Missing table/field ⇒ one warn ops note. Effect of `student`: inbound is silent + #wa-leads ping, nudges/post-trial/reminders/blasts/catch-up skip them.
+- [ ] After deploy: everyone logs in again; check ops_log kind `students` after 10:00 CDMX for the "🎓 Sync de alumnos" line (count of active Alumnos + contacts flipped).
+
+### Lead → `Anuncio` link gap: ad rollups undercounted bookings ~26 % (2026-09-21) — in release/2026-11-09, NOT pushed yet
 
 Found during the Meta ads deep dive: since 2026-07-01, 2,162 leads have an `Ad ID` but only 2,091 have the `Anuncio` link, and the 71 missing ones carry **70 bookings** — so `Anuncios Meta` rollups were low by ~26 % bookings, ~29 % past trials, ~25 % shows, ~16 % closes, ~15 % revenue ("5000 premio woman boxing" 56 real bookings vs 36 in the rollup).
 
@@ -12,7 +21,7 @@ Found during the Meta ads deep dive: since 2026-07-01, 2,162 leads have an `Ad I
 - **NOT verified against live Airtable from this session** (no Airtable connector was available): the sample of the 71 rows (Creado Por / `Ad` shape / Día present) was not pulled. The diagnosis rests on the code + the 09-10 log; the fix is cause-agnostic (any lead whose ad arrives after its day link).
 - **After deploy (Evan):** the backlog drains by itself in 2 ticks (~30 min), or run `POST /admin/api/metrics/sweep {"target":"leads"}` once and read `adLinked` (expect ≈71, then 0). Then re-check `Anuncios Meta` → "5000 premio woman boxing" `Agendaron` = 56. If `adLinked` stays 0 while the Airtable view still shows unlinked rows, the `Ad ID` cells on those rows are not ≥10 plain digits — send one over.
 
-### Security review fixes (2026-10-27) — on branch `fix/security-review-mediums`, NOT pushed
+### Security review fixes (2026-10-27) — in release/2026-11-09, NOT pushed yet
 
 Six medium findings from the first `/security-review` of this repo (no critical/high: webhook HMAC, Slack signing, SQL params, admin XSS escaping and secrets all came back clean). Tests 1401 → **1413** (`test/security-review.test.ts` + v3 cookie tests).
 
@@ -35,7 +44,7 @@ Tests 1469 → 1484.
 ### Day 7 ON (2026-11-05) — `features.nudgeDay7: true`
 Evan's OK after the six `nudge_d5v2_*` / `nudge_d7_*` templates were APPROVED. New arms schedule d2–d5 + d7 (+48h after d5); d5 is now the plain value touch (`nudge_d5v2_*`, zero params), d7 the goodbye. Rows armed before the switch (incl. both catch-up runs `seq:catchup:1793890800` / `seq:catchup:1793977200`) have no d7 row; they get one by a D1 console INSERT (d5 due + 48h, same token) after the deploy is verified. Turning the flag off again cancels pending d7 rows at send time.
 
-### A lead who wants to sign up is never pushed to a trial class (2026-11-03) — SHIPPED
+### A lead who wants to sign up is never pushed to a trial class (2026-11-03) — NOT deployed until release/2026-11-09 (was marked SHIPPED here but 9c5e6ff was never on main)
 
 - **Bug (Luis Ortega …5713, 2026-10-30, Muay Thai ad):** he asked to enrol without a trial. A draft (staff-edited) pitched a Saturday trial, then the bot escalated "quiere inscribirse directo sin clase de prueba" and sent nothing. Never booked or enrolled. Cause: persona escalated any sign-up without a named plan, and objection handling treated "no trial" as a "no" to beat.
 - **Evan's rule:** if someone wants to sign up, let them sign up; the trial is optional, never a prerequisite.
