@@ -1,6 +1,16 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-09** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-10** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### Declined stop: a lead who objects / declines is never chased again (2026-11-10) — branch `fix/decline-stops-nudges`, NOT pushed
+
+Meta spam flags (quality Medium). Case "Hatt" (baby campaign): "me queda bastante lejos" on day 0, then nudge_1h, nudge_8h, d2, d3, d4 went out, and the bot twice promised "no te molestamos más" with nothing behind it. Owner rule: first objection/decline ⇒ the bot's reply is the ONE re-invite and the stop is set; the chase resumes only on expressed interest in answer to it, a booking, or a staff reset.
+- Marker kv `declined:<phone>` (`{ts, source, text}`); pure rules `src/pipeline/decline.ts`, D1 `src/services/decline-stop.ts`. No schema change; cancel = one phone-scoped UPDATE (followups autoindex), checks = kv PK reads.
+- Set by: `send_reply.lead_declined` (new boolean), deterministic `isNotInterested` / `isObjection` (distance, price — stated as fact, never questions) right after the opt-out gate, and any bot reply that promises "no te mandamos/molestamos más". Explicit stop wording is still a full baja.
+- Effect: cancels scheduled/paused nudge_*, d2–d7 (incl. catch-up rows), reengage_7d, no-show chain, post-trial chain, custom, origin_ask, blast. Keeps trial_confirm / day_before / same_day, staff_later, student_kit, post_trial_card. armNudges, runDueFollowups (send time), catch-up (`declined` skip), blast audiences (`excluded.declined`) and the blast drain all skip marked phones. One ops_log note (kind `decline`).
+- Cleared by: `send_reply.lead_interested` only when an outbound newer than the marker was answered; any new booking (finalizeBooking, new web-form record in syncBookings); panel → Chats → Estado «Lead».
+- Persona: objection paragraph + checklist casilla 6 ("no me interesa" u objeción no es disparador), net −4 chars.
+- [ ] After deploy: probe by sending a test lead "me queda lejos" and confirming kv `declined:<phone>` + ops_log kind `decline`; watch that the decline rate in ops_log looks sane for a day.
 
 ### Release 2026-11-09 (branch `release/2026-11-09`, NOT pushed — lead engineer reviews + pushes)
 

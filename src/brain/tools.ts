@@ -81,6 +81,16 @@ const sendReply: AnthropicTool = {
         description:
           "Days the lead SAID don't work ('entre semana no' → [\"lun\",\"mar\",\"mie\",\"jue\",\"vie\"]). Never offer them again. Omit if they said nothing.",
       },
+      lead_declined: {
+        type: "boolean",
+        description:
+          "true when the lead's last message objects or declines (distance, price, schedule, 'no me interesa', 'ya me inscribí en otro lado', annoyed at our messages) — also on the turn you send your one re-invite. Stops all automatic follow-ups; the bot still answers. A request to stop messages is opt_out instead.",
+      },
+      lead_interested: {
+        type: "boolean",
+        description:
+          "true ONLY when, after an objection, the lead now asks for a class, day, time or schedule, or accepts an offer. Never for a bare 'hola' / 'gracias' / 'ok'.",
+      },
     },
     required: ["message", "language", "sureness", "confidence", "awaiting_reply"],
     additionalProperties: false,

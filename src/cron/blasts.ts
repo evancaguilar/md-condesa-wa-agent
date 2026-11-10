@@ -55,6 +55,8 @@ interface DueBlastRow {
   rid: string | null;
   c_status: string | null;
   c_name: string | null;
+  /** 1 when kv `declined:<phone>` exists (absent in older test fakes). */
+  c_declined?: number | null;
 }
 
 export interface BlastBatchResult {
@@ -116,8 +118,10 @@ export async function runBlastBatch(
   const limit = await perTickLimit(env);
   const { results: rows } = await env.DB.prepare(
     `SELECT f.id, f.phone, f.note, f.airtable_record_id AS rid,
-            c.status AS c_status, c.name AS c_name
+            c.status AS c_status, c.name AS c_name,
+            CASE WHEN d.key IS NULL THEN 0 ELSE 1 END AS c_declined
        FROM followups f LEFT JOIN contacts c ON c.phone = f.phone
+       LEFT JOIN kv d ON d.key = 'declined:' || f.phone
       WHERE f.kind = 'blast' AND f.status = 'scheduled' AND f.due_at <= ?1
       ORDER BY f.due_at ASC, f.id ASC LIMIT ?2`,
   )
@@ -162,6 +166,12 @@ export async function runBlastBatch(
       await env.DB.prepare(`UPDATE followups SET status = 'skipped_optout' WHERE id = ?1`)
         .bind(row.id)
         .run();
+      result.skipped++;
+      continue;
+    }
+    // Declined after the run was queued (pipeline/decline.ts; kv PK join).
+    if (Number(row.c_declined) === 1) {
+      await env.DB.prepare(`UPDATE followups SET status = 'cancelled' WHERE id = ?1`).bind(row.id).run();
       result.skipped++;
       continue;
     }

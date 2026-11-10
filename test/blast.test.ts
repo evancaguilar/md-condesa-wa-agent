@@ -157,7 +157,7 @@ test("planBlastAudience: splits by program and excludes booked / active / non-le
   assert.deepEqual(a.adults.map((c) => c.phone), ["5215500000001"]);
   assert.deepEqual(a.kids.map((c) => c.phone), ["5215500000002"]);
   assert.deepEqual(a.baby.map((c) => c.phone), ["5215500000003"]);
-  assert.deepEqual(a.excluded, { booked: 1, inWindow: 1, notLead: 2, recentBlast: 1 });
+  assert.deepEqual(a.excluded, { booked: 1, inWindow: 1, notLead: 2, recentBlast: 1, declined: 0 });
   assert.deepEqual(a.inWindow.adults.map((c) => c.phone), ["5215500000005"]);
   // includeBooked keeps the booked lead.
   const b = planBlastAudience(contacts, new Set(["5215500000004"]), NOW, { includeBooked: true });
@@ -223,7 +223,7 @@ test("buildListAudience: drops opted-out (always), students (default), recent bl
     ["5215500000001", "Ana"],
     ["5215500000005", "Eva"],
   ]);
-  assert.deepEqual(a.excluded, { optedOut: 1, student: 1, recentBlast: 1 });
+  assert.deepEqual(a.excluded, { optedOut: 1, student: 1, recentBlast: 1, declined: 0 });
   const b = buildListAudience(entries, known, { excludeStudents: false });
   assert.equal(b.candidates.length, 4);
 });

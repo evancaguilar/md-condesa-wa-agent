@@ -80,6 +80,7 @@ import {
   type NudgePolicy,
 } from "./nudge-policy.js";
 import { engagementByPhone } from "../db/nudge-engagement.js";
+import { isDeclined } from "../services/decline-stop.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -634,7 +635,7 @@ function nowSec(): number {
 /**
  * Whether the drip may be armed for this contact now: status lead, no active
  * override, never booked (no active/future booking AND no past one — see
- * bookedBefore). The rolling cap is checked separately: it gates the day-1
+ * bookedBefore), not declined (kv `declined:<phone>`). The rolling cap is checked separately: it gates the day-1
  * kinds only, never the extended chain.
  */
 async function canArm(env: Env, contact: Contact): Promise<boolean> {
@@ -651,6 +652,9 @@ async function canArm(env: Env, contact: Contact): Promise<boolean> {
   );
   if (hasBooking) return false;
   if (await bookedBefore(env, contact.phone)) return false;
+  // The lead declined / objected (src/pipeline/decline.ts): we answer, we
+  // never chase. Only a booking, expressed interest or a staff reset lifts it.
+  if (await isDeclined(env.DB, contact.phone)) return false;
   return true;
 }
 

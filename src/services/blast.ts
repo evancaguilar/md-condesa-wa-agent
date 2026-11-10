@@ -255,7 +255,7 @@ export interface BlastAudience {
   /** Leads whose 24h window is OPEN (wrote <24h ago): reachable FREE via
    *  free-form text (freeform mode) instead of a paid template. */
   inWindow: { adults: BlastCandidate[]; kids: BlastCandidate[]; baby: BlastCandidate[] };
-  excluded: { booked: number; inWindow: number; notLead: number; recentBlast: number };
+  excluded: { booked: number; inWindow: number; notLead: number; recentBlast: number; declined: number };
 }
 
 export interface PlanAudienceOpts {
@@ -268,6 +268,8 @@ export interface PlanAudienceOpts {
    *  coming tomorrow" — a "your free class is still available" template to a
    *  parent already booked for that class re-opens the whole booking). */
   upcomingTrial?: Set<string>;
+  /** Phones with a "declined" stop (kv `declined:<phone>`) → always excluded. */
+  declined?: Set<string>;
 }
 
 /**
@@ -286,7 +288,7 @@ export function planBlastAudience(
     kids: [],
     baby: [],
     inWindow: { adults: [], kids: [], baby: [] },
-    excluded: { booked: 0, inWindow: 0, notLead: 0, recentBlast: 0 },
+    excluded: { booked: 0, inWindow: 0, notLead: 0, recentBlast: 0, declined: 0 },
   };
   const seen = new Set<string>();
   for (const c of contacts) {
@@ -294,6 +296,10 @@ export function planBlastAudience(
     seen.add(c.phone);
     if (c.status !== "lead") {
       out.excluded.notLead++;
+      continue;
+    }
+    if (opts.declined?.has(c.phone)) {
+      out.excluded.declined++;
       continue;
     }
     if (opts.upcomingTrial?.has(c.phone) || (!opts.includeBooked && bookedPhones.has(c.phone))) {
@@ -376,11 +382,13 @@ export interface ListAudienceOpts {
   /** Drop contacts whose CRM status is student (default true). */
   excludeStudents?: boolean;
   recentlyBlasted?: Set<string>;
+  /** Phones with a "declined" stop → always dropped. */
+  declined?: Set<string>;
 }
 
 export interface ListAudience {
   candidates: BlastCandidate[];
-  excluded: { optedOut: number; student: number; recentBlast: number };
+  excluded: { optedOut: number; student: number; recentBlast: number; declined: number };
 }
 
 /**
@@ -393,12 +401,16 @@ export function buildListAudience(
   contactsByPhone: Map<string, Pick<Contact, "status" | "name">>,
   opts: ListAudienceOpts = {},
 ): ListAudience {
-  const out: ListAudience = { candidates: [], excluded: { optedOut: 0, student: 0, recentBlast: 0 } };
+  const out: ListAudience = { candidates: [], excluded: { optedOut: 0, student: 0, recentBlast: 0, declined: 0 } };
   const exStudents = opts.excludeStudents !== false;
   for (const e of entries) {
     const c = contactsByPhone.get(e.phone);
     if (c?.status === "opted_out") {
       out.excluded.optedOut++;
+      continue;
+    }
+    if (opts.declined?.has(e.phone)) {
+      out.excluded.declined++;
       continue;
     }
     if (exStudents && c?.status === "student") {

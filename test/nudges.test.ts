@@ -403,8 +403,11 @@ test("armNudges: over cap → no day-1 rows; the uncapped extended chain still a
     if (sql.includes("SELECT * FROM contacts"))
       return { first: contact({ last_inbound_at: nowEpoch, status: "lead" }) };
     if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
+    // Only the cap key holds a value (a decline marker would stop the arm).
     if (sql.includes("SELECT value FROM kv"))
-      return { first: { value: JSON.stringify({ sends: [nowEpoch, nowEpoch, nowEpoch] }) } };
+      return String(binds[0]).startsWith("nudge_count:")
+        ? { first: { value: JSON.stringify({ sends: [nowEpoch, nowEpoch, nowEpoch] }) } }
+        : { first: null };
     if (sql.includes("INTO followups(")) {
       inserted.push(binds[1]);
       return {};

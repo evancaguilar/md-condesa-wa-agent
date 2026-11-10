@@ -10,6 +10,7 @@
 //   pending approvals    → idx_pending_approvals_status
 //   followups probe      → sqlite_autoindex_followups_1 (phone, kind, …)
 //   booking markers (kv) → sqlite_autoindex_kv_1 (key)
+//   declined markers (kv)→ sqlite_autoindex_kv_1 (key), one statement per chunk
 //   messages probe       → idx_messages_phone_ts (phone, ts ≥ now−7d)
 //   engagement probe     → contacts PK + idx_messages_phone_ts (requireReplyToBot and/or
 //                          a non-uniform nudgePolicy; src/db/nudge-engagement.ts)
@@ -17,6 +18,7 @@
 
 import { PAST_BOOKING_KINDS, ALL_EXTENDED_KINDS, extendedChainKinds } from "../cron/nudges.js";
 import { bookingRecordedKey } from "./booking-core.js";
+import { DECLINED_KEY_PREFIX, declinedKey } from "../pipeline/decline.js";
 import { kvSet, scheduleOrReviveFollowupStmt } from "../db/queries.js";
 import { ENGAGED_EXISTS_SQL, ENGAGEMENT_SQL } from "../db/nudge-engagement.js";
 import { NUDGE_POLICY, SILENT, policyIsUniform, type LeadEngagement, type NudgePolicy } from "../cron/nudge-policy.js";
@@ -159,6 +161,7 @@ export async function runNudgeCatchup(
   const fuBy = new Map<string, ProbeFollowup[]>();
   const markerBy = new Map<string, string>();
   const msgBy = new Map<string, ProbeMessage[]>();
+  const declinedSet = new Set<string>();
   if (survivors.length > 0) {
     for (const r of await all<{ phone: string }>(CATCHUP_SQL.pending, [])) pendingSet.add(r.phone);
     const kinds = [...PAST_BOOKING_KINDS, ...ALL_EXTENDED_KINDS];
@@ -172,6 +175,12 @@ export async function runNudgeCatchup(
       const keys = chunk.map(bookingRecordedKey);
       for (const r of await all<{ key: string; value: string }>(CATCHUP_SQL.kv(keys.length), keys)) {
         markerBy.set(r.key, r.value);
+      }
+      // Declined stops (pipeline/decline.ts): same kv PK probe, own statement
+      // (two key sets per chunk would pass D1's 100 bound-parameter cap).
+      const dkeys = chunk.map(declinedKey);
+      for (const r of await all<{ key: string; value: string }>(CATCHUP_SQL.kv(dkeys.length), dkeys)) {
+        declinedSet.add(r.key.slice(DECLINED_KEY_PREFIX.length));
       }
       for (const r of await all<ProbeMessage & { phone: string }>(
         CATCHUP_SQL.messages(chunk.length),
@@ -192,6 +201,7 @@ export async function runNudgeCatchup(
         bookingMarker: markerBy.get(bookingRecordedKey(row.phone)) ?? null,
         followups: fuBy.get(row.phone) ?? [],
         messages: msgBy.get(row.phone) ?? [],
+        declined: declinedSet.has(row.phone),
       },
       now,
       chain,

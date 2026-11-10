@@ -776,10 +776,20 @@ export function sendResult(
     child_age_years?: unknown;
     preferred_days?: unknown;
     declined_days?: unknown;
+    lead_declined?: unknown;
+    lead_interested?: unknown;
   };
   const language: Language = input.language === "en" ? "en" : "es";
   const leadName = cleanLeadName(input.lead_name);
   const qualUpdate = qualUpdateFromInput(input);
+  // Decline / renewed-interest signals (pipeline/decline.ts). Only a literal
+  // true counts; a decline wins over interest on the same turn.
+  const leadDeclined = input.lead_declined === true;
+  const leadInterested = !leadDeclined && input.lead_interested === true;
+  const signals = {
+    ...(leadDeclined ? { leadDeclined: true as const } : {}),
+    ...(leadInterested ? { leadInterested: true as const } : {}),
+  };
   // Sureness is the source of truth (owner directive 2026-08-25: "if it's at
   // least 75% sure it has the correct answer, it sends"). The high/low enum is
   // DERIVED from it and kept only so every downstream consumer — D1 column,
@@ -811,6 +821,7 @@ export function sendResult(
       awaitingReply,
       ...(leadName ? { leadName } : {}),
       ...(qualUpdate ? { qualUpdate } : {}),
+      ...signals,
     };
   }
   const reason = input.escalation_reason;
@@ -824,6 +835,7 @@ export function sendResult(
     awaitingReply,
     ...(leadName ? { leadName } : {}),
     ...(qualUpdate ? { qualUpdate } : {}),
+    ...signals,
   };
   return reason ? { ...base, reason } : base;
 }
@@ -902,6 +914,8 @@ export function guardUnbackedBookingClaim(
     followup: res.followup,
     awaitingReply: res.awaitingReply,
     ...(res.qualUpdate ? { qualUpdate: res.qualUpdate } : {}),
+    ...(res.leadDeclined ? { leadDeclined: true as const } : {}),
+    ...(res.leadInterested ? { leadInterested: true as const } : {}),
   };
 }
 
@@ -1049,6 +1063,8 @@ function downgradeToDraft(
     followup: res.followup,
     awaitingReply: res.awaitingReply,
     ...(res.qualUpdate ? { qualUpdate: res.qualUpdate } : {}),
+    ...(res.leadDeclined ? { leadDeclined: true as const } : {}),
+    ...(res.leadInterested ? { leadInterested: true as const } : {}),
   };
 }
 

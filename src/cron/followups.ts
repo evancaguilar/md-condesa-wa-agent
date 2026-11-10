@@ -64,6 +64,8 @@ import { cellText, dayBeforeMotivoText } from "../services/cuestionario-core.js"
 import { isCuestionarioVersion, type CuestionarioVersion } from "../services/cuestionario-token.js";
 import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
 import { taskNote } from "./deps.js";
+import { isDeclineCancelKind } from "../pipeline/decline.js";
+import { clearDecline, isDeclined } from "../services/decline-stop.js";
 import {
   clampToWindow,
   cdmxToEpoch,
@@ -518,6 +520,13 @@ async function processOne(
   const contact = await getContact(env.DB, f.phone);
   if (contact?.status === "opted_out") {
     await markFollowup(env.DB, f.id, "skipped_optout");
+    return;
+  }
+  // Declined (src/pipeline/decline.ts): every chasing kind closes quietly at
+  // send time — the race-proof twin of the cancel in applyDecline. A booked
+  // class's reminders, staff sends and the student kit are not chasing kinds.
+  if (isDeclineCancelKind(f.kind) && (await isDeclined(env.DB, f.phone))) {
+    await markFollowup(env.DB, f.id, "cancelled");
     return;
   }
   const lang = contact?.lang ?? "es";
@@ -1577,6 +1586,11 @@ export async function syncBookings(
         const recentlyConfirmedInline =
           marker !== null && nowSec() - marker.ts < 72 * 3600;
         const includeConfirm = !knownRecord && !recentlyConfirmedInline;
+        // A NEW booking (a record this system never saw: web form / staff
+        // typed it in Airtable) is renewed intent: lift a decline stop. A
+        // re-sync of a known record must not (it would undo a later "ya no
+        // me interesa").
+        if (!knownRecord) await clearDecline(env.DB, phone);
         await scheduleTrialSequence(env, phone, rec.id, rec.trialDateTimeIso, {
           includeConfirm,
         });

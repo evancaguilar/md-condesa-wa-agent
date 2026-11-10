@@ -29,6 +29,7 @@ import { bookTrial } from "./airtable.js";
 import { afterBookingConfirmed } from "./cuestionario.js";
 import { bookingSlot, claimBookingConfirmation } from "./confirm-once.js";
 import { captureCapiEvent } from "./meta-capi.js";
+import { clearDecline } from "./decline-stop.js";
 
 /** A booking that already has its Airtable record id. */
 export interface FinalizeBookingInput extends BookTrialInput {
@@ -196,6 +197,9 @@ export interface BookingCoreDeps {
    *  fakes stay small; absent ⇒ always send. */
   claimConfirmation?: (env: Env, phone: string, slot: string | null) => Promise<boolean>;
   kvSet: typeof kvSet;
+  /** Lift the phone's "declined" stop (services/decline-stop.ts): a booking is
+   *  renewed intent. Optional so test fakes stay small. */
+  clearDeclined?: (env: Env, phone: string) => Promise<unknown>;
   now(): number;
 }
 
@@ -213,6 +217,7 @@ export function realBookingDeps(): BookingCoreDeps {
     claimConfirmation: (env, phone, slot) =>
       claimBookingConfirmation(env.DB, phone, slot, Math.floor(Date.now() / 1000)),
     kvSet,
+    clearDeclined: (env, phone) => clearDecline(env.DB, phone),
     now: () => Math.floor(Date.now() / 1000),
   };
 }
@@ -270,6 +275,14 @@ export async function finalizeBooking(
     );
   } catch (err) {
     console.error("[finalizeBooking] recorded marker failed", err);
+  }
+  // A real booking re-opens a lead who had declined (never throws).
+  if (deps.clearDeclined) {
+    try {
+      await deps.clearDeclined(env, b.phone);
+    } catch (err) {
+      console.error("[finalizeBooking] decline clear failed", err);
+    }
   }
 
   // EVERY step gets its own try/catch: a Slack outage must never cost the lead

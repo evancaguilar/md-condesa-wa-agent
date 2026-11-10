@@ -517,6 +517,10 @@ export type BrainResult =
       leadName?: string;
       /** send_reply child_name / child_age_years / preferred_days / declined_days (WP1). */
       qualUpdate?: QualUpdate;
+      /** send_reply.lead_declined: objection / decline → the chase stops (pipeline/decline.ts). */
+      leadDeclined?: true;
+      /** send_reply.lead_interested: renewed interest after an objection → may re-open it. */
+      leadInterested?: true;
     }
   | {
       action: "draft";
@@ -533,6 +537,8 @@ export type BrainResult =
       leadName?: string;
       /** See the send member. */
       qualUpdate?: QualUpdate;
+      leadDeclined?: true;
+      leadInterested?: true;
     }
   | { action: "escalate"; reason: string; summary: string }
   | ({

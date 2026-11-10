@@ -196,6 +196,7 @@ export const SKIP_REASONS = [
   "recentOutbound",
   "buyIntent",
   "noReplyToBot",
+  "declined",
 ] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
@@ -233,6 +234,8 @@ export interface CatchupProbes {
   followups: readonly ProbeFollowup[];
   /** Messages of the last 7 days (outbound bodies may be null). */
   messages: readonly ProbeMessage[];
+  /** kv `declined:<phone>` exists (pipeline/decline.ts). Absent ⇒ false. */
+  declined?: boolean;
 }
 
 /** Checks that need only the contact row (run before any probe). Pure. */
@@ -270,6 +273,7 @@ export function classifyCatchupLead(
   const early = rowSkipReason(row, now, excluded);
   if (early) return { skip: early };
 
+  if (probes.declined) return { skip: "declined" };
   const fus = probes.followups;
   const bookingSet = new Set<string>(PAST_BOOKING_KINDS);
   const liveBooking = fus.some(

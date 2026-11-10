@@ -145,6 +145,7 @@ import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
 import { parseCatchupBody, parseCatchupCancelBody } from "../services/nudge-catchup.js";
 import { cancelNudgeCatchup, runNudgeCatchup } from "../services/nudge-catchup-db.js";
+import { clearDecline, declinedPhones } from "../services/decline-stop.js";
 import { migrationState, runMigrationStep, type MigrationInput } from "../services/wa-migrate.js";
 import {
   displayTemplateSend,
@@ -1940,6 +1941,18 @@ async function handleStatus(
       console.error("manual opt-out slack note failed", err);
     }
   }
+  // Staff reset of the "declined" stop (pipeline/decline.ts): setting Estado
+  // «Lead» from the panel lifts it, so the drip can re-arm on the next reply.
+  if (status === "lead" && (await clearDecline(env.DB, phone))) {
+    try {
+      await ports.slack.postNote(`🔓 ${phone}: ${session.user} quitó el «declinó» — el seguimiento automático puede volver.`, {
+        kind: "decline",
+        meta: { phone, cleared: true, by: session.user },
+      });
+    } catch (err) {
+      console.error("decline reset note failed", err);
+    }
+  }
   return json({ ok: true });
 }
 
@@ -2455,6 +2468,8 @@ async function resolveAudience(
   const recentlyBlasted = await recentlyBlastedPhones(env, days > 0 ? now - days * DAY : 0);
   const limit = typeof spec.limit === "number" && spec.limit > 0 ? Math.floor(spec.limit) : null;
   const mode: "template" | "freeform" = spec.mode === "freeform" ? "freeform" : "template";
+  // Leads who declined / objected (pipeline/decline.ts) never get a blast.
+  const declined = await declinedPhones(env.DB);
 
   if (spec.source === "list") {
     const parsed = parseContactList(spec.list ?? "");
@@ -2466,6 +2481,7 @@ async function resolveAudience(
     const a = buildListAudience(parsed.entries, known, {
       excludeStudents: spec.excludeStudents !== false,
       recentlyBlasted,
+      declined,
     });
     const candidates = limit ? a.candidates.slice(0, limit) : a.candidates;
     return {
@@ -2489,6 +2505,7 @@ async function resolveAudience(
   const audience = await loadBlastAudience(env, since, now, {
     includeBooked: spec.includeBooked === true,
     recentlyBlasted,
+    declined,
   });
   const wanted = new Set<Program>(
     (Array.isArray(spec.groups) && spec.groups.length > 0 ? spec.groups : ["adults", "kids", "baby"]).filter(

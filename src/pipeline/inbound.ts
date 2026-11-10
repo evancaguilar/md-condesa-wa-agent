@@ -90,6 +90,8 @@ import {
   parseOverrideCheck,
 } from "./override-check.js";
 import { isOptOut, isOptOutBurst, OPT_OUT_BURST_SECONDS } from "./opt-out.js";
+import { detectDecline, shouldClearDecline, turnDeclineSource } from "./decline.js";
+import { applyDecline, clearDecline, getDeclineMarker } from "../services/decline-stop.js";
 import { isRetoLoginRequest, retoLoginConfigured } from "./reto-login.js";
 import { requestRetoLogin } from "../services/reto-login.js";
 import { hasBuyIntent } from "../cron/nudge-signals.js";
@@ -420,6 +422,25 @@ export async function processInbound(
       if (!(err instanceof WindowClosedError)) throw err;
     }
     return;
+  }
+
+  // 3-dec. Declined stop (pipeline/decline.ts). Not a gate — the turn goes on
+  // and the bot still answers (its reply is the one re-invite / the close);
+  // this only stops the chase: pending nudges/drips/chains/blast rows are
+  // cancelled and nothing re-arms. Only a detector hit costs D1 reads.
+  const declineHit = detectDecline(body);
+  if (declineHit) {
+    try {
+      const c = await getContact(env.DB, msg.phone);
+      if (c?.status !== "student") {
+        await applyDecline(env.DB, msg.phone, declineHit, {
+          text: body,
+          postNote: (t, meta) => ports.slack.postNote(t, { kind: "decline", meta }),
+        });
+      }
+    } catch (err) {
+      console.warn("[inbound] decline stop failed", msg.phone, err);
+    }
   }
 
   // 3a. Reto course login (md-condesa-site /reto/entrar/ → "…entrar a mis cursos
@@ -1120,6 +1141,34 @@ async function routeResult(
         `¿Fue un error? Deshacer: panel → Chats → ${phone} → Estado «Lead».`,
     });
     return;
+  }
+
+  // Declined stop (pipeline/decline.ts): set it BEFORE any delivery path so
+  // the armNudges that follows a send (here or on approval) sees it. The
+  // reply itself still goes out normally. A reply that promises "no te
+  // mandamos más" sets it too. Renewed interest in answer to our re-invite
+  // lifts it (shouldClearDecline).
+  if (result.action === "send" || result.action === "draft") {
+    const source = turnDeclineSource({ leadDeclined: result.leadDeclined, message: result.message });
+    if (source) {
+      if (ctx.contact.status !== "student") {
+        const lastIn = [...history].reverse().find((m) => m.direction === "in");
+        await applyDecline(env.DB, phone, source, {
+          text: source === "promise" ? result.message : (lastIn?.body ?? ""),
+          postNote: (t, meta) => ports.slack.postNote(t, { kind: "decline", meta }),
+        });
+      }
+    } else if (result.leadInterested) {
+      const marker = await getDeclineMarker(env.DB, phone);
+      if (shouldClearDecline(marker, { interested: true, declinedThisTurn: false, history }) && (await clearDecline(env.DB, phone))) {
+        await ports.slack
+          .postNote(`🔓 ${phone} volvió a mostrar interés tras declinar: seguimiento automático reactivado.`, {
+            kind: "decline",
+            meta: { phone, cleared: true },
+          })
+          .catch(() => {});
+      }
+    }
   }
 
   if (result.action === "escalate") {
