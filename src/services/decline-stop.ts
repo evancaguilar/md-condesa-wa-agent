@@ -25,6 +25,37 @@ export async function getDeclineMarker(db: D1Database, phone: string): Promise<D
   }
 }
 
+/** SQL of the batched marker probe (exported for the index-plan test): kv PRIMARY KEY IN-list. */
+export function declineMarkersSql(n: number): string {
+  return `SELECT key, value FROM kv WHERE key IN (${Array.from({ length: n }, (_, i) => `?${i + 1}`).join(", ")})`;
+}
+
+/** Max phones per IN-list (D1 caps bound parameters at 100). */
+export const DECLINE_PROBE_CHUNK = 90;
+
+/**
+ * Markers for a page of phones (Chats list): one kv PK IN-list per ≤90
+ * phones — never one query per row, never a LIKE / range scan. Phones without
+ * a marker are absent. Fails SOFT to an empty map (the list must render).
+ */
+export async function getDeclineMarkers(db: D1Database, phones: readonly string[]): Promise<Map<string, DeclineMarker>> {
+  const out = new Map<string, DeclineMarker>();
+  const uniq = [...new Set(phones.filter(Boolean))];
+  try {
+    for (let i = 0; i < uniq.length; i += DECLINE_PROBE_CHUNK) {
+      const keys = uniq.slice(i, i + DECLINE_PROBE_CHUNK).map(declinedKey);
+      const { results } = await db.prepare(declineMarkersSql(keys.length)).bind(...keys).all<{ key: string; value: string }>();
+      for (const r of results ?? []) {
+        const m = parseDeclineMarker(r.value);
+        if (m) out.set(r.key.slice(DECLINED_KEY_PREFIX.length), m);
+      }
+    }
+  } catch (err) {
+    console.warn(`[decline] batched marker read failed: ${String(err)}`);
+  }
+  return out;
+}
+
 /** True while the stop is set for this phone. */
 export async function isDeclined(db: D1Database, phone: string): Promise<boolean> {
   return (await getDeclineMarker(db, phone)) !== null;

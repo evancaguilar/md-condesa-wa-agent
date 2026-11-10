@@ -736,6 +736,15 @@ function renderChatList(){
   qa("#chatList .lrow").forEach(function(b){ b.onclick=function(){ openChat(b.getAttribute("data-phone")); }; });
   list.scrollTop=keepScroll;
 }
+// Declined stop (kv declined:<phone>, pipeline/decline.ts): the chase is off.
+var DECLINE_SRC_LABEL={objection:"objeción",not_interested:"no interesado",complaint:"queja",promise:"promesa",brain:"IA"};
+function declineChip(m){
+  if(!m) return "";
+  var src=DECLINE_SRC_LABEL[m.source]||m.source||"";
+  var when=m.ts?fmtDate(m.ts):"";
+  var title="Seguimiento automático detenido"+(m.text?": «"+String(m.text).slice(0,120)+"»":"");
+  return '<span class="chip" title="'+esc(title)+'">⏸ Sin seguimiento'+(when?' · '+esc(when):'')+(src?' · '+esc(src):'')+'</span>';
+}
 function convoChips(c){
   var out=[];
   var cch=chanChip(c.phone);
@@ -745,6 +754,7 @@ function convoChips(c){
   else if(st==="opted_out") out.push('<span class="chip red">🚫 Baja</span>');
   else out.push('<span class="chip">Lead</span>');
   if(c.paused) out.push('<span class="chip red">⏸ Pausado</span>');
+  if(c.declined) out.push(declineChip(c.declined));
   if(c.pendingCount>0) out.push('<span class="chip gold">⏳ Pendiente</span>');
   if((c.hiConfCount||0)>0) out.push('<span class="chip">🤖 '+c.hiConfCount+'</span>');
   if(c.assignedTo) out.push('<span class="chip blue">@'+esc(c.assignedTo)+'</span>');
@@ -835,6 +845,7 @@ async function detailTick(full){
   if(full) el("bubWrap").innerHTML="";
   chatState.contact=d.contact||{};
   chatState.campaignName=d.campaignName||null;
+  chatState.declined=d.declined||null;
   renderChatHeader(d.now);
   appendMessages(d.messages||[], full);
   renderPendingCards(d.pending||[]);
@@ -873,16 +884,25 @@ function renderChatHeader(nowSec){
   var assigned=c.assigned_to||null;
   head.innerHTML=(isMobile?'<button class="backbtn mobile-only" id="chatBack">←</button>':'')
     +'<div style="min-width:0"><div style="font-weight:800;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(nameOr(c.name,c.phone))+'</div>'
-    +'<div class="muted sm">'+chanChip(c.phone)+' '+esc(fmtPhone(c.phone))+(assigned?' · @'+esc(assigned):'')+'</div></div>';
+    +'<div class="muted sm">'+chanChip(c.phone)+' '+esc(fmtPhone(c.phone))+(assigned?' · @'+esc(assigned):'')+(chatState.declined?' '+declineChip(chatState.declined):'')+'</div></div>';
   if(el("chatBack")) el("chatBack").onclick=backToChatList;
   var now= nowSec || Math.floor(Date.now()/1000);
   var paused=c.human_override_until && (c.human_override_until*1 > now);
   var banner=el("pauseBanner");
   if(banner){
-    banner.innerHTML= paused
+    var dm=chatState.declined;
+    var bhtml=(paused
       ? '<div class="pausebanner"><span>⏸️ Bot en pausa — el equipo lleva esta conversación.</span><button class="btn green sm" id="bannerResume">▶ Reanudar bot</button></div>'
-      : "";
-    if(el("bannerResume")) el("bannerResume").onclick=function(){ resumeConvo(chatState.phone); };
+      : "")
+      +(dm
+      ? '<div class="pausebanner"><span>⏸ Sin seguimiento automático'+(dm.ts?' desde el '+esc(fmtDate(dm.ts)):'')+' ('+esc(DECLINE_SRC_LABEL[dm.source]||dm.source||"")+')'+(dm.text?': «'+esc(String(dm.text).slice(0,120))+'»':'')+'. El bot sigue contestando si escribe.</span><button class="btn green sm" id="bannerReactivate">▶ Reactivar seguimiento</button></div>'
+      : "");
+    if(banner.__html!==bhtml){
+      banner.__html=bhtml;
+      banner.innerHTML=bhtml;
+      if(el("bannerResume")) el("bannerResume").onclick=function(){ resumeConvo(chatState.phone); };
+      if(el("bannerReactivate")) el("bannerReactivate").onclick=function(){ reactivateFollowup(chatState.phone); };
+    }
   }
   // IG/FB: the backend can send with the HUMAN_AGENT tag up to 7 días after
   // the last inbound (no 24h template cutoff like WA), so the composer stays
@@ -1748,6 +1768,16 @@ async function resumeConvo(phone){
     if(chatState.contact) chatState.contact.human_override_until=null;
     renderChatHeader(); loadChats(); }
   catch(e){ toast("No se pudo reanudar","err"); }
+}
+async function reactivateFollowup(phone){
+  try{ await api("/conversations/"+encodeURIComponent(phone)+"/reactivate",{method:"POST"});
+    toast("Seguimiento reactivado","ok");
+    if(chatState.phone===phone) chatState.declined=null;
+    [chatsCache.items||[], chatsCache.searchItems||[]].forEach(function(arr){
+      arr.forEach(function(c){ if(c.phone===phone) c.declined=null; });
+    });
+    renderChatHeader(); renderChatList(); }
+  catch(e){ toast("No se pudo reactivar","err"); }
 }
 async function markStudent(phone){
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/status",{method:"POST",body:{status:"student"}});

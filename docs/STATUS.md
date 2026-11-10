@@ -2,6 +2,14 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-10** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Owner follow-ups: teens with adults, complaints stop the chase, «Sin seguimiento» chip, transit KB (2026-11-10) — branch `fix/owner-followups-2026-11-10` (on release/2026-11-10), NOT pushed
+
+- **Teens with adults** (`teenAdultRow`, age-band.ts; used by `slotOpenToBand` → `validateSlotBand`, handleBookTrial and the reply-text slot checker): 16–17 may book ANY adult class any day (adult MMA keeps the KB's "lo confirma el coach" — coach confirms in class, booking allowed). 13–15 (or teen with unknown age): adult Muay Thai any day + exactly the intake Saturday line — any Saturday adult class (9 Jiu-Jitsu, 10 Jiu-Jitsu/Muay Thai, 2 pm Box; 11 am sparring never), Blindaje 8 12 pm only at 14–15 (parent = copy), Kids Sat 11 am at 13–14. Under 13 unchanged. slot-claims widens a teen lead's rows only when the copy names no group ("Tenemos Teens el sábado" still flagged); bookResult passes the booking's band/age to the confirmation probe, so a teen's allowed adult-class confirmation no longer forces Aprobar.
+- **Complaints stop the chase**: `routeDeclineSource` (decline.ts) — every complaint-class escalation (escalate_to_human or a draft whose reason classifies as complaint) sets kv `declined:<phone>` with source `complaint` via applyDecline, plus the existing human task. Explicit stop wording stays a full baja.
+- **Panel**: Chats list row + chat header show «⏸ Sin seguimiento · fecha · fuente» (objeción / no interesado / queja / promesa / IA); a banner in the open chat has «▶ Reactivar seguimiento» (owner + staff) → `POST /admin/api/conversations/:phone/reactivate` (clearDecline + the existing 🔓 ops note). List markers = one kv PK IN-list per ≤90 phones (`getDeclineMarkers`); the chat detail adds one kv PK read per poll.
+- KB: Metrobús Sonora (Metro Chilpancingo was already there), bikes: no rack, leave them downstairs by the stairs or by the elevator on our floor. KB 12,082 tok. Tests 1629 → **1648**.
+- [ ] After deploy: open a declined chat in /admin → chip + banner; click «Reactivar seguimiento» → chip gone + 🔓 note in ops_log; sandbox a teen (14) "sábado 10 am Jiu-Jitsu" → books.
+
 ### Owner KB answers: private classes, holiday 2026-11-16 TBD, WellHub, drop-in, durations (2026-11-10) — branch `kb/owner-answers-2026-11-10` (on release/2026-11-10), NOT pushed
 
 - Private classes: sold, no price. Persona line → send_reply with `escalation_reason` `clase_privada…`; `classifyEscalation` → new kind `private_class` (forced draft in `sendResult`, `escalationNeedsTask`) ⇒ <!here> task in #wa-leads + one line to #evan-alerts (`escalationAlertsOwner` / `privateClassAlertText`, also on `escalate_to_human`). Best-bets at 1h (sureness 60).

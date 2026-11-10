@@ -146,7 +146,7 @@ import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
 import { parseCatchupBody, parseCatchupCancelBody } from "../services/nudge-catchup.js";
 import { cancelNudgeCatchup, runNudgeCatchup } from "../services/nudge-catchup-db.js";
-import { clearDecline, declinedPhones } from "../services/decline-stop.js";
+import { clearDecline, declinedPhones, getDeclineMarker, getDeclineMarkers } from "../services/decline-stop.js";
 import { migrationState, runMigrationStep, type MigrationInput } from "../services/wa-migrate.js";
 import {
   displayTemplateSend,
@@ -903,7 +903,7 @@ export async function handleAdminApi(
     return handleMediaRemuxCheck(req, session);
   }
   const convoMatch = path.match(
-    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-video|send-later|booking\/parse|booking))?$/,
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-video|send-later|booking\/parse|booking|reactivate))?$/,
   );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
@@ -934,6 +934,9 @@ export async function handleAdminApi(
     }
     if (sub === "assign" && method === "POST") {
       return handleAssign(req, env, phone);
+    }
+    if (sub === "reactivate" && method === "POST") {
+      return handleReactivateFollowup(env, phone, ports, session);
     }
     if (sub === "read" && method === "POST") {
       // Blue ticks to the lead: mark their newest inbound as read. Best-effort.
@@ -1753,10 +1756,16 @@ async function handleConversationsList(env: Env, url: URL): Promise<Response> {
     const text = tn ? tplTexts.get(tn) : undefined;
     return text ? previewTemplateSend(text, paramsFor(null, name)) : body;
   };
+  // "⏸ Sin seguimiento" chip: one batched kv PK probe for the page.
+  const declined = await getDeclineMarkers(
+    env.DB,
+    rows.map((r) => r.phone),
+  );
   const items = rows.map((r) => ({
     phone: r.phone,
     name: r.name,
     status: r.status,
+    declined: declined.get(r.phone) ?? null,
     lastBody: previewOf(r.lastBody, r.name),
     lastTs: r.lastTs,
     lastDirection: r.lastDirection,
@@ -1848,11 +1857,12 @@ async function handleConversationDetail(
   const sinceRaw = Number(url.searchParams.get("since"));
   const since =
     Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const [contact, messages, pendingRows, laterRows] = await Promise.all([
+  const [contact, messages, pendingRows, laterRows, declined] = await Promise.all([
     getContact(env.DB, phone),
     recentMessages(env.DB, phone, 100, since),
     getPendingApprovals(env.DB, phone),
     listStaffLater(env.DB, phone, nowSec() - SCHEDULED_CANCELLED_TTL),
+    getDeclineMarker(env.DB, phone),
   ]);
   if (!contact) return json({ error: "not_found" }, 404);
   // Same escalation flag the Aprobar list carries, so the in-chat pending
@@ -1877,7 +1887,7 @@ async function handleConversationDetail(
       campaignName = null;
     }
   }
-  return json({ contact, messages: shown, pending, scheduled, campaignName, now: nowSec() });
+  return json({ contact, messages: shown, pending, scheduled, campaignName, declined, now: nowSec() });
 }
 
 async function handlePause(req: Request, env: Env, phone: string): Promise<Response> {
@@ -1958,17 +1968,33 @@ async function handleStatus(
   }
   // Staff reset of the "declined" stop (pipeline/decline.ts): setting Estado
   // «Lead» from the panel lifts it, so the drip can re-arm on the next reply.
-  if (status === "lead" && (await clearDecline(env.DB, phone))) {
-    try {
-      await ports.slack.postNote(`🔓 ${phone}: ${session.user} quitó el «declinó» — el seguimiento automático puede volver.`, {
-        kind: "decline",
-        meta: { phone, cleared: true, by: session.user },
-      });
-    } catch (err) {
-      console.error("decline reset note failed", err);
-    }
-  }
+  if (status === "lead") await clearDeclineFromPanel(env, phone, ports, session);
   return json({ ok: true });
+}
+
+/** Lift the declined stop + the ops note. True when one was set. */
+async function clearDeclineFromPanel(env: Env, phone: string, ports: Ports, session: Session): Promise<boolean> {
+  if (!(await clearDecline(env.DB, phone))) return false;
+  try {
+    await ports.slack.postNote(`🔓 ${phone}: ${session.user} quitó el «declinó» — el seguimiento automático puede volver.`, {
+      kind: "decline",
+      meta: { phone, cleared: true, by: session.user },
+    });
+  } catch (err) {
+    console.error("decline reset note failed", err);
+  }
+  return true;
+}
+
+/**
+ * POST /admin/api/conversations/:phone/reactivate — panel «Reactivar
+ * seguimiento» (owner and staff): clears kv `declined:<phone>` and posts the
+ * same ops note as the Estado «Lead» reset. Cancelled rows stay cancelled; the
+ * drip re-arms on the lead's next reply / booking like after any reset.
+ */
+async function handleReactivateFollowup(env: Env, phone: string, ports: Ports, session: Session): Promise<Response> {
+  const cleared = await clearDeclineFromPanel(env, phone, ports, session);
+  return json({ ok: true, cleared });
 }
 
 // ---- approvals ----

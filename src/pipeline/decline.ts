@@ -312,6 +312,6 @@ export function declineNote(phone: string, source: DeclineSource, cancelled: num
   return (
     `🤚 ${phone} declinó (${SOURCE_LABEL[source]}): seguimiento automático detenido` +
     `${cancelled > 0 ? `, ${cancelled} envío(s) pendientes cancelados` : ""}. ` +
-    `El bot sigue contestando si escribe. Reabrir: agenda, interés explícito, o panel → Chats → Estado «Lead».`
+    `El bot sigue contestando si escribe. Reabrir: agenda, interés explícito, o panel → Chats → «Reactivar seguimiento» (o Estado «Lead»).`
   );
 }
