@@ -603,6 +603,9 @@ test("runDueFollowups: a touch skipped for a human override posts a post_trial o
       if (sql.includes("SELECT * FROM contacts"))
         return { first: contact({ human_override_until: cdmxToEpoch(2027, 1, 1, 0, 0, 0) }) };
       if (sql.includes("SELECT 1 AS n FROM followups")) return { first: null };
+      // The tick's own claim / release / stale-sweep are not the mark under test.
+      if (sql.startsWith("UPDATE followups SET status = 'sending'")) return {};
+      if (sql.startsWith("UPDATE followups SET status = 'scheduled'")) return {};
       if (sql.startsWith("UPDATE followups SET status") && sql.includes("kind IN")) {
         kindCancels++;
         return {};

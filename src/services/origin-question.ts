@@ -84,9 +84,12 @@ export async function armOriginQuestion(env: Env, phone: string): Promise<void> 
 
 async function deferRow(env: Env, f: Followup, dueAt: number): Promise<void> {
   const n = readDefers(f.note) + 1;
+  // 'sending' = the cron tick's own claim (runDueFollowups); without it the
+  // push-back would no-op and the claim release would re-arm the row at its
+  // OLD due_at — re-processed every tick instead of deferred.
   await env.DB.prepare(
     `UPDATE followups SET due_at = ?2, note = ?3, status = 'scheduled'
-     WHERE id = ?1 AND status = 'scheduled'`,
+     WHERE id = ?1 AND status IN ('scheduled', 'sending')`,
   )
     .bind(f.id, dueAt, `defers:${n}`)
     .run();

@@ -634,11 +634,14 @@ export async function processInbound(
     await setHumanOverride(env.DB, msg.phone, safety.pauseHours);
     await cancelFollowups(env.DB, msg.phone);
     try {
-      await sendText(env, msg.phone, reply);
+      // force: a person in crisis gets the containment message even after a
+      // baja (sendText refuses opted-out contacts otherwise, and the throw
+      // would also swallow the urgent task note below).
+      await sendText(env, msg.phone, reply, { force: true });
     } catch (err) {
       if (!(err instanceof WindowClosedError)) throw err;
     }
-    await taskNote(ports.slack, 
+    await taskNote(ports.slack,
       `🚨 SEÑAL DE CRISIS (${msg.phone}). Bot pausado ${safety.pauseHours}h; se envió el mensaje de contención con recursos. ATENCIÓN HUMANA URGENTE.\nMensaje: ${body}`,
     );
     return;

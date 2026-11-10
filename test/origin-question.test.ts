@@ -416,3 +416,23 @@ test("sendOriginQuestion: quiet hours push it to the next morning", async () => 
     stub.restore();
   }
 });
+
+test("sendOriginQuestion: a row the cron claimed ('sending') is still pushed back, not left at its old due_at", async () => {
+  const { raw, env } = openDb();
+  addContact(raw);
+  await armOriginQuestion(env, PHONE);
+  const stub = stubFetch({ Canal: "WA" });
+  try {
+    const f = dueRow(raw);
+    // runDueFollowups claims the row before processOne (security review 2026-10-27).
+    raw.prepare(`UPDATE followups SET status = 'sending' WHERE id = ?`).run(f.id);
+    await sendOriginQuestion(env, { ...f, status: "sending" }, { isQuiet: () => true });
+    assert.equal(stub.sent.length, 0);
+    const row = originRows(raw)[0]!;
+    assert.equal(row.status, "scheduled");
+    assert.ok(row.due_at > Math.floor(Date.now() / 1000), "deferred to the morning, not re-run next tick");
+    assert.equal(row.note, "defers:1");
+  } finally {
+    stub.restore();
+  }
+});
