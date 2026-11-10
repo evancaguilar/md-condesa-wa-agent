@@ -86,6 +86,7 @@ import {
   isLostResult,
   getBookingRecord,
   type BookingRecord,
+  type ListStudentsResult,
   type TrialResult,
 } from "../services/airtable.js";
 import {
@@ -1923,28 +1924,78 @@ async function reactToResult(
   return action === "enrolled" ? "sent" : "other";
 }
 
+/** What one student sync did (also the ops_log line). */
+export interface StudentSyncResult {
+  /** Alumnos rows Airtable returned (already filtered to active + phone). */
+  scanned: number;
+  /** Distinct WhatsApp phones of current students after the local re-check. */
+  active: number;
+  /** Contacts flipped lead → student this run. */
+  marked: number;
+  /** Set when the sync could not run (missing table / field / config). */
+  problem: string | null;
+}
+
+/** D1 binds per IN (…) chunk (D1 caps a statement at 100 parameters). */
+const STUDENT_SYNC_CHUNK = 90;
+
 /**
- * Daily student sync. Marks matching contacts status='student' so the lead line
- * stays silent for known students.
+ * Daily student sync (10:00 CDMX). Flips existing contacts from `lead` to
+ * `student` when their phone belongs to a CURRENTLY ACTIVE Alumno (active flag
+ * = 1, see listStudents), so the lead line stays silent for paying members.
+ *
+ * It never sends anything: it only writes contacts.status. It never touches an
+ * `opted_out` contact (a baja outranks everything), never creates a contact,
+ * and never demotes a `student` (enrolments marked by "Se inscribió" may not be
+ * active in Alumnos yet). Lapsed ex-students (flag 0) are never selected, so
+ * they keep the normal lead flows. A missing table / column posts ONE warn
+ * note and changes nothing.
  */
 export async function syncStudents(
   env: Env,
-  airtable: { listStudents: (env: Env) => Promise<{ phone: string | null }[]> } = {
-    listStudents,
-  },
-): Promise<number> {
-  const students = await airtable.listStudents(env);
-  let marked = 0;
-  for (const s of students) {
+  deps: { postNote?: (text: string, opts?: NoteOpts) => Promise<void> } = {},
+  airtable: { listStudents: (env: Env) => Promise<ListStudentsResult> } = { listStudents },
+): Promise<StudentSyncResult> {
+  const res = await airtable.listStudents(env);
+  if (!res.ok) {
+    const problem = `${res.reason}: ${res.detail}`;
+    await deps.postNote?.(
+      `⚠️ Sync de alumnos NO corrió (${res.reason}): ${res.detail}. Ningún contacto cambió de estado; revisa la tabla Alumnos / client.mjs airtableMetrics.students.`,
+      { kind: "students", level: "warn" },
+    );
+    return { scanned: 0, active: 0, marked: 0, problem };
+  }
+  const phones = new Set<string>();
+  for (const s of res.students) {
     if (!s.phone) continue;
     const phone = normalizeMxPhone(s.phone);
-    const existing = await getContact(env.DB, phone);
-    if (existing && existing.status !== "student") {
-      await setContactStatus(env.DB, phone, "student");
-      marked++;
-    }
+    // contacts.phone is the webhook wa_id (521… for MX mobiles); IG/FB ids and
+    // non-numeric junk can never match one.
+    if (channelOf(phone) !== "wa" || !/^\d{8,15}$/.test(phone)) continue;
+    phones.add(phone);
   }
-  return marked;
+  const list = [...phones];
+  let marked = 0;
+  const now = nowSec();
+  for (let i = 0; i < list.length; i += STUDENT_SYNC_CHUNK) {
+    const chunk = list.slice(i, i + STUDENT_SYNC_CHUNK);
+    const ph = chunk.map((_, j) => `?${j + 2}`).join(", ");
+    // Guarded on status = 'lead': opted_out and student rows are untouched.
+    const r = await env.DB.prepare(
+      `UPDATE contacts SET status = 'student', updated_at = ?1
+       WHERE status = 'lead' AND phone IN (${ph})`,
+    )
+      .bind(now, ...chunk)
+      .run();
+    marked += r.meta.changes ?? 0;
+  }
+  if (marked > 0 || res.scanned > 0) {
+    await deps.postNote?.(
+      `🎓 Sync de alumnos: ${list.length} alumnos activos con teléfono, ${marked} contacto(s) pasaron de lead a alumno. Sin mensajes enviados.`,
+      { kind: "students", level: "info" },
+    );
+  }
+  return { scanned: res.scanned, active: list.length, marked, problem: null };
 }
 
 // ---- template + copy helpers ----

@@ -189,6 +189,72 @@ export interface StudentRecord {
   phone: string | null;
 }
 
+/** Alumnos columns the student sync reads (client.mjs airtableMetrics). */
+export interface StudentSyncColumns {
+  table: string;
+  name: string;
+  phone: string;
+  /** 0/1 "currently active" formula (Vigencia por Fecha Activa). */
+  activeFlag: string;
+  /** Status single select + the values that are not customers (staff, …). */
+  status: string | null;
+  excludedStatuses: string[];
+}
+
+/**
+ * The student sync's columns from the generated client config, or null when
+ * the client does not name an Alumnos table + phone + active flag (then the
+ * sync refuses to run rather than guess which rows are current students).
+ */
+export function studentSyncColumns(
+  m: { tables: { students: string }; students: { name: string; phone: string; activeFlag?: string; status?: string; excludedStatuses?: string[] } } | null | undefined = CLIENT.airtableMetrics,
+): StudentSyncColumns | null {
+  if (!m) return null;
+  const s = m.students;
+  const table = m.tables.students;
+  if (!table || !s.phone || !s.activeFlag) return null;
+  return {
+    table,
+    name: s.name,
+    phone: s.phone,
+    activeFlag: s.activeFlag,
+    status: s.status ?? null,
+    excludedStatuses: s.excludedStatuses ?? [],
+  };
+}
+
+export type ListStudentsResult =
+  | { ok: true; students: StudentRecord[]; scanned: number }
+  | { ok: false; reason: "config_missing" | "table_missing" | "field_missing"; detail: string };
+
+/** Pure. Airtable 0/1 formula cell → active? (number, numeric string or checkbox). */
+export function isActiveFlag(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  if (typeof v === "string") return v.trim() === "1";
+  if (Array.isArray(v)) return v.length === 1 && isActiveFlag(v[0]);
+  return false;
+}
+
+/**
+ * Pure. The rows of an Alumnos page that are CURRENT students: active flag = 1,
+ * a phone, and a Status that is not in the config's excluded list.
+ */
+export function activeStudentRecords(
+  rows: readonly { fields: Record<string, unknown> }[],
+  c: StudentSyncColumns,
+): StudentRecord[] {
+  const excluded = new Set(c.excludedStatuses.map((x) => x.trim().toLowerCase()));
+  const out: StudentRecord[] = [];
+  for (const r of rows) {
+    if (!isActiveFlag(r.fields[c.activeFlag])) continue;
+    if (c.status && excluded.has((asString(r.fields[c.status]) ?? "").trim().toLowerCase())) continue;
+    const phone = (asString(r.fields[c.phone]) ?? "").trim();
+    if (!phone) continue;
+    out.push({ name: asString(r.fields[c.name]), phone });
+  }
+  return out;
+}
+
 /**
  * Normalize a phone to Mexican E.164 digits. WhatsApp/Meta gives us digits like
  * 5215512345678 (52 + 1 mobile marker + 10). We ensure the "521…" mobile shape:
@@ -910,34 +976,55 @@ function asResultString(v: unknown): string | null {
 }
 
 /**
- * Read the Students table (Name, Phone E164). Tolerates a 404 (table not
- * created yet) by returning an empty list.
+ * Read the CURRENT students from the client's Alumnos table (names from
+ * client.mjs `airtableMetrics`). Airtable filters server-side to rows whose
+ * active flag is 1 and that have a phone, so the ~1,200 mostly-lapsed rows are
+ * never paged through; activeStudentRecords re-checks every row (and drops the
+ * excluded Status values). A missing table (404) or column / formula (422) is
+ * returned as `ok: false` for the caller to report — never an empty success.
  */
-export async function listStudents(env: Env): Promise<StudentRecord[]> {
+export async function listStudents(
+  env: Env,
+  cols: StudentSyncColumns | null = studentSyncColumns(),
+): Promise<ListStudentsResult> {
+  if (!cols) {
+    return {
+      ok: false,
+      reason: "config_missing",
+      detail: "client.mjs airtableMetrics has no Alumnos table / students.phone / students.activeFlag",
+    };
+  }
   const out: StudentRecord[] = [];
+  let scanned = 0;
   let offset: string | undefined;
+  const fields = [cols.name, cols.phone, cols.activeFlag, ...(cols.status ? [cols.status] : [])];
   do {
-    const url = new URL(baseUrl(env, "Students"));
-    url.searchParams.set("pageSize", "100");
-    if (offset) url.searchParams.set("offset", offset);
-    const res = await airtableFetch(env, url.toString(), { method: "GET" });
-    if (res.status === 404) return [];
-    if (!res.ok) {
-      throw new Error(`airtable listStudents failed: HTTP ${res.status}`);
-    }
-    const data = (await res.json()) as {
+    const qs = new URLSearchParams();
+    qs.set("pageSize", "100");
+    qs.set("filterByFormula", `AND({${cols.activeFlag}} = 1, {${cols.phone}} != '')`);
+    for (const f of fields) qs.append("fields[]", f);
+    if (offset) qs.set("offset", offset);
+    const res = await airtableFetch(env, `${baseUrl(env, cols.table)}?${qs.toString()}`, { method: "GET" });
+    const data = (await res.json().catch(() => ({}))) as AirtableErrorBody & {
       records?: AirtableRecord[];
       offset?: string;
     };
-    for (const r of data.records ?? []) {
-      out.push({
-        name: asString(r.fields["Name"]),
-        phone: asString(r.fields["Phone E164"] ?? r.fields["Phone"]),
-      });
+    if (res.status === 404) {
+      return { ok: false, reason: "table_missing", detail: `${cols.table}: HTTP 404` };
     }
+    if (!res.ok) {
+      const err = parseAirtableError(res.status, data);
+      if (err.unknownField || err.invalidFormula) {
+        return { ok: false, reason: "field_missing", detail: `${cols.table}: ${err.detail}` };
+      }
+      throw new Error(`airtable listStudents failed: HTTP ${res.status} ${err.detail}`);
+    }
+    const records = data.records ?? [];
+    scanned += records.length;
+    out.push(...activeStudentRecords(records, cols));
     offset = data.offset;
   } while (offset);
-  return out;
+  return { ok: true, students: out, scanned };
 }
 
 function asString(v: unknown): string | null {

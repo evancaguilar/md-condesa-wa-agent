@@ -363,7 +363,10 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     if ((await kvGet(env.DB, "daily_cron_mark")) !== today) {
       await kvSet(env.DB, "daily_cron_mark", today);
       if (CLIENT.features.airtableSync) {
-        await safe("syncStudents", () => syncStudents(env));
+        // Status only (lead → student for ACTIVE Alumnos); never sends anything.
+        await safe("syncStudents", () =>
+          syncStudents(env, { postNote: (t, o) => cronDeps.slack.postNote(t, { kind: "students", ...o }) }),
+        );
       }
       // Customer-list audiences (docs/meta-audiences.md): one Airtable walk +
       // a handful of Graph calls, once a day. No-op while the feature is off.
