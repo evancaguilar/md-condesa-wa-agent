@@ -508,7 +508,26 @@ export interface ClientConfig {
   metaAudiences?: MetaAudiencesConfig;
   /** Prerecorded hosted clips staff send by link (dashboard 📹 Videos). */
   savedVideos?: SavedVideo[];
+  /** Which extended drip steps each engagement class gets (src/cron/nudge-policy.ts).
+   *  Absent ⇒ every lead gets the full chain (legacy). */
+  nudgePolicy?: NudgePolicyConfig;
   copy: ClientCopy;
+}
+
+/**
+ * Extended lead-nudge drip by engagement (2026-11-09, after two Meta spam flags).
+ * Steps are "d2" | "d3" | "d4" | "d5" | "d7"; the last one a lead gets should be
+ * d7 (the goodbye copy; with features.nudgeDay7 off a trailing d7 becomes d5).
+ */
+export interface NudgePolicyConfig {
+  /** Lead wrote at least once AFTER our first outbound (reactions / opt-out taps excluded). */
+  engaged: string[];
+  /** Lead never wrote after our first outbound (only the ad prefill). */
+  silent: string[];
+  /** true ⇒ silent leads whose first message is < silentFreshDays old get the full chain. Default false. */
+  silentFreshFull?: boolean;
+  /** Default 7. */
+  silentFreshDays?: number;
 }
 
 /** A prerecorded clip hosted on the client's site, sent by link (WA `video.link`). */

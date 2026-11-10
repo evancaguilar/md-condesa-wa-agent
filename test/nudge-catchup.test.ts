@@ -26,6 +26,7 @@ import { CATCHUP_SQL, cancelNudgeCatchup, runNudgeCatchup } from "../src/service
 import { ALL_EXTENDED_KINDS } from "../src/cron/nudge-copy.js";
 import { extendedChainKinds, EXTENDED_NUDGE_KINDS, type ExtendedKind } from "../src/cron/nudges.js";
 import { INDEX_SQL } from "../src/db/indexes.js";
+import { FULL_CHAIN_POLICY } from "../src/cron/nudge-policy.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "../src/cron/time.js";
 
 const H = 3600;
@@ -325,7 +326,7 @@ test("catch-up D1: dryRun reports counts + sample and inserts nothing", async ()
   const { raw, db, sqls } = sqliteDb();
   seed(raw);
   const notes: string[] = [];
-  const res = await runNudgeCatchup(db, optsFor(true), NOW, { postNote: async (t) => void notes.push(t) });
+  const res = await runNudgeCatchup(db, optsFor(true), NOW, { postNote: async (t) => void notes.push(t), policy: FULL_CHAIN_POLICY });
   assert.equal(res.dryRun, true);
   assert.equal(res.candidates, 3);
   assert.equal(res.scheduled, 0);
@@ -352,7 +353,7 @@ test("catch-up D1: apply inserts exactly the planned rows with the run token; a 
   const { raw, db } = sqliteDb();
   seed(raw);
   const notes: string[] = [];
-  const res = await runNudgeCatchup(db, optsFor(false), NOW, { postNote: async (t) => void notes.push(t) });
+  const res = await runNudgeCatchup(db, optsFor(false), NOW, { postNote: async (t) => void notes.push(t), policy: FULL_CHAIN_POLICY });
   const token = catchupToken(START);
   assert.equal(res.token, token);
   assert.equal(res.runId, START);
@@ -385,7 +386,7 @@ test("catch-up D1: apply inserts exactly the planned rows with the run token; a 
   assert.match(notes[0]!, /seq:catchup:/);
 
   // Second apply with the same start: everyone already holds a live chain.
-  const again = await runNudgeCatchup(db, optsFor(false), NOW, {});
+  const again = await runNudgeCatchup(db, optsFor(false), NOW, { policy: FULL_CHAIN_POLICY });
   assert.equal(again.candidates, 0);
   assert.equal(again.skipped.inChain, 3);
   assert.equal(raw.prepare(`SELECT COUNT(*) AS n FROM followups WHERE airtable_record_id = ?`).get(token)!.n, 10);

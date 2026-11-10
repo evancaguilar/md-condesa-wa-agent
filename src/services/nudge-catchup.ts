@@ -28,6 +28,7 @@ import {
   type ExtendedKind,
 } from "../cron/nudges.js";
 import { hasBuyIntent } from "../cron/nudge-signals.js";
+import { nudgeChainFor, type LeadEngagement, type NudgePolicy } from "../cron/nudge-policy.js";
 import { channelOf } from "./channel.js";
 import { DAY, cdmxParts, cdmxToEpoch } from "../cron/time.js";
 
@@ -307,6 +308,21 @@ export function classifyCatchupLead(
   return { skip: null, sentKinds, nextKinds };
 }
 
+/**
+ * The same engagement policy the cron applies (src/cron/nudge-policy.ts):
+ * the lead's remaining steps cut to its class's list, resuming after the
+ * latest step already sent. Empty ⇒ nothing left for this class. Pure.
+ */
+export function catchupNextKinds(
+  lead: Pick<CatchupLead, "sentKinds">,
+  engagement: LeadEngagement,
+  policy: NudgePolicy,
+  now: number,
+  day7: boolean,
+): ExtendedKind[] {
+  return remainingExtendedKinds(nudgeChainFor(policy, engagement, now, day7), lead.sentKinds);
+}
+
 // ---- planning ---------------------------------------------------------------
 
 export interface CatchupLead {
@@ -337,7 +353,7 @@ function dayCapacity(day: number, perDay: number, day0Start: number): number {
  * Assign each lead (freshest created_at first) a day and a first-step time,
  * spread evenly over 09:00–19:00 CDMX (day 0: from startAt), then lay the rest
  * of its chain out with computeExtendedChain from an anchor one gap before the
- * first step (+24h each, d7 +48h, quiet-shifted). Pure.
+ * first step (later steps on their own day numbers, quiet-shifted). Pure.
  */
 export function planCatchup(
   leads: readonly CatchupLead[],

@@ -28,10 +28,11 @@ import { runDueFollowups } from "../src/cron/followups.js";
 import { next8am } from "../src/cron/quiet.js";
 import { cdmxToEpoch, DAY } from "../src/cron/time.js";
 import { CLIENT } from "../src/client.gen.js";
+import { NUDGE_POLICY, SILENT, nudgeChainFor } from "../src/cron/nudge-policy.js";
 import type { Contact, Env } from "../src/types.js";
 
-/** The chain armNudges schedules under the shipped config (d7 iff nudgeDay7). */
-const LIVE_CHAIN: string[] = extendedChainKinds(CLIENT.features.nudgeDay7 === true);
+/** The chain armNudges schedules for a SILENT lead (no reply after our first message) under the shipped nudgePolicy (d7 iff nudgeDay7). */
+const LIVE_CHAIN: string[] = nudgeChainFor(NUDGE_POLICY, SILENT, 0, CLIENT.features.nudgeDay7 === true);
 
 const H = 3600;
 const PHONE = "5215512345678";
@@ -211,7 +212,7 @@ test("armNudges: two arms off the SAME inbound revive the cancelled rows; a sent
 
 // ---- 2. extended chain armed with every plan --------------------------------
 
-test("armNudges: always schedules d2–d5 off the +8h anchor; d7 (+48h after d5) only with features.nudgeDay7", async () => {
+test("armNudges: a silent lead gets the policy's silent steps off the +8h anchor (d7 only with nudgeDay7, else the goodbye is d5)", async () => {
   for (const day7 of [false, true]) {
     const { raw, db } = sqliteDb();
     await withDay7(day7, () =>
@@ -221,13 +222,13 @@ test("armNudges: always schedules d2–d5 off the +8h anchor; d7 (+48h after d5)
       }),
     );
     const ext = scheduled(raw).filter((r) => r.kind.startsWith("nudge_d"));
-    const want = day7 ? [...EXTENDED_NUDGE_KINDS, "nudge_d7"] : [...EXTENDED_NUDGE_KINDS];
+    const want = day7 ? ["nudge_d2", "nudge_d7"] : ["nudge_d2", "nudge_d5"];
     assert.deepEqual(ext.map((r) => r.kind), want, `day7=${day7}`);
     const anchor = T0 + 8 * H; // 18:00, not quiet
     assert.ok(ext.every((r) => r.airtable_record_id === `seq:${anchor}`));
     assert.equal(ext[0]!.due_at, anchor + DAY); // d2 = Wed 18:00
-    assert.equal(ext[3]!.due_at, anchor + 4 * DAY); // d5
-    if (day7) assert.equal(ext[4]!.due_at, anchor + 6 * DAY); // d7 = d5 + 48h
+    // Absolute day numbers from the anchor: d5 = +4 days, d7 = +6 days (unchanged times).
+    assert.equal(ext[1]!.due_at, anchor + (day7 ? 6 : 4) * DAY);
   }
 });
 
@@ -288,7 +289,8 @@ test("extended step that loses the day claim is DEFERRED to next 08:00, not canc
       insertContact(raw, contact({ last_inbound_at: T0 - DAY }));
       raw.prepare(`INSERT INTO kv(key, value) VALUES(?, ?)`).run(nudgeDayClaimKey(PHONE, now), String(now - H));
       raw
-        .prepare(`INSERT INTO followups(phone, kind, due_at, status, airtable_record_id, created_at) VALUES(?, 'nudge_d3', ?, 'scheduled', 'seq:1', 0)`)
+        // d2: in every class's list (a d3 row would now close on the policy).
+        .prepare(`INSERT INTO followups(phone, kind, due_at, status, airtable_record_id, created_at) VALUES(?, 'nudge_d2', ?, 'scheduled', 'seq:1', 0)`)
         .run(PHONE, now - 60);
       await runDueFollowups(envWith(db), slackDeps);
     });
@@ -304,10 +306,13 @@ test("extended step that loses the day claim is DEFERRED to next 08:00, not canc
 
 // ---- 5. resume instead of seq_done ------------------------------------------
 
-test("resume: d2 sent, the lead replies, the re-arm schedules d3..d5 only (no 30-day block)", async () => {
+test("resume: d2 sent, the lead replies (now engaged), the re-arm schedules the engaged steps after d2 only (no 30-day block)", async () => {
   const { raw, db } = sqliteDb();
   const clock = { now: T0 };
+  const msg = raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES(?, ?, ?, ?, ?)`);
   await withClock(clock, async () => {
+    msg.run("p1", PHONE, "in", "Hola, quiero info", T0 - 60); // ad prefill
+    msg.run("p2", PHONE, "out_bot", "¡Hola Ana! …", T0);
     insertContact(raw, contact({ last_inbound_at: T0 }));
     await armNudges(envWith(db), PHONE);
     // Day 2: d2 goes out.
@@ -317,12 +322,14 @@ test("resume: d2 sent, the lead replies, the re-arm schedules d3..d5 only (no 30
     raw.prepare(`UPDATE followups SET status = 'sent' WHERE kind IN ('nudge_1h', 'nudge_8h')`).run();
     // The lead answers d2 an hour later; the bot replies.
     clock.now = d2.due_at + H;
+    msg.run("p3", PHONE, "in", "¿Qué horarios hay el sábado?", clock.now);
     await cancelNudges(envWith(db), PHONE);
     setLastInbound(raw, clock.now);
     await armNudges(envWith(db), PHONE);
   });
   const ext = scheduled(raw).filter((r) => r.kind.startsWith("nudge_d"));
-  assert.deepEqual(ext.map((r) => r.kind), LIVE_CHAIN.filter((k) => k !== "nudge_d2"));
+  const engagedChain = nudgeChainFor(NUDGE_POLICY, { engaged: true, firstMessageAt: T0 }, T0, CLIENT.features.nudgeDay7 === true);
+  assert.deepEqual(ext.map((r) => r.kind), engagedChain.filter((k) => k !== "nudge_d2"));
   // Fresh token off the new anchor (+8h after the reply, quiet-shifted).
   assert.ok(ext.every((r) => r.airtable_record_id !== `seq:${T0 + 8 * H}`));
   assert.ok(ext[0]!.due_at > clock.now + DAY - 1);
@@ -345,7 +352,7 @@ test("pending approval: day-1 and extended nudges defer +60 min instead of sendi
       outcome: "deferred",
       retryAt: now + H,
     });
-    assert.deepEqual(await processExtendedNudge(envWith(db), PHONE, "nudge_d4", extDeps(sent)), {
+    assert.deepEqual(await processExtendedNudge(envWith(db), PHONE, "nudge_d2", extDeps(sent)), {
       outcome: "deferred",
       retryAt: now + H,
     });

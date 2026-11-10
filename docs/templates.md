@@ -206,6 +206,12 @@ that the common path) and only falls back to a template when the 24h window is
 closed. Until these are submitted + approved in Meta, the fallback fails and the
 engine SKIPS the send and posts one Slack note per day (kv `tmpl_missing_note`).
 
+> **2026-11-09 — engagement cut (`nudgePolicy` in client.mjs):** with the shipped
+> config only `nudge_d2_*`, `nudge_d4_*` and `nudge_d7_*` are sent (engaged leads
+> d2/d4/d7, silent leads d2/d7). `nudge_d3_*`, `nudge_d5_*` and `nudge_d5v2_*`
+> stay approved but unused unless the policy lists d3/d5 again (or
+> `silentFreshFull` is turned on). No template was added or changed.
+
 - **Category: Marketing** (all 12). **BAJA opt-out footer required** (FOOTER
   component). **es only for now** — the code sends `<base>_es`; an `_en` variant
   is not authored yet, so English leads whose window is closed are skipped until

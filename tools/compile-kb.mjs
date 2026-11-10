@@ -240,6 +240,40 @@ function savedVideos(list) {
   return out;
 }
 
+// Extended drip by engagement (src/cron/nudge-policy.ts). A typo here would
+// silently change who gets paid templates, so an unknown step FAILS the build.
+const NUDGE_STEPS = ["d2", "d3", "d4", "d5", "d7"];
+function nudgePolicy(p) {
+  const list = (key) => {
+    const raw = p?.[key];
+    if (!Array.isArray(raw)) {
+      console.error(`FAIL: nudgePolicy.${key} debe ser una lista de pasos (${NUDGE_STEPS.join(", ")}).`);
+      process.exit(1);
+    }
+    const out = [];
+    for (const s of raw) {
+      const step = String(s).trim().toLowerCase().replace(/^nudge_/, "");
+      if (!NUDGE_STEPS.includes(step)) {
+        console.error(`FAIL: nudgePolicy.${key}: paso desconocido ${JSON.stringify(s)} (válidos: ${NUDGE_STEPS.join(", ")}).`);
+        process.exit(1);
+      }
+      if (!out.includes(step)) out.push(step);
+    }
+    out.sort((a, b) => NUDGE_STEPS.indexOf(a) - NUDGE_STEPS.indexOf(b));
+    if (out.length > 0 && out[out.length - 1] !== "d7") {
+      console.warn(`WARN: nudgePolicy.${key} no termina en d7 — el último mensaje no será la despedida.`);
+    }
+    return out;
+  };
+  const days = Number(p?.silentFreshDays ?? 7);
+  return {
+    engaged: list("engaged"),
+    silent: list("silent"),
+    silentFreshFull: p?.silentFreshFull === true,
+    silentFreshDays: Number.isFinite(days) && days > 0 ? days : 7,
+  };
+}
+
 function renderClientTs(cfg, persona, version) {
   // Persona rides in from persona.md; everything else from client.mjs. The
   // object is emitted as literal TS so the worker bundles it with zero I/O.
@@ -281,6 +315,7 @@ function renderClientTs(cfg, persona, version) {
     ...(cfg.whatsappPricing ? { whatsappPricing: cfg.whatsappPricing } : {}),
     ...(cfg.metaAudiences ? { metaAudiences: cfg.metaAudiences } : {}),
     savedVideos: savedVideos(cfg.savedVideos),
+    ...(cfg.nudgePolicy ? { nudgePolicy: nudgePolicy(cfg.nudgePolicy) } : {}),
     copy: cfg.copy,
   };
   return (
