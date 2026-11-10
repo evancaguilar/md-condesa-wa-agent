@@ -43,7 +43,7 @@ import {
   bandFromQualification,
   monthsFromYears,
   slotGroup,
-  teenAdultMuayRow,
+  teenAdultRow,
   type ProgramBand,
 } from "../services/age-band.js";
 import { SLOTS } from "./slots.gen.js";
@@ -689,9 +689,11 @@ export async function handleBookTrial(
     if (childAgeMonths !== null) bookInput.childAgeMonths = childAgeMonths;
   }
 
-  // A teen into an ADULT Muay Thai row (no Teens Muay Thai exists): the row's
-  // audience is "adult", so validate existence against that audience even
-  // when the model sent "kid". Muay Thai only (teenAdultMuayRow).
+  // A teen into an ADULT row they may take (teenAdultRow: 16–17 any adult
+  // class; 13–15 adult Muay Thai, Saturday adult rows): the row's audience is
+  // "adult", so validate existence against that audience even when the model
+  // sent "kid".
+  const bandAgeMonths = childAgeMonths ?? parseQualification(ctx.contact)?.child_age_months ?? null;
   const wdBooked = weekdayIndex(trialDate);
   const slotAudience: Audience =
     SLOTS.some(
@@ -700,7 +702,8 @@ export async function handleBookTrial(
         s.time === trialTime.trim() &&
         s.discipline === discipline &&
         s.trial !== false &&
-        teenAdultMuayRow(s, band),
+        slotGroup(s) === "adult" &&
+        teenAdultRow(s, band, bandAgeMonths),
     )
       ? "adult"
       : audience;
@@ -708,14 +711,7 @@ export async function handleBookTrial(
   const check = band
     ? mergeChecks(
         validateSlot(trialDate, trialTime, slotAudience, discipline),
-        validateSlotBand(
-          trialDate,
-          trialTime,
-          discipline,
-          band,
-          undefined,
-          childAgeMonths ?? parseQualification(ctx.contact)?.child_age_months ?? null,
-        ),
+        validateSlotBand(trialDate, trialTime, discipline, band, undefined, bandAgeMonths),
       )
     : validateSlot(trialDate, trialTime, audience, discipline);
   if (!check.ok) {
@@ -1015,6 +1011,9 @@ const WEEKDAY_ES = [
 export function guardUnverifiedSlotClaim(
   res: BrainResult,
   ctx: Pick<ConvoContext, "nowCdmx"> & Partial<Pick<ConvoContext, "contact" | "campaign">>,
+  /** The booking's own band/age (bookResult): this turn's book_trial already
+   *  validated them, and the stored qualification may not carry them yet. */
+  booked?: { band?: ProgramBand | null; ageMonths?: number | null },
 ): BrainResult {
   if (res.action !== "send" && res.action !== "draft") return res;
 
@@ -1057,14 +1056,19 @@ export function guardUnverifiedSlotClaim(
   //    a Mini parent, "No hay Kids el sábado", Sunday mornings. Only pairs whose
   //    day is explicit (weekday / hoy / mañana).
   const bandCheck = (): BrainResult => {
-    const evidence = ctx.contact
-      ? (bandFromQualification(parseQualification(ctx.contact)) ??
-        (ctx.campaign?.name ? classifyProgram(ctx.contact, ctx.campaign.name) : null))
-      : null;
+    const evidence =
+      booked?.band ??
+      (ctx.contact
+        ? (bandFromQualification(parseQualification(ctx.contact)) ??
+          (ctx.campaign?.name ? classifyProgram(ctx.contact, ctx.campaign.name) : null))
+        : null);
     const leadDisc = ctx.contact ? normalizeDiscipline(parseQualification(ctx.contact).discipline ?? "") : "";
+    const ageMonths =
+      booked?.ageMonths ?? (ctx.contact ? (parseQualification(ctx.contact).child_age_months ?? null) : null);
     const issues = findSlotClaimIssues(res.message, weekdayIdx, {
       band: evidence,
       discipline: isKnownDiscipline(leadDisc) ? leadDisc : null,
+      ageMonths,
     });
     if (issues.length > 0) {
       return downgradeToDraft(
@@ -1175,6 +1179,7 @@ export function bookResult(
     const probe = guardUnverifiedSlotClaim(
       { action: "send", message: last.followupMessage, language: "es", confidence: "high" },
       ctx,
+      last.input.program ? { band: last.input.program, ageMonths: last.input.childAgeMonths ?? null } : undefined,
     );
     if (probe.action === "draft" && probe.reason) warning = probe.reason;
   }

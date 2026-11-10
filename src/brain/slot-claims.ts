@@ -13,7 +13,7 @@
 
 import { SLOTS, type Slot } from "./slots.gen.js";
 import { CLIENT } from "../client.gen.js";
-import { bandLabel, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
+import { bandLabel, slotMatchesBand, slotOpenToBand, type ProgramBand } from "../services/age-band.js";
 
 const WEEKDAY_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"] as const;
 
@@ -170,15 +170,23 @@ export interface SlotClaimOpts {
   /** The lead's discipline key (adults only constrain on it). */
   discipline: string | null;
   schedule?: readonly Slot[];
+  /** The lead's known child age in months: widens a TEEN lead's rows to the
+   *  adult/Kids rows they may book (age-band.ts teenAdultRow) — only when the
+   *  copy itself names no group ("Teens el sábado" stays strict). */
+  ageMonths?: number | null;
 }
 
 function rowsFor(
   schedule: readonly Slot[],
   weekday: number,
   band: ProgramBand | null,
+  open?: { ageMonths: number | null } | null,
 ): Slot[] {
   return schedule.filter(
-    (s) => s.weekday === weekday && s.trial !== false && (band === null || slotMatchesBand(s, band)),
+    (s) =>
+      s.weekday === weekday &&
+      s.trial !== false &&
+      (band === null || (open ? slotOpenToBand(s, band, open.ageMonths) : slotMatchesBand(s, band))),
   );
 }
 
@@ -603,9 +611,13 @@ export function findSlotClaimIssues(
       const h = disciplinesIn(head);
       return h.length === 1 ? h[0]! : null;
     })();
-    const band = groupHint(tail) ?? groupHint(head) ?? opts.band;
+    const namedGroup = groupHint(tail) ?? groupHint(head);
+    const band = namedGroup ?? opts.band;
+    // A teen lead on a row they may book (adult Muay Thai, Saturday adult
+    // classes, any adult class at 16–17) — only when the copy names no group.
+    const open = namedGroup === null && band === "teens" ? { ageMonths: opts.ageMonths ?? null } : null;
 
-    let rows = rowsFor(schedule, day.weekday, band);
+    let rows = rowsFor(schedule, day.weekday, band, open);
     const fits = (r: Slot[]) => r.some((s) => tok.times.includes(s.time));
     let candidates = rows.filter((s) => (disc ? s.discipline === disc : true));
     if (!disc && band === "adults" && opts.discipline) {
@@ -641,7 +653,7 @@ export function findSlotClaimIssues(
         s.trial === false &&
         tok.times.includes(s.time) &&
         (!disc || s.discipline === disc) &&
-        (band === null || slotMatchesBand(s, band)),
+        (band === null || (open ? slotOpenToBand(s, band, open.ageMonths) : slotMatchesBand(s, band))),
     );
     if (sparring && NO_TRIAL_RE.test(seg)) continue;
 
@@ -649,7 +661,7 @@ export function findSlotClaimIssues(
     if (seen.has(key)) continue;
     seen.add(key);
     if (sparring) {
-      const trialRows = rowsFor(schedule, day.weekday, band).filter((s) => (disc ? s.discipline === disc : true));
+      const trialRows = rowsFor(schedule, day.weekday, band, open).filter((s) => (disc ? s.discipline === disc : true));
       issues.push({
         weekday: day.weekday,
         time: tok.times[0]!,

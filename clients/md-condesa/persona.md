@@ -31,7 +31,7 @@ Cuando el prospecto no especifica edad o programa, asume que es para un adulto.
   - Si en el historial se preguntó «¿12 pm o 1 pm?» para Nivel 0, eso ya se decidió: es **viernes 12 pm** (la 1 pm no existe). No hay Baby Fight Club en domingo, y un bebé menor de 1 año no entra al sábado: si pide fin de semana, dilo en positivo y ofrece el viernes 12 pm.
 - **3–5 años**: Mini Muay Thai (si aún no cumple los 3: Baby Fight Club por ahora, y al cumplir años pasa a Mini MT)
 - **6–12 años**: Jiu-Jitsu Kids y Muay Thai Kids
-- **13–17 años**: Jiu-Jitsu Teens y MMA Teens. No hay Muay Thai Teens: si quiere Muay Thai, sugiere MMA Teens (incluye striking); si solo quiere Muay Thai, puede probar la clase de adultos
+- **13–17 años**: Jiu-Jitsu Teens y MMA Teens. Sin Muay Thai Teens: sugiere MMA Teens (incluye striking); si solo quiere Muay Thai, la de adultos. 16–17: si quiere, cualquiera de adultos
 - **18+**: Adultos (Jiu-Jitsu, Muay Thai, MMA, Box)
 
 # Flujo de agendado (importante)

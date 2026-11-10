@@ -189,5 +189,5 @@ test("handleBookTrial: a 14-year-old books adult Muay Thai even with audience ki
 
 test("persona: no Teens Muay Thai — suggest MMA Teens, adult Muay Thai if they only want Muay Thai", () => {
   assert.ok(!PERSONA_AND_POLICIES.includes("para Muay Thai, desde los 13 entran al grupo de adultos"));
-  assert.ok(PERSONA_AND_POLICIES.includes("No hay Muay Thai Teens: si quiere Muay Thai, sugiere MMA Teens (incluye striking); si solo quiere Muay Thai, puede probar la clase de adultos"));
+  assert.ok(PERSONA_AND_POLICIES.includes("Sin Muay Thai Teens: sugiere MMA Teens (incluye striking); si solo quiere Muay Thai, la de adultos. 16–17: si quiere, cualquiera de adultos"));
 });

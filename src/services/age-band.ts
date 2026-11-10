@@ -46,20 +46,45 @@ export function slotMatchesBand(slot: Slot, band: ProgramBand, ageMonths?: numbe
   return g === band && slotFitsAge(slot, ageMonths);
 }
 
+/** 16 years in months: from here a teen may book ANY adult class. */
+export const TEEN_ADULT_ANY_MONTHS = 16 * 12;
+
 /**
- * Owner, 2026-11-10: there is no Teens Muay Thai. A 13–17 year old who only
- * wants Muay Thai may try the ADULT Muay Thai class — Muay Thai only (MMA
- * adultos is 16+ and coach-confirmed, Box/Jiu-Jitsu adult rows are not
- * widened here). Used where a booking or a claimed slot is CHECKED, never
- * where slots are PROPOSED (the persona offers MMA Teens first).
+ * Which ADULT (or Kids) rows a 13–17 year old may book — owner, 2026-11-10,
+ * mirroring intake.md «Clases de prueba» Teens line:
+ *  - 16–17: any adult class, any day ("si tiene 16 y quiere entrenar con los
+ *    adultos, puede"; adult MMA stays "lo confirma el coach" in the KB copy —
+ *    the coach confirms in class, the booking itself is allowed).
+ *  - 13–15 (or teen with unknown age): adult Muay Thai any day (there is no
+ *    Teens Muay Thai); on SATURDAY any adult class (9 am Jiu-Jitsu, 10 am
+ *    Jiu-Jitsu/Muay Thai, 2 pm Box) except Blindaje 8 at 12 pm, which is 16+
+ *    or 14–15 (with a parent — copy, not checkable here); and at 13–14 the
+ *    Saturday 11 am Kids class.
+ * Used where a booking or a claimed slot is CHECKED, never where slots are
+ * PROPOSED (the persona offers the Teens rows first). Sparring (trial:false)
+ * is the caller's filter.
  */
+export function teenAdultRow(slot: Slot, band: ProgramBand | null, ageMonths?: number | null): boolean {
+  if (band !== "teens") return false;
+  const g = slotGroup(slot);
+  const age = typeof ageMonths === "number" && Number.isFinite(ageMonths) ? ageMonths : null;
+  if (g === "kids") return slot.weekday === 5 && slot.time === "11:00" && age !== null && age < 15 * 12;
+  if (g !== "adult") return false;
+  if (age !== null && age >= TEEN_ADULT_ANY_MONTHS) return true;
+  if (slot.discipline === "muay") return true;
+  if (slot.weekday !== 5) return false;
+  if (slot.name) return age !== null && age >= 14 * 12; // Blindaje 8: 14–15 with a parent
+  return true;
+}
+
+/** Back-compat name (2026-11-10 first cut): a teen on an adult Muay Thai row. */
 export function teenAdultMuayRow(slot: Slot, band: ProgramBand | null): boolean {
   return band === "teens" && slot.discipline === "muay" && slotGroup(slot) === "adult";
 }
 
-/** slotMatchesBand, plus the teen → adult Muay Thai exception. */
+/** slotMatchesBand, plus the teen → adult/Kids exceptions (teenAdultRow). */
 export function slotOpenToBand(slot: Slot, band: ProgramBand, ageMonths?: number | null): boolean {
-  return slotMatchesBand(slot, band, ageMonths) || teenAdultMuayRow(slot, band);
+  return slotMatchesBand(slot, band, ageMonths) || teenAdultRow(slot, band, ageMonths);
 }
 
 /** Rows with a `months` window (Baby Fight Club: Nivel 0 Friday 12 pm is
