@@ -90,7 +90,7 @@ import {
   parseOverrideCheck,
 } from "./override-check.js";
 import { isOptOut, isOptOutBurst, OPT_OUT_BURST_SECONDS } from "./opt-out.js";
-import { detectDecline, shouldClearDecline, turnDeclineSource } from "./decline.js";
+import { detectDecline, routeDeclineSource, shouldClearDecline } from "./decline.js";
 import { applyDecline, clearDecline, getDeclineMarker } from "../services/decline-stop.js";
 import { isRetoLoginRequest, retoLoginConfigured } from "./reto-login.js";
 import { requestRetoLogin } from "../services/reto-login.js";
@@ -1152,28 +1152,37 @@ async function routeResult(
   // Declined stop (pipeline/decline.ts): set it BEFORE any delivery path so
   // the armNudges that follows a send (here or on approval) sees it. The
   // reply itself still goes out normally. A reply that promises "no te
-  // mandamos más" sets it too. Renewed interest in answer to our re-invite
-  // lifts it (shouldClearDecline).
-  if (result.action === "send" || result.action === "draft") {
-    const source = turnDeclineSource({ leadDeclined: result.leadDeclined, message: result.message });
-    if (source) {
-      if (ctx.contact.status !== "student") {
-        const lastIn = [...history].reverse().find((m) => m.direction === "in");
-        await applyDecline(env.DB, phone, source, {
-          text: source === "promise" ? result.message : (lastIn?.body ?? ""),
-          postNote: (t, meta) => ports.slack.postNote(t, { kind: "decline", meta }),
-        });
-      }
-    } else if (result.leadInterested) {
-      const marker = await getDeclineMarker(env.DB, phone);
-      if (shouldClearDecline(marker, { interested: true, declinedThisTurn: false, history }) && (await clearDecline(env.DB, phone))) {
-        await ports.slack
-          .postNote(`🔓 ${phone} volvió a mostrar interés tras declinar: seguimiento automático reactivado.`, {
-            kind: "decline",
-            meta: { phone, cleared: true },
-          })
-          .catch(() => {});
-      }
+  // mandamos más" sets it too, and so does every complaint-class escalation
+  // (owner, 2026-11-10: an angry lead is never chased; the human task below
+  // still goes out). Renewed interest in answer to our re-invite lifts it
+  // (shouldClearDecline).
+  const declineSource = routeDeclineSource({
+    action: result.action,
+    escalationKind: escKind,
+    ...(result.action === "send" || result.action === "draft"
+      ? { leadDeclined: result.leadDeclined, message: result.message }
+      : {}),
+  });
+  if (declineSource) {
+    if (ctx.contact.status !== "student") {
+      const lastIn = [...history].reverse().find((m) => m.direction === "in");
+      await applyDecline(env.DB, phone, declineSource, {
+        text:
+          declineSource === "promise" && (result.action === "send" || result.action === "draft")
+            ? result.message
+            : (lastIn?.body ?? ""),
+        postNote: (t, meta) => ports.slack.postNote(t, { kind: "decline", meta }),
+      });
+    }
+  } else if ((result.action === "send" || result.action === "draft") && result.leadInterested) {
+    const marker = await getDeclineMarker(env.DB, phone);
+    if (shouldClearDecline(marker, { interested: true, declinedThisTurn: false, history }) && (await clearDecline(env.DB, phone))) {
+      await ports.slack
+        .postNote(`🔓 ${phone} volvió a mostrar interés tras declinar: seguimiento automático reactivado.`, {
+          kind: "decline",
+          meta: { phone, cleared: true },
+        })
+        .catch(() => {});
     }
   }
 

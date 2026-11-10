@@ -32,7 +32,7 @@ export function declinedKey(phone: string): string {
 }
 
 /** Who set the stop. */
-export type DeclineSource = "brain" | "not_interested" | "objection" | "promise";
+export type DeclineSource = "brain" | "not_interested" | "objection" | "promise" | "complaint";
 
 export interface DeclineMarker {
   /** When the stop was (last) set, epoch seconds. */
@@ -42,7 +42,7 @@ export interface DeclineMarker {
   text?: string;
 }
 
-const SOURCES: readonly DeclineSource[] = ["brain", "not_interested", "objection", "promise"];
+const SOURCES: readonly DeclineSource[] = ["brain", "not_interested", "objection", "promise", "complaint"];
 
 export function encodeDeclineMarker(m: DeclineMarker): string {
   const out: DeclineMarker = { ts: m.ts, source: m.source };
@@ -253,6 +253,27 @@ export function turnDeclineSource(input: { leadDeclined?: boolean; message: stri
 }
 
 /**
+ * Pure. The stop a routed brain result sets (routeResult). Owner, 2026-11-10:
+ * "angry messages should always get stopped the sequence and referred to
+ * humans" — every complaint-class escalation (escalate_to_human, or a draft
+ * whose escalation reason classifies as complaint) sets the stop with source
+ * `complaint`, on top of the human task it already creates. Otherwise the
+ * send/draft rules of turnDeclineSource. A booking never sets it. Explicit
+ * stop wording is the opt-out path (a full baja) and never reaches here.
+ */
+export function routeDeclineSource(input: {
+  action: string;
+  escalationKind: string | null;
+  leadDeclined?: boolean;
+  message?: string;
+}): DeclineSource | null {
+  if (input.action !== "send" && input.action !== "draft" && input.action !== "escalate") return null;
+  if (input.escalationKind === "complaint" && input.action !== "send") return "complaint";
+  if (input.action === "escalate") return null;
+  return turnDeclineSource({ leadDeclined: input.leadDeclined, message: input.message ?? "" });
+}
+
+/**
  * Pure. Does this brain turn RE-OPEN the chase? Only when the brain flagged
  * `lead_interested`, did not flag a decline this turn, and the interest came in
  * ANSWER to something we said after the stop was set: there is an outbound
@@ -283,6 +304,7 @@ const SOURCE_LABEL: Record<DeclineSource, string> = {
   not_interested: "dijo que no le interesa",
   objection: "puso una objeción (distancia/precio)",
   promise: "el bot le prometió no escribirle más",
+  complaint: "queja / enojo — pasó a humano",
 };
 
 /** Pure. The ONE ops_log line per stop event. */
