@@ -26,6 +26,7 @@ This replaces the two-channel layout from docs/slack-channels-review.md (2026-10
 |---|---|---|---|
 | Nightly audit report | #bot-ops: a header plus 1–N chunks | One summary to #evan-alerts (resumen, números, problem and suggestion counts, link to the full report). The full report goes to ops_log. | audit / info |
 | Nightly audit: no conversations; audit failed for the day | #bot-ops | #evan-alerts | audit |
+| **New (2026-11-10):** private-class inquiry (escalation kind `private_class`) | — | #evan-alerts at once, ON TOP of the #wa-leads task (owner's explicit exception to one-channel-per-event) | approvals |
 | Escalation unanswered past its SLA (step 2) | DM to `SLACK_OWNER_USER_ID` (usually unset, so skipped) | #evan-alerts. The task itself and the 45-minute re-ping stay in #wa-leads. | approvals |
 | **New:** template APPROVED / REJECTED / PAUSED / DISABLED / FLAGGED / REINSTATED (`message_template_status_update`) | Ignored | #evan-alerts | template |
 | Infra alarm (D1 saturated or failing, Anthropic, Meta 5xx/429), from cron, webhook, admin and Slack routes | #bot-ops `<!here>` | One critical line | infra / critical |

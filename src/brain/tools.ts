@@ -49,7 +49,7 @@ const sendReply: AnthropicTool = {
       escalation_reason: {
         type: "string",
         description:
-          "Optional short note for the human reviewer when confidence is 'low'. Start it with the literal token `opt_out` when the lead asks to stop receiving messages (nothing is sent; the baja is applied), or `complaint` when the lead complains / is upset (a human takes it; never sent automatically).",
+          "Optional short note for the human reviewer when confidence is 'low'. Start it with the literal token `opt_out` when the lead asks to stop receiving messages (nothing is sent; the baja is applied), or `complaint` when the lead complains / is upset (a human takes it; never sent automatically). Start it with `clase_privada` when the lead asks about private classes (a human task + owner alert open; the reply waits for review).",
       },
       awaiting_reply: {
         type: "boolean",
@@ -314,6 +314,12 @@ export function validateSlot(
     return { ok: false, reason: `Invalid trial_date '${trialDate}' (expected YYYY-MM-DD).` };
   }
   const closed = closedDateInfo(trialDate, closedDates);
+  if (closed?.mode === "tbd") {
+    return {
+      ok: false,
+      reason: `${trialDate}${closed.reason ? ` (${closed.reason})` : ""} has a SPECIAL holiday schedule that is not decided yet — the regular grid does not apply and nothing can be booked that day. Tell the lead the holiday schedule is being confirmed and offer another day from the KB; if they insist on that date, escalate_to_human.`,
+    };
+  }
   if (closed) {
     return {
       ok: false,

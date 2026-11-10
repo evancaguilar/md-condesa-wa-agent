@@ -462,6 +462,13 @@ export interface ClosedDate {
   date: string;
   /** Shown to the brain ("Día de la Independencia"). */
   reason?: string;
+  /**
+   * "closed" (default): no classes at all that day. "tbd": a special schedule
+   * is coming but not decided yet — same blocking (no slot proposed, no
+   * booking accepted), but the brain says the holiday schedule is being
+   * confirmed and offers another day (or escalates if the lead insists).
+   */
+  mode?: "closed" | "tbd";
 }
 
 export interface ClientConfig {

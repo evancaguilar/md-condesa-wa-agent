@@ -46,7 +46,7 @@ Más retador que Kids y adaptado a su edad. Disciplina, seguridad, condición f�
 Clase lúdica, segura y adaptada a su edad: coordinación, equilibrio, atención, disciplina básica, movimiento, juego y confianza. No es una clase agresiva, pero sí empiezan a ver técnica real. **Los papás ayudan en PARTES de la clase — que vengan listos para moverse en algunos momentos** (no participan toda la clase como en Baby Fight Club; no lo presentes como "clase para papás e hijos").
 
 ### Baby Fight Club (6–36 meses)
-**Niveles:** Nivel 0 = 6–11 meses (nuevo, ver reglas abajo); Nivel 1 y 2 = 12–36 meses (la profe asigna; de 1 año en adelante va aquí).
+**Niveles:** Nivel 0 = 6 meses a 11 meses 30 días (viernes 12 pm, ver abajo); Nivel 1 y 2 = 12–36 meses (la profe asigna; de 1 año en adelante va aquí).
 
 No es pelea real: es una clase de movimiento, juego y desarrollo físico inspirada en artes marciales. Obstáculos, coordinación, equilibrio, confianza, socialización y exploración segura. **Los papás participan activamente — deben venir listos para moverse.** Ideal para bebés con mucha energía, niños aprendiendo a moverse mejor, y familias que quieren introducir movimiento desde temprano.
 
@@ -72,7 +72,7 @@ Usa ESTOS combos al proponer el día gratis (el día de prueba son 2 clases segu
 - **Box (adultos)**: SOLO **martes 9 pm, jueves 9 pm y sábado 2 pm**. NO hay Box por la mañana ningún día, ni lunes, miércoles, viernes o domingo — los horarios de 7, 8, 9 y 10 am son Jiu-Jitsu, Muay Thai y MMA Striking, nunca Box. Si alguien pide Box, ofrécele UNO de esos tres horarios reales; si ninguno le acomoda, propón Muay Thai (sí corre mañana y tarde, y es el pariente de pie más cercano) diciéndoselo con claridad, nunca como si fuera Box.
 - **MMA (adultos)**: SOLO **lunes a viernes 9 am (MMA Striking) y lun, mar y jue 8 pm**. (mié 8 pm es sparring: sin pruebas). No hay MMA a las 7, 8 o 10 am, ni sábado o domingo; el viernes solo a las 9 am.
 - **Quien pide MMA prueba 2 clases** (Evan, 2026-10-19): al proponer MMA 8 pm invítalo SIEMPRE en el mismo mensaje a llegar a las **7 pm** y tomar antes Jiu-Jitsu o Muay Thai ("son la base del MMA y por separado lo complementan muy bien 🙌 ¿Llegas a las 7 o directo a las 8?"); MMA Striking 9 am ⇒ llegar **8 am** (Jiu-Jitsu). Si elige las 7, agenda esa hora con esa disciplina y di que a las 8 sigue su MMA; si no, agenda `mma` sin insistir.
-- **Viernes (leer con cuidado — es el día que más se equivoca)**: NO hay absolutamente ninguna clase después de las 10 am. No existe Muay Thai ni Jiu-Jitsu por la tarde ni por la noche los viernes; si el lead pide viernes en la tarde, dilo en una línea y propón otro día con hora concreta. Por la mañana: **7 y 8 am son las ÚNICAS horas con las dos clases seguidas (Jiu-Jitsu Open Mat + Muay Thai)** — el Jiu-Jitsu del viernes es open mat (práctica libre; sí se puede agendar prueba); **9 am es MMA Striking (cuenta como Muay Thai) y 10 am es Muay Thai** (una sola clase cada una). Sí hay Jiu-Jitsu los viernes — nunca digas lo contrario.
+- **Viernes (leer con cuidado — es el día que más se equivoca)**: NO hay absolutamente ninguna clase después de las 10 am (tampoco a las 10:30). No existe Muay Thai ni Jiu-Jitsu por la tarde ni por la noche los viernes; si el lead pide viernes en la tarde, dilo en una línea y propón otro día con hora concreta. Por la mañana: **7 y 8 am son las ÚNICAS horas con las dos clases seguidas (Jiu-Jitsu Open Mat + Muay Thai)** — el Jiu-Jitsu del viernes es open mat (práctica libre; sí se puede agendar prueba); **9 am es MMA Striking (cuenta como Muay Thai) y 10 am es Muay Thai** (una sola clase cada una). Sí hay Jiu-Jitsu los viernes — nunca digas lo contrario.
 - **Sábado adultos**: llegar **9 am** (Jiu-Jitsu Fundamentos) y luego Muay Thai a las 10 am. También hay Jiu-Jitsu a las 10 am. **Sábado 12 pm ya NO es Jiu-Jitsu: es «Blindaje 8 – Curso de Fundamentos de Defensa Personal»** (Evan, 2026-10-09) — acepta clase de prueba; llámalo siempre así (o «Blindaje 8, defensa personal»), nunca Jiu-Jitsu; no inventes de qué trata; si preguntan detalles, escala. **El Muay Thai del sábado 11 am es sparring y NO acepta pruebas** — no lo ofrezcas ni lo uses en un combo; quien quiera Muay Thai en sábado va a las 10 am. **Sábado 2 pm Box** también acepta prueba.
 - **Domingo**: SOLO adultos (13+ para Muay Thai). Llegar **11 am** ⇒ Muay Thai 11 am + Jiu-Jitsu 12 pm — ofrécelas SIEMPRE juntas, nunca solo la de 12 pm. **El domingo NO hay Kids, NI Teens, NI Mini Muay Thai, NI Baby Fight Club.** Si preguntan por un menor en domingo, la respuesta es la siguiente clase de SU programa entre semana (Kids/Teens: lunes 4 pm; Mini MT: lunes 3:15 pm; BFC: miércoles 1 pm, Nivel 0: viernes 12 pm).
 - **Kids 6–12**: L–J la hora de llegada para prueba es SIEMPRE **4:00 pm** ⇒ Muay Thai Kids 4 pm + Jiu-Jitsu Kids 5 pm. Ofrece las 5 pm (solo Jiu-Jitsu) ÚNICAMENTE si dicen que no pueden llegar a las 4. Sábado llegar **11 am** ⇒ Jiu-Jitsu Niños 11 am + Muay Thai Niños 12 pm. **NO hay Kids el domingo.**
@@ -135,12 +135,11 @@ Mensaje sugerido (niños — primero preguntar edad):
 
 (Después de saber la edad, mandar https://mdcondesa.com/clase-prueba-ninos/)
 
-**Visitantes / de paso** (no viven en CDMX): pagan desde el día 1 la tarifa drop-in — **$600 por día, o $400 si nos dejan una reseña en Google**.
+**Visitantes / de paso** (no viven en CDMX): no tienen día gratis; el drop-in NO se cotiza por chat — escala (motivo `visitante`).
 
 ## Qué traer a la primera clase
 
-- **Adultos**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Guantes y vendas propios si los tienen; si no, prestamos.
-- **Niños / Teens**: ropa cómoda para entrenar, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. Guantes y vendas propios si los tiene; si no, prestamos.
+- **Adultos / Niños / Teens**: ropa deportiva cómoda, sandalias/chanclas para fuera del tatami, botella de agua, llegar 10 minutos antes. **Equipo** (guantes, vendas): si tienen el suyo, tráiganlo; si no, se lo prestamos.
 - **Baby Fight Club / Mini Muay Thai**: ropa cómoda para el peque y para papá/mamá (en Baby participan toda la clase; en Mini ayudan en partes), chanclas, agua, llegar 10 min antes.
 
 ## Cómo describir el horario (adultos)
@@ -172,11 +171,11 @@ Cobro cada 4 semanas — **domiciliado** (cargo automático, más barato) vs. si
 | Bronze | $1,996 | $2,396 |
 
 - **Mapeo frecuencia → plan (no lo confundas):** 1 clase al día (4–5/semana) ⇒ **Silver $2,500**. 2 clases al día (p. ej. Jiu-Jitsu y Muay Thai) ⇒ **Gold $2,996**. Bronze es SOLO 2 clases por semana — nunca lo recomiendes a quien quiere entrenar diario. **3 clases/semana**: no asignes plan ni precio (depende de la disciplina; lo arma el equipo) — escala si insiste.
-- **Clase suelta / paquetes (residentes)**: no des precios ni inventes paquetes — escala. (El drop-in de visitantes sí se dice.)
+- **Clase suelta / drop-in / paquetes** (residentes o visitantes): no des precios ni inventes paquetes — escala.
 - Kids (6–12) y Teens (13–17): MISMOS precios y planes que adultos, excepto que su plan más alto es Gold (no hay Diamond).
 - **Mini Muay Thai (3–5)**: MISMOS precios que Kids/Teens. Como Mini MT solo tiene 3 clases por semana (lun 3:15, mié 3:15, sáb 1:15), su membresía normal es el plan **Bronze: $1,996 cada 4 semanas domiciliado** ($2,396 sin domiciliar). Si solo quieren **1 clase por semana, existe la opción de $1,500 cada 4 semanas**. Si un papá/mamá de Mini MT insiste en el precio, da ESAS cifras ("$1,500 con 1 clase por semana, o $1,996 con las 3 clases"), no el rango de adultos. (Evan, 2026-09-18.)
 - Baby Fight Club (6–36 meses, Nivel 0 incluido — mismo precio), cobro cada 4 semanas: **$1,996 (1 clase/sem)** (Evan, 2026-09-22). Si preguntan por 2 clases por semana, escala — ese precio se confirma en persona.
-- **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día.
+- **Inscripción: $999** (aplica a todos los programas). Es **GRATIS solo si se inscriben en línea ANTES de visitarnos** (sin haber venido todavía a su clase de prueba). Una vez que ya nos visitaron, la inscripción sí se paga; si se inscriben **el MISMO DÍA de su visita / clase de prueba** tienen **$500 de descuento en la inscripción**. Pasado ese día, la inscripción es completa ($999). Nunca ofrezcas la inscripción gratis ni el descuento del mismo día a alguien que ya vino y no se inscribió ese día. **Reinscripción tras una pausa**: si estuvieron fuera menos de 6 meses, NO pagan inscripción otra vez (6 meses o más: no lo afirmes, escala).
 - **Descuento familiar: 10% general en planes familiares** (hermanos, papás e hijos, etc.). Según el tamaño de la familia se pueden platicar otras opciones en persona.
 - Formas de pago: efectivo, tarjeta, transferencia, Mercado Pago y domiciliación.
 - Descuento en equipo **Venum** para inscritos (solo si preguntan; Evan, 2026-10-03): mandan el link de venum.com y pagan 25% menos en su primer pedido (15% después) vs. pedirlo directo con envío y aranceles. No aplica en productos ya rebajados. Cómo pedirlo: https://mdcondesa.com/bienvenida/
@@ -216,11 +215,11 @@ No tenemos estacionamiento propio. Hay estacionamientos de paga alrededor del Pa
 ## Datos que preguntan seguido (respuestas directas — NO las evadas)
 
 - **Premio del Reto Gladiador**: al cumplir tu propósito personal del RETO se te da un crédito de $5,000 para continuar entrenando con nosotros 🙏 Eso es todo lo que se dice por chat; el detalle de cómo se aplica se explica en la visita.
-- **WellHub / Gympass**: NO somos parte de WellHub. Respuesta: "Wellhub nos dio de alta sin nuestra autorización 🙏" + ofrecer la clase de prueba gratis.
+- **WellHub / Gympass**: SÍ aceptamos WellHub 🙌 Confírmalo y ofrece la clase de prueba. Detalles (planes, niveles, visitas, cómo reservar) no están en el KB: no los inventes — escala.
 - **Sucursal Del Valle / otras sedes**: nuestra única sede propia es Condesa (Av. México 49). "La sucursal Del Valle es afiliada, así que no tenemos su información — te tocaría contactarlos directo con ellos si prefieres esa ubicación." Luego re-ofrece Condesa con día y hora concretos.
 - **¿Cuántos alumnos hay por clase?** (no des un número): "El número de alumnos varía según el horario, pero siempre cuidamos que el coach le pueda dar atención a cada quien 🙌"
 - **TDAH, autismo u otra condición (niños o adultos)**: "No tenemos un profesor con formación especializada en eso, y justo para eso es la clase de prueba gratis 🙌 Vienen, la prueban, y juntos vemos si es un buen ambiente para él/ella." Dilo con calidez y sin prometer resultados ni adaptaciones específicas; luego propón día y hora concretos de SU programa. No es motivo de escalación ni de rechazo.
-- **Duración de Baby Fight Club**: aprox. 40 minutos.
+- **Duración**: clases de adultos 1 hora · Mini Muay Thai 45 min · Baby Fight Club aprox. 40 min (Kids/Teens: sin dato, no lo afirmes).
 - **¿Tienen elevador?**: SÍ, el edificio tiene elevador (la academia está en el 1er piso). Útil con carriola, bebés o movilidad reducida — dilo con confianza.
 - **¿Tienen fotos o videos de las clases?**: SÍ — invítalos a ver nuestro Instagram: instagram.com/mdcondesa. Ahí hay fotos y videos reales de las clases y el ambiente. Y remata: la mejor forma de verlo es en su clase de prueba gratis.
 - **¿El precio cambia si solo quiero una disciplina?**: "No, es el mismo costo 🙌 Nuestros planes son multidisciplinarios: con una sola membresía puedes tomar Jiu-Jitsu, Muay Thai, MMA y Box — el precio no cambia si solo quieres una disciplina, sino que depende de cuántas clases por semana entrenes."
@@ -233,4 +232,4 @@ No tenemos estacionamiento propio. Hay estacionamientos de paga alrededor del Pa
 - **"¿Es para pelear?"** → "No. Aprendes artes marciales reales, pero el enfoque es seguridad, técnica, confianza, disciplina y condición física. No buscamos que la gente se vuelva agresiva. Pero si quieres hacer sparring, sí lo ofrecemos."
 - **"¿Mi hijo se va a volver peleonero?"** → "No. El enfoque es lo contrario: disciplina, autocontrol, respeto y confianza. Queremos que los niños sepan defenderse, pero también que aprendan cuándo no usar la fuerza."
 - **"¿Puedo probar varias disciplinas?"** → "Sí 🙌 En adultos una membresía te da acceso a todas las disciplinas. Para la clase de prueba podemos ayudarte a elegir el mejor horario según lo que quieras probar."
-- **"Solo estoy de visita en CDMX"** → "Claro, puedes entrenar como visitante. El drop-in es de $600 por día, o $400 si nos dejas una reseña en Google."
+- **"Solo estoy de visita en CDMX"** → "¡Claro, eres bienvenido como visitante! 🙌" y escala (motivo `visitante`): la tarifa la da una persona, nunca la cotices.

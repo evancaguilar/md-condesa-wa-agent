@@ -517,6 +517,11 @@ function loadContent() {
 
 // ---- assembly ------------------------------------------------------------
 
+/** intake.md minus its `<!-- … -->` editor notes, trimmed. Pure. */
+export function stripComments(md) {
+  return md.replace(/<!--[\s\S]*?-->\s*/g, "").trim();
+}
+
 function assembleMarkdown({ cfg, site, schedEs, schedEn, curated, founderTxt, intake }) {
   const nap = site.address;
   const lines = [];
@@ -589,7 +594,8 @@ function assembleMarkdown({ cfg, site, schedEs, schedEn, curated, founderTxt, in
   // --- Precios (intake VERBATIM) ---
   lines.push(`## Precios y políticas`);
   lines.push("");
-  lines.push(intake.trim());
+  // HTML comments in intake.md are editor notes, not knowledge: never ship them.
+  lines.push(stripComments(intake));
   lines.push("");
 
   return lines.join("\n");

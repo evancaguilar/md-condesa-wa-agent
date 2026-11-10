@@ -5,7 +5,7 @@
 // unclassified and classifyProgram (nudges + blast audiences) filed them as
 // ADULTS — a BFC parent got the adults blast on 2026-09-29 and booked an adult
 // 6 pm class by mistake. This module reads a single inbound message and says
-// whether it clearly points at a baby (12–36 months → Baby Fight Club) or a
+// whether it clearly points at a baby (6–36 months → Baby Fight Club) or a
 // child (3–12 → Kids). Pure; the pipeline and the backfill route persist it.
 //
 // Deliberately conservative: a bare age only counts when the message is ABOUT

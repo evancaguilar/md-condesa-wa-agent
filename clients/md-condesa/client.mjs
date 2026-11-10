@@ -31,8 +31,13 @@ export default {
   // Days the academy is CLOSED (CDMX dates). The brain is told in the per-turn
   // context, nudges never propose a class on them, and book_trial rejects them.
   // Add a row per holiday/closure; past dates are harmless (kept as history).
+  // mode "tbd" = special schedule not decided yet: blocked exactly like a
+  // closure, but the brain says the holiday schedule is being confirmed (and
+  // escalates if the lead insists on that date). Swap it for the real hours
+  // (or delete the row) once Evan decides.
   closedDates: [
     { date: "2026-09-16", reason: "Día de la Independencia" },
+    { date: "2026-11-16", reason: "lunes feriado", mode: "tbd" }, // Evan, 2026-11-10
   ],
   // Trial offers are SOONEST-FIRST (same-day trials show 54% vs ~29% for ones
   // a day or more out — Jul 1–Sep 21 2026, 645 trials). preferredBlocks is the

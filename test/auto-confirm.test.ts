@@ -97,7 +97,7 @@ function contact(over: Partial<Contact> = {}): Contact {
 }
 
 const booking = (over: Partial<BookTrialInput> = {}, msg = CONFIRM): PendingBooking => ({
-  input: { name: "Ana", discipline: "muay", audience: "kid", trialDate: "2026-11-16", trialTime: "16:00", phone: "5215512345678", childName: "Emilia", program: "kids", childAgeMonths: 96, ...over },
+  input: { name: "Ana", discipline: "muay", audience: "kid", trialDate: "2026-11-23", trialTime: "16:00", phone: "5215512345678", childName: "Emilia", program: "kids", childAgeMonths: 96, ...over },
   followupMessage: msg,
   recordId: "recA",
 });
@@ -154,17 +154,17 @@ test("the schedule has MMA Teens (L–J 4 pm) and Jiu-Jitsu Teens (L–J 5 pm), 
 });
 
 test("validateSlotBand: a teen may book adult Muay Thai; not adult Jiu-Jitsu, MMA or Box; Kids still may not", () => {
-  // Monday 2026-11-16
-  assert.equal(validateSlotBand("2026-11-16", "19:00", "muay", "teens").ok, true);
-  assert.equal(validateSlotBand("2026-11-16", "07:00", "muay", "teens").ok, true);
-  assert.equal(validateSlotBand("2026-11-16", "19:00", "jiu", "teens").ok, false);
-  assert.equal(validateSlotBand("2026-11-16", "20:00", "mma", "teens").ok, false);
-  assert.equal(validateSlotBand("2026-11-16", "19:00", "muay", "kids").ok, false);
-  assert.equal(validateSlotBand("2026-11-16", "16:00", "mma", "teens").ok, true, "MMA Teens");
+  // Monday 2026-11-23 (11-16 is the holiday-TBD date)
+  assert.equal(validateSlotBand("2026-11-23", "19:00", "muay", "teens").ok, true);
+  assert.equal(validateSlotBand("2026-11-23", "07:00", "muay", "teens").ok, true);
+  assert.equal(validateSlotBand("2026-11-23", "19:00", "jiu", "teens").ok, false);
+  assert.equal(validateSlotBand("2026-11-23", "20:00", "mma", "teens").ok, false);
+  assert.equal(validateSlotBand("2026-11-23", "19:00", "muay", "kids").ok, false);
+  assert.equal(validateSlotBand("2026-11-23", "16:00", "mma", "teens").ok, true, "MMA Teens");
   // Tuesday 21:00 Box (2026-11-17)
   assert.equal(validateSlotBand("2026-11-17", "21:00", "box", "teens").ok, false);
   // Kids Muay Thai at 4 pm stays closed to a teen
-  assert.equal(validateSlotBand("2026-11-16", "16:00", "muay", "teens").ok, false);
+  assert.equal(validateSlotBand("2026-11-23", "16:00", "muay", "teens").ok, false);
 });
 
 test("handleBookTrial: a 14-year-old books adult Muay Thai even with audience kid; adult Jiu-Jitsu refused", async () => {
@@ -175,7 +175,7 @@ test("handleBookTrial: a 14-year-old books adult Muay Thai even with audience ki
     phone: "5215512345678", contact: contact(), history: [], nowCdmx: "2026-11-12T18:30",
     weekday: "jueves", windowOpen: true, trainingWheels: true,
   };
-  const base = { name: "Ana", child_name: "Diego", child_age: 14, trial_date: "2026-11-16", trial_time: "19:00", followup_message: "ok" };
+  const base = { name: "Ana", child_name: "Diego", child_age: 14, trial_date: "2026-11-23", trial_time: "19:00", followup_message: "ok" };
   for (const audience of ["kid", "adult"]) {
     const ok = await handleBookTrial(airtable, ctx, tu({ ...base, discipline: "muay", audience }));
     assert.equal(ok.result.is_error, undefined, `${audience}: ${ok.result.content}`);

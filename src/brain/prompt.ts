@@ -139,6 +139,14 @@ export function closureLines(
     if (!cm) continue;
     const days = Math.round((Date.UTC(Number(cm[1]), Number(cm[2]) - 1, Number(cm[3])) - base) / 86400000);
     const why = c.reason ? ` (${c.reason})` : "";
+    if (c.mode === "tbd") {
+      if (days < 0 || days > CLOSURE_HORIZON_DAYS) continue;
+      const when = days === 0 ? `HOY ${c.date}` : `el ${c.date}`;
+      out.push(
+        `HORARIO ESPECIAL POR CONFIRMAR ${when}${why}: el horario normal NO aplica ese día y todavía no está definido. NUNCA ofrezcas, agendes ni confirmes una clase ese día. Si el lead lo pide, dile que el horario del feriado se está confirmando y ofrécele otro día con hora concreta; si insiste en esa fecha, escala (escalate_to_human, motivo "horario feriado").`,
+      );
+      continue;
+    }
     if (days === 0) {
       out.push(
         `CERRADO HOY ${c.date}${why}: la academia NO abre hoy — no hay clases ni clases de prueba. NUNCA ofrezcas, propongas ni confirmes nada para hoy; ofrece a partir de mañana. Si el lead pregunta por hoy, dile que hoy estamos cerrados por el feriado.`,

@@ -229,8 +229,8 @@ test("handleBookTrial: Kids booking with age books directly; without age it asks
   let booked = 0;
   const airtable = { bookTrial: async () => { booked++; return "recK"; } };
   const tu = (input: Record<string, unknown>) => ({ type: "tool_use" as const, id: "t1", name: "book_trial", input });
-  // Monday 2026-11-16 16:00 = Kids (6–12) arrival row.
-  const base = { name: "Ana", child_name: "Emilia", discipline: "muay", audience: "kid", trial_date: "2026-11-16", trial_time: "16:00", followup_message: "ok" };
+  // Monday 2026-11-23 16:00 = Kids (6–12) arrival row.
+  const base = { name: "Ana", child_name: "Emilia", discipline: "muay", audience: "kid", trial_date: "2026-11-23", trial_time: "16:00", followup_message: "ok" };
   const c = ctx("5215512345678");
 
   const noAge = await handleBookTrial(airtable, c, tu(base));

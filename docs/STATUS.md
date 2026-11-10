@@ -2,6 +2,14 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-10** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Owner KB answers: private classes, holiday 2026-11-16 TBD, WellHub, drop-in, durations (2026-11-10) — branch `kb/owner-answers-2026-11-10` (on release/2026-11-10), NOT pushed
+
+- Private classes: sold, no price. Persona line → send_reply with `escalation_reason` `clase_privada…`; `classifyEscalation` → new kind `private_class` (forced draft in `sendResult`, `escalationNeedsTask`) ⇒ <!here> task in #wa-leads + one line to #evan-alerts (`escalationAlertsOwner` / `privateClassAlertText`, also on `escalate_to_human`). Best-bets at 1h (sureness 60).
+- `closedDates[].mode: "tbd"` (client.mjs row 2026-11-16, whitelisted in compile-kb): blocked like a closure (slot list, nudges, book_trial) with "horario del feriado por confirmar" copy. **When Evan sets the holiday hours: replace the row** (delete it and add the real rows, or turn it into a plain closure).
+- KB: WellHub accepted (details escalate); drop-in/visitor prices removed (escalate); adult class 1 h, Mini MT 45 min; gear: bring yours or we lend; no Friday 10:30; re-enrolment < 6 months = no inscription; Nivel 0 = 6 m–11 m 30 d, Friday 12 pm. kb-build strips intake.md HTML comments. KB 12,008 tok.
+- Site mismatches to fix in md-condesa-site: drop-in page publishes $600/$400 per class; BFC trial rows (Wed 1 pm, Sat 2 pm, Nivel 0 Fri 12 pm) are not on the site grid (builder hard-codes them).
+- [ ] After deploy: probe "¿dan clases privadas?" in the sandbox → draft + #wa-leads task + #evan-alerts line; probe "¿hay clase el lunes 16?" → "horario por confirmar".
+
 ### Declined stop: a lead who objects / declines is never chased again (2026-11-10) — branch `fix/decline-stops-nudges`, NOT pushed
 
 Meta spam flags (quality Medium). Case "Hatt" (baby campaign): "me queda bastante lejos" on day 0, then nudge_1h, nudge_8h, d2, d3, d4 went out, and the bot twice promised "no te molestamos más" with nothing behind it. Owner rule: first objection/decline ⇒ the bot's reply is the ONE re-invite and the stop is set; the chase resumes only on expressed interest in answer to it, a booking, or a staff reset.

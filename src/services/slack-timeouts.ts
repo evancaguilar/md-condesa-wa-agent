@@ -282,6 +282,7 @@ export type EscalationKind =
   | "opt_out"
   | "complaint"
   | "price"
+  | "private_class"
   | "nivel0"
   | "special_needs"
   | "visitor";
@@ -300,6 +301,9 @@ export function classifyEscalation(reason: string | null | undefined): Escalatio
   // never silently end a lead.
   if (/\bopt[_ -]?out\b/.test(r)) return "opt_out";
   if (/\bcomplaint\b|\bqueja\b|enojad|molest[oa]|reclam|publicidad enganosa|enganos|\babuso\b|inconform/.test(r)) return "complaint";
+  // Private classes are sold (owner, 2026-11-10): the bot says the sales
+  // manager will reach out; a human task AND an owner alert go out.
+  if (/\bclases?[_ -]?privadas?\b|\bprivate[_ -]?(?:class|lesson|session)s?\b|\bclases? particular|one[- ]on[- ]one/.test(r)) return "private_class";
   if (/\bnivel ?0\b|\bnivel cero\b|menor(?:es)? de (?:1|un) ano|under 12 months|\bbebe de \d{1,2} mes/.test(r)) return "nivel0";
   if (/\btdah\b|\badhd\b|autis|asperger|discapacidad|necesidades especiales|special needs|\bcondicion\b|diagnost|neurodiverg|\btea\b/.test(r)) return "special_needs";
   if (/visitante|visitor|drop[- ]?in|pase (?:de|por) (?:dia|clase)|clase suelta|paquete de visita|turista/.test(r)) return "visitor";
@@ -309,7 +313,31 @@ export function classifyEscalation(reason: string | null | undefined): Escalatio
 
 /** Kinds that always become a human task (never a bot promise of "te aviso"). */
 export function escalationNeedsTask(kind: EscalationKind | null): boolean {
-  return kind === "complaint" || kind === "nivel0" || kind === "special_needs" || kind === "visitor";
+  return (
+    kind === "complaint" ||
+    kind === "private_class" ||
+    kind === "nivel0" ||
+    kind === "special_needs" ||
+    kind === "visitor"
+  );
+}
+
+/** Kinds that, besides the #wa-leads task, alert the owner (#evan-alerts) at once. */
+export function escalationAlertsOwner(kind: EscalationKind | null): boolean {
+  return kind === "private_class";
+}
+
+/**
+ * The #evan-alerts line for a private-class inquiry. Pure. `drafted` = the
+ * bot's "el gerente de ventas te contactará" reply is on an approval card
+ * (escalate_to_human sends nothing at all).
+ */
+export function privateClassAlertText(phone: string, reason: string, drafted: boolean): string {
+  const why = reason.trim() ? ` (${reason.trim().slice(0, 300)})` : "";
+  const bot = drafted
+    ? "El bot le dice que el gerente de ventas lo contactará (borrador en Aprobar)."
+    : "El bot NO le respondió nada.";
+  return `🥋 Clase privada — ${phone} pregunta por clases privadas${why}. ${bot} Tarea en #wa-leads.`;
 }
 
 // ---- escalation SLA (one open task per phone, re-pings) ----

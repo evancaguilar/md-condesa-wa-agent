@@ -116,7 +116,12 @@ import {
   escalationKey,
   reasonKindKey,
 } from "../services/approvals.js";
-import { classifyEscalation, escalationNeedsTask } from "../services/slack-timeouts.js";
+import {
+  classifyEscalation,
+  escalationAlertsOwner,
+  escalationNeedsTask,
+  privateClassAlertText,
+} from "../services/slack-timeouts.js";
 import {
   evaluateAutoSendLane,
   getAutoSendCount,
@@ -1193,6 +1198,7 @@ async function routeResult(
       escalationId,
       `<!here> ⚠️ Escalar (${phone}): ${result.reason}\n${result.summary}\n_El bot NO respondió nada — este lead espera respuesta humana._`,
     );
+    if (escalationAlertsOwner(escKind)) await ownerEscalationAlert(ports, phone, result.reason, false);
     return;
   }
 
@@ -1214,6 +1220,7 @@ async function routeResult(
     );
     const label: Record<string, string> = {
       complaint: "Queja / inconformidad",
+      private_class: "🥋 Clase privada (urgente — gerente de ventas)",
       nivel0: "Bebé menor de 12 meses (Nivel 0)",
       special_needs: "Necesidades especiales (TDAH/autismo/condición)",
       visitor: "Visitante / paquete por clase",
@@ -1224,6 +1231,7 @@ async function routeResult(
       id,
       `<!here> ⚠️ ${label[escKind!] ?? escKind} (${phone}): ${result.reason ?? ""}\nBorrador adjunto en la tarjeta #${id} — revísalo y respóndele tú.`,
     );
+    if (escalationAlertsOwner(escKind)) await ownerEscalationAlert(ports, phone, result.reason ?? "", true);
     if (result.followup) await scheduleCustomFollowup(env, phone, result.followup);
     return;
   }
@@ -1746,6 +1754,22 @@ async function queueEscalation(
 function registrarHint(reason: string, draft: string): string {
   if (!reason.includes("⚠️") || !claimsBooking(draft)) return "";
   return "\n👉 Si la clase sí va: aprueba/edita y usa «Registrar en Airtable» en la tarjeta que aparece después (o regístrala desde el panel).";
+}
+
+/**
+ * The owner's copy of an urgent escalation (private classes, owner 2026-11-10):
+ * #evan-alerts, on top of the #wa-leads task. Never throws — the task already
+ * went out, and a failed alert must not lose the turn.
+ */
+async function ownerEscalationAlert(ports: Ports, phone: string, reason: string, drafted: boolean): Promise<void> {
+  try {
+    await alertNote(ports.slack, privateClassAlertText(phone, reason, drafted), {
+      kind: "approvals",
+      meta: { phone, escalation: "private_class" },
+    });
+  } catch (err) {
+    console.error("[routeResult] owner alert failed", phone, err);
+  }
 }
 
 /** Opens/updates the phone's single escalation task (fallback: plain task note). */

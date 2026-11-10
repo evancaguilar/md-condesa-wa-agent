@@ -51,6 +51,7 @@ import { classifyProgram, parseQualification } from "../cron/nudge-copy.js";
 import { findSlotClaimIssues } from "./slot-claims.js";
 import { cleanDayKeys } from "../services/program-signal.js";
 import { CLIENT } from "../client.gen.js";
+import { classifyEscalation } from "../services/slack-timeouts.js";
 
 // ---- deps (injected at construction) -------------------------------------
 
@@ -868,8 +869,14 @@ export function sendResult(
   // Anything not an explicit false counts as waiting — the safe default.
   const awaitingReply = input.awaiting_reply !== false;
   // An opt_out / complaint reason is never a plain send, whatever the sureness
-  // (pipeline/inbound routeResult handles both — WP3).
-  if (confidence === "high" && !/^\s*(?:opt[_ -]?out|complaint)\b/i.test(input.escalation_reason ?? "")) {
+  // (pipeline/inbound routeResult handles both — WP3). Neither is a private-
+  // class inquiry: a plain send would drop the reason, and with it the
+  // #wa-leads task + owner alert routeResult opens for it (owner, 2026-11-10).
+  if (
+    confidence === "high" &&
+    !/^\s*(?:opt[_ -]?out|complaint)\b/i.test(input.escalation_reason ?? "") &&
+    classifyEscalation(input.escalation_reason) !== "private_class"
+  ) {
     return {
       action: "send",
       message,
