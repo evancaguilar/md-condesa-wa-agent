@@ -85,6 +85,19 @@ export default {
     // by Evan (860 + 211 rows), both audiences ACTIVE on Meta.
     metaAudiences: true,
   },
+  // Extended drip (d2…d7, paid MARKETING templates once the 24h window closes)
+  // by engagement — 2026-11-09, after Meta flagged the number for spam twice in
+  // a week. engaged = the lead wrote at least once after our first message
+  // (reactions / the opt-out button don't count); silent = only the ad prefill.
+  // Re-checked at send time: already-scheduled rows for dropped steps close
+  // quietly. d7 is the goodbye and must stay last. silentFreshFull: true gives
+  // silent leads younger than silentFreshDays the full chain again (Evan's call).
+  nudgePolicy: {
+    engaged: ["d2", "d4", "d7"],
+    silent: ["d2", "d7"],
+    silentFreshFull: false,
+    silentFreshDays: 7,
+  },
   // Real Leads-table columns (base appcX38TBVltyxHR6). The CRM predates the
   // bot and its automations depend on these Spanish names — never rename them.
   airtableLeads: {

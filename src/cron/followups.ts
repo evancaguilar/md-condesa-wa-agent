@@ -89,10 +89,14 @@ import {
   type ListStudentsResult,
   type TrialResult,
 } from "../services/airtable.js";
+import { SILENT, policySkipNote, type LeadEngagement } from "./nudge-policy.js";
+import { engagementByPhone } from "../db/nudge-engagement.js";
 import {
   processNudge,
   processExtendedNudge,
+  lookupEngagement,
   gateNudge,
+  ALL_EXTENDED_KINDS,
   ALL_NUDGE_KINDS,
   BOOKING_KINDS,
   slotCta,
@@ -442,6 +446,35 @@ export interface FollowupDeps {
   getRecord?: (env: Env, recordId: string) => Promise<BookingRecord | null>;
 }
 
+/** Per-tick state shared by the rows of one runDueFollowups pass. */
+interface TickCtx {
+  /** Engagement of every phone with a due extended nudge (ONE batched read). */
+  engagement: (phone: string) => Promise<LeadEngagement>;
+  /** Policy skips this tick, "<class> <kind>" → n (one aggregated ops note). */
+  policySkips: Map<string, number>;
+}
+
+/**
+ * Engagement for the extended rows of a tick: one batched, index-driven read
+ * (src/db/nudge-engagement.ts) for all their phones, done lazily on the first
+ * extended row that reaches the policy check. A failed read ⇒ every phone of
+ * the tick is SILENT (the conservative class).
+ */
+function tickEngagement(env: Env, due: readonly Followup[]): TickCtx["engagement"] {
+  const phones = [
+    ...new Set(due.filter((f) => (ALL_EXTENDED_KINDS as readonly string[]).includes(f.kind)).map((f) => f.phone)),
+  ];
+  let batch: Promise<Map<string, LeadEngagement>> | null = null;
+  return async (phone) => {
+    if (!phones.includes(phone)) return lookupEngagement(env, phone);
+    batch ??= engagementByPhone(env.DB, phones).catch((err) => {
+      console.warn(`[followups] engagement batch failed (${phones.length} phones): ${String(err)} — all silent`);
+      return new Map<string, LeadEngagement>();
+    });
+    return (await batch).get(phone) ?? SILENT;
+  };
+}
+
 export async function runDueFollowups(
   env: Env,
   deps: FollowupDeps,
@@ -450,12 +483,13 @@ export async function runDueFollowups(
   // retried (attempts counter still bounds them).
   await releaseStaleSendClaims(env.DB, nowSec(), 30 * 60);
   const due = await dueFollowups(env.DB);
+  const tick: TickCtx = { engagement: tickEngagement(env, due), policySkips: new Map() };
   for (const f of due) {
     // Claim BEFORE any send: an overlapping tick that read the same row loses
     // the UPDATE race and skips it.
     if (!(await claimFollowupForSend(env.DB, f.id))) continue;
     try {
-      await processOne(env, deps, f);
+      await processOne(env, deps, f, tick);
     } catch (err) {
       await handleSendFailure(env, f, err);
     } finally {
@@ -464,12 +498,22 @@ export async function runDueFollowups(
       await releaseFollowupClaim(env.DB, f.id);
     }
   }
+  // At most ONE ops_log line per tick for the engagement-policy skips.
+  const note = policySkipNote(tick.policySkips);
+  if (note) {
+    try {
+      await deps.slack.postNote(note, { kind: "followup", meta: Object.fromEntries(tick.policySkips) });
+    } catch (err) {
+      console.warn(`[followups] policy-skip note failed: ${String(err)}`);
+    }
+  }
 }
 
 async function processOne(
   env: Env,
   deps: FollowupDeps,
   f: Followup,
+  tick?: TickCtx,
 ): Promise<void> {
   const contact = await getContact(env.DB, f.phone);
   if (contact?.status === "opted_out") {
@@ -638,7 +682,19 @@ async function processOne(
         templateName: tpl,
         isWindowClosed: (err) => err instanceof WindowClosedError,
         campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
+        ...(tick ? { engagement: tick.engagement } : {}),
       });
+      if (res.outcome === "policy_skip") {
+        // nudgePolicy: this step is not in the lead's class any more. Closed
+        // quietly (later allowed steps keep their rows); counted for the one
+        // aggregated ops note at the end of the tick.
+        await markFollowup(env.DB, f.id, "cancelled");
+        if (tick) {
+          const key = `${res.engagement} ${f.kind}`;
+          tick.policySkips.set(key, (tick.policySkips.get(key) ?? 0) + 1);
+        }
+        return;
+      }
       if (res.outcome === "template_missing") {
         // On IG/FB "template_missing" really means the 7-day Meta window closed
         // (the facade's sendTemplate throws — no templates on those channels).

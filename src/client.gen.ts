@@ -240,6 +240,19 @@ export const CLIENT: ClientConfig = {
       "url": "https://mdcondesa.com/media/tour-academia.mp4"
     }
   ],
+  "nudgePolicy": {
+    "engaged": [
+      "d2",
+      "d4",
+      "d7"
+    ],
+    "silent": [
+      "d2",
+      "d7"
+    ],
+    "silentFreshFull": false,
+    "silentFreshDays": 7
+  },
   "copy": {
     "confirmEs": "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda, agua, y si tienes guantes y vendas tráelos; si no, sin bronca, nosotros te prestamos. ¡Nos vemos!",
     "confirmEn": "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes, water, and your gloves and wraps if you have them; if not, no worries, we lend them. See you soon!",

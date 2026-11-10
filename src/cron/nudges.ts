@@ -2,6 +2,8 @@
 // plus the extended multi-day sequence (nudge_d2…d5, + nudge_d7 behind
 // features.nudgeDay7) from sequences-v2. Both are armed together by armNudges
 // on every bot reply; the extended chain resumes where the last one stopped.
+// Which extended steps a lead gets depends on its engagement class (client.mjs
+// `nudgePolicy`, ./nudge-policy.ts): chosen at arm time, re-checked at send time.
 // Scheduling honors CDMX quiet hours (21:00–08:00): nudge 1 defers out of quiet,
 // the closing nudge uses the window-aware placement rule, and the extended chain
 // is quiet-shifted (see ./quiet.ts). The old +6h middle step is no longer
@@ -66,6 +68,18 @@ import {
   type Program,
 } from "./nudge-copy.js";
 import { isKidsCampaign, leadDiscipline, weekdaySet } from "./nudge-copy.js";
+import {
+  NUDGE_POLICY,
+  SILENT,
+  engagementClass,
+  nudgeChainFor,
+  policyIsUniform,
+  remainingAfterSent,
+  stepOffsets,
+  type LeadEngagement,
+  type NudgePolicy,
+} from "./nudge-policy.js";
+import { engagementByPhone } from "../db/nudge-engagement.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -531,30 +545,44 @@ export function extendedGap(kind: ExtendedKind): number {
 }
 
 /**
- * The extended chain relative to its anchor: each step +24h after the previous
- * one (d7: +48h), each quiet-shifted to the next 08:00 when it lands in quiet
- * hours. `kinds` is the subset still to send, in order — a resumed chain starts
- * its first remaining step one gap after the new anchor. Pure.
+ * The extended chain relative to its anchor. `kinds` is the subset still to
+ * send (in chain order; the engagement policy may leave gaps): the first step
+ * lands one gap after the anchor (d7 48h, the rest 24h), every later step on
+ * its own day number relative to the first (nudge-policy stepOffsets) — so a
+ * fresh chain is absolute from the anchor (dN = anchor + (N−1) days, exactly
+ * the old +24h-each times for the full chain) and a skipped day stays empty.
+ * Each time is quiet-shifted to the next 08:00, and kept strictly after the
+ * previous step. Pure.
  */
 export function computeExtendedChain(
   anchorSend: number,
   kinds: readonly ExtendedKind[] = EXTENDED_NUDGE_KINDS,
 ): ExtendedTime[] {
+  const ordered = [...kinds].sort(
+    (a, b) => ALL_EXTENDED_KINDS.indexOf(a) - ALL_EXTENDED_KINDS.indexOf(b),
+  );
+  const offsets = stepOffsets(ordered);
   const out: ExtendedTime[] = [];
-  let t = anchorSend;
-  for (const kind of kinds) {
-    t = shiftOutOfQuiet(t + extendedGap(kind));
+  let prev = -Infinity;
+  ordered.forEach((kind, i) => {
+    let t = shiftOutOfQuiet(anchorSend + offsets[i]!);
+    if (t <= prev) t = shiftOutOfQuiet(prev + 24 * HOUR);
+    prev = t;
     out.push({ kind, dueAt: t });
-  }
+  });
   return out;
 }
 
-/** The chain steps not yet sent (resume semantics), in order. Pure. */
+/**
+ * The chain steps not yet sent (resume semantics), in order — only steps AFTER
+ * the latest one already sent, so the goodbye stays last (nudge-policy
+ * remainingAfterSent). Pure.
+ */
 export function remainingExtendedKinds(
   chain: readonly ExtendedKind[],
   sent: readonly string[],
 ): ExtendedKind[] {
-  return chain.filter((k) => !sent.includes(k));
+  return remainingAfterSent(chain, sent);
 }
 
 // ---- rolling cap (pure) ----
@@ -664,25 +692,46 @@ export async function armNudges(env: Env, phone: string): Promise<void> {
 }
 
 /**
- * Schedule the extended chain (d2–d5, + d7 with `features.nudgeDay7`) anchored
- * at `anchorSend`, RESUMING: a step already sent in the last 30 days is not
- * scheduled again, the remaining ones follow the anchor in order (+24h each,
- * d7 +48h, quiet-shifted). Rows carry the token `seq:<anchor>` so the followups
- * UNIQUE index never blocks a re-arm. A failed history lookup arms nothing —
- * re-sending d2 to someone who already got it is worse than one missed arm.
+ * The lead's engagement for the drip policy (one indexed statement). Fails
+ * SOFT to SILENT, the conservative class (fewer paid templates).
+ */
+export async function lookupEngagement(env: Env, phone: string): Promise<LeadEngagement> {
+  try {
+    return (await engagementByPhone(env.DB, [phone])).get(phone) ?? SILENT;
+  } catch (err) {
+    console.warn(`[nudges] engagement lookup failed for ${phone}: ${String(err)} — treated as silent`);
+    return SILENT;
+  }
+}
+
+/**
+ * Schedule the extended chain anchored at `anchorSend`: the steps the lead's
+ * engagement class gets under `policy` (client.mjs `nudgePolicy`, see
+ * ./nudge-policy.ts; d7 only with `features.nudgeDay7`), RESUMING: a step
+ * already sent in the last 30 days is not scheduled again, nor anything before
+ * it; the remaining ones follow the anchor (first +24h, d7-first +48h, later
+ * steps on their own day number, quiet-shifted). Rows carry the token
+ * `seq:<anchor>` so the followups UNIQUE index never blocks a re-arm. A failed
+ * history lookup arms nothing — re-sending d2 to someone who already got it is
+ * worse than one missed arm. A failed engagement lookup arms the silent list.
  */
 export async function maybeArmExtended(
   env: Env,
   phone: string,
   anchorSend: number,
   day7: boolean = CLIENT.features.nudgeDay7 === true,
+  policy: NudgePolicy = NUDGE_POLICY,
 ): Promise<void> {
   if (!CLIENT.features.nudges) return;
   const now = nowSec();
-  const chain = extendedChainKinds(day7);
+  const engagement = policyIsUniform(policy) ? SILENT : await lookupEngagement(env, phone);
+  const chain = nudgeChainFor(policy, engagement, now, day7);
+  if (chain.length === 0) return;
   let sent: string[];
   try {
-    sent = await sentFollowupKinds(env.DB, phone, chain, now - EXTENDED_RESUME_WINDOW_SECONDS);
+    // Every extended kind, not only this class's list: a d3 sent under the old
+    // daily chain still counts for "nothing before the latest sent step".
+    sent = await sentFollowupKinds(env.DB, phone, extendedChainKinds(true), now - EXTENDED_RESUME_WINDOW_SECONDS);
   } catch (err) {
     console.warn(`[nudges] extended resume lookup failed for ${phone}: ${String(err)}`);
     return;
@@ -821,11 +870,19 @@ export async function processExtendedNudge(
     templateName: (base: string, lang: string) => string;
     isWindowClosed: (err: unknown) => boolean;
     campaignName: (env: Env, campaignId: number) => Promise<string | null>;
+    /** Engagement for the policy re-check: the cron passes its per-tick batch;
+     *  absent ⇒ one indexed lookup (lookupEngagement). */
+    engagement?: (phone: string) => Promise<LeadEngagement>;
+    /** Drip policy; absent ⇒ the shipped client.mjs `nudgePolicy`. */
+    policy?: NudgePolicy;
   },
 ): Promise<
   | { outcome: "sent" }
   | { outcome: "cancelled" }
   | { outcome: "skipped_optout" }
+  /** The lead's CURRENT engagement class no longer includes this step
+   *  (nudge-policy). The caller closes the row quietly and counts it. */
+  | { outcome: "policy_skip"; engagement: "engaged" | "silent" }
   | NudgeDeferred
   /** The template send failed. `missing` ⇒ it is not approved yet (132001),
    *  which is Evan's to fix; anything else is OURS, so `error` carries the
@@ -849,6 +906,21 @@ export async function processExtendedNudge(
   // A d7 row armed while the flag was on, after it was switched off: drop it.
   const day7 = CLIENT.features.nudgeDay7 === true;
   if (kind === DAY7_KIND && !day7) return { outcome: "cancelled" };
+  // Engagement re-check (nudge-policy): rows armed under the old daily chain,
+  // or before the lead's class changed, close here. Later allowed steps keep
+  // their own rows, so skipping never strands the chain. Fails soft to silent.
+  const policy = deps.policy ?? NUDGE_POLICY;
+  if (!policyIsUniform(policy)) {
+    let engagement: LeadEngagement;
+    try {
+      engagement = deps.engagement ? await deps.engagement(phone) : await lookupEngagement(env, phone);
+    } catch {
+      engagement = SILENT;
+    }
+    if (!nudgeChainFor(policy, engagement, now, day7).includes(kind)) {
+      return { outcome: "policy_skip", engagement: engagementClass(engagement) };
+    }
+  }
   if (await hasPendingApproval(env, phone)) {
     return { outcome: "deferred", retryAt: pendingApprovalRetryAt(now) };
   }

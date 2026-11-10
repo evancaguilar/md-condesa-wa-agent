@@ -11,14 +11,18 @@
 //   followups probe      → sqlite_autoindex_followups_1 (phone, kind, …)
 //   booking markers (kv) → sqlite_autoindex_kv_1 (key)
 //   messages probe       → idx_messages_phone_ts (phone, ts ≥ now−7d)
-//   replied probe        → contacts PK + idx_messages_phone_ts (requireReplyToBot only)
+//   engagement probe     → contacts PK + idx_messages_phone_ts (requireReplyToBot and/or
+//                          a non-uniform nudgePolicy; src/db/nudge-engagement.ts)
 //   cancel count/update  → idx_followups_kind_status_due (extended kinds, live statuses)
 
 import { PAST_BOOKING_KINDS, ALL_EXTENDED_KINDS, extendedChainKinds } from "../cron/nudges.js";
 import { bookingRecordedKey } from "./booking-core.js";
 import { kvSet, scheduleOrReviveFollowupStmt } from "../db/queries.js";
+import { ENGAGED_EXISTS_SQL, ENGAGEMENT_SQL } from "../db/nudge-engagement.js";
+import { NUDGE_POLICY, SILENT, policyIsUniform, type LeadEngagement, type NudgePolicy } from "../cron/nudge-policy.js";
 import {
   BUY_INTENT_WINDOW_SECONDS,
+  catchupNextKinds,
   catchupKvKey,
   catchupToken,
   classifyCatchupLead,
@@ -38,6 +42,13 @@ import {
 
 /** Phones per probe statement (+ ≤20 kinds stays under D1's 100 bound params). */
 export const PROBE_CHUNK = 60;
+
+interface EngagementProbeRow {
+  phone: string;
+  created_at: number | null;
+  first_in: number | null;
+  engaged: number | null;
+}
 
 export const CATCHUP_SQL = {
   contacts: `SELECT phone, name, lang, status, qualification, human_override_until,
@@ -60,15 +71,14 @@ export const CATCHUP_SQL = {
   // lead costs a handful of rows, never its whole history. Only run on leads
   // that passed every other check. INDEXED BY so the planner can never pick
   // idx_messages_direction_ts (= every inbound message ever) for direction = 'in'.
+  // Since 2026-11-09 the same predicate as the drip's engagement class
+  // (src/db/nudge-engagement.ts): reactions and opt-out taps are not replies.
   replied: (n: number): string =>
     `SELECT c.phone FROM contacts c
       WHERE c.phone IN (${ph(1, n)})
-        AND EXISTS (
-          SELECT 1 FROM messages i INDEXED BY idx_messages_phone_ts
-           WHERE i.phone = c.phone AND i.direction = 'in'
-             AND i.ts > (SELECT o.ts FROM messages o INDEXED BY idx_messages_phone_ts
-                          WHERE o.phone = c.phone AND o.direction <> 'in'
-                          ORDER BY o.ts LIMIT 1))`,
+        AND ${ENGAGED_EXISTS_SQL("c.phone")}`,
+  // Engagement class per lead for the nudgePolicy cut (same statement the cron uses).
+  engagement: ENGAGEMENT_SQL,
   // Cancel: kind IN (extended) × status IN (scheduled, paused) on
   // idx_followups_kind_status_due = only live extended-nudge rows are read.
   // Pinned: without stats SQLite prefers idx_followups_status_due, which would
@@ -124,7 +134,7 @@ export async function runNudgeCatchup(
   db: D1Database,
   opts: CatchupOptions,
   now: number,
-  deps: { postNote?: (text: string) => Promise<void>; day7?: boolean } = {},
+  deps: { postNote?: (text: string) => Promise<void>; day7?: boolean; policy?: NudgePolicy } = {},
 ): Promise<CatchupResult> {
   let statements = 0;
   const all = async <T>(sql: string, binds: unknown[]): Promise<T[]> => {
@@ -191,13 +201,38 @@ export async function runNudgeCatchup(
     else leads.push({ row, sentKinds: v.sentKinds, nextKinds: v.nextKinds });
   }
 
-  if (opts.requireReplyToBot && leads.length > 0) {
-    const replied = new Set<string>();
-    for (const chunk of chunks(leads.map((l) => l.row.phone), PROBE_CHUNK)) {
-      for (const r of await all<{ phone: string }>(CATCHUP_SQL.replied(chunk.length), chunk)) replied.add(r.phone);
+  // Engagement (one batched probe per chunk): drives requireReplyToBot and the
+  // nudgePolicy cut, the same class the cron re-checks at send time. A failed
+  // probe ⇒ every lead is SILENT (conservative; requireReplyToBot then keeps none).
+  const policy = deps.policy ?? NUDGE_POLICY;
+  const needEngagement = opts.requireReplyToBot || !policyIsUniform(policy);
+  if (needEngagement && leads.length > 0) {
+    const eng = new Map<string, LeadEngagement>();
+    try {
+      for (const chunk of chunks(leads.map((l) => l.row.phone), PROBE_CHUNK)) {
+        for (const r of await all<EngagementProbeRow>(CATCHUP_SQL.engagement(chunk.length), chunk)) {
+          const first = r.first_in ?? r.created_at ?? null;
+          eng.set(r.phone, { engaged: Number(r.engaged) === 1, firstMessageAt: first && first > 0 ? first : null });
+        }
+      }
+    } catch (err) {
+      console.warn(`[catchup] engagement probe failed: ${String(err)} — all silent`);
+      eng.clear();
     }
-    const kept = leads.filter((l) => replied.has(l.row.phone));
-    skipped.noReplyToBot += leads.length - kept.length;
+    const kept: CatchupLead[] = [];
+    for (const l of leads) {
+      const e = eng.get(l.row.phone) ?? SILENT;
+      if (opts.requireReplyToBot && !e.engaged) {
+        skipped.noReplyToBot++;
+        continue;
+      }
+      const nextKinds = catchupNextKinds(l, e, policy, now, deps.day7 === true);
+      if (nextKinds.length === 0) {
+        skipped.chainDone++;
+        continue;
+      }
+      kept.push({ ...l, nextKinds });
+    }
     leads.splice(0, leads.length, ...kept);
   }
 

@@ -20,6 +20,7 @@ import {
   extendedChainKinds,
 } from "../src/cron/nudges.js";
 import { CLIENT } from "../src/client.gen.js";
+import { NUDGE_POLICY, SILENT, nudgeChainFor } from "../src/cron/nudge-policy.js";
 import { classifyResult, normalizeResult } from "../src/services/airtable.js";
 import { syncBookings } from "../src/cron/followups.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "../src/cron/time.js";
@@ -27,8 +28,8 @@ import { claimsBooking } from "../src/services/booking-claims.js";
 import { isNudgePhrase } from "../src/cron/booking-recon-core.js";
 import type { Contact, Env } from "../src/types.js";
 
-/** The chain armNudges schedules under the shipped config (d7 iff nudgeDay7). */
-const LIVE_CHAIN: string[] = extendedChainKinds(CLIENT.features.nudgeDay7 === true);
+/** The chain armNudges schedules for a SILENT lead (no reply after our first message) under the shipped nudgePolicy (d7 iff nudgeDay7). */
+const LIVE_CHAIN: string[] = nudgeChainFor(NUDGE_POLICY, SILENT, 0, CLIENT.features.nudgeDay7 === true);
 
 /** Next 09:00 CDMX strictly after `now` — a deterministic daytime base so the
  *  quiet-aware day-1 plan always yields all three nudges (no quiet shifting). */
@@ -321,7 +322,7 @@ test("classifyResult matches all accent/case variants", () => {
 
 // ---- armNudges: cancels then inserts fresh for an eligible lead ----
 
-test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges + the d2–d5 chain", async () => {
+test("armNudges: lead, no booking, under cap → cancels then schedules 2 nudges + the silent-lead extended chain", async () => {
   const inserted: { kind: unknown; recordId: unknown }[] = [];
   let cancelledNudges = false;
   // Daytime base so all three nudges land outside quiet hours (deterministic).

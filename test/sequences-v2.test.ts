@@ -18,6 +18,7 @@ import {
   EXTENDED_NUDGE_KINDS,
 } from "../src/cron/nudges.js";
 import { cdmxToEpoch, cdmxParts, DAY } from "../src/cron/time.js";
+import { FULL_CHAIN_POLICY } from "../src/cron/nudge-policy.js";
 import { CLIENT } from "../src/client.gen.js";
 import type { Contact, Env } from "../src/types.js";
 
@@ -256,7 +257,7 @@ test("maybeArmExtended: nothing sent yet → schedules d2–d5 under the seq:<an
     if (sql.startsWith("INSERT INTO kv") && String(binds[0]).startsWith("seq_done:")) seqDoneSet = true;
     return {};
   });
-  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false);
+  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false, FULL_CHAIN_POLICY);
   assert.deepEqual(inserted.map((i) => i.kind), [...EXTENDED_NUDGE_KINDS]);
   assert.ok(inserted.every((i) => i.token === `seq:${D15(10)}`));
   assert.equal(inserted[0]?.dueAt, D16(10));
@@ -275,7 +276,7 @@ test("maybeArmExtended: steps already sent in 30d are skipped, the rest follow t
     }
     return {};
   });
-  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false);
+  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false, FULL_CHAIN_POLICY);
   assert.deepEqual(inserted, [
     { kind: "nudge_d4", dueAt: D16(10) },
     { kind: "nudge_d5", dueAt: cdmxToEpoch(2026, 7, 17, 10, 0, 0) },
@@ -291,7 +292,7 @@ test("maybeArmExtended: the whole chain already sent → nothing new; a failed l
     if (sql.includes("INTO followups(")) inserted.push(1);
     return {};
   });
-  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false);
+  await maybeArmExtended(envWith(db), "5215512345678", D15(10), false, FULL_CHAIN_POLICY);
   assert.equal(inserted.length, 0);
 
   const { db: broken } = fakeDb((sql) => {
@@ -299,7 +300,7 @@ test("maybeArmExtended: the whole chain already sent → nothing new; a failed l
     if (sql.includes("INTO followups(")) inserted.push(1);
     return {};
   });
-  await maybeArmExtended(envWith(broken), "5215512345678", D15(10), false);
+  await maybeArmExtended(envWith(broken), "5215512345678", D15(10), false, FULL_CHAIN_POLICY);
   assert.equal(inserted.length, 0);
 });
 
@@ -350,6 +351,8 @@ function extendedDeps(
       lang === "en" ? `${base}_en` : `${base}_es`,
     isWindowClosed: (err: unknown) => err instanceof Closed,
     campaignName: async () => null,
+    // Template mechanics, not the engagement cut (test/nudge-policy.test.ts).
+    policy: FULL_CHAIN_POLICY,
   };
 }
 
