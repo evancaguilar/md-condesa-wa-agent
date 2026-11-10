@@ -98,6 +98,19 @@ export default {
     silentFreshFull: false,
     silentFreshDays: 7,
   },
+  // A/B tests (src/services/price-experiment.ts). priceFirstAsk: 50% of leads
+  // (variant B, hash of normalized phone + salt) get the approved price figure
+  // at the FIRST price ask, with a concrete trial day/time; variant A keeps the
+  // persona's reframe. CDMX dates, end EXCLUSIVE; outside the window or with
+  // enabled:false everyone is A. Never change the salt mid-test (re-splits).
+  experiments: {
+    priceFirstAsk: {
+      enabled: true,
+      start: "2026-11-10",
+      end: "2026-11-24",
+      salt: "price-first-ask-2026-11",
+    },
+  },
   // Real Leads-table columns (base appcX38TBVltyxHR6). The CRM predates the
   // bot and its automations depend on these Spanish names — never rename them.
   airtableLeads: {

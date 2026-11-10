@@ -608,6 +608,24 @@ export function bookingBand(
   return adultRow ? null : stored;
 }
 
+/**
+ * Pure. True when book_trial is for a child (kid audience, a child name, or a
+ * non-adult band) and NO age is known — neither book_trial.child_age nor a
+ * stated age in the stored qualification. A campaign-guessed band ("kids"
+ * from a Kids ad) is not an age. A parent's own adult class (band null, adult
+ * audience, no child name) is never a minor booking.
+ */
+export function minorBookingWithoutAge(
+  ctx: Pick<ConvoContext, "contact">,
+  b: { band: ProgramBand | null; audience: Audience; childName: string; childAgeMonths: number | null },
+): boolean {
+  const minor = b.audience === "kid" || !!b.childName || (b.band !== null && b.band !== "adults");
+  if (!minor) return false;
+  if (b.childAgeMonths !== null) return false;
+  const stored = parseQualification(ctx.contact)?.child_age_months;
+  return !(typeof stored === "number" && Number.isFinite(stored));
+}
+
 /** First failing check wins (validateSlot's existence check before the band's). */
 function mergeChecks(a: ValidateResult, b: ValidateResult): ValidateResult {
   return a.ok ? b : a;
@@ -695,6 +713,30 @@ export async function handleBookTrial(
         type: "tool_result",
         tool_use_id: tu.id,
         content: `error: ${check.reason} Do not book; propose a valid slot to the lead and end with send_reply.`,
+        is_error: true,
+      },
+    };
+  }
+
+  // A minor's FIRST trial confirms directly like an adult's (owner, 2026-11-10)
+  // — but only on a KNOWN age: without it the band above may be a campaign
+  // guess, and the band check above cannot tell Kids from Mini Muay Thai.
+  // Refused (not booked), so the model asks the age instead of confirming.
+  // Runs after the slot checks so a slot that doesn't exist is reported (and
+  // alerted) first.
+  const ageUnknown = minorBookingWithoutAge(ctx, {
+    band,
+    audience,
+    childName,
+    childAgeMonths,
+  });
+  if (ageUnknown) {
+    return {
+      result: {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content:
+          "error: this booking is for a minor and the child's age is unknown. Do not book yet: ask the parent the child's age (it decides the program and the class), then call book_trial again with child_age. End this turn with send_reply.",
         is_error: true,
       },
     };

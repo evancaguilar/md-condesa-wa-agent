@@ -15,7 +15,8 @@
 
 import type { ConvoContext, Qualification } from "../types.js";
 import { CLIENT } from "../client.gen.js";
-import type { ClosedDate } from "../client-config.js";
+import type { ClosedDate, PriceExperimentConfig } from "../client-config.js";
+import { PRICE_VARIANT_B_LINES, priceVariantForTurn } from "../services/price-experiment.js";
 import { classifyProgram, leadDiscipline, weekdaySet } from "../cron/nudge-copy.js";
 import {
   TODAY_BUFFER_SECONDS,
@@ -419,7 +420,10 @@ export function sanitizeContextValue(v: string): string {
     .slice(0, 60);
 }
 
-export function buildContextBlock(ctx: ConvoContext): string {
+export function buildContextBlock(
+  ctx: ConvoContext,
+  opts: { priceExperiment?: PriceExperimentConfig | null } = {},
+): string {
   const q = parseQualification(ctx.contact.qualification);
   const known: string[] = [];
   known.push(`phone: ${ctx.phone}`);
@@ -562,6 +566,17 @@ export function buildContextBlock(ctx: ConvoContext): string {
       "</origen>",
     );
   }
+
+  // Price-on-first-ask A/B test (services/price-experiment.ts). Variant A adds
+  // nothing (today's script); B overrides the persona's first-ask reframe.
+  const priceTest = priceVariantForTurn({
+    cfg: opts.priceExperiment !== undefined ? opts.priceExperiment : CLIENT.experiments?.priceFirstAsk,
+    phone: ctx.phone,
+    cdmxDate: ctx.nowCdmx.slice(0, 10),
+    status: ctx.contact.status,
+    campaignInfo: ctx.campaign?.info ?? null,
+  });
+  if (priceTest.variant === "B") lines.push(...PRICE_VARIANT_B_LINES);
 
   // The lead asked to enrol / pay (2026-10-30, Luis Ortega: "quiero
   // inscribirme sin clase de prueba" got a Saturday trial pitch, then a

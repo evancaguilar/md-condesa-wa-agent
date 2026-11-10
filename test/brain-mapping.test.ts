@@ -610,6 +610,7 @@ test("two book_trial calls in one turn → both survive in bookings[]", async ()
       {
         name: "Ana",
         child_name: "Leo",
+        child_age: 8,
         discipline: "jiu",
         audience: "kid",
         trial_date: "2026-07-06",

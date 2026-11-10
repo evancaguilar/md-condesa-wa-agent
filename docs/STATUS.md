@@ -2,6 +2,13 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-09** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Kids first booking confirms directly + price-on-first-ask A/B test (2026-11-10) — branch `feat/kids-confirm-price-test`, NOT pushed
+
+- **Kids/teens/babies** (owner decision): a minor's FIRST trial is booked and confirmed like an adult's when the age is known and fits the class. Persona checklist box 8 no longer says "que lo revise un humano"; `handleBookTrial` refuses a minor's booking with no known age (`minorBookingWithoutAge`, claude.ts) so the model asks the age instead. The age→group validation (`validateSlotBand`) is unchanged. Enrolment/payment for minors still escalates (persona «Cuándo pasar a humano», `<quiere_inscribirse>`). Note: with TRAINING_WHEELS on, EVERY booking confirmation (adult or kid) still queues for approval with sureness 85 (1 h best-bet) — routeResult, unchanged.
+- **Price A/B** (`src/services/price-experiment.ts`, config `experiments.priceFirstAsk` in client.mjs, whitelisted in compile-kb): 50 % of leads (variant B = `fmix32(fnv1a32(salt + ":" + normalizedPhone)) % 2 === 1`) get `<experimento_precio>` in the per-turn context: the approved figure at the FIRST price ask with a concrete trial day/time (adults/Kids/Teens: the $1,996–$2,996 range; Mini MT: $1,500 / $1,996). Window 2026-11-10 → 2026-11-24 CDMX (end exclusive). Excluded (get A): students, campaigns whose `info` carries a price/promo. Baby Fight Club is identical in both arms. Owner read: `GET /admin/api/experiments/price-first-ask?phones=521…,521…`.
+- Tests 1534 → **1549**.
+- [ ] Evan: confirm the window dates before pushing (start is the config date, not the deploy date).
+
 ### Release 2026-11-09 (branch `release/2026-11-09`, NOT pushed — lead engineer reviews + pushes)
 
 Contents, cherry-picked onto origin/main f9130c1 (details in each entry below):
