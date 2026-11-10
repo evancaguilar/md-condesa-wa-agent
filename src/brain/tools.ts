@@ -5,7 +5,7 @@
 import { SLOTS, type Slot } from "./slots.gen.js";
 import { CLIENT } from "../client.gen.js";
 import type { ClosedDate } from "../client-config.js";
-import { bandLabel, slotGroup, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
+import { bandLabel, slotGroup, slotMatchesBand, slotOpenToBand, type ProgramBand } from "../services/age-band.js";
 
 export interface AnthropicTool {
   name: string;
@@ -418,7 +418,7 @@ export function validateSlotBand(
     (s) => s.weekday === wd && s.time === time && s.discipline === disc && s.trial !== false,
   );
   if (rows.length === 0) return { ok: true };
-  if (rows.some((s) => slotMatchesBand(s, band, ageMonths))) return { ok: true };
+  if (rows.some((s) => slotOpenToBand(s, band, ageMonths))) return { ok: true };
 
   // Same group, wrong age window (a 2-year-old into Nivel 0, a 7-month-old
   // into the regular Wed / Sat class): say so by age, not by group.

@@ -205,6 +205,9 @@ export interface ClientFeatures {
   /** Customer-list custom audiences (paid / active students from Airtable)
    *  synced daily to the ad account (docs/meta-audiences.md). Absent = off. */
   metaAudiences?: boolean;
+  /** Training wheels ON: a SUCCESSFUL book_trial's confirmation sends at once
+   *  instead of waiting in Aprobar (services/auto-confirm.ts). Off ⇒ Aprobar. */
+  autoConfirmBookings?: boolean;
 }
 
 /**

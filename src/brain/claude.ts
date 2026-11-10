@@ -43,6 +43,7 @@ import {
   bandFromQualification,
   monthsFromYears,
   slotGroup,
+  teenAdultMuayRow,
   type ProgramBand,
 } from "../services/age-band.js";
 import { SLOTS } from "./slots.gen.js";
@@ -219,7 +220,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
           await flushUsage(deps.accrueUsage, usageAcc);
           // A booking that succeeded this turn + a send_reply → 'book' result
           // (types.ts union carries the followupMessage + recordId on 'book').
-          if (pendingBookings.length) return bookResult(pendingBookings);
+          if (pendingBookings.length) return bookResult(pendingBookings, ctx, sendReply);
           return guardUnverifiedSlotClaim(
             guardUnbackedBookingClaim(
               sendResult(sendReply, pendingFollowup),
@@ -296,7 +297,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
 
       // Exhausted iterations without a terminal send_reply.
       await flushUsage(deps.accrueUsage, usageAcc);
-      if (pendingBookings.length) return bookResult(pendingBookings);
+      if (pendingBookings.length) return bookResult(pendingBookings, ctx, null);
       return {
         action: "draft",
         message: safeApology(ctx.contact.lang),
@@ -687,9 +688,25 @@ export async function handleBookTrial(
     if (childAgeMonths !== null) bookInput.childAgeMonths = childAgeMonths;
   }
 
+  // A teen into an ADULT Muay Thai row (no Teens Muay Thai exists): the row's
+  // audience is "adult", so validate existence against that audience even
+  // when the model sent "kid". Muay Thai only (teenAdultMuayRow).
+  const wdBooked = weekdayIndex(trialDate);
+  const slotAudience: Audience =
+    SLOTS.some(
+      (s) =>
+        s.weekday === wdBooked &&
+        s.time === trialTime.trim() &&
+        s.discipline === discipline &&
+        s.trial !== false &&
+        teenAdultMuayRow(s, band),
+    )
+      ? "adult"
+      : audience;
+
   const check = band
     ? mergeChecks(
-        validateSlot(trialDate, trialTime, audience, discipline),
+        validateSlot(trialDate, trialTime, slotAudience, discipline),
         validateSlotBand(
           trialDate,
           trialTime,
@@ -1117,15 +1134,37 @@ function escalateResult(tu: ToolUseContent): BrainResult {
  *
  * Never called with an empty array (both call sites check `.length`).
  */
-function bookResult(bs: PendingBooking[]): BrainResult {
+export function bookResult(
+  bs: PendingBooking[],
+  ctx?: Pick<ConvoContext, "nowCdmx"> & Partial<Pick<ConvoContext, "contact" | "campaign">>,
+  sendReply?: ToolUseContent | null,
+): BrainResult {
   const first = bs[0]!;
   const last = bs[bs.length - 1]!;
+  // What the closing send_reply said, and whether the confirmation text passes
+  // the schedule guard: the auto-confirm decision (services/auto-confirm.ts)
+  // keeps any of these on the human path.
+  const reply = (sendReply?.input ?? {}) as { sureness?: unknown; escalation_reason?: unknown };
+  const sureness = sendReply ? parseSureness(reply.sureness) : undefined;
+  const reason = typeof reply.escalation_reason === "string" ? reply.escalation_reason.trim() : "";
+  let warning: string | undefined;
+  if (ctx) {
+    const probe = guardUnverifiedSlotClaim(
+      { action: "send", message: last.followupMessage, language: "es", confidence: "high" },
+      ctx,
+    );
+    if (probe.action === "draft" && probe.reason) warning = probe.reason;
+  }
   return {
     action: "book",
     ...first.input,
     followupMessage: last.followupMessage,
     recordId: first.recordId,
     bookings: bs.map((b) => ({ ...b.input, recordId: b.recordId })),
+    ...(sureness !== undefined ? { replySureness: sureness } : {}),
+    ...(reason ? { replyReason: reason } : {}),
+    ...(sendReply === null ? { replyMissing: true } : {}),
+    ...(warning ? { confirmationWarning: warning } : {}),
   };
 }
 

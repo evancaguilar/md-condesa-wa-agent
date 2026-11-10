@@ -123,6 +123,7 @@ import {
   tryClaimAutoSendSlot,
 } from "../services/auto-send.js";
 import { CLIENT } from "../client.gen.js";
+import { decideAutoConfirm } from "../services/auto-confirm.js";
 import { isNoReplySentinel } from "../brain/prompt.js";
 import { dashboardChatUrl } from "../services/dashboard-link.js";
 import { alertNote, taskNote } from "../cron/deps.js";
@@ -1235,7 +1236,18 @@ async function routeResult(
       recordId: result.recordId ?? list[0]?.recordId,
       lang: ctx.contact.lang,
     });
-    if (ctx.trainingWheels || opts?.forceReview) {
+    // Auto-confirm (owner, 2026-11-10): with training wheels ON, a booking
+    // that book_trial validated and wrote sends its confirmation at once —
+    // unless services/auto-confirm.ts keeps it on the human path. Wheels OFF
+    // is unchanged (it always sent directly).
+    const autoConfirm =
+      ctx.trainingWheels && !opts?.forceReview
+        ? await autoConfirmFor(env, ctx, result, confirmation, opts)
+        : null;
+    if (autoConfirm && !autoConfirm.auto) {
+      console.log(`[routeResult] booking confirmation for ${phone} → Aprobar (${autoConfirm.blockedBy})`);
+    }
+    if ((ctx.trainingWheels || opts?.forceReview) && !autoConfirm?.auto) {
       // Booking confirmation routes through approval; mark it booking-origin so
       // approve/edit fires the booking video after sending (R4). Confidence
       // "high": without wheels this send happens unconditionally, so the audit
@@ -1250,11 +1262,13 @@ async function routeResult(
         ctx,
         confirmation,
         history,
-        undefined,
+        // The closing send_reply's escalation reason (complaint, medical, …)
+        // reaches the card, and such a card is never best-betted at 1h.
+        result.replyReason,
         true,
         !opts?.forceReview,
         "high",
-        opts?.forceReview ? undefined : surenessOf(undefined, "high"),
+        opts?.forceReview || result.replyReason ? undefined : surenessOf(undefined, "high"),
       );
     } else {
       // ONE confirmation per phone + slot (services/confirm-once.ts): a
@@ -1521,6 +1535,54 @@ async function deliverOrDraft(
   return true;
 }
 
+
+/**
+ * The auto-confirm decision for a 'book' result (services/auto-confirm.ts),
+ * plus a re-read right before the send of what the pipeline gates checked
+ * before the brain ran: kill switch, opt-out and human override ("Tomar
+ * control") — the turn may have taken seconds.
+ */
+async function autoConfirmFor(
+  env: Env,
+  ctx: ConvoContext,
+  result: Extract<BrainResult, { action: "book" }>,
+  confirmation: string,
+  opts?: BrainTurnOptions,
+): Promise<{ auto: boolean; blockedBy?: string }> {
+  const decision = decideAutoConfirm({
+    featureOn: CLIENT.features.autoConfirmBookings === true,
+    forceReview: !!opts?.forceReview,
+    overrideCheck: !!opts?.overrideCheck,
+    reschedule: !!(ctx.reschedule || ctx.leadCancel),
+    hadRecordedBooking: !!ctx.recordedBooking,
+    replyMissing: result.replyMissing === true,
+    replyReason: result.replyReason ?? null,
+    ...(result.replySureness !== undefined ? { replySureness: result.replySureness } : {}),
+    slotWarning: result.confirmationWarning ?? null,
+    confirmation,
+    bookings: (result.bookings?.length ? result.bookings : [result]).map((b) => ({
+      audience: b.audience,
+      ...(b.childName ? { childName: b.childName } : {}),
+      ...(b.program ? { program: b.program } : {}),
+      ...(typeof b.childAgeMonths === "number" ? { childAgeMonths: b.childAgeMonths } : {}),
+    })),
+    storedAgeMonths: parseQualification(ctx.contact).child_age_months ?? null,
+  });
+  if (!decision.auto) return decision;
+  try {
+    if (!(await isBotEnabled(env.DB))) return { auto: false, blockedBy: "kill_switch" };
+    const fresh = await getContact(env.DB, ctx.phone);
+    const now = Math.floor(Date.now() / 1000);
+    if (fresh?.status === "opted_out") return { auto: false, blockedBy: "opted_out" };
+    if (fresh?.human_override_until && fresh.human_override_until > now) {
+      return { auto: false, blockedBy: "human_override" };
+    }
+  } catch (err) {
+    console.error("[routeResult] auto-confirm re-check failed", ctx.phone, err);
+    return { auto: false, blockedBy: "recheck_failed" };
+  }
+  return decision;
+}
 
 /**
  * Marks every still-pending approval for `phone` superseded (best-effort).
