@@ -555,6 +555,14 @@ export type BrainResult =
        * writes the closing text covering everyone.
        */
       bookings: (BookTrialInput & { recordId: string })[];
+      /** The closing send_reply's sureness (0–100), when it had one. */
+      replySureness?: number;
+      /** The closing send_reply's escalation_reason, when it had one. */
+      replyReason?: string;
+      /** True when the turn ended without send_reply (max iterations). */
+      replyMissing?: boolean;
+      /** guardUnverifiedSlotClaim's warning on the confirmation text, if any. */
+      confirmationWarning?: string;
     } & BookTrialInput);
 
 // ---- Ports (stable interfaces B/C/D implement against) ----

@@ -46,6 +46,22 @@ export function slotMatchesBand(slot: Slot, band: ProgramBand, ageMonths?: numbe
   return g === band && slotFitsAge(slot, ageMonths);
 }
 
+/**
+ * Owner, 2026-11-10: there is no Teens Muay Thai. A 13–17 year old who only
+ * wants Muay Thai may try the ADULT Muay Thai class — Muay Thai only (MMA
+ * adultos is 16+ and coach-confirmed, Box/Jiu-Jitsu adult rows are not
+ * widened here). Used where a booking or a claimed slot is CHECKED, never
+ * where slots are PROPOSED (the persona offers MMA Teens first).
+ */
+export function teenAdultMuayRow(slot: Slot, band: ProgramBand | null): boolean {
+  return band === "teens" && slot.discipline === "muay" && slotGroup(slot) === "adult";
+}
+
+/** slotMatchesBand, plus the teen → adult Muay Thai exception. */
+export function slotOpenToBand(slot: Slot, band: ProgramBand, ageMonths?: number | null): boolean {
+  return slotMatchesBand(slot, band, ageMonths) || teenAdultMuayRow(slot, band);
+}
+
 /** Rows with a `months` window (Baby Fight Club: Nivel 0 Friday 12 pm is
  *  [6, 12), Wed / Sat are [12, 36)) fit only a known age inside it. An
  *  unknown age fits every row — the persona asks before booking. */

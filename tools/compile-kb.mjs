@@ -274,6 +274,27 @@ function nudgePolicy(p) {
   };
 }
 
+// A/B tests (src/services/price-experiment.ts). A malformed test would silently
+// put everyone in one arm (or none), so bad dates / an empty salt FAIL the build.
+function experiments(e) {
+  const out = {};
+  const p = e?.priceFirstAsk;
+  if (p) {
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    const start = String(p.start ?? "");
+    const end = String(p.end ?? "");
+    const salt = String(p.salt ?? "").trim();
+    if (!ymd.test(start) || !ymd.test(end) || start >= end || !salt) {
+      console.error(
+        `FAIL: experiments.priceFirstAsk necesita start < end (YYYY-MM-DD, CDMX) y un salt no vacío.`,
+      );
+      process.exit(1);
+    }
+    out.priceFirstAsk = { enabled: p.enabled === true, start, end, salt };
+  }
+  return out;
+}
+
 function renderClientTs(cfg, persona, version) {
   // Persona rides in from persona.md; everything else from client.mjs. The
   // object is emitted as literal TS so the worker bundles it with zero I/O.
@@ -308,6 +329,7 @@ function renderClientTs(cfg, persona, version) {
       marketingMetrics: !!cfg.features?.marketingMetrics,
       metaCapi: !!cfg.features?.metaCapi,
       metaAudiences: !!cfg.features?.metaAudiences,
+      autoConfirmBookings: !!cfg.features?.autoConfirmBookings,
     },
     ...(cfg.safety ? { safety: cfg.safety } : {}),
     ...(cfg.airtableLeads ? { airtableLeads: cfg.airtableLeads } : {}),
@@ -316,6 +338,7 @@ function renderClientTs(cfg, persona, version) {
     ...(cfg.metaAudiences ? { metaAudiences: cfg.metaAudiences } : {}),
     savedVideos: savedVideos(cfg.savedVideos),
     ...(cfg.nudgePolicy ? { nudgePolicy: nudgePolicy(cfg.nudgePolicy) } : {}),
+    ...(cfg.experiments ? { experiments: experiments(cfg.experiments) } : {}),
     copy: cfg.copy,
   };
   return (

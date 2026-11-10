@@ -205,6 +205,9 @@ export interface ClientFeatures {
   /** Customer-list custom audiences (paid / active students from Airtable)
    *  synced daily to the ad account (docs/meta-audiences.md). Absent = off. */
   metaAudiences?: boolean;
+  /** Training wheels ON: a SUCCESSFUL book_trial's confirmation sends at once
+   *  instead of waiting in Aprobar (services/auto-confirm.ts). Off ⇒ Aprobar. */
+  autoConfirmBookings?: boolean;
 }
 
 /**
@@ -511,7 +514,22 @@ export interface ClientConfig {
   /** Which extended drip steps each engagement class gets (src/cron/nudge-policy.ts).
    *  Absent ⇒ every lead gets the full chain (legacy). */
   nudgePolicy?: NudgePolicyConfig;
+  /** Running A/B tests (src/services/price-experiment.ts). Absent ⇒ none. */
+  experiments?: ClientExperiments;
   copy: ClientCopy;
+}
+
+/** A dated, salted 50/50 test. Dates are CDMX "YYYY-MM-DD"; end is exclusive. */
+export interface PriceExperimentConfig {
+  enabled: boolean;
+  start: string;
+  end: string;
+  salt: string;
+}
+
+export interface ClientExperiments {
+  /** Variant B gets the approved price figure at the FIRST price ask. */
+  priceFirstAsk?: PriceExperimentConfig;
 }
 
 /**

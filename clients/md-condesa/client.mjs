@@ -84,6 +84,12 @@ export default {
     // account (docs/meta-audiences.md). ON since 2026-10-07: first upload done
     // by Evan (860 + 211 rows), both audiences ACTIVE on Meta.
     metaAudiences: true,
+    // Owner, 2026-11-10 ("if the age makes sense, let it book on its own"):
+    // with training wheels ON, a booking that book_trial validated and wrote
+    // to Airtable confirms to the lead at once (no Aprobar). Reschedules,
+    // escalations, low sureness, slot warnings and prices in the text still
+    // queue — src/services/auto-confirm.ts. false ⇒ every confirmation queues.
+    autoConfirmBookings: true,
   },
   // Extended drip (d2…d7, paid MARKETING templates once the 24h window closes)
   // by engagement — 2026-11-09, after Meta flagged the number for spam twice in
@@ -97,6 +103,20 @@ export default {
     silent: ["d2", "d7"],
     silentFreshFull: false,
     silentFreshDays: 7,
+  },
+  // A/B tests (src/services/price-experiment.ts). priceFirstAsk: 50% of leads
+  // (variant B, hash of normalized phone + salt) get the approved price figure
+  // at the FIRST price ask, with a concrete trial day/time; variant A keeps the
+  // persona's reframe. CDMX dates, end EXCLUSIVE; outside the window or with
+  // enabled:false everyone is A. Never change the salt mid-test (re-splits).
+  // PLACEHOLDER DATES: reset start = push day, end = push day + 14 at push time.
+  experiments: {
+    priceFirstAsk: {
+      enabled: true,
+      start: "2026-11-10",
+      end: "2026-11-24",
+      salt: "price-first-ask-2026-11",
+    },
   },
   // Real Leads-table columns (base appcX38TBVltyxHR6). The CRM predates the
   // bot and its automations depend on these Spanish names — never rename them.

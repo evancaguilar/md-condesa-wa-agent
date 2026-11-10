@@ -43,6 +43,7 @@ import {
   bandFromQualification,
   monthsFromYears,
   slotGroup,
+  teenAdultMuayRow,
   type ProgramBand,
 } from "../services/age-band.js";
 import { SLOTS } from "./slots.gen.js";
@@ -219,7 +220,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
           await flushUsage(deps.accrueUsage, usageAcc);
           // A booking that succeeded this turn + a send_reply → 'book' result
           // (types.ts union carries the followupMessage + recordId on 'book').
-          if (pendingBookings.length) return bookResult(pendingBookings);
+          if (pendingBookings.length) return bookResult(pendingBookings, ctx, sendReply);
           return guardUnverifiedSlotClaim(
             guardUnbackedBookingClaim(
               sendResult(sendReply, pendingFollowup),
@@ -296,7 +297,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
 
       // Exhausted iterations without a terminal send_reply.
       await flushUsage(deps.accrueUsage, usageAcc);
-      if (pendingBookings.length) return bookResult(pendingBookings);
+      if (pendingBookings.length) return bookResult(pendingBookings, ctx, null);
       return {
         action: "draft",
         message: safeApology(ctx.contact.lang),
@@ -608,6 +609,24 @@ export function bookingBand(
   return adultRow ? null : stored;
 }
 
+/**
+ * Pure. True when book_trial is for a child (kid audience, a child name, or a
+ * non-adult band) and NO age is known — neither book_trial.child_age nor a
+ * stated age in the stored qualification. A campaign-guessed band ("kids"
+ * from a Kids ad) is not an age. A parent's own adult class (band null, adult
+ * audience, no child name) is never a minor booking.
+ */
+export function minorBookingWithoutAge(
+  ctx: Pick<ConvoContext, "contact">,
+  b: { band: ProgramBand | null; audience: Audience; childName: string; childAgeMonths: number | null },
+): boolean {
+  const minor = b.audience === "kid" || !!b.childName || (b.band !== null && b.band !== "adults");
+  if (!minor) return false;
+  if (b.childAgeMonths !== null) return false;
+  const stored = parseQualification(ctx.contact)?.child_age_months;
+  return !(typeof stored === "number" && Number.isFinite(stored));
+}
+
 /** First failing check wins (validateSlot's existence check before the band's). */
 function mergeChecks(a: ValidateResult, b: ValidateResult): ValidateResult {
   return a.ok ? b : a;
@@ -669,9 +688,25 @@ export async function handleBookTrial(
     if (childAgeMonths !== null) bookInput.childAgeMonths = childAgeMonths;
   }
 
+  // A teen into an ADULT Muay Thai row (no Teens Muay Thai exists): the row's
+  // audience is "adult", so validate existence against that audience even
+  // when the model sent "kid". Muay Thai only (teenAdultMuayRow).
+  const wdBooked = weekdayIndex(trialDate);
+  const slotAudience: Audience =
+    SLOTS.some(
+      (s) =>
+        s.weekday === wdBooked &&
+        s.time === trialTime.trim() &&
+        s.discipline === discipline &&
+        s.trial !== false &&
+        teenAdultMuayRow(s, band),
+    )
+      ? "adult"
+      : audience;
+
   const check = band
     ? mergeChecks(
-        validateSlot(trialDate, trialTime, audience, discipline),
+        validateSlot(trialDate, trialTime, slotAudience, discipline),
         validateSlotBand(
           trialDate,
           trialTime,
@@ -695,6 +730,30 @@ export async function handleBookTrial(
         type: "tool_result",
         tool_use_id: tu.id,
         content: `error: ${check.reason} Do not book; propose a valid slot to the lead and end with send_reply.`,
+        is_error: true,
+      },
+    };
+  }
+
+  // A minor's FIRST trial confirms directly like an adult's (owner, 2026-11-10)
+  // — but only on a KNOWN age: without it the band above may be a campaign
+  // guess, and the band check above cannot tell Kids from Mini Muay Thai.
+  // Refused (not booked), so the model asks the age instead of confirming.
+  // Runs after the slot checks so a slot that doesn't exist is reported (and
+  // alerted) first.
+  const ageUnknown = minorBookingWithoutAge(ctx, {
+    band,
+    audience,
+    childName,
+    childAgeMonths,
+  });
+  if (ageUnknown) {
+    return {
+      result: {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content:
+          "error: this booking is for a minor and the child's age is unknown. Do not book yet: ask the parent the child's age (it decides the program and the class), then call book_trial again with child_age. End this turn with send_reply.",
         is_error: true,
       },
     };
@@ -1091,15 +1150,37 @@ function escalateResult(tu: ToolUseContent): BrainResult {
  *
  * Never called with an empty array (both call sites check `.length`).
  */
-function bookResult(bs: PendingBooking[]): BrainResult {
+export function bookResult(
+  bs: PendingBooking[],
+  ctx?: Pick<ConvoContext, "nowCdmx"> & Partial<Pick<ConvoContext, "contact" | "campaign">>,
+  sendReply?: ToolUseContent | null,
+): BrainResult {
   const first = bs[0]!;
   const last = bs[bs.length - 1]!;
+  // What the closing send_reply said, and whether the confirmation text passes
+  // the schedule guard: the auto-confirm decision (services/auto-confirm.ts)
+  // keeps any of these on the human path.
+  const reply = (sendReply?.input ?? {}) as { sureness?: unknown; escalation_reason?: unknown };
+  const sureness = sendReply ? parseSureness(reply.sureness) : undefined;
+  const reason = typeof reply.escalation_reason === "string" ? reply.escalation_reason.trim() : "";
+  let warning: string | undefined;
+  if (ctx) {
+    const probe = guardUnverifiedSlotClaim(
+      { action: "send", message: last.followupMessage, language: "es", confidence: "high" },
+      ctx,
+    );
+    if (probe.action === "draft" && probe.reason) warning = probe.reason;
+  }
   return {
     action: "book",
     ...first.input,
     followupMessage: last.followupMessage,
     recordId: first.recordId,
     bookings: bs.map((b) => ({ ...b.input, recordId: b.recordId })),
+    ...(sureness !== undefined ? { replySureness: sureness } : {}),
+    ...(reason ? { replyReason: reason } : {}),
+    ...(sendReply === null ? { replyMissing: true } : {}),
+    ...(warning ? { confirmationWarning: warning } : {}),
   };
 }
 

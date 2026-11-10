@@ -30,6 +30,7 @@ import type {
   StoredMessage,
 } from "../types.js";
 import { CLIENT } from "../client.gen.js";
+import { priceExperimentReport } from "../services/price-experiment.js";
 import { recordIdForPhone, sendCuestionario } from "../services/cuestionario.js";
 import { sendTrialReminderNow } from "../cron/followups.js";
 import { buildAgenda, invalidateAgendaCache, markAttendance } from "../services/agenda.js";
@@ -1086,6 +1087,20 @@ export async function handleAdminApi(
     );
     if (!w) return json({ error: "since (epoch seconds) is required" }, 400);
     return json(await exportWindow(env.DB, w));
+  }
+
+  // ---- price-on-first-ask A/B test (owner-only, read-only) ----
+  // ?phones=521…,521… → the arm each phone is assigned to, for comparing
+  // booked / attended per variant (services/price-experiment.ts).
+  if (path === "/admin/api/experiments/price-first-ask" && method === "GET") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    return json(
+      priceExperimentReport(
+        CLIENT.experiments?.priceFirstAsk,
+        url.searchParams.get("phones") ?? url.searchParams.get("phone") ?? "",
+        cdmxDateStr(nowSec()),
+      ),
+    );
   }
 
   if (path === "/admin/api/edits" && method === "GET") {
