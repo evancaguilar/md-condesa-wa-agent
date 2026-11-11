@@ -1,6 +1,16 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-10** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-11** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### Baby Fight Club Nivel 0 (6–11 meses) across bot, site and forms (2026-11-11) — branch `claude/baby-fight-club-booking-p4rx35` in BOTH repos, NOT merged
+
+- **Bot:** already handled Nivel 0 since 2026-10-19 (intake/persona rules, `withBabyTrialSlots` vie 12:00 = [6, 12) months, price $1,996). Only change: KB rebuilt against the site branch so the schedule tables now list «Vie 12:00 PM Baby Fight Club (Nivel 0)»; slots.gen unchanged (baby rows still come from `withBabyTrialSlots`). intake.md trimmed one redundant clause («de 1 año en adelante va aquí») to stay under the cap: KB **12,098** / 12,100 tok — the next KB addition must trim something.
+- **Site (md-condesa-site, same branch name):** schedule-data.js vie 12:00 baby «Nivel 0» (+ "Level 0" EN; ?v=4); /baby-fight-club/ ES+EN levels section + FAQ (age, schedule) + meta description; /clases-para-ninos/ mention; home: schedule fallback + FAQ + booking modal option «6-11 meses» (and the baby option relabeled 12-24 → 12-36 meses); /agendar-clase-de-ninos/ + /clase-prueba-ninos/: «6-11 meses» button; /tu-primera-clase-bebes/: Nivel 0 viernes 12 PM trial time. Closes the «Nivel 0 Fri 12 pm not on the site grid» mismatch noted above (Wed 1 pm / Sat 2 pm trial rows still are not on the grid, on purpose — the grid shows member classes).
+- **Forms gap:** the Airtable baby form (`pagDtHptlDRm9Id0F`, «Bebés (1-2 años)») only offers slots generated from Plantilla de Horarios (mié 13:00, sáb 14:00, program «Kids Bebés (1-2 años)»). There is NO Friday 12:00 row, so the new «6-11 meses» buttons open WhatsApp to the bot (prefill starts with the website trigger phrase, then «…de Baby Fight Club Nivel 0 (mi bebé tiene entre 6 y 11 meses)») instead of a form. Adding a Friday row under «Kids Bebés (1-2 años)» would let 1–2-year-olds pick Friday — needs Evan's call (separate program option / form vs. same form).
+- [ ] **Evan**: merge site branch → main (= deploy), then merge bot branch (KB version changes; probe `/health` kbVersion).
+- [ ] **Evan**: decide the Airtable route for Nivel 0 web bookings (see forms gap); when a form exists, swap the WhatsApp links for `data-form`/`data-airtable-form`.
+- [ ] **Evan**: `/img/horario.jpg` (poster on /bienvenida/) is a designed image and does not show Nivel 0 yet.
+- [ ] **Evan**: D1 campaign «baby fight club» first_reply/info — check it mentions Nivel 0 = viernes 12 pm (see the 2026-10-19 item below).
 
 ### Owner follow-ups: teens with adults, complaints stop the chase, «Sin seguimiento» chip, transit KB (2026-11-10) — branch `fix/owner-followups-2026-11-10` (on release/2026-11-10), NOT pushed
 
