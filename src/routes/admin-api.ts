@@ -140,6 +140,9 @@ import {
   cancelStaffLater,
   listApprovalHistory,
   namesForPhones,
+  listExpiredApprovalsSince,
+  latestApprovalIdForPhone,
+  humanReplyAfter,
   resolveContactPhone,
 } from "../db/queries-admin.js";
 import { parseApprovalHistoryParams } from "../db/approvals-history.js";
@@ -247,6 +250,14 @@ import {
   guardedApprovalKey,
   escalationReason,
 } from "../services/approvals.js";
+import {
+  dedupeCandidates,
+  OWED_MAX_AGE_SEC,
+  OWED_SCAN_LIMIT,
+  owedDoneKey,
+  selectOwed,
+  waMeLink,
+} from "../services/owed-approvals.js";
 import { runKbChat, applyProposal, accrueChatUsage } from "../services/kb-editor.js";
 import { parseBookingFromText } from "../services/booking-guard.js";
 import { auditStaffSend } from "../services/slot-audit.js";
@@ -972,15 +983,39 @@ export async function handleAdminApi(
   if (path === "/admin/api/approvals/history" && method === "GET") {
     return handleApprovalsHistory(env, url);
   }
+  // «Sin responder»: expired approvals the lead is still owed an answer for.
+  if (path === "/admin/api/approvals/owed" && method === "GET") {
+    return handleOwedList(env);
+  }
+  const owedDoneMatch = path.match(/^\/admin\/api\/approvals\/(\d+)\/owed-done$/);
+  if (owedDoneMatch && method === "POST") {
+    const id = Number(owedDoneMatch[1]);
+    const row = await env.DB.prepare(`SELECT phone, status FROM pending_approvals WHERE id = ?1`)
+      .bind(id)
+      .first<{ phone: string | null; status: string }>();
+    if (!row) return json({ ok: false, reason: "not_found" }, 404);
+    await kvSet(env.DB, owedDoneKey(id), `${session.user}:${nowSec()}`);
+    ctx.waitUntil(
+      ports.slack
+        .postNote(
+          `☑️ Aprobación expirada #${id} (${row.phone ?? ""}) marcada como atendida por ${session.user} desde el panel (respondida por fuera).`,
+          { kind: "approvals" },
+        )
+        .catch(() => {}),
+    );
+    return json({ ok: true });
+  }
   const apprMatch = path.match(/^\/admin\/api\/approvals\/(\d+)\/(approve|edit|discard)$/);
   if (apprMatch && method === "POST") {
     const id = Number(apprMatch[1]);
     const action = apprMatch[2]!;
     let result: ApprovalResult;
-    if (action === "approve") result = await approveAndSend(env, id);
+    // allowExpired: the «Sin responder» cards reuse Aprobar/Editar while the
+    // lead's 24 h window is still open (services/owed-approvals.ts).
+    if (action === "approve") result = await approveAndSend(env, id, { allowExpired: true });
     else if (action === "edit") {
       const body = await readJson<{ text?: string }>(req);
-      result = await editAndSend(env, id, body.text ?? "");
+      result = await editAndSend(env, id, body.text ?? "", { allowExpired: true });
     } else result = await discardApproval(env, id);
     if (result.ok) {
       // Attribution: who resolved it from the panel (Slack card stays generic).
@@ -2026,6 +2061,62 @@ async function handleApprovalsList(env: Env): Promise<Response> {
     }),
   );
   return json({ items });
+}
+
+/**
+ * «Sin responder» list (services/owed-approvals.ts). One created_at-indexed
+ * scan of the last week's expired rows, newest-per-phone, then four point
+ * reads per surviving phone. Polled every 2 min by the Aprobaciones tab only.
+ */
+async function handleOwedList(env: Env): Promise<Response> {
+  const now = nowSec();
+  const rows = await listExpiredApprovalsSince(env.DB, now - OWED_MAX_AGE_SEC, OWED_SCAN_LIMIT);
+  const candidates = dedupeCandidates(
+    rows.map((r) => ({
+      id: r.id,
+      phone: r.phone,
+      createdAt: r.created_at,
+      expiredAt: r.resolved_at ?? null,
+      draft: r.draft,
+      context: r.context,
+    })),
+  );
+  const withFacts = await Promise.all(
+    candidates.map(async (row) => {
+      const contact = await getContact(env.DB, row.phone);
+      return {
+        row: { ...row, name: contact?.name ?? null },
+        facts: {
+          latestIdForPhone: await latestApprovalIdForPhone(env.DB, row.phone),
+          humanReplyAfter: await humanReplyAfter(env.DB, row.phone, row.createdAt),
+          handled: (await kvGet(env.DB, owedDoneKey(row.id))) !== null,
+          optedOut: contact?.status === "opted_out",
+          lastInboundAt: contact?.last_inbound_at ?? null,
+        },
+      };
+    }),
+  );
+  const owed = selectOwed(withFacts, now);
+  const items = await Promise.all(
+    owed.map(async (o) => {
+      const escalation = await escalationReason(env, o.id);
+      return {
+        id: o.id,
+        phone: o.phone,
+        name: o.name,
+        draft: o.draft,
+        context: o.context,
+        createdAt: o.createdAt,
+        expiredAt: o.expiredAt,
+        escalation,
+        windowOpen: o.windowOpen,
+        windowHoursLeft: o.windowHoursLeft,
+        // Other-WhatsApp escape hatch, draft prefilled (null for IG/FB ids).
+        waMe: waMeLink(o.phone, escalation ? null : o.draft),
+      };
+    }),
+  );
+  return json({ items, now });
 }
 
 /**

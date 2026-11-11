@@ -13,6 +13,7 @@ import {
   kvSet,
   setHumanOverride,
 } from "../db/queries.js";
+import { owedDoneKey } from "../services/owed-approvals.js";
 import { claimPendingFollowup } from "../db/queries-admin.js";
 import { displayContact } from "../services/channel.js";
 import {
@@ -252,6 +253,8 @@ async function onSendTemplate(env: Env, id: number): Promise<void> {
     throw err;
   }
   await markApprovedCard(env, a, "[plantilla human_followup enviada]");
+  // A human reached out → drop it from the panel's «Sin responder» list.
+  await kvSet(env.DB, owedDoneKey(id), `slack_template:${Math.floor(Date.now() / 1000)}`);
 }
 
 /**

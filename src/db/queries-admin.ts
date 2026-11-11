@@ -875,15 +875,87 @@ export async function claimApproval(
   status: ApprovalStatus,
   finalText?: string | null,
 ): Promise<boolean> {
+  return claimApprovalFrom(db, id, "pending", status, finalText);
+}
+
+/**
+ * claimApproval with an explicit source status. `expired` is the only other
+ * source in use: the panel's «Sin responder» section can still send an expired
+ * draft while the lead's 24 h window is open (services/owed-approvals.ts).
+ */
+export async function claimApprovalFrom(
+  db: D1Database,
+  id: number,
+  from: Extract<ApprovalStatus, "pending" | "expired">,
+  status: ApprovalStatus,
+  finalText?: string | null,
+): Promise<boolean> {
   const res = await db
     .prepare(
       `UPDATE pending_approvals
        SET status = ?2, resolved_at = ?3, final_text = ?4
-       WHERE id = ?1 AND status = 'pending'`,
+       WHERE id = ?1 AND status = ?5`,
     )
-    .bind(id, status, now(), finalText ?? null)
+    .bind(id, status, now(), finalText ?? null, from)
     .run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+// ---- approvals: «Sin responder» (expired, still owed) ----
+
+/**
+ * Expired approvals created since `since`, newest first, capped. Driven by
+ * idx_pending_approvals_created (the unary `+` keeps SQLite off the status
+ * index, which would walk EVERY expired row ever — the d1-rows-read rule);
+ * the panel polls this every 2 min while Aprobaciones is open.
+ */
+export async function listExpiredApprovalsSince(
+  db: D1Database,
+  since: number,
+  limit: number,
+): Promise<PendingApproval[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM pending_approvals
+       WHERE created_at >= ?1 AND +status = 'expired'
+       ORDER BY created_at DESC LIMIT ?2`,
+    )
+    .bind(since, limit)
+    .all<PendingApproval>();
+  return results ?? [];
+}
+
+/** Highest approval id for a phone, any status (idx_pending_approvals_phone). */
+export async function latestApprovalIdForPhone(
+  db: D1Database,
+  phone: string,
+): Promise<number | null> {
+  const row = await db
+    .prepare(`SELECT MAX(id) AS id FROM pending_approvals WHERE phone = ?1`)
+    .bind(phone)
+    .first<{ id: number | null }>();
+  return row?.id ?? null;
+}
+
+/**
+ * True when a HUMAN message (panel staff send or WA Business app echo) went to
+ * the phone after `afterTs` — the lead got a real answer some other way.
+ * Bot sends (holding line, drips, templates) don't count. idx_messages_phone_ts.
+ */
+export async function humanReplyAfter(
+  db: D1Database,
+  phone: string,
+  afterTs: number,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS x FROM messages
+       WHERE phone = ?1 AND ts > ?2 AND direction IN ('out_human', 'out_human_echo')
+       LIMIT 1`,
+    )
+    .bind(phone, afterTs)
+    .first<{ x: number }>();
+  return !!row;
 }
 
 // ---- approvals: history ----

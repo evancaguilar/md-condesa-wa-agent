@@ -2,6 +2,13 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-11** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Aprobaciones «⏱ Sin responder»: expired approvals stay visible until answered (2026-11-11) — branch `feat/owed-approvals`, pushed to main 2026-11-11 on Evan's OK
+
+Before: the timeout cron flips an untouched approval to `expired` at **12 h** (not 24 h; decideTimeout), and GET /admin/api/approvals only lists `pending`, so the card silently left Aprobaciones. Only trace: the Slack card (template button) and the chat in Chats. The lead was never answered.
+- Cron behavior unchanged (expiry still stops holding line / best-bet on a stale draft). New second section in Aprobaciones lists expired rows still owed an answer (pure rules `src/services/owed-approvals.ts`): last 7 days, newest per phone; drops off on «☑️ Ya lo atendí» (kv `owed_done:<id>` + ops note), Slack «📨 Enviar plantilla» (same marker), any `out_human`/`out_human_echo` after the draft, a newer approval for the phone, or baja.
+- Window open (expired at 12 h, lead wrote < 24 h ago): «✅ Enviar borrador» / «✏️ Editar» work from the panel (`approveAndSend`/`editAndSend` `{allowExpired}` — panel only; Slack unchanged; `claimApprovalFrom` claims from `expired`, reverts to `expired` on failure). Window closed: «📱 Abrir en WhatsApp (borrador listo)» (wa.me with the draft prefilled) / «💻 WhatsApp Web» / «📋 Copiar» → answer from the other number → «Ya lo atendí».
+- Routes: `GET /admin/api/approvals/owed`, `POST /admin/api/approvals/:id/owed-done`. Rows-read: one created_at-indexed scan (`+status` keeps SQLite off the status index), cap 60, + 4 point reads per phone; polled every 2 min only while Aprobaciones is open. No schema change. Tests 1667 green (19 new in test/owed-approvals.test.ts).
+- [ ] After deploy: open Aprobaciones → «⏱ Sin responder» lists recent expired leads; tap «Ya lo atendí» on one → disappears + ✅ note in ops_log; probe `GET /admin/api/approvals/owed` returns `items` (new route = deploy proof).
 ### Baby Fight Club Nivel 0 (6–11 meses) across bot, site, forms and poster (2026-11-11) — branch `claude/baby-fight-club-booking-p4rx35` in BOTH repos, merged to main on Evan's OK
 
 **Levels (Evan, 2026-11-11):** Nivel 0 = 6–11 meses (viernes 12 pm) · Nivel 1 = 12–24 meses · Nivel 2 = 24–36 meses. Trial classes for Nivel 1/2 stay mié 1 pm / sáb 2 pm.

@@ -1828,14 +1828,18 @@ async function resetConvo(phone){
 // ---------- APROBACIONES ----------
 VIEWS.aprobaciones=function(){
   var m=el("main");
-  m.innerHTML='<h1>Aprobaciones</h1><div id="apprBody"><div class="loading"><span class="spin"></span></div></div>';
+  m.innerHTML='<h1>Aprobaciones</h1><div id="apprBody"><div class="loading"><span class="spin"></span></div></div><div id="apprOwed"></div>';
   apprKey=null; // fresh spinner in the DOM — force the first load to render even if the id-list is unchanged
+  owedKey=null; owedAt=0;
   loadApprovals();
   startPoll(loadApprovals,30000);
 };
 var apprKey=null; // null = nothing rendered yet; "" would collide with the empty-inbox key and strand the spinner
 async function loadApprovals(){
   var body=el("apprBody"); if(!body) return;
+  // «Sin responder» rides the same poll at a slower cadence (2 min): it does
+  // a few point reads per expired row, no need to pay that every 30 s.
+  if(Date.now()-owedAt>120000){ owedAt=Date.now(); loadOwed(); }
   var data;
   try{ data=await api("/approvals"); }
   catch(e){
@@ -1900,6 +1904,110 @@ function wireApprCard(it){
     if(!txt.trim()){ toast("Escribe una respuesta","err"); return; }
     resolveAppr(it.id,"edit",txt);
   };
+}
+// ---------- SIN RESPONDER (expired approvals still owed an answer) ----------
+// The cron expires an untouched approval at 12 h; before 2026-11-11 it then
+// vanished from this tab and the lead never got an answer. These cards stay
+// until someone answers (panel send, WA Business app, Slack template) or taps
+// «Ya lo atendí» — see services/owed-approvals.ts.
+var owedKey=null, owedAt=0;
+async function loadOwed(){
+  var box=el("apprOwed"); if(!box) return;
+  var data;
+  try{ data=await api("/approvals/owed"); }catch(e){ return; } // keep whatever is shown
+  if(!el("apprOwed")) return;
+  var items=data.items||[];
+  var key=items.map(function(it){return it.id+":"+(it.windowOpen?1:0);}).join(",");
+  if(key===owedKey) return;
+  if(isTypingIn(box)) return;
+  owedKey=key;
+  if(!items.length){ box.innerHTML=""; return; }
+  var snap=snapshotEdits(box);
+  box.innerHTML='<h2 style="margin:22px 0 4px">⏱ Sin responder <span class="muted sm">('+items.length+')</span></h2>'
+    +'<div class="muted sm" style="margin-bottom:10px">Aprobaciones que nadie atendió en 12 h. El lead sigue esperando respuesta. Con la ventana de 24 h cerrada, contesta desde el otro WhatsApp y marca «Ya lo atendí».</div>'
+    +items.map(owedCard).join("");
+  items.forEach(function(it){ wireOwedCard(it); });
+  restoreEdits(box,snap);
+}
+function owedCard(it){
+  var ctx=it.context||"";
+  var ctxHtml=esc(ctx).split("\n").filter(function(l){return l.trim();}).map(function(l){return '<div class="muted sm">'+l+'</div>';}).join("");
+  var wa=chanOf(it.phone)==="wa";
+  var digits=String(it.phone||"").replace(/\D/g,"");
+  var canSend=it.windowOpen || !wa; // IG/FB: the server decides (7-day human-agent tag)
+  var winChip=it.windowOpen
+    ? '<span class="chip green">Ventana abierta · '+esc(String(it.windowHoursLeft))+' h</span>'
+    : '<span class="chip red">Ventana cerrada</span>';
+  var text=it.escalation?"":(it.draft||"");
+  var btns='';
+  if(canSend){
+    if(!it.escalation && text.trim()) btns+='<button class="btn green sm" data-o="approve">✅ Enviar borrador</button>';
+    btns+='<button class="btn sm" data-o="edit">✏️ '+(it.escalation?'Responder':'Editar')+'</button>';
+  }
+  if(wa && digits){
+    btns+='<a class="btn sm" style="text-decoration:none" target="_blank" rel="noopener" href="'+esc(it.waMe||("https://wa.me/"+digits))+'">📱 Abrir en WhatsApp'+(text?' (borrador listo)':'')+'</a>';
+    btns+='<a class="btn sm" style="text-decoration:none" target="_blank" rel="noopener" href="https://web.whatsapp.com/send?phone='+digits+(text?'&text='+encodeURIComponent(text.slice(0,1500)):'')+'">💻 WhatsApp Web</a>';
+  }
+  if(text) btns+='<button class="btn sm" data-o="copy">📋 Copiar</button>';
+  btns+='<button class="btn sm" data-o="chat">💬 Ver chat</button>';
+  btns+='<button class="btn gold sm" data-o="done">☑️ Ya lo atendí</button>';
+  return '<div class="card" id="owed-'+it.id+'" style="border-left:3px solid var(--amber)">'
+    +'<div class="between"><div style="font-weight:700">'+esc(nameOr(it.name,it.phone))+'</div>'
+    +'<div class="muted sm">escribió '+esc(relTime(it.createdAt))+'</div></div>'
+    +'<div class="chips" style="margin-top:6px"><span class="chip amber">⏱ Expiró sin respuesta</span>'+winChip+'</div>'
+    +(ctxHtml?'<div style="margin:8px 0">'+ctxHtml+'</div>':"")
+    +(it.escalation
+      ? '<div class="pendcard" style="margin:8px 0 10px"><div class="lbl">⚠️ Necesita respuesta humana</div>'
+        +'<div class="sm" style="white-space:pre-wrap;word-break:break-word">'+esc(it.escalation)+'</div></div>'
+      : '<div class="sm muted" style="margin-top:8px">Respuesta propuesta</div>'
+        +'<div class="bub bot" style="max-width:100%;margin:4px 0 10px;align-self:stretch">'+esc(text)+'</div>')
+    +'<div class="row" style="flex-wrap:wrap">'+btns+'</div>'
+    +(canSend?'<div class="editbox hidden" style="margin-top:10px"><textarea class="field ta" placeholder="Escribe la respuesta…">'+esc(text)+'</textarea>'
+      +'<div class="row" style="margin-top:8px"><button class="btn gold sm sendedit">Enviar</button></div></div>':'')
+    +(!canSend && wa?'<div class="muted sm" style="margin-top:6px">Se abre desde el otro número — esa conversación seguirá allá, no en este panel.</div>':'')
+    +'</div>';
+}
+function wireOwedCard(it){
+  var card=el("owed-"+it.id); if(!card) return;
+  qa("[data-o]",card).forEach(function(b){
+    var a=b.getAttribute("data-o");
+    b.onclick=function(){
+      if(a==="approve") resolveOwed(it,"approve");
+      else if(a==="edit"){ var eb=q(".editbox",card); if(eb) eb.classList.toggle("hidden"); }
+      else if(a==="copy"){
+        var t=it.draft||"";
+        try{ navigator.clipboard.writeText(t).then(function(){toast("Borrador copiado","ok");},function(){toast("No se pudo copiar","err");}); }
+        catch(e){ toast("No se pudo copiar","err"); }
+      }
+      else if(a==="chat"){ location.hash="#chats/"+String(it.phone||"").replace(/\D/g,""); }
+      else if(a==="done") markOwedDone(it);
+    };
+  });
+  var se=q(".sendedit",card);
+  if(se) se.onclick=function(){
+    var txt=q(".ta",card).value;
+    if(!txt.trim()){ toast("Escribe una respuesta","err"); return; }
+    resolveOwed(it,"edit",txt);
+  };
+}
+function removeOwedCard(id){
+  var c=el("owed-"+id); if(c) c.remove();
+  var box=el("apprOwed");
+  if(box && !qa(".card",box).length) box.innerHTML="";
+  owedKey=null; // next load re-renders the header count
+}
+async function resolveOwed(it,kind,text){
+  var st=await resolveApprovalApi(it.id,kind,text);
+  if(st==="ok"){ toast("Respuesta enviada","ok"); removeOwedCard(it.id); }
+  else if(st==="not_pending"){ toast("Ya resuelta"); removeOwedCard(it.id); }
+  else if(st==="window_closed"){ toast("Ventana de 24h cerrada: usa el otro WhatsApp","err"); owedAt=0; loadOwed(); }
+  else if(st==="opted_out"){ toast("El lead está dado de baja","err"); removeOwedCard(it.id); }
+  else if(st==="empty_draft"){ toast("No hay borrador: usa Responder","err"); }
+  else toast("No se pudo enviar","err");
+}
+async function markOwedDone(it){
+  try{ await api("/approvals/"+it.id+"/owed-done",{method:"POST"}); toast("Marcada como atendida","ok"); removeOwedCard(it.id); }
+  catch(e){ toast("No se pudo marcar","err"); }
 }
 function removeCard(id){
   var c=el("appr-"+id); if(c) c.remove();

@@ -9,6 +9,7 @@
 import type { ApprovalStatus, Env, PendingApproval } from "../types.js";
 import {
   claimApproval,
+  claimApprovalFrom,
   clearHumanOverride,
 } from "../db/queries-admin.js";
 import {
@@ -35,6 +36,16 @@ import {
   markTakenOverCard,
   markWindowClosedCard,
 } from "../services/slack.js";
+
+/**
+ * Panel-only option: also accept an `expired` row (the «Sin responder» section,
+ * services/owed-approvals.ts). Slack never passes it — an expired Slack card
+ * has no Aprobar button. Sending still needs the 24 h window; a closed window
+ * leaves the row `expired` and returns window_closed.
+ */
+export interface SendOpts {
+  allowExpired?: boolean;
+}
 
 /** Result of an approval flow. `ok:false` carries a machine-readable reason. */
 export type ApprovalResult =
@@ -157,19 +168,24 @@ async function claimAndSend(
   claimedStatus: Extract<ApprovalStatus, "approved" | "edited">,
   bodyToSend: string,
   finalText: string,
+  opts: SendOpts = {},
 ): Promise<ApprovalResult> {
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
+  // Which status we claim FROM: an expired row only when the caller (panel)
+  // opted in. Anything else resolved is not ours to send.
+  const from: "pending" | "expired" =
+    opts.allowExpired && a.status === "expired" ? "expired" : "pending";
 
   const contact = await getContact(env.DB, a.phone);
   if (contact?.status === "opted_out") {
-    const claimed = await claimApproval(env.DB, id, "discarded");
+    const claimed = await claimApprovalFrom(env.DB, id, from, "discarded");
     if (!claimed) return NOT_PENDING;
     await markDiscardedCard(env, a);
     return OPTED_OUT;
   }
 
-  const won = await claimApproval(env.DB, id, claimedStatus, finalText);
+  const won = await claimApprovalFrom(env.DB, id, from, claimedStatus, finalText);
   if (!won) return NOT_PENDING; // lost the race (already resolved elsewhere)
 
   try {
@@ -180,8 +196,9 @@ async function claimAndSend(
       await markWindowClosedCard(env, a);
       return WINDOW_CLOSED;
     }
-    // Transient / unexpected send failure: undo the claim so a retry can win.
-    await resolveApproval(env.DB, id, "pending");
+    // Transient / unexpected send failure: undo the claim so a retry can win
+    // (back to wherever it came from — an expired row stays in «Sin responder»).
+    await resolveApproval(env.DB, id, from);
     throw err;
   }
   return { ok: true };
@@ -240,12 +257,13 @@ export async function runPostSendEffects(
 export async function approveAndSend(
   env: Env,
   id: number,
+  opts: SendOpts = {},
 ): Promise<ApprovalResult> {
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
   // An escalation row has nothing to send — a human writes the reply (Editar).
   if (!a.draft || !a.draft.trim()) return EMPTY_DRAFT;
-  const res = await claimAndSend(env, id, "approved", a.draft, a.draft);
+  const res = await claimAndSend(env, id, "approved", a.draft, a.draft, opts);
   if (res.ok) {
     await markApprovedCard(env, a, a.draft);
     await runPostSendEffects(env, id, a.phone, a.draft, "approved");
@@ -258,10 +276,11 @@ export async function editAndSend(
   env: Env,
   id: number,
   finalText: string,
+  opts: SendOpts = {},
 ): Promise<ApprovalResult> {
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
-  const res = await claimAndSend(env, id, "edited", finalText, finalText);
+  const res = await claimAndSend(env, id, "edited", finalText, finalText, opts);
   if (res.ok) {
     await insertEdit(env.DB, a.phone, a.draft, finalText);
     await markEditedCard(env, a, finalText);
