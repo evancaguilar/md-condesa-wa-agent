@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-11-11+c71040270ec2
-     approx_tokens: 12098 (chars 42343 / 3.5)
+     version: 2026-11-11+599c5ba949cd
+     approx_tokens: 12099 (chars 42344 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -136,7 +136,7 @@ Más retador que Kids y adaptado a su edad. Disciplina, seguridad, condición f�
 Clase lúdica, segura y adaptada a su edad: coordinación, equilibrio, atención, disciplina básica, movimiento, juego y confianza. No es una clase agresiva, pero sí empiezan a ver técnica real. **Los papás ayudan en PARTES de la clase — que vengan listos para moverse en algunos momentos** (no participan toda la clase como en Baby Fight Club; no lo presentes como "clase para papás e hijos").
 
 ### Baby Fight Club (6–36 meses)
-**Niveles:** Nivel 0 = 6 meses a 11 meses 30 días (viernes 12 pm, ver abajo); Nivel 1 y 2 = 12–36 meses (la profe asigna).
+**Niveles:** Nivel 0 = 6 meses a 11 meses 30 días (viernes 12 pm, ver abajo); Nivel 1 = 12–23 meses; Nivel 2 = 24–36 meses.
 
 No es pelea real: es una clase de movimiento, juego y desarrollo físico inspirada en artes marciales. Obstáculos, coordinación, equilibrio, confianza, socialización y exploración segura. **Los papás participan activamente — deben venir listos para moverse.** Ideal para bebés con mucha energía, niños aprendiendo a moverse mejor, y familias que quieren introducir movimiento desde temprano.
 
