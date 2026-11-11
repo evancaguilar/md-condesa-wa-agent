@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-11-10+f3e7eb9bbf0f
-     approx_tokens: 12082 (chars 42287 / 3.5)
+     version: 2026-11-11+599c5ba949cd
+     approx_tokens: 12099 (chars 42344 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -25,7 +25,7 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 - **Muay Thai**: Lun 7:00 AM, 8:00 AM, 10:00 AM, 3:15 PM (3-5 años), 4:00 PM (Niños), 6:00 PM, 7:00 PM · Mar 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Niños), 6:00 PM, 7:00 PM · Mié 7:00 AM (Sparring), 8:00 AM, 10:00 AM, 3:15 PM (3-5 años), 4:00 PM (Niños), 6:00 PM, 7:00 PM · Jue 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Niños), 6:00 PM (Sparring), 7:00 PM (Sparring) · Vie 7:00 AM, 8:00 AM, 10:00 AM · Sáb 10:00 AM, 11:00 AM (Sparring), 12:00 PM (Niños), 1:15 PM (3-5 años) · Dom 11:00 AM
 - **MMA**: Lun 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Mar 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Mié 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM (Sparring) · Jue 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Vie 9:00 AM (Striking)
 - **Boxing**: Mar 9:00 PM · Jue 9:00 PM · Sáb 2:00 PM
-- **Baby Fight Club**: Mié 12:00 PM · Sáb 3:00 PM (Nivel 1), 3:45 PM (Nivel 2)
+- **Baby Fight Club**: Mié 12:00 PM · Vie 12:00 PM (Nivel 0) · Sáb 3:00 PM (Nivel 1), 3:45 PM (Nivel 2)
 - **Blindaje 8 (Defensa Personal)**: Sáb 12:00 PM
 
 ### Por día
@@ -33,7 +33,7 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 - **Martes**: 7:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (No-Gi); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (No-Gi, Niños) / Jiu-Jitsu (No-Gi, Teens); 6:00 PM Jiu-Jitsu (Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (No-Gi) / MMA; 9:00 PM Boxing
 - **Miércoles**: 7:00 AM Jiu-Jitsu (Gi) / Muay Thai (Sparring); 8:00 AM Jiu-Jitsu (Gi) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Muay Thai; 12:00 PM Baby Fight Club; 3:15 PM Muay Thai (3-5 años); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (Gi, Niños) / Jiu-Jitsu (Gi, Teens); 6:00 PM Jiu-Jitsu (No-Gi) / Muay Thai; 7:00 PM Jiu-Jitsu (Gi) / Muay Thai; 8:00 PM Jiu-Jitsu (Gi) / MMA (Sparring)
 - **Jueves**: 7:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 8:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Jiu-Jitsu (No-Gi); 4:00 PM Muay Thai (Niños) / MMA (Teens); 5:00 PM Jiu-Jitsu (No-Gi, Niños) / Jiu-Jitsu (No-Gi, Teens); 6:00 PM Jiu-Jitsu (Gi) / Muay Thai (Sparring); 7:00 PM Jiu-Jitsu (No-Gi) / Muay Thai (Sparring); 8:00 PM Jiu-Jitsu (No-Gi) / MMA; 9:00 PM Boxing
-- **Viernes**: 7:00 AM Jiu-Jitsu (Open Mat) / Muay Thai; 8:00 AM Jiu-Jitsu (Open Mat) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Muay Thai
+- **Viernes**: 7:00 AM Jiu-Jitsu (Open Mat) / Muay Thai; 8:00 AM Jiu-Jitsu (Open Mat) / Muay Thai; 9:00 AM MMA (Striking); 10:00 AM Muay Thai; 12:00 PM Baby Fight Club (Nivel 0)
 - **Sábado**: 9:00 AM Jiu-Jitsu (Fundamentos); 10:00 AM Jiu-Jitsu (No-Gi) / Muay Thai; 11:00 AM Muay Thai (Sparring) / Jiu-Jitsu (No-Gi, Niños); 12:00 PM Blindaje 8 (Defensa Personal) / Muay Thai (Niños); 1:15 PM Muay Thai (3-5 años); 2:00 PM Boxing; 3:00 PM Baby Fight Club (Nivel 1); 3:45 PM Baby Fight Club (Nivel 2)
 - **Domingo**: 11:00 AM Muay Thai; 12:00 PM Jiu-Jitsu (No-Gi)
 
@@ -44,7 +44,7 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 - **Muay Thai**: Mon 7:00 AM, 8:00 AM, 10:00 AM, 3:15 PM (Ages 3-5), 4:00 PM (Kids), 6:00 PM, 7:00 PM · Tue 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Kids), 6:00 PM, 7:00 PM · Wed 7:00 AM (Sparring), 8:00 AM, 10:00 AM, 3:15 PM (Ages 3-5), 4:00 PM (Kids), 6:00 PM, 7:00 PM · Thu 7:00 AM, 8:00 AM, 10:00 AM, 4:00 PM (Kids), 6:00 PM (Sparring), 7:00 PM (Sparring) · Fri 7:00 AM, 8:00 AM, 10:00 AM · Sat 10:00 AM, 11:00 AM (Sparring), 12:00 PM (Kids), 1:15 PM (Ages 3-5) · Sun 11:00 AM
 - **MMA**: Mon 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Tue 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Wed 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM (Sparring) · Thu 9:00 AM (Striking), 4:00 PM (Teens), 8:00 PM · Fri 9:00 AM (Striking)
 - **Boxing**: Tue 9:00 PM · Thu 9:00 PM · Sat 2:00 PM
-- **Baby Fight Club**: Wed 12:00 PM · Sat 3:00 PM (Nivel 1), 3:45 PM (Nivel 2)
+- **Baby Fight Club**: Wed 12:00 PM · Fri 12:00 PM (Nivel 0) · Sat 3:00 PM (Nivel 1), 3:45 PM (Nivel 2)
 - **Blindaje 8 (Self-Defense)**: Sat 12:00 PM
 
 ## Disciplinas
@@ -136,7 +136,7 @@ Más retador que Kids y adaptado a su edad. Disciplina, seguridad, condición f�
 Clase lúdica, segura y adaptada a su edad: coordinación, equilibrio, atención, disciplina básica, movimiento, juego y confianza. No es una clase agresiva, pero sí empiezan a ver técnica real. **Los papás ayudan en PARTES de la clase — que vengan listos para moverse en algunos momentos** (no participan toda la clase como en Baby Fight Club; no lo presentes como "clase para papás e hijos").
 
 ### Baby Fight Club (6–36 meses)
-**Niveles:** Nivel 0 = 6 meses a 11 meses 30 días (viernes 12 pm, ver abajo); Nivel 1 y 2 = 12–36 meses (la profe asigna; de 1 año en adelante va aquí).
+**Niveles:** Nivel 0 = 6 meses a 11 meses 30 días (viernes 12 pm, ver abajo); Nivel 1 = 12–23 meses; Nivel 2 = 24–36 meses.
 
 No es pelea real: es una clase de movimiento, juego y desarrollo físico inspirada en artes marciales. Obstáculos, coordinación, equilibrio, confianza, socialización y exploración segura. **Los papás participan activamente — deben venir listos para moverse.** Ideal para bebés con mucha energía, niños aprendiendo a moverse mejor, y familias que quieren introducir movimiento desde temprano.
 

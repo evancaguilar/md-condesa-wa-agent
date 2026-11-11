@@ -1,6 +1,22 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-10** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-11** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### Baby Fight Club Nivel 0 (6–11 meses) across bot, site, forms and poster (2026-11-11) — branch `claude/baby-fight-club-booking-p4rx35` in BOTH repos, merged to main on Evan's OK
+
+**Levels (Evan, 2026-11-11):** Nivel 0 = 6–11 meses (viernes 12 pm) · Nivel 1 = 12–24 meses · Nivel 2 = 24–36 meses. Trial classes for Nivel 1/2 stay mié 1 pm / sáb 2 pm.
+
+- **Bot:** already handled Nivel 0 since 2026-10-19 (intake/persona rules, `withBabyTrialSlots` vie 12:00 = [6, 12) months, price $1,996; `collectSlots` only proposes the Friday row when the baby's age is known, so the campaign welcome's `{{slot}}` never offers Friday to an unknown age). This change: KB rebuilt against the site so the schedule tables list «Vie 12:00 PM Baby Fight Club (Nivel 0)»; intake.md Niveles line now Nivel 1 = 12–23 m / Nivel 2 = 24–36 m. slots.gen unchanged. KB **12,099** / 12,100 tok — the next KB addition must trim something.
+- **Site:** schedule-data.js vie 12:00 baby «Nivel 0» (+ "Level 0" EN; ?v=4); /baby-fight-club/ ES+EN levels section (N0 / N1 / N2 with ages) + FAQ (age, schedule) + meta description; /clases-para-ninos/ mention; home: schedule fallback + FAQ + booking modal option «6-11 meses» (baby option relabeled 12-24 → 12-36 meses); /agendar-clase-de-ninos/ + /clase-prueba-ninos/: «6-11 meses» button; /tu-primera-clase-bebes/: Nivel 0 viernes 12 PM trial time. `img/horario.jpg` (poster on /bienvenida/): Friday 12:00 «BABY FIGHT CLUB · NIVEL 0 · 12:00 PM» pill composited from the Saturday pill's own glyphs, legend «desde 6 meses a 16 años» (was 12 meses).
+- **Airtable (done 2026-11-11):** program option «Kids Bebés Nivel 0 (6-11 meses)» on Plantilla de Horarios + Slots Disponibles; Plantilla row #58 Viernes 12:00 Activo (the 01:00 «Generar Slots Diariamente» script copies it 10 days ahead); slots backfilled for vie 13/11 and 20/11 12:00 pm; Leads field **«Slot Reservado Bebés Nivel 0»** (`fldHPslTxFSVd1Bfs`, inverse `fldU70rHZSX19lxFG`); automation **«Bebés Nivel 0 Copiar Fecha a Lead»** (`wflfrz6JQjsxqY9KA`, copy of the Bebés one → Fecha Clase Prueba + Slack #C08SR0LCZMY) — created OFF; form **«Reserva tu Clase de Prueba - Bebés Nivel 0 (6-11 meses)»** (`paguew3tKElNblOKu`: parent, baby name, Meses bebé, WhatsApp, notes, «Elige tu viernes», ¿Cómo nos encontraste?, Programa, Ad, Adquisición) — created UNPUBLISHED. Until it is published, the site's «6-11 meses» buttons open the bot's WhatsApp (prefill starts with the website trigger, then «…Nivel 0 (mi bebé tiene entre 6 y 11 meses)»; the stated age makes the bot skip the canned welcome and answer itself).
+- [ ] **Evan (Airtable UI, ~3 min)** — the API cannot set a link field's record-selection view or a form prefill:
+  1. Slots Disponibles → new grid view «Bebés Nivel 0 Disponibles»: Programa = Kids Bebés Nivel 0 (6-11 meses) AND Calculation bebes = 1.
+  2. Leads → field «Slot Reservado Bebés Nivel 0» → «Limit record selection to a view» = that view (same as «Slot Reservado Bebés» uses «Bebes Disponibles próximos 7 días»).
+  3. Form builder `paguew3tKElNblOKu`: Programa → prefill «Baby Fight Club (BFC)» + read-only (copy the 12-36 form); optionally show Programa only when the slot is filled; Publish.
+  4. Automation `wflfrz6JQjsxqY9KA` → turn on.
+  5. Then swap the site's three «6-11 meses» WhatsApp links for the form (`data-form` / `data-airtable-form` = `paguew3tKElNblOKu`; the HTML comments next to each link say exactly what to change).
+- [ ] **Evan**: the live 12-36 baby form (`pagDtHptlDRm9Id0F`) still says «cada miércoles a las 12 pm y sábado a las 3 pm» in its «Reserva de horario» section and «1-2 años» in its title — trials are mié 1 pm / sáb 2 pm and the program is 12–36 meses. Not changed (publishing that form would also push any other draft edits).
+- [ ] **Evan (/admin → Campañas → «Baby Fight Club»)**: this session has no admin password, so the D1 first_reply/info were NOT checked. Make sure they say «Nivel 0 (6–11 meses): viernes 12 pm; 1 a 3 años: miércoles 1 pm o sábado 2 pm» and drop any «¿12 pm o 1 pm?». Same for the KB overlay section 3.
 
 ### Owner follow-ups: teens with adults, complaints stop the chase, «Sin seguimiento» chip, transit KB (2026-11-10) — branch `fix/owner-followups-2026-11-10` (on release/2026-11-10), NOT pushed
 
