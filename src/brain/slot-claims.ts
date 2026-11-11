@@ -13,7 +13,7 @@
 
 import { SLOTS, type Slot } from "./slots.gen.js";
 import { CLIENT } from "../client.gen.js";
-import { bandLabel, slotMatchesBand, slotOpenToBand, type ProgramBand } from "../services/age-band.js";
+import { bandLabel, slotGroup, slotMatchesBand, slotOpenToBand, type ProgramBand } from "../services/age-band.js";
 
 const WEEKDAY_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"] as const;
 
@@ -136,6 +136,19 @@ function sentenceBounds(t: string, at: number): [number, number] {
   return [a, b];
 }
 
+/** Discipline keys named in `seg`, each with the position of its LAST mention. */
+function disciplinePositions(seg: string): { key: string; at: number }[] {
+  const out: { key: string; at: number }[] = [];
+  const add = (key: string, re: RegExp) => {
+    let last = -1;
+    for (const m of seg.matchAll(new RegExp(re.source, "g"))) last = m.index ?? last;
+    if (last >= 0 && !out.some((x) => x.key === key)) out.push({ key, at: last });
+  };
+  add("baby", /baby\s*fight|\bbfc\b/);
+  for (const svc of CLIENT.services) if (svc.match) add(svc.key, new RegExp(svc.match));
+  return out;
+}
+
 function disciplinesIn(seg: string): string[] {
   const out: string[] = [];
   if (/baby\s*fight|\bbfc\b/.test(seg)) out.push("baby");
@@ -181,12 +194,15 @@ function rowsFor(
   weekday: number,
   band: ProgramBand | null,
   open?: { ageMonths: number | null } | null,
+  adultsToo = false,
 ): Slot[] {
   return schedule.filter(
     (s) =>
       s.weekday === weekday &&
       s.trial !== false &&
-      (band === null || (open ? slotOpenToBand(s, band, open.ageMonths) : slotMatchesBand(s, band))),
+      (band === null ||
+        (open ? slotOpenToBand(s, band, open.ageMonths) : slotMatchesBand(s, band)) ||
+        (adultsToo && slotGroup(s) === "adult" && !s.pp)),
   );
 }
 
@@ -222,6 +238,9 @@ export function dayOptionsText(rows: readonly Slot[]): string {
 const DAY_WORD = "(lunes|martes|miercoles|jueves|viernes|sabados?|domingos?)";
 const RANGE_RE = new RegExp(`\\b(?:de\\s+)?${DAY_WORD}\\s+(?:a|al)\\s+${DAY_WORD}\\b`, "g");
 const ALL_WEEK_RE = /\b(?:todos\s+los\s+dias|toda\s+la\s+semana)\b/g;
+/** "entre semana" = lunes–viernes; "(el) fin de semana" = sábado–domingo. */
+const WEEKDAYS_RE = /\bentre\s+semana\b/g;
+const WEEKEND_RE = /\bfin(?:es)?\s+de\s+semana\b/g;
 /** Words that make a summary sentence carry its own exception — never judged. */
 const EXCEPTION_RE = /\b(?:solo|solamente|salvo|excepto|menos|pero|aunque|sin\s+contar)\b/;
 /** The sentence itself says the slot takes no trial — a correct warning, not an offer. */
@@ -252,6 +271,14 @@ function dayGroups(t: string, todayWd: number): DayGroup[] {
   for (const m of t.matchAll(ALL_WEEK_RE)) {
     const at = m.index ?? 0;
     out.push({ at, end: at + m[0].length, days: [0, 1, 2, 3, 4, 5, 6], range: true });
+  }
+  for (const m of t.matchAll(WEEKDAYS_RE)) {
+    const at = m.index ?? 0;
+    out.push({ at, end: at + m[0].length, days: [0, 1, 2, 3, 4], range: true });
+  }
+  for (const m of t.matchAll(WEEKEND_RE)) {
+    const at = m.index ?? 0;
+    out.push({ at, end: at + m[0].length, days: [5, 6], range: true });
   }
   for (const d of dayTokens(t, todayWd)) {
     if (out.some((g) => g.range && d.at >= g.at && d.end <= g.end)) continue;
@@ -581,7 +608,15 @@ export function findSlotClaimIssues(
 ): SlotClaimIssue[] {
   const schedule = opts.schedule ?? SLOTS;
   const t = fold(message);
-  const days = dayTokens(t, todayWd);
+  // Day GROUPS, not bare tokens (2026-11-11): the endpoints of "de lunes a
+  // sábado" / "entre semana" are not single days — "de lunes a sábado: entre
+  // semana 7, 8 y 10 am" was read as "sábado 7 am". An hour whose nearest day
+  // is a range is judged by the range tier (every day of the range), not here.
+  const groups = dayGroups(t, todayWd);
+  // The reply itself talks about adult classes ("desde los 13 puede entrar a
+  // cualquier clase de adultos"): an un-grouped hour may be an adult row even
+  // when the lead is qualified kids/teens (age fit is book_trial's check).
+  const mentionsAdults = /\badult(?:o|a|os|as)\b/.test(t);
   const spans = spanTokens(t);
   // Span edges ("hasta las 9 pm") and opening/closing hours ("cerramos a las
   // 10 pm") are not class start times.
@@ -594,10 +629,11 @@ export function findSlotClaimIssues(
     const tok = times[i]!;
     const [sa, sb] = sentenceBounds(t, tok.at);
     // Nearest day named BEFORE the hour in the same sentence; else one right after it.
-    const before = days.filter((d) => d.end <= tok.at && d.at >= sa).pop();
-    const after = days.find((d) => d.at >= tok.end && d.at <= Math.min(sb, tok.end + 25));
-    const day = before ?? after;
-    if (!day) continue;
+    const before = groups.filter((d) => d.end <= tok.at && d.at >= sa).pop();
+    const after = groups.find((d) => d.at >= tok.end && d.at <= Math.min(sb, tok.end + 25));
+    const g = before ?? after;
+    if (!g || g.range) continue;
+    const day = { weekday: g.days[0]! };
 
     const nextAt = times[i + 1]?.at ?? sb;
     const prevEnd = Math.max(times[i - 1]?.end ?? sa, sa);
@@ -611,16 +647,25 @@ export function findSlotClaimIssues(
       const h = disciplinesIn(head);
       return h.length === 1 ? h[0]! : null;
     })();
+    // No discipline in the hour's own clause: the disciplines the sentence
+    // names are the plausible readings ("El martes tenemos Jiu-Jitsu a las 6,
+    // 7 u 8 pm" — the 7 is Jiu-Jitsu, not the lead's MMA). The hour passes
+    // when one of them has the row; only a sentence naming NONE falls back to
+    // the lead's own discipline below.
+    const sentenceDiscs = disc ? [] : disciplinePositions(t.slice(sa, sb)).map((d) => d.key);
     const namedGroup = groupHint(tail) ?? groupHint(head);
     const band = namedGroup ?? opts.band;
     // A teen lead on a row they may book (adult Muay Thai, Saturday adult
     // classes, any adult class at 16–17) — only when the copy names no group.
     const open = namedGroup === null && band === "teens" ? { ageMonths: opts.ageMonths ?? null } : null;
+    const adultsToo = namedGroup === null && mentionsAdults && band !== null && band !== "adults";
 
-    let rows = rowsFor(schedule, day.weekday, band, open);
+    let rows = rowsFor(schedule, day.weekday, band, open, adultsToo);
     const fits = (r: Slot[]) => r.some((s) => tok.times.includes(s.time));
-    let candidates = rows.filter((s) => (disc ? s.discipline === disc : true));
-    if (!disc && band === "adults" && opts.discipline) {
+    let candidates = rows.filter((s) =>
+      disc ? s.discipline === disc : sentenceDiscs.length ? sentenceDiscs.includes(s.discipline) : true,
+    );
+    if (!disc && sentenceDiscs.length === 0 && band === "adults" && opts.discipline) {
       const mine = candidates.filter((s) => s.discipline === opts.discipline && !s.name);
       if (mine.length > 0) candidates = mine;
     }

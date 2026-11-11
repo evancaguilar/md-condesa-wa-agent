@@ -496,3 +496,50 @@ test("bookingDateError: a lead asking for a closed/TBD date does not block the a
   const ctx = ctxAt("2026-11-07T10:00", [msg("in", "Sería el 16 por favor")]);
   assert.equal(bookingDateError(ctx, "2026-11-18", "mie"), null);
 });
+
+// ---- reply-text slot guard false positives (approvals agent, 2026-11-11) ---------
+
+import { findSlotClaimIssues } from "../src/brain/slot-claims.js";
+import { guardUnverifiedSlotClaim } from "../src/brain/claude.js";
+
+const FP: [string, string, number, { band: "adults" | "teens" | "kids" | "mini"; discipline: string | null }][] = [
+  ["A98 range end captured the weekday hours", "Tenemos Muay Thai de lunes a sábado: entre semana 7, 8 y 10 am, y el sábado 10 am. ¿Te late mañana domingo a las 11 am?", 5, { band: "adults", discipline: "muay" }],
+  ["JJ 6/7/8 pm bound to the lead's MMA", "El martes tenemos Jiu-Jitsu a las 6, 7 u 8 pm. ¿Cuál te late?", 0, { band: "adults", discipline: "mma" }],
+  ["JJ 6/7/8 pm, lead wanted Box", "Mañana martes puedes venir a Jiu-Jitsu a las 6 pm, 7 pm u 8 pm 🙌", 0, { band: "adults", discipline: "box" }],
+  ["A155 adult Saturday rows to a teen", "¡Claro! 🙌 El sábado no hay grupo Teens, pero desde los 13 puede entrar a cualquier clase de adultos: a las 10 am hay Jiu-Jitsu y Muay Thai, y a las 2 pm Box. ¿Qué edad tiene?", 5, { band: "teens", discipline: null }],
+  ["adult Saturday rows to a lead filed as kids", "El fin de semana no hay grupo de su edad, pero desde los 13 años pueden entrar a las clases de adultos. Mañana sábado a las 10 am hay Jiu-Jitsu y Muay Thai, y a las 2 pm Box.", 4, { band: "kids", discipline: null }],
+  ["A163 18-year-old filed as kid", "¡Perfecto! Con 18 años entra directo a la clase de adultos 🥊 Box es mañana sábado a las 2 pm, ¿te late?", 4, { band: "kids", discipline: "box" }],
+  ["A206 combo with the other discipline after the hour", "Mañana sábado tenemos Muay Thai a las 10 am 🥊 y si quieres llegas desde las 9 am y pruebas también Jiu-Jitsu, dos clases en una visita. ¿Te late?", 4, { band: "adults", discipline: "muay" }],
+  ["A197 Mini Monday", "Entendido, sin bronca 🙌 Entonces te quedaría el lunes a las 3:15 pm en Mini Muay Thai.", 4, { band: "mini", discipline: null }],
+];
+
+for (const [why, text, wd, o] of FP) {
+  test(`slot guard: no false positive — ${why}`, () => {
+    assert.deepEqual(findSlotClaimIssues(text, wd, o).map((i) => i.note), []);
+  });
+}
+
+const TP: [string, string, number, { band: "adults" | "teens" | "kids"; discipline: string | null }][] = [
+  ["Teens on Saturday", "Tenemos Teens el sábado a las 10 am", 2, { band: "teens", discipline: null }],
+  ["Box at 7 am", "El jueves tenemos Box a las 7 am", 2, { band: "adults", discipline: "box" }],
+  ["Friday 6 pm Muay Thai", "El viernes a las 6 pm tenemos Muay Thai", 2, { band: "adults", discipline: "muay" }],
+  ["«entre semana» 6 pm includes Friday", "Muay Thai entre semana a las 6 pm", 2, { band: "adults", discipline: "muay" }],
+  ["Kids on Sunday", "Para Kids el domingo a las 11 am", 2, { band: "kids", discipline: null }],
+  ["a range still checks every day", "Muay Thai de lunes a sábado a las 7 am", 2, { band: "adults", discipline: "muay" }],
+];
+
+for (const [why, text, wd, o] of TP) {
+  test(`slot guard: still flagged — ${why}`, () => {
+    assert.ok(findSlotClaimIssues(text, wd, o).length > 0);
+  });
+}
+
+test("guardUnverifiedSlotClaim: the A98 schedule answer keeps its sureness and sends", () => {
+  const send: BrainResult = {
+    action: "send",
+    message: "Tenemos Muay Thai de lunes a sábado: entre semana 7, 8 y 10 am, y el sábado 10 am. ¿Te late mañana domingo a las 11 am?",
+    language: "es", confidence: "high", sureness: 85,
+  };
+  const r = guardUnverifiedSlotClaim(send, { nowCdmx: "2026-11-07T19:09", contact: contact({ qualification: JSON.stringify({ discipline: "muay" }) }) });
+  assert.equal(r.action, "send");
+});

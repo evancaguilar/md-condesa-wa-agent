@@ -23,7 +23,7 @@ export interface AnthropicTool {
 const sendReply: AnthropicTool = {
   name: "send_reply",
   description:
-    "Terminal tool — end EVERY turn with exactly one call. Sends (or drafts) the reply to the lead on WhatsApp. Mirror the lead's language. Rate yourself with `sureness` (0–100): >=75 sends immediately, 25–74 waits for a human up to one hour and then sends anyway, <25 never auto-sends. Calibrate with the sureness checklist in the system prompt.",
+    "Terminal tool — end EVERY turn with exactly one call. Sends (or drafts) the reply to the lead on WhatsApp. Mirror the lead's language. Rate yourself with `sureness` (0–100): >=75 sends immediately, 25–74 waits for a human for about 15 minutes and then sends anyway, <25 never auto-sends. Calibrate with the sureness checklist in the system prompt.",
   input_schema: {
     type: "object",
     properties: {
@@ -38,7 +38,7 @@ const sendReply: AnthropicTool = {
         minimum: 0,
         maximum: 100,
         description:
-          "How sure you are the answer is correct and complete, 0–100. >=75 sends without review; 25–74 waits for a human up to 1 hour, then sends anyway; <25 never auto-sends. Calibrate with the checklist in the system prompt.",
+          "How sure you are the answer is correct and complete, 0–100. >=75 sends without review; 25–74 waits for a human for about 15 minutes, then sends anyway; <25 never auto-sends. Calibrate with the checklist in the system prompt.",
       },
       confidence: {
         type: "string",

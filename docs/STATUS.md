@@ -11,7 +11,8 @@
 - **Returning contacts** (`src/pipeline/returning-contact.ts`): opted-out contact with a clear new request ⇒ #wa-leads task (≤ 1 / 12 h), still no bot reply. Student on the lead line ⇒ task + ONE `copy.studentAckEs/En` acknowledgement (≤ 1 / 12 h). **Wording is a proposal — Evan to confirm** (client.mjs).
 - **Holding line** (`src/services/holding-line.ts`, wired in services/slack.ts): contact's language (EN copy added) and at most once per CDMX day per phone (was 45 min).
 - **Internal note sent to a lead (A90)**: root cause = `set_followup.note` is sent verbatim by cron/followups.ts `customText`. The tool description now says so and the brain refuses a note that reads like a staff note (`src/brain/followup-note.ts`). A send-time check in cron/followups.ts is still open (another session owns that file).
-- KB 12,098 / 12,100 tok. Tests 1648 → **1682**.
+- **Reply-text slot guard false positives** (slot-claims.ts): hours now bind to day GROUPS — a range end («de lunes a sábado») or «entre semana» / «fin de semana» is judged by the range tier (every day), never as a single day; an hour with no discipline in its own clause is read against the disciplines the sentence names (not the lead's); a reply that talks about adult classes lets a kids/teens lead's un-grouped hours match adult rows. True positives kept («Tenemos Teens el sábado», Box 7 am, «entre semana 6 pm» = Friday too). tools.ts: 25–74 waits «about 15 minutes».
+- KB 12,098 / 12,100 tok. Tests 1648 → **1697**.
 - [ ] After deploy: sandbox «Tendría que ser el sábado 14» on a Thursday → books the 14th and says «sábado 14»; «¿cuánto cuesta?» from a BFC lead → figures at once; check one ⚠️ Cupo / Combo card.
 
 ### Baby Fight Club Nivel 0 (6–11 meses) across bot, site, forms and poster (2026-11-11) — branch `claude/baby-fight-club-booking-p4rx35` in BOTH repos, merged to main on Evan's OK
