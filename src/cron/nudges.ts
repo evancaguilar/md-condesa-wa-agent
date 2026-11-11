@@ -67,7 +67,10 @@ import {
   type ExtendedKind,
   type Program,
 } from "./nudge-copy.js";
-import { isKidsCampaign, leadDiscipline, weekdaySet } from "./nudge-copy.js";
+import { isKidsCampaign, leadDiscipline, weekdaySet, type CtaMode } from "./nudge-copy.js";
+import { bandFromAgeMonths } from "../services/age-band.js";
+import { conversationFacts, EMPTY_FACTS, type ConvoFacts, type ConvoMessage, type MinuteRange } from "./nudge-context.js";
+import { DEFERRAL_HOLD_SECONDS } from "../pipeline/decline.js";
 import {
   NUDGE_POLICY,
   SILENT,
@@ -228,6 +231,15 @@ export function copyInputsForBand(
   };
 }
 
+/** Conversation constraints on the slot a nudge may propose (nudge-context.ts). */
+export interface SlotConstraints {
+  facts?: ConvoFacts;
+  /** "YYYY-MM-DD HH:mm" already proposed by an earlier nudge (never repeated). */
+  proposedKeys?: ReadonlySet<string>;
+  /** Default time-of-day when the lead stated none (a morning campaign). */
+  defaultTimeRanges?: readonly MinuteRange[] | null;
+}
+
 /** ONE concrete, band-correct upcoming slot (soonest-first), or null. Pure. */
 export function bandSlot(
   contact: Contact | null,
@@ -235,6 +247,7 @@ export function bandSlot(
   band: ProgramBand,
   nowEpoch: number,
   schedule: readonly Slot[] = SLOTS,
+  constraints: SlotConstraints = {},
 ): NextSlot | null {
   // The copy program is the LEGACY bucket (mini/teens → kids) and the band
   // schedule keeps each slot's `group`, so the slot must be picked by the real
@@ -243,12 +256,200 @@ export function bandSlot(
   const q = parseQualification(contact);
   const discipline =
     band === "baby" ? "baby" : band === "mini" ? "muay" : leadDiscipline(q, campaignName);
+  const f = constraints.facts ?? EMPTY_FACTS;
   const excludeWeekdays = weekdaySet(q.declined_days);
+  for (const d of f.declinedWeekdays) excludeWeekdays.add(d);
+  const preferred = f.preferredWeekdays ?? (q.preferred_days?.length ? [...weekdaySet(q.preferred_days)] : null);
+  const onlyWeekdays = preferred ? new Set(preferred.filter((d) => !excludeWeekdays.has(d))) : null;
+  const timeRanges = f.timeRanges ?? constraints.defaultTimeRanges ?? null;
   const slot = nextBandSlot(band, discipline, nowEpoch, {
     schedule: bandSchedule(band, schedule, q.child_age_months),
     ...(excludeWeekdays.size ? { excludeWeekdays } : {}),
+    ...(onlyWeekdays && onlyWeekdays.size ? { onlyWeekdays } : {}),
+    ...(f.excludeDates.length ? { excludeDates: new Set(f.excludeDates) } : {}),
+    ...(f.deferUntil !== null ? { notBefore: f.deferUntil } : {}),
+    ...(timeRanges ? { timeRanges } : {}),
+    ...(constraints.proposedKeys?.size ? { excludeKeys: constraints.proposedKeys } : {}),
+    // An adult who CHOSE a discipline is never offered another one instead.
+    ...(band === "adults" && f.discipline ? { strictDiscipline: true } : {}),
   });
   return slot;
+}
+
+// ---- conversation-aware plan (2026-11-11 quality review) ----
+
+/** Morning-promo campaigns: nothing after noon unless the lead says otherwise. */
+const MORNING_CAMPAIGN_RE = /matutin|ma[ñn]anas?\b|morning|temprano/i;
+export function campaignTimeRanges(campaignName: string | null | undefined): MinuteRange[] | null {
+  return campaignName && MORNING_CAMPAIGN_RE.test(campaignName) ? [[0, 12 * 60]] : null;
+}
+
+/**
+ * The lead's band with the conversation in it. A stated child age wins (it is
+ * what the routing trusts); without one, "Adultos" / "para mí" (after any
+ * child signal) is an adult whatever the campaign said (A261, A31, A265), a
+ * teenager is Teens (B79), then the stored qualification, then the campaign
+ * (a Teens ad is Teens, B68). Pure.
+ */
+export function bandForConversation(
+  contact: Contact | null,
+  campaignName: string | null,
+  facts: ConvoFacts,
+): ProgramBand {
+  const q = parseQualification(contact);
+  if (typeof q.child_age_months === "number" && Number.isFinite(q.child_age_months)) {
+    return bandFromAgeMonths(q.child_age_months);
+  }
+  if (facts.adultSelf) return "adults";
+  const fromQ = bandFromQualification(q);
+  if (facts.teen && (fromQ === null || fromQ === "kids")) return "teens";
+  return fromQ ?? classifyProgram(contact, campaignName);
+}
+
+export interface NudgeCopyPlan extends BandCopyInputs {
+  band: ProgramBand;
+  facts: ConvoFacts;
+  slot: NextSlot | null;
+  cta: CtaMode;
+}
+
+/**
+ * Everything a nudge needs to speak to THIS conversation: band, the lead's
+ * chosen discipline (beats the campaign default and the ad stamp), and ONE
+ * slot that respects declined/preferred days, dates ruled out, a defer date,
+ * a time-of-day window, and slots an earlier nudge already proposed — or a
+ * different close: ask the age (minor, age unknown), keep our own offer (the
+ * bot just proposed a time), or the link (nothing fits). Pure.
+ */
+export function planNudgeCopy(
+  contact: Contact | null,
+  campaignName: string | null,
+  msgs: readonly ConvoMessage[],
+  now: number,
+  opts: { proposedKeys?: ReadonlySet<string>; schedule?: readonly Slot[]; noSlot?: boolean } = {},
+): NudgeCopyPlan {
+  const schedule = opts.schedule ?? SLOTS;
+  const facts = conversationFacts(msgs, now);
+  const band = bandForConversation(contact, campaignName, facts);
+  const c = copyInputsForBand(contact, campaignName, band, schedule);
+  let cContact = c.contact;
+  if (cContact && facts.discipline && band !== "baby" && band !== "mini") {
+    const q2 = parseQualification(cContact);
+    q2.discipline = facts.discipline;
+    cContact = { ...cContact, qualification: JSON.stringify(q2) };
+  }
+  const ageKnown = typeof parseQualification(contact).child_age_months === "number";
+  let cta: CtaMode = "slot";
+  if (opts.noSlot) cta = "link";
+  else if ((band === "baby" || band === "kids") && !ageKnown) cta = "ask_age";
+  else if (facts.botOfferedSlot) cta = "keep_offer";
+  let slot: NextSlot | null = null;
+  if (cta === "slot") {
+    slot = bandSlot(cContact, c.campaignName, band, now, schedule, {
+      facts,
+      ...(opts.proposedKeys ? { proposedKeys: opts.proposedKeys } : {}),
+      defaultTimeRanges: campaignTimeRanges(campaignName),
+    });
+    if (!slot) cta = "link";
+  }
+  return { ...c, contact: cContact, band, facts, slot, cta };
+}
+
+/** What a due nudge does about a deferral in the conversation. */
+export type DeferralVerdict = { act: "send" } | { act: "cancel" } | { act: "defer"; until: number };
+
+/** A deferral further out than this is not waited for: the chase just stops. */
+export const MAX_DEFER_WAIT_SECONDS = 21 * DAY;
+
+/**
+ * Pure. Day-1 nudges never go out over a deferral ("la próxima semana",
+ * "estoy de viaje", "les aviso"). Extended steps: after a SOFT deferral only
+ * the chain's last step (the goodbye) is left, no sooner than
+ * DEFERRAL_HOLD_SECONDS after it; after a dated deferral the step waits until
+ * that date (10:00 CDMX), or is dropped when the date is > 21 days out.
+ */
+export function deferralVerdict(
+  facts: ConvoFacts,
+  step: { day1: boolean; isFinal: boolean },
+  now: number,
+): DeferralVerdict {
+  const soft = facts.softDeferral;
+  const until = facts.deferUntil;
+  if (!soft && until === null) return { act: "send" };
+  if (step.day1) return { act: "cancel" };
+  if (soft) {
+    if (!step.isFinal) return { act: "cancel" };
+    const at = soft.ts + DEFERRAL_HOLD_SECONDS;
+    if (now < at) return { act: "defer", until: shiftOutOfQuiet(at) };
+  }
+  if (until !== null && until > now) {
+    if (until - now > MAX_DEFER_WAIT_SECONDS) return { act: "cancel" };
+    return { act: "defer", until: shiftOutOfQuiet(until + 10 * HOUR) };
+  }
+  return { act: "send" };
+}
+
+/**
+ * Pure. Arm-time twin of deferralVerdict: null ⇒ arm normally. Otherwise no
+ * day-1 rows; `goodbyeAt` is when the single goodbye goes (soft deferral), or
+ * null with `anchor` set ⇒ re-anchor the normal chain (dated deferral), or
+ * both null ⇒ arm nothing (deferred > 21 days).
+ */
+export function armHold(
+  facts: ConvoFacts,
+  now: number,
+): { goodbyeAt: number | null; anchor: number | null } | null {
+  if (facts.softDeferral) {
+    return { goodbyeAt: Math.max(now, facts.softDeferral.ts + DEFERRAL_HOLD_SECONDS), anchor: null };
+  }
+  if (facts.deferUntil !== null && facts.deferUntil > now) {
+    if (facts.deferUntil - now > MAX_DEFER_WAIT_SECONDS) return { goodbyeAt: null, anchor: null };
+    // First extended step lands one gap (24h) after the anchor = the defer date, 10:00.
+    return { goodbyeAt: null, anchor: facts.deferUntil + 10 * HOUR - DAY };
+  }
+  return null;
+}
+
+/** Pure. Is `kind` the last step of the lead's chain (the goodbye)? */
+export function isFinalStep(kind: ExtendedKind, chain: readonly ExtendedKind[]): boolean {
+  return chain.length > 0 && chain[chain.length - 1] === kind;
+}
+
+// ---- proposed-slot memory (kv, one PK read per send) ----
+
+/** kv `nudge_slots:<phone>`: the slots our nudges proposed, for 48h. */
+export function proposedSlotsKey(phone: string): string {
+  return `nudge_slots:${phone}`;
+}
+export const PROPOSED_SLOT_MEMORY_SECONDS = 48 * HOUR;
+
+/** Pure. The keys still remembered at `now`. */
+export function parseProposedSlots(raw: string | null, now: number): Set<string> {
+  const out = new Set<string>();
+  if (!raw) return out;
+  try {
+    const list = JSON.parse(raw) as { k?: unknown; ts?: unknown }[];
+    for (const e of Array.isArray(list) ? list : []) {
+      if (typeof e.k === "string" && typeof e.ts === "number" && now - e.ts < PROPOSED_SLOT_MEMORY_SECONDS) out.add(e.k);
+    }
+  } catch {
+    // corrupt → nothing remembered
+  }
+  return out;
+}
+
+/** Pure. The kv value after proposing `slot` at `now`. */
+export function recordProposedSlot(raw: string | null, slot: NextSlot, now: number): string {
+  let list: { k: string; ts: number }[] = [];
+  try {
+    const parsed = raw ? (JSON.parse(raw) as { k: string; ts: number }[]) : [];
+    if (Array.isArray(parsed)) list = parsed.filter((e) => typeof e?.k === "string" && typeof e?.ts === "number");
+  } catch {
+    list = [];
+  }
+  list = list.filter((e) => now - e.ts < PROPOSED_SLOT_MEMORY_SECONDS);
+  list.push({ k: `${slot.date} ${slot.time}`, ts: now });
+  return JSON.stringify(list.slice(-6));
 }
 
 // ---- booking marker / one-nudge-a-day guards (pure) ----
@@ -679,6 +880,29 @@ export async function armNudges(env: Env, phone: string): Promise<void> {
   const now = nowSec();
   const base = contact.last_inbound_at ?? now;
   const plan = computeDayOnePlan(base, now);
+
+  // The lead deferred (nudge-context.ts): no day-1 nudges at all. A soft
+  // deferral ("más adelante", "les aviso", "estoy de viaje") leaves only the
+  // chain's goodbye, ≥ 7 days out; a dated one ("la próxima semana", "regreso
+  // el 20") re-anchors the chain on that date, or arms nothing past 21 days.
+  // One indexed read (idx_messages_phone_ts); a failure arms as before.
+  let facts: ConvoFacts = EMPTY_FACTS;
+  try {
+    const recent = await recentMessages(env.DB, phone, 30, now - 7 * DAY);
+    facts = conversationFacts(recent.map((m) => ({ direction: m.direction, body: m.body, ts: m.ts })), now);
+  } catch (err) {
+    console.warn(`[nudges] conversation read failed for ${phone}: ${String(err)}`);
+  }
+  const hold = armHold(facts, now);
+  if (hold) {
+    if (hold.goodbyeAt !== null) {
+      await maybeArmExtended(env, phone, hold.goodbyeAt, undefined, undefined, { goodbyeOnly: true });
+    } else if (hold.anchor !== null) {
+      await maybeArmExtended(env, phone, Math.max(hold.anchor, now));
+    }
+    return;
+  }
+
   if (underNudgeCap(await kvGet(env.DB, nudgeCountKey(phone)), now)) {
     const token = dayOneToken(base);
     for (const t of plan.scheduled) {
@@ -725,6 +949,9 @@ export async function maybeArmExtended(
   anchorSend: number,
   day7: boolean = CLIENT.features.nudgeDay7 === true,
   policy: NudgePolicy = NUDGE_POLICY,
+  /** goodbyeOnly: schedule ONLY the chain's last remaining step, AT `anchorSend`
+   *  (soft deferral — armHold). */
+  mode: { goodbyeOnly?: boolean } = {},
 ): Promise<void> {
   if (!CLIENT.features.nudges) return;
   const now = nowSec();
@@ -741,7 +968,20 @@ export async function maybeArmExtended(
     return;
   }
   const token = `seq:${anchorSend}`;
-  for (const t of computeExtendedChain(anchorSend, remainingExtendedKinds(chain, sent))) {
+  const remaining = remainingExtendedKinds(chain, sent);
+  if (mode.goodbyeOnly) {
+    const last = remaining[remaining.length - 1];
+    if (!last) return;
+    await scheduleOrReviveFollowup(env.DB, {
+      phone,
+      kind: last,
+      dueAt: shiftOutOfQuiet(anchorSend),
+      airtableRecordId: `defer:${anchorSend}`,
+      note: null,
+    });
+    return;
+  }
+  for (const t of computeExtendedChain(anchorSend, remaining)) {
     await scheduleOrReviveFollowup(env.DB, {
       phone,
       kind: t.kind,
@@ -821,11 +1061,18 @@ export async function processNudge(
     await deps.onBuyIntent?.(env, phone);
     return "cancelled";
   }
-  // Copy by AGE band (mini/teens included), campaign name only as a fallback.
-  const c = copyInputsForBand(contact, campaignName, bandForContact(contact, campaignName));
-  const body = nudgeCopy(c.contact, kind, c.campaignName, now, c.schedule, {
-    noSlot: ageConflictsWithProgram(c.program, inbound),
-  });
+  // Copy by AGE band (mini/teens included) and by what the lead SAID
+  // (discipline, adult/teen, days, time of day, deferrals — nudge-context.ts);
+  // the campaign name is only the last fallback.
+  const convo = recent.map((m) => ({ direction: m.direction, body: m.body, ts: m.ts }));
+  const slotsKey = proposedSlotsKey(phone);
+  const slotsRaw = await kvGet(env.DB, slotsKey);
+  const pre = planNudgeCopy(contact, campaignName, convo, now, { proposedKeys: parseProposedSlots(slotsRaw, now) });
+  // The lead deferred ("la próxima semana", "estoy de viaje", "les aviso"):
+  // a day-1 nudge would read as spam (A271: 4 minutes after "salgo de viaje").
+  if (deferralVerdict(pre.facts, { day1: true, isFinal: false }, now).act !== "send") return "cancelled";
+  const c = ageConflictsWithProgram(pre.program, inbound) ? { ...pre, slot: null, cta: "link" as const } : pre;
+  const body = nudgeCopy(c.contact, kind, c.campaignName, now, c.schedule, { slot: c.slot, cta: c.cta });
   const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
   if (isDuplicateSend(body, outbound, now)) return "cancelled";
 
@@ -847,6 +1094,9 @@ export async function processNudge(
     throw err;
   }
   await kvSet(env.DB, kvKey, recordNudgeSend(kv, now));
+  // Remember the slot so the next nudge proposes a different one (nudge_8h
+  // repeated nudge_1h's slot in ~105 conversations).
+  if (c.slot) await kvSet(env.DB, slotsKey, recordProposedSlot(slotsRaw, c.slot, now));
   return "sent";
 }
 
@@ -914,6 +1164,7 @@ export async function processExtendedNudge(
   // or before the lead's class changed, close here. Later allowed steps keep
   // their own rows, so skipping never strands the chain. Fails soft to silent.
   const policy = deps.policy ?? NUDGE_POLICY;
+  let chainNow = nudgeChainFor(policy, SILENT, now, day7);
   if (!policyIsUniform(policy)) {
     let engagement: LeadEngagement;
     try {
@@ -921,7 +1172,8 @@ export async function processExtendedNudge(
     } catch {
       engagement = SILENT;
     }
-    if (!nudgeChainFor(policy, engagement, now, day7).includes(kind)) {
+    chainNow = nudgeChainFor(policy, engagement, now, day7);
+    if (!chainNow.includes(kind)) {
       return { outcome: "policy_skip", engagement: engagementClass(engagement) };
     }
   }
@@ -933,13 +1185,22 @@ export async function processExtendedNudge(
     contact.campaign_id !== null
       ? await deps.campaignName(env, contact.campaign_id)
       : null;
-  const c = copyInputsForBand(contact, campaignName, bandForContact(contact, campaignName));
-  const program = c.program;
-  const body = extendedCopy(c.contact, kind, program, now, c.schedule, c.campaignName, day7);
   const recent = await recentMessages(env.DB, phone, 30, now - 7 * DAY);
   if (hasBuyIntent(recent.filter((m) => m.direction === "in").map((m) => m.body ?? ""))) {
     return { outcome: "cancelled" };
   }
+  const convo = recent.map((m) => ({ direction: m.direction, body: m.body, ts: m.ts }));
+  const slotsKey = proposedSlotsKey(phone);
+  const slotsRaw = await kvGet(env.DB, slotsKey);
+  const c = planNudgeCopy(contact, campaignName, convo, now, { proposedKeys: parseProposedSlots(slotsRaw, now) });
+  // Deferral (nudge-context.ts): after "les aviso" only the goodbye is left,
+  // ≥ 7 days later; after "la próxima semana" the step waits for that date.
+  const isFinal = isFinalStep(kind, chainNow);
+  const dv = deferralVerdict(c.facts, { day1: false, isFinal }, now);
+  if (dv.act === "cancel") return { outcome: "cancelled" };
+  if (dv.act === "defer") return { outcome: "deferred", retryAt: dv.until };
+  const program = c.program;
+  const body = extendedCopy(c.contact, kind, program, now, c.schedule, c.campaignName, day7, { slot: c.slot, cta: c.cta });
   const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
   if (isDuplicateSend(body, outbound, now)) return { outcome: "cancelled" };
 
@@ -951,6 +1212,7 @@ export async function processExtendedNudge(
   }
   try {
     await deps.sendText(env, phone, body); // free-form (window open)
+    if (c.slot) await kvSet(env.DB, slotsKey, recordProposedSlot(slotsRaw, c.slot, now));
     return { outcome: "sent" };
   } catch (err) {
     if (!deps.isWindowClosed(err)) {

@@ -2,6 +2,14 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-11** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Nudge quality fixes from the 475-conversation review (2026-11-11) — branch `fix/quality-nudges-2026-11-11`, NOT pushed
+
+- **Nudges read the conversation** (`src/cron/nudge-context.ts` → `planNudgeCopy` in nudges.ts): the lead's last-named discipline beats the ad stamp / campaign (an adult who chose one is never offered another); «Adultos» / «para mí» → adult copy; «adolescente» / a Teens campaign → Teens rows; minors with unknown age (baby, kids) get «¿Cuántos meses / qué edad…?» instead of a guessed class; declined + preferred weekdays, «hoy no puedo», time-of-day («por las tardes», «salgo hasta las 9 pm», morning campaigns) and dated deferrals («la próxima semana», «regreso el 20», «el otro mes») constrain the slot; if our last message (< 24h) proposed a time the nudge keeps it. kv `nudge_slots:<phone>` (48h) stops nudge_8h repeating nudge_1h's slot.
+- **Deferrals**: `detectDeferral` (decline.ts) — «más adelante», «les aviso», «estoy de viaje», «por ahora no», «lo voy a pensar»… cancel day-1 nudges and leave only the goodbye ≥ 7 days later (arm time + send time); dated deferrals re-anchor the chain or drop it (> 21 days). Distance objection now also «retirado», «estoy lejos», «no soy de México».
+- **Hard ceiling** (`src/cron/send-ceiling.ts`, client.mjs `nudgePolicy.ceiling: {perDay: 1, per7Days: 4}`): unsolicited sends since the lead's last message, every chasing kind (blasts/custom count, not blocked). Day cap: day-1 dropped, others → next 08:00; 7-day cap: cancelled. One aggregated «🧱 Tope…» ops note per tick. NOTE: with perDay 1, nudge_8h only goes when it lands on another CDMX day than nudge_1h — set perDay 2 to keep same-day 8h nudges.
+- **Backfill**: owner-only `POST /admin/api/nudges/decline-backfill` `{dryRun?: true, sinceDays?: 14 (≤30), limit?: 500}` — live detectors + «no te escribimos más» promises over idx_messages_direction_ts, skips leads who wrote anything real after, applies applyDecline. [ ] **Evan**: run dry first, then `dryRun:false`.
+- **Names**: greetingName drops stop-words / mottos / business profiles («Simplemente», «En», «Para», «Organizacion…», «…Tribu Mamá Koala»).
+
 ### Baby Fight Club Nivel 0 (6–11 meses) across bot, site, forms and poster (2026-11-11) — branch `claude/baby-fight-club-booking-p4rx35` in BOTH repos, merged to main on Evan's OK
 
 **Levels (Evan, 2026-11-11):** Nivel 0 = 6–11 meses (viernes 12 pm) · Nivel 1 = 12–24 meses · Nivel 2 = 24–36 meses. Trial classes for Nivel 1/2 stay mié 1 pm / sáb 2 pm.

@@ -206,6 +206,19 @@ export interface BandSlotOpts {
   excludeWeekdays?: ReadonlySet<number>;
   /** Child's age in months when known (Nivel 0 vs regular Baby Fight Club). */
   ageMonths?: number | null;
+  /** Conversation constraints (src/cron/nudge-context.ts, 2026-11-11): */
+  /** Only these weekdays (the lead's stated preference). */
+  onlyWeekdays?: ReadonlySet<number>;
+  /** CDMX dates "YYYY-MM-DD" the lead ruled out ("hoy no puedo"). */
+  excludeDates?: ReadonlySet<string>;
+  /** Nothing starting before this epoch (the lead deferred: "la próxima semana"). */
+  notBefore?: number;
+  /** Allowed start-time ranges, minutes after CDMX midnight, [from, to). */
+  timeRanges?: readonly (readonly [number, number])[];
+  /** "YYYY-MM-DD HH:mm" keys already proposed to this lead (never repeated). */
+  excludeKeys?: ReadonlySet<string>;
+  /** The lead CHOSE this discipline: no fallback to another one (null instead). */
+  strictDiscipline?: boolean;
 }
 
 /**
@@ -230,6 +243,11 @@ export function upcomingBandSlots(
       ...(opts.leadSeconds !== undefined ? { leadSeconds: opts.leadSeconds } : {}),
       ...(opts.excludeWeekdays ? { excludeWeekdays: opts.excludeWeekdays } : {}),
       ...(typeof opts.ageMonths === "number" ? { ageMonths: opts.ageMonths } : {}),
+      ...(opts.onlyWeekdays ? { onlyWeekdays: opts.onlyWeekdays } : {}),
+      ...(opts.excludeDates ? { excludeDates: opts.excludeDates } : {}),
+      ...(opts.notBefore !== undefined ? { notBefore: opts.notBefore } : {}),
+      ...(opts.timeRanges ? { timeRanges: opts.timeRanges } : {}),
+      ...(opts.excludeKeys ? { excludeKeys: opts.excludeKeys } : {}),
       band,
       limit: Math.max(limit, 1) * 6,
     })) {
@@ -242,7 +260,7 @@ export function upcomingBandSlots(
     return out;
   };
   const first = run(discipline);
-  if (first.length > 0 || discipline === null) return first;
+  if (first.length > 0 || discipline === null || opts.strictDiscipline) return first;
   return run(null);
 }
 
@@ -350,17 +368,24 @@ function collectSlots(
     ageMonths?: number | null;
     /** 0=Mon … 6=Sun weekdays the lead said don't work: never proposed. */
     excludeWeekdays?: ReadonlySet<number>;
+    onlyWeekdays?: ReadonlySet<number>;
+    excludeDates?: ReadonlySet<string>;
+    notBefore?: number;
+    timeRanges?: readonly (readonly [number, number])[];
+    excludeKeys?: ReadonlySet<string>;
     limit: number;
   },
 ): DatedSlot[] {
   const schedule = opts.schedule ?? SLOTS;
   const closed = new Set((opts.closedDates ?? CLIENT.closedDates ?? []).map((c) => c.date));
   const wantKey = resolveDiscipline(discipline);
-  const earliest = nowEpoch + (opts.leadSeconds ?? SLOT_LEAD_SECONDS);
+  const earliest = Math.max(nowEpoch + (opts.leadSeconds ?? SLOT_LEAD_SECONDS), opts.notBefore ?? 0);
   const p = cdmxParts(nowEpoch);
   const out: DatedSlot[] = [];
+  // A deferral pushes the search window with it (still two weeks of grid).
+  const searchDays = Math.min(SEARCH_DAYS + Math.max(0, Math.ceil(((opts.notBefore ?? 0) - nowEpoch) / DAY)), 45);
 
-  for (let offset = 0; offset < SEARCH_DAYS; offset++) {
+  for (let offset = 0; offset < searchDays; offset++) {
     // Date.UTC normalizes day overflow, so `p.day + offset` rolls months/years.
     const midnight = cdmxToEpoch(p.year, p.month, p.day + offset, 0, 0, 0);
     const dp = cdmxParts(midnight);
@@ -369,6 +394,8 @@ function collectSlots(
     if (wd === null) continue;
     if (closed.has(date)) continue; // holiday / closure: never propose that day
     if (opts.excludeWeekdays?.has(wd)) continue; // the lead said this day doesn't work
+    if (opts.onlyWeekdays && opts.onlyWeekdays.size > 0 && !opts.onlyWeekdays.has(wd)) continue;
+    if (opts.excludeDates?.has(date)) continue; // "hoy no puedo"
 
     const band = opts.band;
     const ageKnown = typeof opts.ageMonths === "number";
@@ -415,6 +442,8 @@ function collectSlots(
     for (const s of candidates) {
       const at = slotEpoch(dp.year, dp.month, dp.day, s.time);
       if (at === null || at < earliest) continue;
+      if (opts.timeRanges && !inRanges(s.time, opts.timeRanges)) continue;
+      if (opts.excludeKeys?.has(`${date} ${s.time}`)) continue;
       const half = halves.find((h) => isPairedHalf(h, s));
       const base = {
         weekday: wd,
@@ -547,6 +576,13 @@ function daysAhead(date: string, nowEpoch: number): number {
   const today = cdmxToEpoch(p.year, p.month, p.day, 0, 0, 0);
   const then = cdmxToEpoch(Number(m[1]), Number(m[2]), Number(m[3]), 0, 0, 0);
   return Math.round((then - today) / DAY);
+}
+
+/** "HH:mm" inside any [from, to) minute range. */
+function inRanges(time: string, ranges: readonly (readonly [number, number])[]): boolean {
+  const t = clockMinutes(time);
+  if (!Number.isFinite(t)) return true;
+  return ranges.some(([a, b]) => t >= a && t < b);
 }
 
 function pad2(n: number): string {

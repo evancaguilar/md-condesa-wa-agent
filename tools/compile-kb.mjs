@@ -266,11 +266,24 @@ function nudgePolicy(p) {
     return out;
   };
   const days = Number(p?.silentFreshDays ?? 7);
+  // Hard per-lead ceiling on unsolicited sends (src/cron/send-ceiling.ts). A
+  // typo must not silently lift it, so a non-positive-integer value FAILS.
+  let ceiling;
+  if (p?.ceiling != null) {
+    const perDay = Number(p.ceiling.perDay);
+    const per7Days = Number(p.ceiling.per7Days);
+    if (!Number.isInteger(perDay) || perDay < 1 || !Number.isInteger(per7Days) || per7Days < perDay) {
+      console.error(`FAIL: nudgePolicy.ceiling necesita perDay ≥ 1 y per7Days ≥ perDay (enteros).`);
+      process.exit(1);
+    }
+    ceiling = { perDay, per7Days };
+  }
   return {
     engaged: list("engaged"),
     silent: list("silent"),
     silentFreshFull: p?.silentFreshFull === true,
     silentFreshDays: Number.isFinite(days) && days > 0 ? days : 7,
+    ...(ceiling ? { ceiling } : {}),
   };
 }
 

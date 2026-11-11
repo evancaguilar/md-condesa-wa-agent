@@ -553,6 +553,14 @@ export interface NudgePolicyConfig {
   silentFreshFull?: boolean;
   /** Default 7. */
   silentFreshDays?: number;
+  /** Hard per-lead ceiling on unsolicited automated messages (src/cron/send-ceiling.ts). */
+  ceiling?: NudgeCeilingConfig;
+}
+
+/** Counted after the lead's last inbound; defaults 1 per CDMX day, 4 per rolling 7 days. */
+export interface NudgeCeilingConfig {
+  perDay: number;
+  per7Days: number;
 }
 
 /** A prerecorded clip hosted on the client's site, sent by link (WA `video.link`). */

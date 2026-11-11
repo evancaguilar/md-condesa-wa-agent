@@ -257,7 +257,11 @@ export const CLIENT: ClientConfig = {
       "d7"
     ],
     "silentFreshFull": false,
-    "silentFreshDays": 7
+    "silentFreshDays": 7,
+    "ceiling": {
+      "perDay": 1,
+      "per7Days": 4
+    }
   },
   "experiments": {
     "priceFirstAsk": {

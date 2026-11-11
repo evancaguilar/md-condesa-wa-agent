@@ -9,7 +9,7 @@
 // didn't-sign-up chain and the second no-show touch); processResult below is
 // what arms both.
 
-import type { Env, Followup, NoteOpts } from "../types.js";
+import type { Contact, Env, Followup, NoteOpts } from "../types.js";
 import {
   scheduleFollowup,
   rescheduleFollowup,
@@ -65,6 +65,13 @@ import { isCuestionarioVersion, type CuestionarioVersion } from "../services/cue
 import type { CronSlackDeps, ResultSlackDeps } from "./deps.js";
 import { taskNote } from "./deps.js";
 import { isDeclineCancelKind } from "../pipeline/decline.js";
+import {
+  CEILING_ENFORCED_KINDS,
+  SEND_CEILING,
+  ceilingNote,
+  ceilingVerdict,
+  sentChasingAts,
+} from "./send-ceiling.js";
 import { clearDecline, isDeclined } from "../services/decline-stop.js";
 import {
   clampToWindow,
@@ -454,6 +461,8 @@ interface TickCtx {
   engagement: (phone: string) => Promise<LeadEngagement>;
   /** Policy skips this tick, "<class> <kind>" → n (one aggregated ops note). */
   policySkips: Map<string, number>;
+  /** Send-ceiling hits this tick, "<día|semana> <kind>" → n (one aggregated ops note). */
+  ceilingHits?: Map<string, number>;
 }
 
 /**
@@ -485,7 +494,7 @@ export async function runDueFollowups(
   // retried (attempts counter still bounds them).
   await releaseStaleSendClaims(env.DB, nowSec(), 30 * 60);
   const due = await dueFollowups(env.DB);
-  const tick: TickCtx = { engagement: tickEngagement(env, due), policySkips: new Map() };
+  const tick: TickCtx = { engagement: tickEngagement(env, due), policySkips: new Map(), ceilingHits: new Map() };
   for (const f of due) {
     // Claim BEFORE any send: an overlapping tick that read the same row loses
     // the UPDATE race and skips it.
@@ -509,6 +518,43 @@ export async function runDueFollowups(
       console.warn(`[followups] policy-skip note failed: ${String(err)}`);
     }
   }
+  // …and ONE for the send-ceiling hits.
+  const cNote = ceilingNote(tick.ceilingHits ?? new Map());
+  if (cNote) {
+    try {
+      await deps.slack.postNote(cNote, { kind: "followup", meta: Object.fromEntries(tick.ceilingHits ?? new Map()) });
+    } catch (err) {
+      console.warn(`[followups] ceiling note failed: ${String(err)}`);
+    }
+  }
+}
+
+/**
+ * Hard per-lead ceiling on unsolicited sends (src/cron/send-ceiling.ts): true
+ * when the row was closed or pushed back here. One indexed probe per due
+ * chasing row; a failed probe lets the row through (the kind-local caps and
+ * the one-extended-step-per-day claim still hold).
+ */
+async function enforceCeiling(env: Env, f: Followup, contact: Contact | null, tick?: TickCtx): Promise<boolean> {
+  if (!CEILING_ENFORCED_KINDS.includes(f.kind)) return false;
+  const now = nowSec();
+  let sent: number[];
+  try {
+    sent = await sentChasingAts(env.DB, f.phone, now - 7 * 86400);
+  } catch (err) {
+    console.warn(`[followups] ceiling probe failed for ${f.phone}: ${String(err)}`);
+    return false;
+  }
+  const v = ceilingVerdict(f.kind, sent, contact?.last_inbound_at ?? null, now, SEND_CEILING);
+  if (v.ok) return false;
+  if (v.action === "defer") await rescheduleRow(env, f, v.retryAt);
+  else await markFollowup(env.DB, f.id, "cancelled");
+  if (tick) {
+    const key = `${v.scope === "day" ? "día" : "semana"} ${f.kind}`;
+    tick.ceilingHits ??= new Map();
+    tick.ceilingHits.set(key, (tick.ceilingHits.get(key) ?? 0) + 1);
+  }
+  return true;
 }
 
 async function processOne(
@@ -529,6 +575,8 @@ async function processOne(
     await markFollowup(env.DB, f.id, "cancelled");
     return;
   }
+  // At most perDay / per7Days unsolicited messages since the lead last wrote.
+  if (await enforceCeiling(env, f, contact, tick)) return;
   const lang = contact?.lang ?? "es";
   // Same guard as the nudges: a WhatsApp push name that isn't clearly a first
   // name (email, handle, fancy font) must never be greeted by name.

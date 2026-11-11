@@ -161,8 +161,17 @@ export function classifyProgram(
   const fromQual = bandFromQualification(parseQualification(contact));
   if (fromQual) return fromQual;
   if (campaignName != null && /baby/i.test(campaignName)) return "baby";
+  if (isTeensCampaign(campaignName)) return "teens";
   if (isKidsCampaign(campaignName)) return "kids";
   return "adults";
+}
+
+/** A campaign aimed only at teens ("Teens", "adolescentes") — not "Kids y Teens".
+ *  Teens-ad leads were filed as adults (B68) or Kids (B79, B142) — 2026-11-11. */
+const TEENS_CAMPAIGN_RE = /\bteens?\b|adolescent/i;
+export function isTeensCampaign(campaignName: string | null | undefined): boolean {
+  if (campaignName == null) return false;
+  return TEENS_CAMPAIGN_RE.test(campaignName) && !KIDS_CAMPAIGN_RE.test(campaignName);
 }
 
 /** Campaign names that mean "this lead is a parent", not an adult student. */
@@ -258,10 +267,49 @@ export function slotCta(
   link: string,
   nowEpoch: number,
   writeUs: boolean = false,
+  mode: CtaMode = "slot",
 ): string {
-  const base = slotCtaBase(program, lang, slot, link, nowEpoch);
+  const base =
+    mode === "ask_age"
+      ? askAgeCta(program, lang, link)
+      : mode === "keep_offer"
+        ? keepOfferCta(program, lang, link)
+        : slotCtaBase(program, lang, mode === "link" ? null : slot, link, nowEpoch);
   if (!writeUs) return base;
   return lang === "en" ? `${base} or message us here 🙂` : `${base} o escríbenos aquí 🙂`;
+}
+
+/**
+ * How a nudge closes (2026-11-11 quality review):
+ *  - slot: one concrete class (the default; falls back to link without one);
+ *  - link: booking link only (constraints left no slot that fits the lead);
+ *  - ask_age: a minor whose age we don't know — ask it instead of guessing a
+ *    class (6–11-month babies are Friday 12 pm, 3–5 is Mini, not Kids);
+ *  - keep_offer: our last message already proposed a time — don't contradict it.
+ */
+export type CtaMode = "slot" | "link" | "ask_age" | "keep_offer";
+
+function askAgeCta(program: Program, lang: Language, link: string): string {
+  if (program === "baby") {
+    return lang === "en"
+      ? `How many months is your baby? I'll tell you which class fits 🙂 Or book here: ${link}`
+      : `¿Cuántos meses tiene tu bebé? Así les digo qué clase le toca 🙂 O aparten aquí: ${link}`;
+  }
+  return lang === "en"
+    ? `How old is your kid? I'll tell you which class and time fit 🙂 Or book here: ${link}`
+    : `¿Qué edad tiene tu peque? Así les digo qué clase y horario le tocan 🙂 O aparten aquí: ${link}`;
+}
+
+function keepOfferCta(program: Program, lang: Language, link: string): string {
+  const plural = program !== "adults";
+  if (lang === "en") {
+    return plural
+      ? `If the time I mentioned works for you, just reply here and I'll save their spot 🙂 Prefer another time? ${link}`
+      : `If the time I mentioned works for you, just reply here and I'll save your spot 🙂 Prefer another time? ${link}`;
+  }
+  return plural
+    ? `Si les queda el horario que les comenté, respóndanme aquí y les aparto lugar 🙂 Si prefieren otro: ${link}`
+    : `Si te queda el horario que te comenté, respóndeme aquí y te aparto lugar 🙂 Si prefieres otro: ${link}`;
 }
 
 function slotCtaBase(
@@ -346,7 +394,13 @@ export function nudgeCopy(
   schedule: readonly Slot[] = SLOTS,
   /** noSlot: never propose a concrete class (the lead's stated age contradicts
    *  the campaign program) — fall back to the booking link. */
-  opts: { noSlot?: boolean } = {},
+  opts: {
+    noSlot?: boolean;
+    /** Precomputed by the caller (nudges.ts planNudgeCopy, conversation-aware);
+     *  present (even null) ⇒ used as is instead of nudgeSlot. */
+    slot?: NextSlot | null;
+    cta?: CtaMode;
+  } = {},
 ): string {
   const q = parseQualification(contact);
   // campaignName matters: a lead who clicked the Baby Fight Club ad and never
@@ -360,8 +414,12 @@ export function nudgeCopy(
   const disc = prettyDiscipline(leadDiscipline(q, campaignName) ?? "");
   // utm on the link: the site prefills the booking form with the lead's ad.
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
-  const slot = opts.noSlot ? null : nudgeSlot(contact, program, nowEpoch, schedule, campaignName ?? null);
-  const cta = slotCta(program, lang, slot, link, nowEpoch);
+  const slot = opts.noSlot
+    ? null
+    : "slot" in opts
+      ? (opts.slot ?? null)
+      : nudgeSlot(contact, program, nowEpoch, schedule, campaignName ?? null);
+  const cta = slotCta(program, lang, slot, link, nowEpoch, false, opts.noSlot ? "link" : (opts.cta ?? "slot"));
 
   const copy = legacyProgram(program);
   if (lang === "en") return dayOneEn(copy, kind, sp, disc, cta);
@@ -392,7 +450,7 @@ function dayOneEsInner(
       case "nudge_6h":
         return `¡Hola${sp}! Uno de los cambios más bonitos que vemos en los niños es cómo ganan confianza poco a poco: no solo aprenden técnicas, también se paran más seguros y creen más en sí mismos 🙌\n${cta}`;
       case "nudge_8h":
-        return `¡Hola${sp}! La clase de prueba de tu peque es GRATIS y es una gran forma de sacarlo un rato de las pantallas 🥋\n${cta}`;
+        return `¡Hola${sp}! La clase de prueba de tu peque es GRATIS y sin compromiso 🥋\n${cta}`;
     }
   }
   if (program === "baby") {
@@ -442,7 +500,7 @@ function dayOneEnInner(
       case "nudge_6h":
         return `Hi${sp}! One of the loveliest changes we see in kids is how they slowly gain confidence — they don't just learn technique, they stand taller and believe in themselves more 🙌\n${cta}`;
       case "nudge_8h":
-        return `Hi${sp}! Your kid's trial class is FREE, and it's a great way to get them off screens for a bit 🥋\n${cta}`;
+        return `Hi${sp}! Your kid's trial class is FREE, no commitment 🥋\n${cta}`;
     }
   }
   if (program === "baby") {
@@ -491,6 +549,8 @@ export function extendedCopy(
   schedule: readonly Slot[] = SLOTS,
   campaignName: string | null = null,
   day7: boolean = false,
+  /** Conversation-aware slot / close (nudges.ts planNudgeCopy); see nudgeCopy. */
+  opts: { slot?: NextSlot | null; cta?: CtaMode } = {},
 ): string {
   const q = parseQualification(contact);
   const lang: Language = contact?.lang === "en" ? "en" : "es";
@@ -498,8 +558,13 @@ export function extendedCopy(
   const sp = generic ? "" : nameSuffix(firstName(contact, q));
   const link = withAttribution(programLink(program), attributionFor(contact, campaignName));
   const goodbye = kind === "nudge_d7" || (kind === "nudge_d5" && !day7);
-  const slot = goodbye ? null : nudgeSlot(contact, program, nowEpoch, schedule, campaignName);
-  const cta = slotCta(program, lang, slot, link, nowEpoch, generic);
+  const slot = goodbye
+    ? null
+    : "slot" in opts
+      ? (opts.slot ?? null)
+      : nudgeSlot(contact, program, nowEpoch, schedule, campaignName);
+  // The goodbye keeps its link-only close whatever the plan said.
+  const cta = slotCta(program, lang, slot, link, nowEpoch, generic, goodbye ? "link" : (opts.cta ?? "slot"));
   const legacy = legacyProgram(program);
   if (kind === "nudge_d5" && day7) {
     return (lang === "en" ? EXTENDED_D5_VALUE_EN : EXTENDED_D5_VALUE_ES)[legacy](sp, cta);

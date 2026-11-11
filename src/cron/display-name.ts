@@ -18,7 +18,31 @@ const NOT_A_NAME = new Set([
   "info", "contacto", "ventas", "admin", "soporte", "publicidad", "marketing",
   "hola", "buenas", "whatsapp", "wa", "cliente", "usuario", "user", "test",
   "mama", "mamá", "papa", "papá", "casa", "trabajo", "oficina",
+  // 2026-11-11 review: profile names that are a word, not a name ("Hola
+  // Simplemente", "Hola En", "Hola Para", "Hola Organizacion", "Hola Memento").
+  // Spanish/English function words and adverbs…
+  "en", "para", "por", "con", "sin", "que", "qué", "y", "o", "a", "al", "lo", "le", "les",
+  "un", "una", "uno", "unos", "unas", "es", "soy", "yo", "tú", "mis", "sus", "nos",
+  "simplemente", "solo", "sólo", "siempre", "nunca", "nada", "todo", "todos", "toda",
+  "aqui", "aquí", "alla", "allá", "asi", "así", "bien", "muy", "mas", "más", "menos",
+  "hoy", "ayer", "mañana", "manana", "ya", "si", "sí", "no", "ok", "okay",
+  "the", "and", "for", "with", "just", "only", "my", "your", "of", "in", "on",
+  // …mottos / greetings used as a profile name…
+  "feliz", "felicidad", "amor", "love", "dios", "bendiciones", "bendecido", "bendecida",
+  "vida", "life", "happy", "memento", "carpe", "hello", "hi", "hey",
+  "buenos", "buen", "saludos", "gracias", "bienvenidos",
+  // …and business / inbox words.
+  "organizacion", "organización", "empresa", "negocio", "grupo", "corporativo",
+  "academia", "escuela", "colegio", "instituto", "gym", "gimnasio", "fitness", "studio",
+  "estudio", "spa", "salon", "salón", "boutique", "tienda", "store", "shop", "servicios",
+  "consultorio", "clinica", "clínica", "dental", "despacho", "agencia", "restaurante",
+  "cafe", "café", "oficial", "official", "mexico", "méxico", "cdmx", "atencion", "atención",
+  "recepcion", "recepción", "asistente", "bot", "auto", "respuesta", "baby", "kids",
 ]);
+
+/** A business-looking profile: any of these words anywhere means no name at all. */
+const BUSINESS_WORDS =
+  /\b(?:s\.?a\.?|c\.?v\.?|sa de cv|inc|llc|ltd|organizaci[oó]n|empresa|academia|escuela|colegio|gym|gimnasio|fitness|studio|spa|sal[oó]n|boutique|tienda|store|shop|servicios|consultorio|cl[ií]nica|dental|despacho|agencia|restaurante|caf[eé]|oficial|official|m[eé]xico|tribu|grupo)\b/i;
 
 /** Anything in the raw string that means "this is a handle, not a name". */
 const DISQUALIFYING = /[@_\d]|https?:|www\.|\.com|\.mx|\.net/i;
@@ -36,6 +60,7 @@ const DISQUALIFYING = /[@_\d]|https?:|www\.|\.com|\.mx|\.net/i;
 export function greetingName(raw: string | null | undefined): string {
   const s = (raw ?? "").trim();
   if (!s || DISQUALIFYING.test(s)) return "";
+  if (BUSINESS_WORDS.test(s)) return "";
 
   // Strip leading decoration from the whole string first, so a leading emoji
   // doesn't make the first whitespace token be the emoji itself.
