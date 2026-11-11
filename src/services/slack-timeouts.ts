@@ -3,6 +3,8 @@
 // NO Worker-only globals or Env references here so this module is unit-testable
 // under `node --test` (only WebCrypto + TextEncoder, both available in Node v24).
 
+import type { ApprovalsConfig } from "../client-config.js";
+
 // ---- Slack signing-secret verification (v0 scheme) ----
 
 /** Constant-time compare of two byte arrays. */
@@ -206,16 +208,78 @@ function emptyInteraction(kind: ParsedInteraction["kind"]): ParsedInteraction {
 
 const CDMX_TZ = "America/Mexico_City";
 const HOLDING_THRESHOLD_SEC = 10 * 60; // 10 min → send holding line
-/**
- * 1 h → send the draft anyway if the model was at least BESTBET_SURENESS_MIN
- * sure. Owner directive 2026-08-25: "if it waits more than an hour with no
- * approval, it sends its best bet as long as it's 25% sure — a 30% answer in an
- * hour beats the 100% answer 12 hours later."
- */
-export const BESTBET_THRESHOLD_SEC = 3600;
-export const BESTBET_SURENESS_MIN = 25;
-const EXPIRE_THRESHOLD_SEC = 12 * 3600; // 12 h → expire
 const WINDOW_SECONDS = 24 * 3600;
+
+/**
+ * Approval-timeout policy (client.mjs `approvals`, owner-tunable by a push).
+ * History: owner directive 2026-08-25 — "if it waits more than an hour with no
+ * approval, it sends its best bet as long as it's 25% sure". The 2026-11-11
+ * review of 475 conversations found 21 drafts — several of them correct —
+ * EXPIRED after 12 h with nothing sent, so the wait dropped to 15 min (inside
+ * 08:00–21:30 CDMX) and a draft that is not safe to send now ESCALATES at that
+ * moment instead of dying silently.
+ */
+export const DEFAULT_APPROVALS: ApprovalsConfig = {
+  autoSendAfterMin: 15,
+  taskAutoSendAfterMin: 60,
+  minSureness: 25,
+  sendWindow: { start: "08:00", end: "21:30" },
+  staleCheckAfterMin: 20,
+  expireAfterHours: 12,
+};
+
+/** The policy in seconds / minutes-of-day, ready for the pure decision. */
+export interface TimeoutPolicy {
+  autoSendAfterSec: number;
+  taskAutoSendAfterSec: number;
+  minSureness: number;
+  /** CDMX minute of day, [start, end). */
+  windowStart: number;
+  windowEnd: number;
+  staleCheckAfterSec: number;
+  expireAfterSec: number;
+}
+
+function hhmmToMin(s: string, fallback: number): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (!m) return fallback;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+export function timeoutPolicy(cfg: ApprovalsConfig = DEFAULT_APPROVALS): TimeoutPolicy {
+  return {
+    autoSendAfterSec: cfg.autoSendAfterMin * 60,
+    taskAutoSendAfterSec: cfg.taskAutoSendAfterMin * 60,
+    minSureness: cfg.minSureness,
+    windowStart: hhmmToMin(cfg.sendWindow.start, 8 * 60),
+    windowEnd: hhmmToMin(cfg.sendWindow.end, 21 * 60 + 30),
+    staleCheckAfterSec: cfg.staleCheckAfterMin * 60,
+    expireAfterSec: cfg.expireAfterHours * 3600,
+  };
+}
+
+/** Back-compat aliases (tests, card copy). */
+export const BESTBET_SURENESS_MIN = DEFAULT_APPROVALS.minSureness;
+
+/** CDMX minute of day (fixed UTC-6, no DST since 2022). */
+function cdmxMinuteOfDay(epochSec: number): number {
+  const t = epochSec - 6 * 3600;
+  return Math.floor((((t % 86400) + 86400) % 86400) / 60);
+}
+
+/**
+ * Pure. The first moment ≥ `t` inside the send window: `t` itself when it is
+ * inside, else the next window opening (today's if `t` is before it, else
+ * tomorrow's). A draft written at 23:10 is due at 08:00; one at 21:20 whose
+ * wait ends at 21:35 also waits for 08:00.
+ */
+export function nextInWindow(t: number, p: Pick<TimeoutPolicy, "windowStart" | "windowEnd">): number {
+  const m = cdmxMinuteOfDay(t);
+  if (m >= p.windowStart && m < p.windowEnd) return t;
+  const startOfMinute = t - (t % 60);
+  const delta = m < p.windowStart ? p.windowStart - m : 24 * 60 - m + p.windowStart;
+  return startOfMinute + delta * 60;
+}
 const BIZ_OPEN_HOUR = 9; // 09:00 CDMX
 const BIZ_CLOSE_HOUR = 21; // 21:00 CDMX (exclusive)
 
@@ -264,11 +328,56 @@ export interface TimeoutApprovalView {
   guarded?: boolean;
   /**
    * classifyEscalation() of the draft's escalation reason (kv
-   * `reason_kind:<id>`). opt_out / complaint / price never best-bet;
-   * opt_out / complaint never get the holding line either.
+   * `reason_kind:<id>`). opt_out / complaint / price / medical / billing never
+   * send themselves (they escalate); opt_out / complaint never get the
+   * holding line either.
    */
   reasonKind?: EscalationKind | null;
+  /** False for a draft-less escalation row (escalate_to_human). Default true. */
+  hasDraft?: boolean;
+  /** The draft is the brain's failure apology (api_error / max_iterations). */
+  apologyDraft?: boolean;
+  /** An escalation task (kv `esc_task:<phone>`) tracks THIS approval: the SLA re-pings own it. */
+  tasked?: boolean;
+  /** The timeout escalation for this approval already went out (kv `tmo_esc:<id>`). */
+  escalated?: boolean;
+  /** Kill switch: false ⇒ nothing automated goes out. Default true. */
+  botEnabled?: boolean;
+  optedOut?: boolean;
+  /** A declined-stop marker of a "do not chase" source (not_interested / complaint). */
+  declined?: boolean;
+  /** human_override_until is in the future ("Tomar control" / staff pause). */
+  overrideActive?: boolean;
 }
+
+/** Why a due draft did not send itself (each one a reason to page a human). */
+export type EscalateWhy =
+  | "no_draft"
+  | "kill_switch"
+  | "window_closed"
+  | "override"
+  | "declined"
+  | "reason_kind"
+  | "slot_warning"
+  | "no_sureness"
+  | "low_sureness"
+  | "stale_date"
+  | "regen_failed"
+  | "expired";
+
+/** Reason kinds a human must answer: never sent by the timeout. */
+const HUMAN_ONLY_KINDS: ReadonlySet<EscalationKind> = new Set<EscalationKind>([
+  "opt_out",
+  "complaint",
+  "price",
+  "medical",
+  "billing",
+]);
+
+/** A newer lead message younger than this may still have a live turn coming. */
+export const NEWER_INBOUND_SETTLE_SEC = 5 * 60;
+/** A send due within this many seconds makes the holding line pointless. */
+const HOLD_SKIP_IF_DUE_WITHIN_SEC = 10 * 60;
 
 // ---- escalation reason classification (pure) ----
 
@@ -285,7 +394,9 @@ export type EscalationKind =
   | "private_class"
   | "nivel0"
   | "special_needs"
-  | "visitor";
+  | "visitor"
+  | "medical"
+  | "billing";
 
 function foldReason(s: string): string {
   return s
@@ -308,6 +419,11 @@ export function classifyEscalation(reason: string | null | undefined): Escalatio
   if (/\btdah\b|\badhd\b|autis|asperger|discapacidad|necesidades especiales|special needs|\bcondicion\b|diagnost|neurodiverg|\btea\b/.test(r)) return "special_needs";
   if (/visitante|visitor|drop[- ]?in|pase (?:de|por) (?:dia|clase)|clase suelta|paquete de visita|turista/.test(r)) return "visitor";
   if (/price negotiation|negocia|regate|descuento|rebaja|discount/.test(r)) return "price";
+  // 2026-11-11 review: a medical question (…7505, knee surgery) and a billing
+  // complaint (…8184, charge + cancel) carried a reason no bucket caught. They
+  // never send themselves at the approval timeout; they escalate instead.
+  if (/\bmedic|\bmedical\b|lesion|lastim|injur|operaci|cirugi|surgery|embaraz|pregnan|enfermedad|\basma\b|diabet|rodilla|\bknee\b|espalda|hernia/.test(r)) return "medical";
+  if (/reembols|refund|me cobraron|\bcobraron\b|cobro (?:indebido|doble|duplicado|no reconocido)|cargo (?:indebido|doble|duplicado|no reconocido)|factura|invoice|billing|cancelar (?:la |mi |su )?(?:membresia|suscripcion|domiciliacion|plan)|baja de (?:la |mi |su )?(?:membresia|inscripcion)|cancel(?:ar)? (?:the |my )?membership/.test(r)) return "billing";
   return null;
 }
 
@@ -394,56 +510,117 @@ export const HOLDING_SURENESS_MIN = 50;
 export const HOLDING_MAX_LEAD_SILENCE_SEC = 2 * 3600;
 
 export type TimeoutAction =
-  | { kind: "hold"; id: number; phone: string } // send holding line + re-ping
-  /** Send the draft anyway — 1h with no review, model sure enough. */
+  | { kind: "hold"; id: number; phone: string } // send holding line
+  /** Send the draft as written — the wait passed and every safety check held. */
   | { kind: "bestbet"; id: number; phone: string; sureness: number }
-  | { kind: "expire"; id: number; phone: string; windowClosed: boolean }
+  /** Run the brain again on the newest lead message (the draft is moot). */
+  | { kind: "regenerate"; id: number; phone: string; why: "lead_wrote_again" | "no_answer" }
+  /** Not safe to send: page a human once (task + owner alert). Row stays pending. */
+  | { kind: "escalate"; id: number; phone: string; why: EscalateWhy[] }
+  | { kind: "expire"; id: number; phone: string; windowClosed: boolean; escalate: boolean }
+  /** The lead opted out since: the draft dies as `discarded`. */
+  | { kind: "discard"; id: number; phone: string }
   | { kind: "none"; id: number };
 
+/** When this row's timeout comes due (send or escalate). Pure. */
+export function timeoutDueAt(a: Pick<TimeoutApprovalView, "createdAt" | "tasked">, p: TimeoutPolicy): number {
+  const wait = a.tasked ? p.taskAutoSendAfterSec : p.autoSendAfterSec;
+  return nextInWindow(a.createdAt + wait, p);
+}
+
 /**
- * Pure decision for a single approval. Injectable `now` (seconds).
- * - age > 1h, sureness >= 25, not guarded, window open ⇒ best-bet send.
- * - age > 12h                         ⇒ expire (windowClosed reported so the
- *                                       caller can offer the template button).
- * - age > 10min, business hours, window open, holding not yet sent, and the
- *   lead is actually waiting on an answer ⇒ send holding line.
- * - otherwise                         ⇒ none.
- *
- * Best-bet is checked FIRST, above expiry: a draft eligible for it should have
- * gone out at the 1h mark, so a 13h-old eligible row means the cron was down,
- * not that Evan decided against it — and the lead (who wrote < 24h ago, or the
- * window check would fail) is still better served by an answer than by silence.
- * Expiry keeps everything best-bet won't touch: unknown/low sureness, guarded
- * drafts, closed windows.
- *
- * Best-bet deliberately IGNORES the 09:00–21:00 business-hours gate that guards
- * the holding line. That gate exists so unsolicited copy never lands at 3am;
- * this is a direct reply to a lead who messaged at most 13h ago (1h queue +
- * the 24h window), inside a conversation they opened. Making it wait for 09:00
- * would recreate exactly the "100% answer 12 hours later" the directive kills.
+ * Pure. What stands between a due draft and the lead. `hard` blockers are
+ * facts about the CONTACT (kill switch, window, baja, human control, a reason a
+ * human must answer); `soft` ones are about THIS draft's text (⚠️ warning,
+ * sureness). `regenerate` = the draft is moot but a fresh brain turn may
+ * answer (the lead wrote again, or the brain failed and left its apology).
  */
-export function decideTimeout(a: TimeoutApprovalView, now: number): TimeoutAction {
+export function timeoutBlockers(
+  a: TimeoutApprovalView,
+  now: number,
+  p: TimeoutPolicy,
+): { hard: EscalateWhy[]; soft: EscalateWhy[]; regenerate?: "lead_wrote_again" | "no_answer"; settling?: boolean } {
+  const hard: EscalateWhy[] = [];
+  const soft: EscalateWhy[] = [];
+  const windowOpen = a.lastInboundAt !== null && now - a.lastInboundAt < WINDOW_SECONDS;
+  if (a.hasDraft === false) hard.push("no_draft");
+  if (a.botEnabled === false) hard.push("kill_switch");
+  if (!windowOpen) hard.push("window_closed");
+  if (a.overrideActive) hard.push("override");
+  if (a.declined) hard.push("declined");
+  if (a.reasonKind && HUMAN_ONLY_KINDS.has(a.reasonKind)) hard.push("reason_kind");
+  if (a.guarded) soft.push("slot_warning");
+  if (a.sureness === undefined) soft.push("no_sureness");
+  else if (a.sureness < p.minSureness) soft.push("low_sureness");
+  if (hard.length > 0) return { hard, soft };
+  // The lead wrote AFTER this draft was made: it answers an older message.
+  if (a.lastInboundAt !== null && a.lastInboundAt > a.createdAt) {
+    if (now - a.lastInboundAt < NEWER_INBOUND_SETTLE_SEC) return { hard, soft, settling: true };
+    return { hard, soft, regenerate: "lead_wrote_again" };
+  }
+  if (a.apologyDraft) return { hard, soft, regenerate: "no_answer" };
+  return { hard, soft };
+}
+
+/**
+ * Pure decision for a single approval. Injectable `now` (seconds), policy from
+ * client.mjs `approvals`.
+ *
+ * - age > expireAfterHours ⇒ expire (escalate: true when nobody was paged yet).
+ *   A draft that would still send passes first (the cron was down, not a "no").
+ * - before the due time (createdAt + autoSendAfterMin, pushed into the CDMX
+ *   send window; taskAutoSendAfterMin for rows with a human task) ⇒ the
+ *   10-min holding line as before, skipped when a clean send is ≤ 10 min away.
+ * - due:
+ *   · opted out                         ⇒ discard
+ *   · any hard/soft blocker             ⇒ escalate once (task + owner alert);
+ *     rows whose escalation task already re-pings (tasked) stay with the SLA
+ *   · lead wrote again / brain apology  ⇒ regenerate (fresh brain turn)
+ *   · otherwise                         ⇒ bestbet (send as written; the
+ *     runtime re-checks hoy/mañana against the clock first)
+ */
+export function decideTimeout(
+  a: TimeoutApprovalView,
+  now: number,
+  p: TimeoutPolicy = timeoutPolicy(),
+): TimeoutAction {
   const age = now - a.createdAt;
   const windowOpen = a.lastInboundAt !== null && now - a.lastInboundAt < WINDOW_SECONDS;
-
   const kind = a.reasonKind ?? null;
-  const noBestBet = kind === "opt_out" || kind === "complaint" || kind === "price";
-  if (
-    age > BESTBET_THRESHOLD_SEC &&
-    windowOpen &&
-    !a.guarded &&
-    !noBestBet &&
-    a.sureness !== undefined &&
-    a.sureness >= BESTBET_SURENESS_MIN
-  ) {
-    return { kind: "bestbet", id: a.id, phone: a.phone, sureness: a.sureness };
+  const due = timeoutDueAt(a, p);
+  const b = timeoutBlockers(a, now, p);
+  const clean = b.hard.length === 0 && b.soft.length === 0 && !b.settling;
+  const paged = a.tasked === true || a.escalated === true;
+
+  if (now >= due) {
+    if (a.optedOut && a.hasDraft !== false) return { kind: "discard", id: a.id, phone: a.phone };
+    if (clean && b.regenerate) return { kind: "regenerate", id: a.id, phone: a.phone, why: b.regenerate };
+    // Clean drafts still send late (the cron was down) — up to expireAfterHours past due.
+    if (clean && now - due <= p.expireAfterSec) {
+      return { kind: "bestbet", id: a.id, phone: a.phone, sureness: a.sureness! };
+    }
+    // regenerate beats the draft's own soft blockers (it is moot anyway).
+    if (b.hard.length === 0 && b.regenerate) {
+      return { kind: "regenerate", id: a.id, phone: a.phone, why: b.regenerate };
+    }
   }
 
-  if (age > EXPIRE_THRESHOLD_SEC) {
-    return { kind: "expire", id: a.id, phone: a.phone, windowClosed: !windowOpen };
+  // Never before the due time: an overnight draft must reach its 08:00 turn
+  // even if the owner shortens expireAfterHours.
+  if (age > p.expireAfterSec && now >= due) {
+    return { kind: "expire", id: a.id, phone: a.phone, windowClosed: !windowOpen, escalate: !paged };
   }
+
+  if (now >= due) {
+    if (b.settling) return { kind: "none", id: a.id };
+    if (paged) return { kind: "none", id: a.id };
+    return { kind: "escalate", id: a.id, phone: a.phone, why: [...b.hard, ...b.soft] };
+  }
+
+  const sendSoon = clean && !b.regenerate && due - now <= HOLD_SKIP_IF_DUE_WITHIN_SEC;
   if (
     age > HOLDING_THRESHOLD_SEC &&
+    !sendSoon &&
     !a.holdingSent &&
     windowOpen &&
     isBusinessHours(now) &&
@@ -464,6 +641,62 @@ export function decideTimeout(a: TimeoutApprovalView, now: number): TimeoutActio
   return { kind: "none", id: a.id };
 }
 
+/** Spanish label for each escalation reason (task / alert copy). */
+export function escalateWhyLabel(why: EscalateWhy, a?: { sureness?: number; reasonKind?: EscalationKind | null }): string {
+  switch (why) {
+    case "no_draft": return "el bot no redactó respuesta";
+    case "kill_switch": return "bot apagado";
+    case "window_closed": return "ventana de 24 h cerrada (usa plantilla)";
+    case "override": return "control humano activo";
+    case "declined": return "el lead dijo que no le interesa";
+    case "reason_kind": return `tema para humano (${a?.reasonKind ?? "?"})`;
+    case "slot_warning": return "⚠️ horario/agendado por verificar";
+    case "no_sureness": return "sin nivel de seguridad";
+    case "low_sureness": return `seguridad ${a?.sureness ?? "?"}%`;
+    case "stale_date": return "fecha/hora del borrador ya no aplica";
+    case "regen_failed": return "no se pudo regenerar la respuesta";
+    case "expired": return "expiró sin respuesta";
+  }
+}
+
+export interface EscalationLine {
+  phone: string;
+  name: string | null;
+  question: string;
+  why: string[];
+  approvalId: number;
+}
+
+/** The lead's newest line (👤 …) from an approval's stored transcript. Pure. */
+export function lastLeadLine(context: string | null): string {
+  if (!context) return "";
+  const lines = context.split("\n").filter((l) => l.startsWith("👤"));
+  const last = lines[lines.length - 1] ?? "";
+  const body = last.replace(/^👤\s*(?:🎤\s*)?/, "").replace(/\s+/g, " ").trim();
+  return body.length > 140 ? `${body.slice(0, 139)}…` : body;
+}
+
+/** Pure. ONE #wa-leads task + ONE owner alert for every row escalated this tick. */
+export function escalationNotes(lines: EscalationLine[]): { task: string; alert: string } | null {
+  if (lines.length === 0) return null;
+  const item = (l: EscalationLine): string =>
+    `• ${l.name ? `${l.name} · ` : ""}${l.phone} — «${l.question || "(sin texto)"}» — ${l.why.join(", ")} (#${l.approvalId})`;
+  const n = lines.length;
+  const head =
+    n === 1
+      ? "<!here> ⏰ Un lead espera respuesta y el bot NO puede enviarla solo — contéstale tú (Aprobar / Editar):"
+      : `<!here> ⏰ ${n} leads esperan respuesta y el bot NO puede enviarla solo — contéstales tú (Aprobar / Editar):`;
+  const task = [head, ...lines.slice(0, 15).map(item), ...(n > 15 ? [`…y ${n - 15} más en Aprobar.`] : [])].join("\n");
+  const alert =
+    `⏰ ${n} ${n === 1 ? "borrador no pudo" : "borradores no pudieron"} salir solos y esperan a un humano en #wa-leads: ` +
+    lines
+      .slice(0, 8)
+      .map((l) => `${l.phone} (${l.why[0] ?? "?"})`)
+      .join(", ") +
+    (n > 8 ? `, +${n - 8}` : "");
+  return { task, alert };
+}
+
 /** Ventana-restante en horas (redondeo hacia arriba), min 0. */
 export function windowHoursLeft(lastInboundAt: number | null, now: number): number {
   if (lastInboundAt === null) return 0;
@@ -476,6 +709,19 @@ export function windowHoursLeft(lastInboundAt: number | null, now: number): numb
 // lead was mid-scheduling, so the copy must only promise a human reply.
 export const HOLDING_LINE =
   "¡Gracias por escribir! 🙌 En un momento te respondemos por aquí.";
+/** English twin (2026-11-11 review: an English-speaking parent got the Spanish line twice). */
+export const HOLDING_LINE_EN =
+  "Thanks for your message! 🙌 Give me a moment and I'll get right back to you.";
+
+export function holdingLineFor(lang: string | null | undefined): string {
+  return lang === "en" ? HOLDING_LINE_EN : HOLDING_LINE;
+}
+
+/** The brain's failure apology (claude.ts safeApology) is exactly a holding line. */
+export function isApologyDraft(draft: string | null | undefined): boolean {
+  const d = (draft ?? "").trim();
+  return d === HOLDING_LINE || d === HOLDING_LINE_EN;
+}
 
 // ---- ad/campaign attribution line (draft-approval card) ----
 

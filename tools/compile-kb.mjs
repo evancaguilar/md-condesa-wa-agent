@@ -295,6 +295,40 @@ function experiments(e) {
   return out;
 }
 
+// Approval-timeout policy (src/services/slack-timeouts.ts). A typo here would
+// silently send drafts at the wrong time, so bad values FAIL the build.
+function approvals(a) {
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$|^24:00$/;
+  const num = (key, def, min, max) => {
+    const raw = a?.[key] ?? def;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < min || n > max) {
+      console.error(`FAIL: approvals.${key} debe ser un número entre ${min} y ${max} (es ${JSON.stringify(raw)}).`);
+      process.exit(1);
+    }
+    return n;
+  };
+  const start = String(a?.sendWindow?.start ?? "08:00");
+  const end = String(a?.sendWindow?.end ?? "21:30");
+  if (!hhmm.test(start) || !hhmm.test(end) || start >= end) {
+    console.error(`FAIL: approvals.sendWindow necesita start < end en formato HH:MM (CDMX).`);
+    process.exit(1);
+  }
+  const out = {
+    autoSendAfterMin: num("autoSendAfterMin", 15, 1, 720),
+    taskAutoSendAfterMin: num("taskAutoSendAfterMin", 60, 1, 720),
+    minSureness: num("minSureness", 25, 0, 100),
+    sendWindow: { start, end },
+    staleCheckAfterMin: num("staleCheckAfterMin", 20, 1, 720),
+    expireAfterHours: num("expireAfterHours", 12, 1, 24),
+  };
+  if (out.expireAfterHours * 60 <= out.autoSendAfterMin) {
+    console.error(`FAIL: approvals.expireAfterHours debe ser mayor que autoSendAfterMin.`);
+    process.exit(1);
+  }
+  return out;
+}
+
 function renderClientTs(cfg, persona, version) {
   // Persona rides in from persona.md; everything else from client.mjs. The
   // object is emitted as literal TS so the worker bundles it with zero I/O.
@@ -344,6 +378,7 @@ function renderClientTs(cfg, persona, version) {
     savedVideos: savedVideos(cfg.savedVideos),
     ...(cfg.nudgePolicy ? { nudgePolicy: nudgePolicy(cfg.nudgePolicy) } : {}),
     ...(cfg.experiments ? { experiments: experiments(cfg.experiments) } : {}),
+    ...(cfg.approvals ? { approvals: approvals(cfg.approvals) } : {}),
     copy: cfg.copy,
   };
   return (

@@ -34,17 +34,33 @@ import {
   markStudentCard,
   markTakenOverCard,
   markWindowClosedCard,
+  postStaleApproveWarning,
 } from "../services/slack.js";
+import { DEFAULT_APPROVALS, timeoutPolicy } from "./slack-timeouts.js";
+import { staleDateIssue, staleDateLabel } from "./stale-dates.js";
+import { CLIENT } from "../client.gen.js";
 
 /** Result of an approval flow. `ok:false` carries a machine-readable reason. */
 export type ApprovalResult =
   | { ok: true }
-  | { ok: false; reason: "not_pending" | "window_closed" | "opted_out" | "empty_draft" };
+  | { ok: false; reason: "not_pending" | "window_closed" | "opted_out" | "empty_draft" | "stale_date" };
 
 const NOT_PENDING: ApprovalResult = { ok: false, reason: "not_pending" };
 const EMPTY_DRAFT: ApprovalResult = { ok: false, reason: "empty_draft" };
 const WINDOW_CLOSED: ApprovalResult = { ok: false, reason: "window_closed" };
 const OPTED_OUT: ApprovalResult = { ok: false, reason: "opted_out" };
+const STALE_DATE: ApprovalResult = { ok: false, reason: "stale_date" };
+
+/**
+ * Pure. The stale-date label for a draft sent `now`, or null when it is fresh
+ * enough (younger than approvals.staleCheckAfterMin) or still reads right.
+ */
+export function lateDraftStaleLabel(draft: string, createdAt: number, now: number): string | null {
+  const policy = timeoutPolicy(CLIENT.approvals ?? DEFAULT_APPROVALS);
+  if (now - createdAt < policy.staleCheckAfterSec) return null;
+  const issue = staleDateIssue(draft, createdAt, now);
+  return issue ? staleDateLabel(issue) : null;
+}
 
 /**
  * kv key marking an approval as a booking-confirmation draft. The pipeline sets
@@ -245,6 +261,16 @@ export async function approveAndSend(
   if (!a) return NOT_PENDING;
   // An escalation row has nothing to send — a human writes the reply (Editar).
   if (!a.draft || !a.draft.trim()) return EMPTY_DRAFT;
+  // Late approval (2026-11-11): "mañana sábado 10 am" written at 19:00 and
+  // approved at 08:00 would invite the lead to SUNDAY. Refuse as-is; the card
+  // stays pending and Editar fixes the day/time.
+  const stale = lateDraftStaleLabel(a.draft, a.created_at, Math.floor(Date.now() / 1000));
+  if (stale) {
+    await postStaleApproveWarning(env, a, stale).catch((err) =>
+      console.error("[approvals] stale warning failed", id, err),
+    );
+    return STALE_DATE;
+  }
   const res = await claimAndSend(env, id, "approved", a.draft, a.draft);
   if (res.ok) {
     await markApprovedCard(env, a, a.draft);

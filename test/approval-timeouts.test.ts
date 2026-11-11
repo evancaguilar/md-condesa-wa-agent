@@ -31,6 +31,23 @@ function fakeDb(kv: Record<string, string> = {}): D1Database {
         return null;
       },
       async run() {
+        // INSERT OR IGNORE INTO kv (kvSetIfAbsent): real "once" semantics, so
+        // the escalation dedupe is observable across passes.
+        if (sql.includes("ON CONFLICT(key) DO UPDATE")) {
+          // kvClaimIfAbsentOrOlder(key, now, minAge)
+          const k = String(binds[0]);
+          const prev = kv[k];
+          if (prev !== undefined && Number(prev) > Number(binds[1]) - Number(binds[2])) {
+            return { results: [], meta: { changes: 0 } };
+          }
+          kv[k] = String(binds[1]);
+          return { results: [], meta: { changes: 1 } };
+        }
+        if (sql.startsWith("INSERT OR IGNORE INTO kv")) {
+          const k = String(binds[0]);
+          if (k in kv) return { results: [], meta: { changes: 0 } };
+          kv[k] = String(binds[1]);
+        }
         return { results: [], meta: { changes: 1 } };
       },
       async all() {
@@ -102,8 +119,13 @@ function makeQueries(
     /** What the row's status reads as in the claim→send gap. */
     statusAfterClaim?: ApprovalStatus;
     optedOut?: boolean;
+    /** Default: 30 s before the oldest row (the lead wrote, then the draft). */
+    lastInboundAt?: number;
+    lang?: string;
+    staffReplied?: boolean;
   } = {},
 ): { queries: TimeoutQueries; log: QueryLog } {
+  const lastInbound = over.lastInboundAt ?? Math.min(...rows.map((r) => r.created_at)) - 30;
   const log: QueryLog = { claims: [], releases: [], resolved: [], statusReads: 0 };
   const queries: TimeoutQueries = {
     async getPendingApprovals() {
@@ -113,9 +135,16 @@ function makeQueries(
       return {
         phone,
         name: "Joshua",
-        last_inbound_at: NOW - 60, // window open
+        last_inbound_at: lastInbound, // window open
+        lang: over.lang ?? "es",
         ...(over.optedOut ? { status: "opted_out" } : {}),
       } as Contact;
+    },
+    async staffRepliedSince() {
+      return over.staffReplied ?? false;
+    },
+    async newestInbound(_db, phone) {
+      return { wamid: "wamid.IN1", phone, body: "¿y mañana?", ts: lastInbound };
     },
     async claimHoldingSend(_db, id) {
       log.claims.push(id);
@@ -239,7 +268,8 @@ test("runApprovalTimeouts: a transient send failure releases the claim for the n
 
 test("runApprovalTimeouts: one bad approval never stops the loop", async () => {
   slackCalls.length = 0;
-  const { queries, log } = makeQueries([approval(), approval({ id: 43 })]);
+  // Different phones: the per-phone holding-line claim (45 min) is real in the fake.
+  const { queries, log } = makeQueries([approval(), approval({ id: 43, phone: "5215587654321" })]);
   const { deps } = makeDeps({ throws: new Error("graph 500") });
 
   await runApprovalTimeouts(envWith(fakeDb()), queries, deps);
@@ -262,8 +292,11 @@ test("runApprovalTimeouts: expiry claims 'expired' atomically and swaps the card
 
   assert.deepEqual(log.resolved, [{ id: 42, status: "expired" }]);
   assert.equal(sendLog.sends.length, 0);
-  assert.equal(slackCalls.length, 1);
   assert.equal(slackCalls[0]!.method, "chat.update");
+  // Nobody was paged before the expiry ⇒ it never dies silently: one task.
+  const posts = slackCalls.filter((c) => c.method === "chat.postMessage");
+  assert.equal(posts.length, 1, "task in #wa-leads (no alerts channel configured ⇒ ops_log)");
+  assert.ok(posts[0]!.body.text!.includes("expiró sin respuesta"), posts[0]!.body.text);
 });
 
 test("runApprovalTimeouts: losing the expiry claim leaves the resolved card alone", async () => {
@@ -313,9 +346,9 @@ test("runApprovalTimeouts: 61min + sureness 30 ⇒ claims auto_sent and sends th
   assert.ok(text.includes("seguridad 30%"), text);
 });
 
-test("runApprovalTimeouts: 59min ⇒ nothing sent yet", async () => {
+test("runApprovalTimeouts: 14min ⇒ nothing sent yet", async () => {
   slackCalls.length = 0;
-  const { queries, log } = makeQueries([stale({ created_at: NOW - 59 * 60 })]);
+  const { queries, log } = makeQueries([stale({ created_at: NOW - 14 * 60 })]);
   const { deps, log: sendLog } = makeDeps();
 
   await runApprovalTimeouts(envWith(withSureness(30)), queries, deps);
@@ -325,21 +358,32 @@ test("runApprovalTimeouts: 59min ⇒ nothing sent yet", async () => {
   assert.equal(slackCalls.length, 0);
 });
 
-test("runApprovalTimeouts: sureness 20 never auto-sends — it expires at 12h", async () => {
+test("runApprovalTimeouts: sureness 20 never auto-sends — it escalates ONCE, then expires", async () => {
   slackCalls.length = 0;
+  const db = withSureness(20);
   const { queries, log } = makeQueries([stale()]);
   const { deps, log: sendLog } = makeDeps();
-  await runApprovalTimeouts(envWith(withSureness(20)), queries, deps);
+  await runApprovalTimeouts(envWith(db), queries, deps);
   assert.deepEqual(log.resolved, []);
   assert.equal(sendLog.sends.length, 0);
+  const posts = slackCalls.filter((c) => c.method === "chat.postMessage");
+  assert.equal(posts.length, 1);
+  assert.ok(posts[0]!.body.text!.startsWith("<!here> ⏰ Un lead espera"), posts[0]!.body.text);
+  assert.ok(posts[0]!.body.text!.includes("seguridad 20%"), posts[0]!.body.text);
 
-  // …and 13h later the normal expiry path takes it.
+  // Next tick: already paged ⇒ silence.
+  slackCalls.length = 0;
+  await runApprovalTimeouts(envWith(db), queries, deps);
+  assert.equal(slackCalls.length, 0);
+
+  // …and 13h later the expiry takes it (already paged ⇒ no second task).
   slackCalls.length = 0;
   const old = makeQueries([stale({ created_at: NOW - 13 * 3600 })]);
   const { deps: deps2, log: sendLog2 } = makeDeps();
-  await runApprovalTimeouts(envWith(withSureness(20)), old.queries, deps2);
+  await runApprovalTimeouts(envWith(db), old.queries, deps2);
   assert.deepEqual(old.log.resolved, [{ id: 42, status: "expired" }]);
   assert.equal(sendLog2.sends.length, 0);
+  assert.equal(slackCalls.filter((c) => c.method === "chat.postMessage").length, 0);
 });
 
 test("runApprovalTimeouts: a guarded draft is never auto-sent", async () => {
@@ -355,7 +399,10 @@ test("runApprovalTimeouts: a guarded draft is never auto-sent", async () => {
 
   assert.deepEqual(log.resolved, []);
   assert.equal(sendLog.sends.length, 0);
-  assert.equal(slackCalls.length, 0);
+  // Not sent ⇒ a human is paged with the reason.
+  const posts = slackCalls.filter((c) => c.method === "chat.postMessage");
+  assert.equal(posts.length, 1);
+  assert.ok(posts[0]!.body.text!.includes("horario/agendado por verificar"), posts[0]!.body.text);
 });
 
 test("runApprovalTimeouts: no sureness marker (legacy row) ⇒ no auto-send", async () => {
@@ -416,4 +463,140 @@ test("runApprovalTimeouts: an opted-out lead is never best-bet — the draft is 
   assert.equal(sendLog.sends.length, 0);
   assert.equal(slackCalls.length, 1);
   assert.ok(slackCalls[0]!.body.text!.includes("Descartada"), slackCalls[0]!.body.text);
+});
+
+// ---- 2026-11-11 policy: stale dates, regeneration, aggregation ----
+
+import { timeoutEscalatedKey } from "../src/services/slack.js";
+
+// Fri 2026-11-06 21:40 CDMX (after the send window) → Sat 08:05 CDMX.
+const FRI_7PM = Date.parse("2026-11-07T03:40:00Z") / 1000;
+const SAT_805 = Date.parse("2026-11-07T14:05:00Z") / 1000;
+
+test("runApprovalTimeouts: an overnight 'mañana sábado' draft is regenerated at 08:00, never sent as-is", async () => {
+  slackCalls.length = 0;
+  const row = approval({
+    created_at: FRI_7PM,
+    slack_ts: "1700000000.000001",
+    draft: "Mañana sábado tenemos Muay Thai a las 10 am 🥊 ¿Te late?",
+  });
+  const { queries, log } = makeQueries([row]);
+  const regens: { wamid: string; nowSec: number }[] = [];
+  const deps: TimeoutDeps = {
+    async sendText() {
+      throw new Error("must not send");
+    },
+    now: SAT_805,
+    async regenerate(msg, nowSec) {
+      regens.push({ wamid: msg.wamid, nowSec });
+    },
+  };
+  await runApprovalTimeouts(envWith(withSureness(70)), queries, deps);
+  assert.deepEqual(log.resolved, [{ id: 42, status: "superseded" }]);
+  assert.deepEqual(regens, [{ wamid: "wamid.IN1", nowSec: SAT_805 }]);
+  const update = slackCalls.find((c) => c.method === "chat.update");
+  assert.ok(update?.body.text?.includes("Reemplazada"), update?.body.text);
+});
+
+test("runApprovalTimeouts: a stale draft with no regenerate wiring escalates instead", async () => {
+  slackCalls.length = 0;
+  const row = approval({ created_at: FRI_7PM, draft: "Mañana sábado a las 10 am 🥊" });
+  const { queries, log } = makeQueries([row]);
+  const { deps, log: sendLog } = makeDeps();
+  await runApprovalTimeouts(envWith(withSureness(70)), queries, { ...deps, now: SAT_805 });
+  assert.equal(sendLog.sends.length, 0);
+  assert.deepEqual(log.resolved, []);
+  const task = slackCalls.find((c) => c.method === "chat.postMessage");
+  assert.ok(task?.body.text?.includes("«mañana»"), task?.body.text);
+});
+
+test("runApprovalTimeouts: the same overnight draft WITHOUT relative dates sends at 08:00", async () => {
+  slackCalls.length = 0;
+  const row = approval({ created_at: FRI_7PM, slack_ts: "1700000000.000001", draft: "Estamos en Av. México 49, 1er piso, Condesa 📍" });
+  const { queries, log } = makeQueries([row]);
+  const { deps, log: sendLog } = makeDeps();
+  await runApprovalTimeouts(envWith(withSureness(70)), queries, { ...deps, now: SAT_805 });
+  assert.deepEqual(log.resolved, [{ id: 42, status: "auto_sent" }]);
+  assert.equal(sendLog.sends[0]!.body, row.draft);
+  assert.ok(slackCalls[0]!.body.text!.includes("min sin revisión"), slackCalls[0]!.body.text);
+});
+
+test("runApprovalTimeouts: the lead wrote again after the draft ⇒ fresh brain turn, old card superseded", async () => {
+  slackCalls.length = 0;
+  const row = stale({ created_at: NOW - 30 * 60 });
+  const { queries, log } = makeQueries([row], { lastInboundAt: NOW - 10 * 60 });
+  let regenerated = 0;
+  await runApprovalTimeouts(envWith(withSureness(60)), queries, {
+    async sendText() {
+      throw new Error("must not send");
+    },
+    now: NOW,
+    async regenerate() {
+      regenerated++;
+    },
+  });
+  assert.equal(regenerated, 1);
+  assert.deepEqual(log.resolved, [{ id: 42, status: "superseded" }]);
+});
+
+test("runApprovalTimeouts: one regeneration per phone per 3 h — the second moot draft escalates", async () => {
+  slackCalls.length = 0;
+  const db = withSureness(60, { "regen:5215512345678": String(NOW - 600) });
+  const { queries, log } = makeQueries([stale({ created_at: NOW - 30 * 60 })], { lastInboundAt: NOW - 10 * 60 });
+  let regenerated = 0;
+  await runApprovalTimeouts(envWith(db), queries, {
+    sendText: async () => "x",
+    now: NOW,
+    async regenerate() {
+      regenerated++;
+    },
+  });
+  assert.equal(regenerated, 0);
+  assert.deepEqual(log.resolved, []);
+  assert.equal(slackCalls.filter((c) => c.method === "chat.postMessage").length, 1);
+});
+
+test("runApprovalTimeouts: staff already answered after the draft ⇒ superseded, nothing sent", async () => {
+  slackCalls.length = 0;
+  const { queries, log } = makeQueries([stale()], { staffReplied: true });
+  const { deps, log: sendLog } = makeDeps();
+  await runApprovalTimeouts(envWith(withSureness(60)), queries, deps);
+  assert.deepEqual(log.resolved, [{ id: 42, status: "superseded" }]);
+  assert.equal(sendLog.sends.length, 0);
+});
+
+test("runApprovalTimeouts: kill switch ⇒ nothing automated goes out; a human is paged", async () => {
+  slackCalls.length = 0;
+  const { queries } = makeQueries([stale()]);
+  const { deps, log: sendLog } = makeDeps();
+  await runApprovalTimeouts(envWith(withSureness(90, { bot_enabled: "false" })), queries, deps);
+  assert.equal(sendLog.sends.length, 0);
+  const task = slackCalls.find((c) => c.method === "chat.postMessage");
+  assert.ok(task?.body.text?.includes("bot apagado"), task?.body.text);
+});
+
+test("runApprovalTimeouts: several unsafe rows ⇒ ONE task listing all of them", async () => {
+  slackCalls.length = 0;
+  const db = withSureness(10, { [surenessKey(43)]: "10" });
+  const rows = [
+    stale({ context: "👤 ¿Qué horarios tienen?" }),
+    stale({ id: 43, phone: "5215599999999", context: "👤 tuve una operación" }),
+  ];
+  const { queries } = makeQueries(rows);
+  const { deps } = makeDeps();
+  await runApprovalTimeouts(envWith(db), queries, deps);
+  const posts = slackCalls.filter((c) => c.method === "chat.postMessage");
+  assert.equal(posts.length, 1);
+  const text = posts[0]!.body.text!;
+  assert.ok(text.includes("2 leads") && text.includes("«¿Qué horarios tienen?»") && text.includes("5215599999999"), text);
+  assert.ok(timeoutEscalatedKey(43).startsWith("tmo_esc:"));
+});
+
+test("runApprovalTimeouts: the holding line follows the lead's language", async () => {
+  slackCalls.length = 0;
+  const { queries } = makeQueries([approval()], { lang: "en" });
+  const { deps, log: sendLog } = makeDeps();
+  await runApprovalTimeouts(envWith(fakeDb()), queries, deps);
+  assert.equal(sendLog.sends.length, 1);
+  assert.ok(sendLog.sends[0]!.body.startsWith("Thanks for your message!"), sendLog.sends[0]!.body);
 });
