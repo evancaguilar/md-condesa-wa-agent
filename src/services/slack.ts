@@ -45,8 +45,17 @@ import { channelOf, displayContact } from "./channel.js";
 import {
   adAttributionLine,
   decideTimeout,
-  HOLDING_LINE,
+  DEFAULT_APPROVALS,
+  escalateWhyLabel,
+  escalationNotes,
+  holdingLineFor,
+  isApologyDraft,
+  lastLeadLine,
+  timeoutPolicy,
   windowHoursLeft,
+  type EscalateWhy,
+  type EscalationLine,
+  type TimeoutPolicy,
   decideEscalationPing,
   escalationTaskKey,
   parseEscalationTask,
@@ -72,6 +81,8 @@ import type { BookingCapture, HumanSendSource } from "./booking-claims.js";
 import { autoModeEndLabel, getAutoModeUntil } from "./auto-mode.js";
 import { AUTO_SEND_DAILY_CAP, isAutoSendEnabled } from "./auto-send.js";
 import { claimApproval, getCampaign } from "../db/queries-admin.js";
+import { staleDateIssue, staleDateLabel } from "./stale-dates.js";
+import { declinedKey, parseDeclineMarker } from "../pipeline/decline.js";
 import type { Proposal } from "./kb-editor.js";
 import { CLIENT } from "../client.gen.js";
 import {
@@ -901,21 +912,37 @@ export function markExpiredCard(env: Env, a: PendingApproval, windowClosed: bool
   return updateResolvedCard(env, a, "⌛ *Expirada* (sin respuesta a tiempo)", a.draft, extra);
 }
 /**
- * The 1h best-bet send (owner directive 2026-08-25): nobody reviewed the draft
- * and the bot sent it itself. The card says so explicitly, with the model's own
- * sureness, so Evan can audit which numbers were worth trusting.
+ * The timeout send (owner directive 2026-08-25, wait cut to 15 min on
+ * 2026-11-11): nobody reviewed the draft and the bot sent it itself. The card
+ * says so explicitly, with the model's own sureness, so Evan can audit which
+ * numbers were worth trusting.
  */
 export function markAutoSentCard(
   env: Env,
   a: PendingApproval,
   sureness: number,
+  waitedMin?: number,
 ): Promise<void> {
+  const after = waitedMin === undefined ? "" : ` tras ${waitedMin} min sin revisión`;
   return updateResolvedCard(
     env,
     a,
-    `⏱️ *Enviada automáticamente* tras 1h sin revisión · seguridad ${sureness}%`,
+    `⏱️ *Enviada automáticamente*${after} · seguridad ${sureness}%`,
     a.draft,
   );
+}
+/**
+ * Aprobar refused on a late draft whose hoy/mañana or class time no longer
+ * holds: a thread reply on the card (it stays pending — Editar still works).
+ */
+export async function postStaleApproveWarning(env: Env, a: PendingApproval, label: string): Promise<void> {
+  if (!a.slack_ts) return;
+  const text = `⚠️ No se envió: ${label}. Usa ✏️ Editar para corregir el día/hora y envíalo.`;
+  await postMessage(env, [section(text)], text, { thread_ts: a.slack_ts });
+}
+/** The draft was moot (stale date, the lead wrote again): a fresh brain turn replaces it. */
+export function markRegeneratedCard(env: Env, a: PendingApproval, why: string): Promise<void> {
+  return updateResolvedCard(env, a, `🔄 *Reemplazada* — ${why}; el bot generó una respuesta nueva`, a.draft);
 }
 export function markStudentCard(env: Env, a: PendingApproval): Promise<void> {
   return updateResolvedCard(env, a, "🎓 *Marcado como alumno* — descartada", a.draft);
@@ -973,7 +1000,15 @@ export async function sendHumanFollowupTemplate(
   ]);
 }
 
-// ---- holding-timeout helper (called by workstream D's cron) ----
+// ---- approval timeouts (called by the every-5-minute cron) ----
+
+/** The newest lead message — what a regenerated turn answers. */
+export interface TimeoutInbound {
+  wamid: string;
+  phone: string;
+  body: string;
+  ts: number;
+}
 
 /** The queries surface runApprovalTimeouts depends on (injectable for tests). */
 export interface TimeoutQueries {
@@ -983,26 +1018,78 @@ export interface TimeoutQueries {
   releaseHoldingClaim: typeof releaseHoldingClaim;
   claimApproval: typeof claimApproval;
   getApprovalStatus: typeof getApprovalStatus;
+  /** Staff answered this lead (dashboard / WA app) after `sinceTs`. */
+  staffRepliedSince?: (db: D1Database, phone: string, sinceTs: number) => Promise<boolean>;
+  newestInbound?: (db: D1Database, phone: string) => Promise<TimeoutInbound | null>;
 }
 
 export interface TimeoutDeps {
   sendText: typeof sendText;
   now?: number; // injectable clock (seconds)
+  /**
+   * Fresh brain turn for a moot draft (stale hoy/mañana, the lead wrote again,
+   * the brain's failure apology). Wired in index.ts to pipeline/inbound
+   * runBrainTurn; absent ⇒ those rows escalate to a human instead.
+   */
+  regenerate?: (msg: TimeoutInbound, nowSec: number) => Promise<void>;
+  /** Policy override for tests; default CLIENT.approvals. */
+  policy?: TimeoutPolicy;
 }
 
+/** Brain re-runs per cron tick (each one is an Anthropic call, ~5–30 s). */
+export const REGENERATE_PER_TICK = 2;
+/** One regeneration per phone in this window; a second moot draft escalates. */
+export const REGENERATE_COOLDOWN_SEC = 3 * 3600;
+
+/** kv: the timeout escalation for approval `id` went out (posted once). */
+export function timeoutEscalatedKey(id: number): string {
+  return `tmo_esc:${id}`;
+}
+
+async function defaultStaffRepliedSince(db: D1Database, phone: string, sinceTs: number): Promise<boolean> {
+  // idx_messages_phone_ts (phone, ts) — a short range scan of one chat.
+  const row = await db
+    .prepare(
+      `SELECT 1 AS x FROM messages WHERE phone = ?1 AND ts > ?2 AND direction IN ('out_human','out_human_echo') LIMIT 1`,
+    )
+    .bind(phone, sinceTs)
+    .first<{ x: number }>();
+  return row !== null;
+}
+
+async function defaultNewestInbound(db: D1Database, phone: string): Promise<TimeoutInbound | null> {
+  const row = await db
+    .prepare(
+      `SELECT wamid, COALESCE(body, '') AS body, ts FROM messages WHERE phone = ?1 AND direction = 'in' ORDER BY ts DESC LIMIT 1`,
+    )
+    .bind(phone)
+    .first<{ wamid: string; body: string; ts: number }>();
+  return row && row.wamid ? { wamid: row.wamid, phone, body: row.body, ts: row.ts } : null;
+}
+
+/** Declined-stop sources that mean "do not answer for me" (pipeline/decline.ts). */
+const DECLINE_BLOCKS = new Set(["not_interested", "complaint"]);
+
 /**
- * Per spec §Slack timeouts. Called by D's every-5-minute cron.
- * - pending >10min in business hours (09–21 CDMX) & !holding_sent & window open
- *   ⇒ claim holding_sent, send holding line, re-ping Slack <!here>.
- * - pending >1h, sureness >=25, not guarded, window open ⇒ BEST BET: claim
- *   `auto_sent`, send the draft as-is, stamp the card (owner directive
- *   2026-08-25 — an hour of silence is worse than an imperfect answer).
- * - pending >12h ⇒ expire + update card (offer template button if window closed).
+ * Per spec §Slack timeouts + the 2026-11-11 policy (client.mjs `approvals`).
+ * Called by the every-5-minute cron. Decisions are pure (decideTimeout); this
+ * loop reads the side-channels, then acts:
+ * - hold      ⇒ claim holding_sent, send the holding line (lead's language).
+ * - bestbet   ⇒ staff answered since? superseded. Stale hoy/mañana or clock
+ *               time (staleDateIssue)? regenerate. Else claim `auto_sent`, send
+ *               the draft as-is, stamp the card, run the post-send effects.
+ * - regenerate⇒ claim `superseded`, run one fresh brain turn on the newest
+ *               lead message (≤ 2 per tick, ≤ 1 per phone per 3 h — else the
+ *               row escalates).
+ * - escalate  ⇒ once per approval (kv tmo_esc:<id>); every row of the tick goes
+ *               into ONE #wa-leads task + ONE #evan-alerts line.
+ * - expire    ⇒ claim `expired`, swap the card; escalates too if nobody was
+ *               paged yet.
  *
- * Both writes are atomic claims (claimHoldingSend / claimApproval) because the
- * pending list is a snapshot: a human can approve, edit or take over an
- * approval between the snapshot and the action, and the loser of that race must
- * do nothing at all.
+ * Every write is an atomic claim (claimHoldingSend / claimApproval) because
+ * the pending list is a snapshot: a human can approve, edit or take over an
+ * approval between the snapshot and the action, and the loser of that race
+ * must do nothing at all.
  */
 export async function runApprovalTimeouts(
   env: Env,
@@ -1017,62 +1104,101 @@ export async function runApprovalTimeouts(
   deps: TimeoutDeps = { sendText },
 ): Promise<void> {
   const now = deps.now ?? Math.floor(Date.now() / 1000);
+  const policy = deps.policy ?? timeoutPolicy(CLIENT.approvals ?? DEFAULT_APPROVALS);
+  const staffRepliedSince = queries.staffRepliedSince ?? defaultStaffRepliedSince;
+  const newestInbound = queries.newestInbound ?? defaultNewestInbound;
   const pending = await queries.getPendingApprovals(env.DB);
+  const botEnabled = pending.length > 0 ? await isBotEnabled(env.DB) : true;
+  const toEscalate: EscalationLine[] = [];
+  let regenerated = 0;
 
   for (const a of pending) {
-    const contact = await queries.getContact(env.DB, a.phone);
-    // Brain's not-waiting marker (kv, set at queue time): "0" ⇒ skip holding.
-    const awaitingRaw = await kvGet(env.DB, awaitingReplyKey(a.id));
-    // Best-bet inputs, both kv side-channels written by queueApproval. Three
-    // point reads per pending row: the queue is dozens of rows at worst, so a
-    // kvGet each is cheaper than the schema change it avoids.
-    const surenessRaw = await kvGet(env.DB, surenessKey(a.id));
-    const guardedRaw = await kvGet(env.DB, guardedApprovalKey(a.id));
-    const kindRaw = await kvGet(env.DB, reasonKindKey(a.id));
-    const surenessNum = Number(surenessRaw);
-    const view: TimeoutApprovalView = {
-      id: a.id,
-      phone: a.phone,
-      createdAt: a.created_at,
-      holdingSent: a.holding_sent === 1,
-      lastInboundAt: contact?.last_inbound_at ?? null,
-      awaitingReply: awaitingRaw === "0" ? false : undefined,
-      sureness:
-        surenessRaw !== null && Number.isFinite(surenessNum) ? surenessNum : undefined,
-      guarded: guardedRaw === "1",
-      reasonKind: (kindRaw as EscalationKind | null) ?? null,
-    };
-    const decision = decideTimeout(view, now);
+    let contact: Awaited<ReturnType<typeof getContact>> = null;
+    let view: TimeoutApprovalView | null = null;
+    try {
+      contact = await queries.getContact(env.DB, a.phone);
+      // Brain's not-waiting marker (kv, set at queue time): "0" ⇒ skip holding.
+      const awaitingRaw = await kvGet(env.DB, awaitingReplyKey(a.id));
+      // Side-channels written by queueApproval (point reads by primary key; the
+      // queue is dozens of rows at worst — cheaper than a schema change).
+      const surenessRaw = await kvGet(env.DB, surenessKey(a.id));
+      const guardedRaw = await kvGet(env.DB, guardedApprovalKey(a.id));
+      const kindRaw = await kvGet(env.DB, reasonKindKey(a.id));
+      const surenessNum = Number(surenessRaw);
+      view = {
+        id: a.id,
+        phone: a.phone,
+        createdAt: a.created_at,
+        holdingSent: a.holding_sent === 1,
+        lastInboundAt: contact?.last_inbound_at ?? null,
+        awaitingReply: awaitingRaw === "0" ? false : undefined,
+        sureness:
+          surenessRaw !== null && Number.isFinite(surenessNum) ? surenessNum : undefined,
+        guarded: guardedRaw === "1",
+        reasonKind: (kindRaw as EscalationKind | null) ?? null,
+        hasDraft: !!a.draft && a.draft.trim() !== "",
+        apologyDraft: isApologyDraft(a.draft),
+        botEnabled,
+        optedOut: contact?.status === "opted_out",
+        overrideActive: !!contact?.human_override_until && contact.human_override_until > now,
+      };
+      // The rest only matters once the row can come due (min wait), so young
+      // rows cost no extra reads.
+      if (now - a.created_at >= Math.min(policy.autoSendAfterSec, policy.taskAutoSendAfterSec)) {
+        const task = parseEscalationTask(await kvGet(env.DB, escalationTaskKey(a.phone)));
+        view.tasked = task?.approvalId === a.id;
+        view.escalated = (await kvGet(env.DB, timeoutEscalatedKey(a.id))) !== null;
+        const decl = parseDeclineMarker(await kvGet(env.DB, declinedKey(a.phone)));
+        view.declined = !!decl && DECLINE_BLOCKS.has(decl.source);
+      }
+    } catch (err) {
+      console.error("[timeouts] reading row state failed", a.id, err);
+      continue;
+    }
+    let decision = decideTimeout(view, now, policy);
 
-    // Escalation SLA: 45-min re-ping, then the owner DM (business hours only).
+    // Escalation SLA: 45-min re-ping, then the owner alert (business hours only).
     try {
       await escalationSlaStep(env, a, now);
     } catch (err) {
       console.error("[timeouts] escalation SLA step failed", a.id, err);
     }
 
-    // TEMP diagnostic (2026-08-27): best-bet has never fired in prod while
-    // rows sat 2h+. The first time a row crosses 75 min still pending without
-    // best-betting, post WHY the gate held it — once per approval, so the next
-    // occurrence explains itself. Remove once the cause is fixed.
-    if (
-      (decision.kind === "none" || decision.kind === "hold") &&
-      now - a.created_at > 75 * 60 &&
-      (await kvSetIfAbsent(env.DB, `bb_diag:${a.id}`, String(now)))
-    ) {
-      const winOpen =
-        view.lastInboundAt !== null && now - view.lastInboundAt < 24 * 3600;
-      try {
-        await postNote(
-          env,
-          `🔬 best-bet NO disparó para #${a.id} (${a.phone}) · edad ${Math.round((now - a.created_at) / 60)}m · sureness=${view.sureness ?? "∅"} · guarded=${view.guarded} · ventana=${winOpen ? "abierta" : "cerrada"} · awaiting=${String(view.awaitingReply)}`,
-        );
-      } catch (err) {
-        console.error("[timeouts] bb_diag note failed", a.id, err);
-      }
-    }
+    const escalate = async (why: string[]): Promise<void> => {
+      if (!(await kvSetIfAbsent(env.DB, timeoutEscalatedKey(a.id), String(now)))) return;
+      toEscalate.push({
+        phone: a.phone,
+        name: contact?.name ?? null,
+        question: lastLeadLine(a.context),
+        why,
+        approvalId: a.id,
+      });
+    };
+    const whyLabels = (list: EscalateWhy[]): string[] =>
+      list.map((w) => escalateWhyLabel(w, { sureness: view!.sureness, reasonKind: view!.reasonKind }));
 
     try {
+      // A due send/regenerate on a chat a human already answered after this
+      // draft: the draft is moot and the lead has an answer — close it quietly.
+      if (
+        (decision.kind === "bestbet" || decision.kind === "regenerate") &&
+        (await staffRepliedSince(env.DB, a.phone, a.created_at))
+      ) {
+        if (await queries.claimApproval(env.DB, a.id, "superseded")) {
+          await markSupersededCard(env, a, null);
+        }
+        continue;
+      }
+      // Stale relative dates: a late send re-reads hoy / mañana / clock times.
+      let staleLabel: string | null = null;
+      if (decision.kind === "bestbet" && now - a.created_at >= policy.staleCheckAfterSec) {
+        const issue = staleDateIssue(a.draft, a.created_at, now);
+        if (issue) {
+          staleLabel = staleDateLabel(issue);
+          decision = { kind: "regenerate", id: a.id, phone: a.phone, why: "no_answer" };
+        }
+      }
+
       if (decision.kind === "hold") {
         // Claim FIRST: losing the flip means the draft stopped being pending
         // (approved/edited/taken over) since the snapshot, so the lead already
@@ -1092,19 +1218,13 @@ export async function runApprovalTimeouts(
           ))
         )
           continue;
-        // Last look before an irreversible WhatsApp send: a human can resolve
-        // the draft in the seconds between the claim and the send, and then the
-        // holding line ("ahorita te confirmo") lands AFTER the real answer.
-        // Re-reading here shrinks that window from seconds to milliseconds — it
-        // cannot close it (there is no transaction spanning D1 and the Graph
-        // API), so this is best-effort narrowing, not a guarantee. The claim is
-        // NOT released: holding_sent=1 on a resolved row is harmless, and
-        // keeping it stops the next cron pass from trying again.
+        // Last look before an irreversible WhatsApp send (best-effort narrowing
+        // of the claim→send race; the claim is kept either way).
         if ((await queries.getApprovalStatus(env.DB, a.id)) !== "pending") continue;
         try {
           // meta.holding=1: the inbox list skips holding lines when deriving a
           // chat's "last message", so the lead still shows as waiting (unread).
-          await deps.sendText(env, a.phone, HOLDING_LINE, {
+          await deps.sendText(env, a.phone, holdingLineFor(contact?.lang), {
             metaExtra: { holding: 1 },
           });
         } catch (err) {
@@ -1116,48 +1236,70 @@ export async function runApprovalTimeouts(
           }
           throw err;
         }
-        // No per-card "⏳ lleva rato pendiente" re-ping any more: the #wa-leads
-        // scoreboard (ensureStatusLine) carries the ageing + one <!here>.
-      } else if (decision.kind === "bestbet") {
-        // Defensive baja check, same as approveAndSend: the inbound gate already
-        // discards pending drafts on opt-out, so reaching here is a race (or a
-        // manual baja). An automated send has no human to catch it — the draft
-        // dies as `discarded` instead of going out.
-        if (contact?.status === "opted_out") {
-          if (await queries.claimApproval(env.DB, a.id, "discarded")) {
-            await markDiscardedCard(env, a);
-          }
-          continue;
+      } else if (decision.kind === "discard") {
+        // Defensive baja check: the inbound gate already discards pending
+        // drafts on opt-out, so reaching here is a race (or a manual baja). An
+        // automated send has no human to catch it.
+        if (await queries.claimApproval(env.DB, a.id, "discarded")) {
+          await markDiscardedCard(env, a);
         }
+      } else if (decision.kind === "bestbet") {
         // Claim FIRST (atomic, pending-only) so a human tapping Aprobar in the
-        // same second wins and the lead never gets the draft twice. Losing the
-        // claim means the row stopped being pending — stay quiet.
+        // same second wins and the lead never gets the draft twice.
         if (!(await queries.claimApproval(env.DB, a.id, "auto_sent", a.draft))) continue;
         try {
           await deps.sendText(env, a.phone, a.draft);
         } catch (err) {
           if (err instanceof WindowClosedError) {
             // decideTimeout checked the window, but it can close in between.
-            // Same downgrade approveAndSend does: the row dies as `expired`
-            // and the card offers the template button.
             await resolveApproval(env.DB, a.id, "expired");
             await markWindowClosedCard(env, a);
             continue;
           }
-          // Transient failure: hand the row back so the next 5-minute pass (or
-          // a human) can still send it.
+          // Transient failure: hand the row back so the next pass (or a human)
+          // can still send it.
           await resolveApproval(env.DB, a.id, "pending");
           throw err;
         }
-        await markAutoSentCard(env, a, decision.sureness);
+        await markAutoSentCard(env, a, decision.sureness, Math.round((now - a.created_at) / 60));
         // Exactly the post-send work approve/edit do — booking video, nudge
         // re-arm, booking-claim audit — under its own source so the audit card
         // says nobody reviewed this one.
         await runPostSendEffects(env, a.id, a.phone, a.draft, "auto_timeout");
+      } else if (decision.kind === "regenerate") {
+        const capped =
+          !deps.regenerate ||
+          regenerated >= REGENERATE_PER_TICK ||
+          !(await kvClaimIfAbsentOrOlder(env.DB, `regen:${a.phone}`, now, REGENERATE_COOLDOWN_SEC));
+        if (capped) {
+          // Over the per-tick budget: try again next tick (5 min).
+          if (deps.regenerate && regenerated >= REGENERATE_PER_TICK) continue;
+          await escalate([staleLabel ?? escalateWhyLabel("regen_failed")]);
+          continue;
+        }
+        const msg = await newestInbound(env.DB, a.phone);
+        if (!msg) {
+          await escalate([staleLabel ?? escalateWhyLabel("regen_failed")]);
+          continue;
+        }
+        // The old draft dies first, so an overlapping tick or a human tap can't
+        // send it while the brain writes the fresh one.
+        if (!(await queries.claimApproval(env.DB, a.id, "superseded"))) continue;
+        await markRegeneratedCard(env, a, staleLabel ?? (decision.why === "lead_wrote_again" ? "el lead escribió de nuevo" : "el bot no había respondido"));
+        regenerated++;
+        try {
+          await deps.regenerate!(msg, now);
+        } catch (err) {
+          console.error("[timeouts] regenerate failed", a.id, err);
+          await escalate([escalateWhyLabel("regen_failed")]);
+        }
+      } else if (decision.kind === "escalate") {
+        await escalate(whyLabels(decision.why));
       } else if (decision.kind === "expire") {
         // Atomic: never stomp a row a human resolved between snapshot and now.
         if (!(await queries.claimApproval(env.DB, a.id, "expired"))) continue;
         await markExpiredCard(env, a, decision.windowClosed);
+        if (decision.escalate) await escalate([escalateWhyLabel("expired")]);
       }
     } catch (err) {
       // A closed window on the holding line just means we skip it; never throw
@@ -1165,6 +1307,24 @@ export async function runApprovalTimeouts(
       if (!(err instanceof WindowClosedError)) {
         console.error("runApprovalTimeouts error", a.id, err);
       }
+    }
+  }
+
+  // ONE task + ONE owner alert for everything that needs a human this tick.
+  const notes = escalationNotes(toEscalate);
+  if (notes) {
+    try {
+      await postTaskNote(env, notes.task);
+    } catch (err) {
+      console.error("[timeouts] escalation task failed", err);
+    }
+    try {
+      await postAlert(env, notes.alert, {
+        kind: "approvals",
+        meta: { approvalIds: toEscalate.map((l) => l.approvalId) },
+      });
+    } catch (err) {
+      console.error("[timeouts] escalation alert failed", err);
     }
   }
 }

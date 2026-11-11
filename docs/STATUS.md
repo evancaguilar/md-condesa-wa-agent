@@ -2,6 +2,18 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-11** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Approval timeouts: no safe draft dies, unsafe ones escalate, stale hoy/mañana re-check (2026-11-11) — branch `fix/quality-approvals-2026-11-11`, NOT pushed
+
+From the graded review (475 conversations, 11-04→11-11): 21 drafts EXPIRED after 12 h with nothing sent. Root cause: the 1 h best-bet only fires with a kv `sureness:<id>` ≥ 25 and no `guarded:<id>`; the brain's ⚠️ slot guard STRIPS sureness and false-positives on schedule answers ("Tenemos Muay Thai de lunes a sábado: … 7, 8 y 10 am" ⇒ "sábado 7 am no existe"; adult Saturday rows for a kid-qualified lead), and unsafe rows (guarded, < 25, no sureness, escalation rows, closed window) expired silently.
+- **Policy (client.mjs `approvals`, compile-kb validated → `CLIENT.approvals`)**: a SAFE unreviewed draft (sureness ≥ `minSureness` 25, no ⚠️, reason not complaint/opt_out/price/medical/billing, window open, no baja / «no me interesa» / complaint stop, no human control, bot on, lead hasn't written again, no staff reply since) sends after `autoSendAfterMin` 15 inside `sendWindow` 08:00–21:30 CDMX; outside it waits for 08:00. Rows with a human task (Nivel 0, private class…) wait `taskAutoSendAfterMin` 60. NOT safe ⇒ at the same moment ONE `<!here>` task in #wa-leads + ONE #evan-alerts line per tick listing lead · question · reason (once per approval, kv `tmo_esc:<id>`); expiry at `expireAfterHours` 12 also pages if nobody was. Holding line skipped when a clean send is ≤ 10 min away; English for `lang=en`.
+- **Regenerate** (index.ts → `runBrainTurn`, normal routing, `<respuesta_tardia>` after 1 h): the lead wrote again after the draft (settles 5 min), the draft is the brain's failure apology, or the stale-date check fails. ≤ 2 per tick, ≤ 1 per phone per 3 h (else escalates). Old card «🔄 Reemplazada».
+- **Stale dates** (src/services/stale-dates.ts, pure): any draft sent ≥ `staleCheckAfterMin` 20 after it was written — timeout send, 08:00 release, or a human tapping Aprobar — is re-read: hoy/mañana/esta noche/today/tomorrow after the CDMX day rolled over, or a "hoy"/today's-weekday clock time now past (or < 30 min away). Timeout ⇒ regenerate; Aprobar ⇒ refused (`stale_date`, thread warning on the card, dashboard toast) — Editar still works.
+- **New reason buckets**: `classifyEscalation` → `medical`, `billing` (no task/alert change at queue time; they only block the timeout send).
+- **Persona calibration** (net −86 bytes): the "duda blanda de forma" band moved 60-75 → **75-85** ("Una duda de forma NO te baja de 75"); stakes copy says ~15 min. Factual boxes untouched.
+- Kill switch now also stops timeout sends (it didn't before). TEMP `bb_diag` note removed (escalations replace it). Tests 1648 → **1668**.
+- [ ] **Evan**: decide whether to push; tune `approvals` in client.mjs (e.g. `sendWindow.end: "23:00"`). `src/brain/tools.ts` still tells the model "25–74 waits up to one hour" (brain area, left for that session). The slot-guard false positives (slot-claims.ts tier 3) belong to the brain session.
+- [ ] After deploy: watch #wa-leads for «⏰ … el bot NO puede enviarla solo» tasks and cards stamped «⏱️ Enviada automáticamente tras N min».
+
 ### Baby Fight Club Nivel 0 (6–11 meses) across bot, site, forms and poster (2026-11-11) — branch `claude/baby-fight-club-booking-p4rx35` in BOTH repos, merged to main on Evan's OK
 
 **Levels (Evan, 2026-11-11):** Nivel 0 = 6–11 meses (viernes 12 pm) · Nivel 1 = 12–24 meses · Nivel 2 = 24–36 meses. Trial classes for Nivel 1/2 stay mié 1 pm / sáb 2 pm.

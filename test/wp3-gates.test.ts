@@ -16,7 +16,9 @@ import {
   classifyEscalation,
   decideEscalationPing,
   decideTimeout,
+  DEFAULT_APPROVALS,
   escalationNeedsTask,
+  timeoutPolicy,
   parseEscalationTask,
   type TimeoutApprovalView,
 } from "../src/services/slack-timeouts.js";
@@ -177,15 +179,17 @@ test("…4595 burst: opt-out detected; an opt_out-tagged draft gets no holding l
 });
 
 test("decideTimeout: holding line gates", () => {
-  assert.equal(decideTimeout(view({ sureness: 80 }), NOON).kind, "hold");
-  assert.equal(decideTimeout(view({ sureness: 40 }), NOON).kind, "none");
-  assert.equal(decideTimeout(view({ sureness: 80, reasonKind: "complaint" }), NOON).kind, "none");
-  assert.equal(decideTimeout(view({ sureness: 80, reasonKind: "opt_out" }), NOON).kind, "none");
-  assert.equal(decideTimeout(view({ guarded: true }), NOON).kind, "none");
-  assert.equal(decideTimeout(view({ sureness: 80, lastInboundAt: NOON - 3 * 3600 }), NOON).kind, "none");
-  assert.equal(decideTimeout(view({ sureness: 80, createdAt: EARLY - 15 * 60, lastInboundAt: EARLY - 900 }), EARLY).kind, "none");
+  // The legacy 1-hour wait isolates the holding line from the 15-min send.
+  const P60 = timeoutPolicy({ ...DEFAULT_APPROVALS, autoSendAfterMin: 60 });
+  assert.equal(decideTimeout(view({ sureness: 80 }), NOON, P60).kind, "hold");
+  assert.equal(decideTimeout(view({ sureness: 40 }), NOON, P60).kind, "none");
+  assert.equal(decideTimeout(view({ sureness: 80, reasonKind: "complaint" }), NOON, P60).kind, "none");
+  assert.equal(decideTimeout(view({ sureness: 80, reasonKind: "opt_out" }), NOON, P60).kind, "none");
+  assert.equal(decideTimeout(view({ guarded: true }), NOON, P60).kind, "none");
+  assert.equal(decideTimeout(view({ sureness: 80, lastInboundAt: NOON - 3 * 3600 }), NOON, P60).kind, "none");
+  assert.equal(decideTimeout(view({ sureness: 80, createdAt: EARLY - 15 * 60, lastInboundAt: EARLY - 900 }), EARLY, P60).kind, "none");
   // Unknown sureness (escalation row) keeps the holding line.
-  assert.equal(decideTimeout(view({}), NOON).kind, "hold");
+  assert.equal(decideTimeout(view({}), NOON, P60).kind, "hold");
 });
 
 test("decideTimeout: no best-bet on complaint / opt-out / price negotiation", () => {

@@ -2,7 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   adAttributionLine,
+  classifyEscalation,
   decideTimeout,
+  DEFAULT_APPROVALS,
+  escalationNotes,
+  lastLeadLine,
+  nextInWindow,
+  timeoutPolicy,
   hmacSha256Hex,
   isBusinessHours,
   parseInteractionPayload,
@@ -201,221 +207,203 @@ test("isBusinessHours: 09:00 open, 21:00 closed (CDMX)", () => {
 
 // ---- timeout decision logic ----
 
-const baseView = (over: Partial<TimeoutApprovalView>): TimeoutApprovalView => ({
-  id: 1,
-  phone: "5215500000000",
-  createdAt: 0,
-  holdingSent: false,
-  lastInboundAt: 0,
-  ...over,
-});
+// Realistic rows: the lead's message lands, THEN the draft is queued.
+const baseView = (over: Partial<TimeoutApprovalView>): TimeoutApprovalView => {
+  const createdAt = over.createdAt ?? 0;
+  return {
+    id: 1,
+    phone: "5215500000000",
+    createdAt,
+    holdingSent: false,
+    lastInboundAt: createdAt - 30,
+    ...over,
+  };
+};
+
+// The legacy 1-hour wait, to exercise the holding line in isolation.
+const P60 = timeoutPolicy({ ...DEFAULT_APPROVALS, autoSendAfterMin: 60 });
+const TEN_AM = Date.parse("2026-07-06T16:00:00Z") / 1000; // Mon 10:00 CDMX
 
 test("decideTimeout: >10min in business hours & window open ⇒ hold", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000; // 10:00 CDMX
-  const view = baseView({ createdAt: now - 11 * 60, lastInboundAt: now - 60 });
-  const d = decideTimeout(view, now);
-  assert.equal(d.kind, "hold");
+  const view = baseView({ createdAt: TEN_AM - 11 * 60 });
+  assert.equal(decideTimeout(view, TEN_AM, P60).kind, "hold");
+  // Unknown sureness (no clean send coming) ⇒ holds under the default policy too.
+  assert.equal(decideTimeout(view, TEN_AM).kind, "hold");
+});
+
+test("decideTimeout: a clean send due within 10 min skips the holding line", () => {
+  const view = baseView({ createdAt: TEN_AM - 11 * 60, sureness: 60 });
+  assert.equal(decideTimeout(view, TEN_AM).kind, "none", "sends at 15 min; no 'en un momento' at 10");
+  assert.equal(decideTimeout(view, TEN_AM, P60).kind, "hold");
 });
 
 test("decideTimeout: holding already sent ⇒ none", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 11 * 60,
-    lastInboundAt: now - 60,
-    holdingSent: true,
-  });
-  assert.equal(decideTimeout(view, now).kind, "none");
+  const view = baseView({ createdAt: TEN_AM - 11 * 60, holdingSent: true });
+  assert.equal(decideTimeout(view, TEN_AM, P60).kind, "none");
 });
 
 test("decideTimeout: lead not awaiting a reply (closing pleasantry) ⇒ no hold", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000; // 10:00 CDMX
-  const view = baseView({
-    createdAt: now - 11 * 60,
-    lastInboundAt: now - 60,
-    awaitingReply: false,
-  });
-  assert.equal(decideTimeout(view, now).kind, "none");
+  const view = baseView({ createdAt: TEN_AM - 11 * 60, awaitingReply: false });
+  assert.equal(decideTimeout(view, TEN_AM, P60).kind, "none");
 });
 
-test("decideTimeout: awaitingReply undefined (legacy row) ⇒ hold as before", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 11 * 60,
-    lastInboundAt: now - 60,
-    awaitingReply: undefined,
-  });
-  assert.equal(decideTimeout(view, now).kind, "hold");
-});
-
-test("decideTimeout: not-awaiting draft still expires at >12h", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 13 * 3600,
-    lastInboundAt: now - 60,
-    awaitingReply: false,
-  });
-  assert.equal(decideTimeout(view, now).kind, "expire");
-});
-
-test("decideTimeout: outside business hours ⇒ none (not yet expired)", () => {
+test("decideTimeout: outside business hours ⇒ none before 08:00", () => {
   const now = Date.parse("2026-07-06T08:00:00Z") / 1000; // 02:00 CDMX
-  const view = baseView({ createdAt: now - 30 * 60, lastInboundAt: now - 60 });
+  const view = baseView({ createdAt: now - 30 * 60, sureness: 60 });
   assert.equal(decideTimeout(view, now).kind, "none");
 });
 
-test("decideTimeout: window closed ⇒ no hold", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 11 * 60,
-    lastInboundAt: now - 25 * 3600, // window closed
-  });
-  assert.equal(decideTimeout(view, now).kind, "none");
+test("decideTimeout: window closed ⇒ no hold; at the due time it escalates", () => {
+  const view = baseView({ createdAt: TEN_AM - 11 * 60, lastInboundAt: TEN_AM - 25 * 3600, sureness: 90 });
+  assert.equal(decideTimeout(view, TEN_AM, P60).kind, "none");
+  const due = baseView({ createdAt: TEN_AM - 16 * 60, lastInboundAt: TEN_AM - 25 * 3600, sureness: 90 });
+  const d = decideTimeout(due, TEN_AM);
+  assert.equal(d.kind, "escalate");
+  assert.deepEqual(d.kind === "escalate" && d.why, ["window_closed"]);
 });
 
-test("decideTimeout: >12h ⇒ expire, windowClosed reflects window state", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const open = baseView({ createdAt: now - 13 * 3600, lastInboundAt: now - 60 });
-  const d1 = decideTimeout(open, now);
+test("decideTimeout: >12h ⇒ expire, windowClosed + escalate reflect the row", () => {
+  const open = baseView({ createdAt: TEN_AM - 13 * 3600, lastInboundAt: TEN_AM - 13 * 3600 - 30 });
+  const d1 = decideTimeout(open, TEN_AM);
   assert.equal(d1.kind, "expire");
   assert.equal(d1.kind === "expire" && d1.windowClosed, false);
-
-  const closed = baseView({
-    createdAt: now - 13 * 3600,
-    lastInboundAt: now - 25 * 3600,
-  });
-  const d2 = decideTimeout(closed, now);
-  assert.equal(d2.kind, "expire");
+  assert.equal(d1.kind === "expire" && d1.escalate, true, "nobody was paged ⇒ the expiry pages");
+  const paged = decideTimeout({ ...open, escalated: true }, TEN_AM);
+  assert.equal(paged.kind === "expire" && paged.escalate, false);
+  const closed = baseView({ createdAt: TEN_AM - 13 * 3600, lastInboundAt: TEN_AM - 25 * 3600 });
+  const d2 = decideTimeout(closed, TEN_AM);
   assert.equal(d2.kind === "expire" && d2.windowClosed, true);
 });
 
-// ---- best-bet timeout (owner directive 2026-08-25) ----
+// ---- timeout send (owner directive 2026-08-25; 15 min since 2026-11-11) ----
 
-test("decideTimeout: >1h with sureness 30 ⇒ bestbet; 59min ⇒ not yet", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000; // 10:00 CDMX
-  const late = baseView({
-    createdAt: now - 61 * 60,
-    lastInboundAt: now - 61 * 60,
-    holdingSent: true,
-    sureness: 30,
-  });
-  const d = decideTimeout(late, now);
+test("decideTimeout: a safe draft sends at 15 min in the window; 14 min ⇒ not yet", () => {
+  const d = decideTimeout(baseView({ createdAt: TEN_AM - 15 * 60, sureness: 30, holdingSent: true }), TEN_AM);
   assert.equal(d.kind, "bestbet");
   assert.equal(d.kind === "bestbet" && d.sureness, 30);
-
-  const early = baseView({
-    createdAt: now - 59 * 60,
-    lastInboundAt: now - 59 * 60,
-    holdingSent: true,
-    sureness: 30,
-  });
-  assert.equal(decideTimeout(early, now).kind, "none");
+  assert.equal(decideTimeout(baseView({ createdAt: TEN_AM - 14 * 60, sureness: 30 }), TEN_AM).kind, "none");
 });
 
-test("decideTimeout: the 25% floor — 25 sends, 24 waits for a human", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = (sureness: number) =>
-    baseView({
-      createdAt: now - 2 * 3600,
-      lastInboundAt: now - 2 * 3600,
-      holdingSent: true,
-      sureness,
-    });
-  assert.equal(decideTimeout(view(25), now).kind, "bestbet");
-  assert.equal(decideTimeout(view(24), now).kind, "none");
-  assert.equal(decideTimeout(view(0), now).kind, "none");
+test("decideTimeout: the 25% floor — 25 sends, 24 escalates (never dies silently)", () => {
+  const v = (sureness: number) => baseView({ createdAt: TEN_AM - 20 * 60, sureness, holdingSent: true });
+  assert.equal(decideTimeout(v(25), TEN_AM).kind, "bestbet");
+  const low = decideTimeout(v(24), TEN_AM);
+  assert.equal(low.kind, "escalate");
+  assert.deepEqual(low.kind === "escalate" && low.why, ["low_sureness"]);
+  // Once paged, the row just waits for a human (or the 12 h expiry).
+  assert.equal(decideTimeout({ ...v(24), escalated: true }, TEN_AM).kind, "none");
 });
 
-test("decideTimeout: a 20%-sure draft never bestbets — it expires at 12h", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const at2h = baseView({
-    createdAt: now - 2 * 3600,
-    lastInboundAt: now - 2 * 3600,
-    holdingSent: true,
-    sureness: 20,
-  });
-  assert.equal(decideTimeout(at2h, now).kind, "none");
-  const at13h = baseView({
-    createdAt: now - 13 * 3600,
-    lastInboundAt: now - 60,
-    holdingSent: true,
-    sureness: 20,
-  });
-  assert.equal(decideTimeout(at13h, now).kind, "expire");
+test("decideTimeout: overnight drafts wait for 08:00 CDMX (and a 21:20 one too)", () => {
+  const night = Date.parse("2026-07-07T05:10:00Z") / 1000; // Mon 23:10 CDMX
+  const v = baseView({ createdAt: night, sureness: 60 });
+  const sevenFiftyNine = Date.parse("2026-07-07T13:59:00Z") / 1000;
+  const eight = Date.parse("2026-07-07T14:00:00Z") / 1000;
+  assert.equal(decideTimeout(v, night + 3 * 3600).kind, "none");
+  assert.equal(decideTimeout(v, sevenFiftyNine).kind, "none");
+  assert.equal(decideTimeout(v, eight).kind, "bestbet");
+  const late = baseView({ createdAt: Date.parse("2026-07-07T03:20:00Z") / 1000, sureness: 60 }); // 21:20
+  assert.equal(decideTimeout(late, Date.parse("2026-07-07T03:40:00Z") / 1000).kind, "none", "21:40 is outside");
+  assert.equal(decideTimeout(late, eight).kind, "bestbet");
 });
 
-test("decideTimeout: unknown sureness (legacy row) never bestbets", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 2 * 3600,
-    lastInboundAt: now - 2 * 3600,
-    holdingSent: true,
-  });
-  assert.equal(decideTimeout(view, now).kind, "none");
+test("nextInWindow: inside stays, before opens today, after opens tomorrow", () => {
+  const p = timeoutPolicy();
+  const at = (iso: string) => Date.parse(iso) / 1000;
+  assert.equal(nextInWindow(at("2026-07-06T16:00:00Z"), p), at("2026-07-06T16:00:00Z")); // 10:00
+  assert.equal(nextInWindow(at("2026-07-06T12:30:00Z"), p), at("2026-07-06T14:00:00Z")); // 06:30 → 08:00
+  assert.equal(nextInWindow(at("2026-07-07T03:30:00Z"), p), at("2026-07-07T14:00:00Z")); // 21:30 → 08:00
+  assert.equal(nextInWindow(at("2026-07-07T03:29:00Z"), p), at("2026-07-07T03:29:00Z")); // 21:29 inside
 });
 
-test("decideTimeout: a GUARDED draft never bestbets, however sure the model was", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 2 * 3600,
-    lastInboundAt: now - 2 * 3600,
-    holdingSent: true,
-    sureness: 70,
-    guarded: true,
-  });
-  assert.equal(decideTimeout(view, now).kind, "none");
-  // …and it still dies the normal death at 12h.
-  const old = baseView({
-    createdAt: now - 13 * 3600,
-    lastInboundAt: now - 60,
-    holdingSent: true,
-    sureness: 70,
-    guarded: true,
-  });
-  assert.equal(decideTimeout(old, now).kind, "expire");
+test("decideTimeout: unknown sureness escalates; the brain's apology regenerates", () => {
+  const v = baseView({ createdAt: TEN_AM - 20 * 60, holdingSent: true });
+  const d = decideTimeout(v, TEN_AM);
+  assert.deepEqual(d.kind === "escalate" && d.why, ["no_sureness"]);
+  const apology = decideTimeout({ ...v, apologyDraft: true }, TEN_AM);
+  assert.equal(apology.kind, "regenerate");
+  assert.equal(apology.kind === "regenerate" && apology.why, "no_answer");
 });
 
-test("decideTimeout: a closed window blocks bestbet (nothing free-form can go out)", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 2 * 3600,
-    lastInboundAt: now - 25 * 3600,
-    holdingSent: true,
-    sureness: 90,
-  });
-  assert.equal(decideTimeout(view, now).kind, "none");
+test("decideTimeout: a GUARDED draft never sends — it escalates, then expires", () => {
+  const v = baseView({ createdAt: TEN_AM - 2 * 3600, sureness: 70, guarded: true, holdingSent: true });
+  const d = decideTimeout(v, TEN_AM);
+  assert.deepEqual(d.kind === "escalate" && d.why, ["slot_warning"]);
+  const old = baseView({ createdAt: TEN_AM - 13 * 3600, sureness: 70, guarded: true, escalated: true });
+  assert.equal(decideTimeout(old, TEN_AM).kind, "expire");
 });
 
-test("decideTimeout: bestbet ignores business hours (3am is fine — it's a reply)", () => {
-  const now = Date.parse("2026-07-06T08:00:00Z") / 1000; // 02:00 CDMX
-  const view = baseView({
-    createdAt: now - 2 * 3600,
-    lastInboundAt: now - 2 * 3600,
-    sureness: 40,
-  });
-  const d = decideTimeout(view, now);
-  assert.equal(d.kind, "bestbet", "the holding line waits for 09:00; the answer does not");
+test("decideTimeout: complaint / opt-out / price / medical / billing never send", () => {
+  const ok = baseView({ createdAt: TEN_AM - 2 * 3600, sureness: 90, holdingSent: true });
+  assert.equal(decideTimeout(ok, TEN_AM).kind, "bestbet");
+  for (const k of ["complaint", "opt_out", "price", "medical", "billing"] as const) {
+    const d = decideTimeout({ ...ok, reasonKind: k }, TEN_AM);
+    assert.deepEqual(d.kind === "escalate" && d.why, ["reason_kind"], k);
+  }
+  // Task kinds still send (their human task is already open) — after 60 min.
+  assert.equal(decideTimeout({ ...ok, reasonKind: "nivel0", tasked: true }, TEN_AM).kind, "bestbet");
 });
 
-test("decideTimeout: bestbet beats expiry for an eligible 13h-old draft", () => {
-  // Only reachable if the cron was down — an answer still beats silence.
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 13 * 3600,
-    lastInboundAt: now - 60,
-    holdingSent: true,
-    sureness: 55,
-  });
-  assert.equal(decideTimeout(view, now).kind, "bestbet");
+test("decideTimeout: kill switch, human control, declined stop, baja", () => {
+  const ok = baseView({ createdAt: TEN_AM - 20 * 60, sureness: 90, holdingSent: true });
+  const why = (v: TimeoutApprovalView) => {
+    const d = decideTimeout(v, TEN_AM);
+    return d.kind === "escalate" ? d.why : d.kind;
+  };
+  assert.deepEqual(why({ ...ok, botEnabled: false }), ["kill_switch"]);
+  assert.deepEqual(why({ ...ok, overrideActive: true }), ["override"]);
+  assert.deepEqual(why({ ...ok, declined: true }), ["declined"]);
+  assert.equal(decideTimeout({ ...ok, optedOut: true }, TEN_AM).kind, "discard");
 });
 
-test("decideTimeout: a fresh sure draft under 1h just waits (hold path only)", () => {
-  const now = Date.parse("2026-07-06T16:00:00Z") / 1000;
-  const view = baseView({
-    createdAt: now - 11 * 60,
-    lastInboundAt: now - 11 * 60,
-    sureness: 60,
-  });
-  assert.equal(decideTimeout(view, now).kind, "hold");
+test("decideTimeout: the lead wrote again ⇒ settle 5 min, then regenerate (even a shaky draft)", () => {
+  const v = baseView({ createdAt: TEN_AM - 20 * 60, sureness: 10, holdingSent: true });
+  assert.equal(decideTimeout({ ...v, lastInboundAt: TEN_AM - 2 * 60 }, TEN_AM).kind, "none");
+  const d = decideTimeout({ ...v, lastInboundAt: TEN_AM - 6 * 60 }, TEN_AM);
+  assert.equal(d.kind === "regenerate" && d.why, "lead_wrote_again");
+  // …but never past a hard blocker.
+  assert.equal(decideTimeout({ ...v, lastInboundAt: TEN_AM - 6 * 60, reasonKind: "complaint" }, TEN_AM).kind, "escalate");
+});
+
+test("decideTimeout: rows with a human task wait 60 min and leave paging to the SLA", () => {
+  const v = baseView({ createdAt: TEN_AM - 30 * 60, sureness: 60, tasked: true, holdingSent: true });
+  assert.equal(decideTimeout(v, TEN_AM).kind, "none");
+  assert.equal(decideTimeout({ ...v, createdAt: TEN_AM - 61 * 60, lastInboundAt: TEN_AM - 62 * 60 }, TEN_AM).kind, "bestbet");
+  const shaky = { ...v, createdAt: TEN_AM - 61 * 60, lastInboundAt: TEN_AM - 62 * 60, sureness: 10 };
+  assert.equal(decideTimeout(shaky, TEN_AM).kind, "none", "the escalation SLA re-pings it");
+  // A draft-less escalation row: SLA if tasked, else one escalation.
+  const esc = baseView({ createdAt: TEN_AM - 20 * 60, hasDraft: false, holdingSent: true });
+  assert.deepEqual((() => { const d = decideTimeout(esc, TEN_AM); return d.kind === "escalate" && d.why; })(), ["no_draft", "no_sureness"]);
+  assert.equal(decideTimeout({ ...esc, tasked: true }, TEN_AM).kind, "none");
+});
+
+test("decideTimeout: a clean draft still sends past 12 h (cron was down), not past 13 h", () => {
+  const v = baseView({ createdAt: TEN_AM - 12.5 * 3600, sureness: 55, holdingSent: true });
+  assert.equal(decideTimeout(v, TEN_AM).kind, "bestbet");
+  assert.equal(decideTimeout({ ...v, createdAt: TEN_AM - 13.5 * 3600, lastInboundAt: TEN_AM - 13.5 * 3600 - 30 }, TEN_AM).kind, "expire");
+});
+
+test("escalationNotes: one task + one alert for every row of the tick", () => {
+  assert.equal(escalationNotes([]), null);
+  const n = escalationNotes([
+    { phone: "5215511111111", name: "Ana", question: "¿Qué horarios tienen?", why: ["⚠️ horario/agendado por verificar"], approvalId: 7 },
+    { phone: "5215522222222", name: null, question: "tuve una operación de rodilla", why: ["tema para humano (medical)"], approvalId: 8 },
+  ])!;
+  assert.ok(n.task.startsWith("<!here> ⏰ 2 leads"), n.task);
+  assert.ok(n.task.includes("Ana · 5215511111111 — «¿Qué horarios tienen?»"), n.task);
+  assert.ok(n.task.includes("(#8)"), n.task);
+  assert.ok(n.alert.includes("5215511111111") && n.alert.includes("5215522222222"), n.alert);
+  assert.equal(lastLeadLine("👤 Hola\n🤖 ¡Hola!\n👤 🎤 Que horarios tienen?"), "Que horarios tienen?");
+  assert.equal(lastLeadLine(null), "");
+});
+
+test("classifyEscalation: medical and billing buckets; a price QUESTION is neither", () => {
+  assert.equal(classifyEscalation("medical question: knee surgery 2 months ago"), "medical");
+  assert.equal(classifyEscalation("Lesión en la rodilla"), "medical");
+  assert.equal(classifyEscalation("cobro no reconocido y quiere cancelar la membresía"), "billing");
+  assert.equal(classifyEscalation("quiere factura"), "billing");
+  assert.equal(classifyEscalation("pregunta cuánto cobran al mes"), null);
+  assert.equal(classifyEscalation("dar de baja"), null, "never a silent opt-out by keyword");
 });
 
 test("windowHoursLeft: rounds up, floors at 0", () => {

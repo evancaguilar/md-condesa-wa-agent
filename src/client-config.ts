@@ -523,7 +523,25 @@ export interface ClientConfig {
   nudgePolicy?: NudgePolicyConfig;
   /** Running A/B tests (src/services/price-experiment.ts). Absent ⇒ none. */
   experiments?: ClientExperiments;
+  /** Approval-timeout policy (services/slack-timeouts.ts). Absent ⇒ DEFAULT_APPROVALS. */
+  approvals?: ApprovalsConfig;
   copy: ClientCopy;
+}
+
+/** When an unreviewed draft sends itself or escalates (training wheels ON). */
+export interface ApprovalsConfig {
+  /** Minutes before a safe, unreviewed draft sends itself (inside sendWindow). */
+  autoSendAfterMin: number;
+  /** Same, for a draft that already opened a human task (Nivel 0, private class…). */
+  taskAutoSendAfterMin: number;
+  /** Sureness floor (0–100) for a timeout send. */
+  minSureness: number;
+  /** CDMX "HH:MM" window for timeout sends + escalations; outside it they wait for `start`. */
+  sendWindow: { start: string; end: string };
+  /** A draft sent at least this many minutes after it was written gets the stale-date check. */
+  staleCheckAfterMin: number;
+  /** Hours until a still-pending card expires. */
+  expireAfterHours: number;
 }
 
 /** A dated, salted 50/50 test. Dates are CDMX "YYYY-MM-DD"; end is exclusive. */

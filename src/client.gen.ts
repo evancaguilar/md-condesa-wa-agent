@@ -267,6 +267,17 @@ export const CLIENT: ClientConfig = {
       "salt": "price-first-ask-2026-11"
     }
   },
+  "approvals": {
+    "autoSendAfterMin": 15,
+    "taskAutoSendAfterMin": 60,
+    "minSureness": 25,
+    "sendWindow": {
+      "start": "08:00",
+      "end": "21:30"
+    },
+    "staleCheckAfterMin": 20,
+    "expireAfterHours": 12
+  },
   "copy": {
     "confirmEs": "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda, agua, y si tienes guantes y vendas tráelos; si no, sin bronca, nosotros te prestamos. ¡Nos vemos!",
     "confirmEn": "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes, water, and your gloves and wraps if you have them; if not, no worries, we lend them. See you soon!",

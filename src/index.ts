@@ -17,6 +17,7 @@ import { createBrainWithKb, makeOverlayLoader } from "./brain/index.js";
 import { accrueUsage, kvClaimIfAbsentOrOlder } from "./db/queries.js";
 import { reportInfraError } from "./services/infra-alert.js";
 import { makeAirtablePort } from "./services/airtable.js";
+import { sendText } from "./services/send.js";
 import { makeBookingFailureNotifier } from "./services/booking-alerts.js";
 import {
   makeSlackPort,
@@ -70,8 +71,23 @@ function makePorts(env: Env): Ports {
         postPostTrialCard: (a) => postPostTrialCard(env, a).then(() => {}),
       },
       // slack's runApprovalTimeouts re-fetches pending approvals itself, so we
-      // ignore the list the dispatcher passes and just bind env.
-      runApprovalTimeouts: (e) => runApprovalTimeouts(e),
+      // ignore the list the dispatcher passes and just bind env. `regenerate`
+      // = one fresh brain turn on the newest lead message for a moot draft
+      // (stale hoy/mañana, lead wrote again, brain apology); normal routing,
+      // with the <respuesta_tardia> hint once the lead waited an hour.
+      runApprovalTimeouts: (e) =>
+        runApprovalTimeouts(e, undefined, {
+          sendText,
+          regenerate: (m, nowSec) =>
+            runBrainTurn(
+              env,
+              cachedPorts!,
+              m,
+              nowSec,
+              undefined,
+              nowSec - m.ts >= 3600 ? { stale: staleReplyFor(m, nowSec) } : undefined,
+            ),
+        }),
       ensureControlPanel: (e) => ensureControlPanel(e).then(() => {}),
       overrideChecks: (nowSec) => runOverrideChecks(env, cachedPorts!, nowSec),
       redriveTurn: (row, nowSec) =>
