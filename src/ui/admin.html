@@ -737,7 +737,7 @@ function renderChatList(){
   list.scrollTop=keepScroll;
 }
 // Declined stop (kv declined:<phone>, pipeline/decline.ts): the chase is off.
-var DECLINE_SRC_LABEL={objection:"objeción",not_interested:"no interesado",complaint:"queja",promise:"promesa",brain:"IA"};
+var DECLINE_SRC_LABEL={objection:"objeción",not_interested:"no interesado",complaint:"queja",promise:"promesa",brain:"IA",autoresponder:"respuesta automática"};
 function declineChip(m){
   if(!m) return "";
   var src=DECLINE_SRC_LABEL[m.source]||m.source||"";

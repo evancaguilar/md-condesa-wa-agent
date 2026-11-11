@@ -123,7 +123,13 @@ const bookTrial: AnthropicTool = {
       audience: { type: "string", enum: ["adult", "kid"] },
       trial_date: {
         type: "string",
-        description: "YYYY-MM-DD in America/Mexico_City.",
+        description:
+          "YYYY-MM-DD in America/Mexico_City. Take it from the <context> calendario line. A day of the month the lead gave ('sábado 14', 'el 16') or 'la próxima semana' is THE date — never the nearest such weekday.",
+      },
+      trial_weekday: {
+        type: "string",
+        enum: ["lun", "mar", "mie", "jue", "vie", "sab", "dom"],
+        description: "Weekday of trial_date (from the calendario line). The executor refuses a date whose calendar weekday differs.",
       },
       trial_time: {
         type: "string",
@@ -136,7 +142,7 @@ const bookTrial: AnthropicTool = {
       followup_message: {
         type: "string",
         description:
-          "The confirmation message to send the lead after booking (their language).",
+          "The confirmation message to send the lead after booking (their language). Name the day exactly as booked: 'hoy' / 'mañana' only when it is today / tomorrow; any later class = weekday + day of the month ('el sábado 14').",
       },
     },
     required: [
@@ -144,6 +150,7 @@ const bookTrial: AnthropicTool = {
       "discipline",
       "audience",
       "trial_date",
+      "trial_weekday",
       "trial_time",
       "followup_message",
     ],
@@ -185,7 +192,8 @@ const setFollowup: AnthropicTool = {
       },
       note: {
         type: "string",
-        description: "What to say / remember for the follow-up.",
+        description:
+          "The EXACT WhatsApp message the lead receives when it comes due — sent verbatim, so write it TO the lead (second person, their language). Never a note for staff (no 'el lead…', 'confirmar y agendar', 'Niño: …'); staff tasks go in send_reply.escalation_reason.",
       },
     },
     required: ["hours_from_now", "note"],

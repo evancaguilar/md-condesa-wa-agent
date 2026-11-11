@@ -82,6 +82,14 @@ export interface ClientCopy {
    * {day} → "hoy" / "ayer" / "el sábado" (computed at send time) and
    * {kid} → the child's name or "su peque" / "su bebé".
    */
+  /**
+   * ONE fixed acknowledgement for a known STUDENT who writes on the lead line
+   * (pipeline/inbound.ts gate 4): no brain turn, a #wa-leads task, and this
+   * text at most once per 12 h inside the 24 h window. Absent ⇒ silent (legacy).
+   * Never promise a time.
+   */
+  studentAckEs?: string;
+  studentAckEn?: string;
   noShowHoyEs?: string;
   noShowHoyEn?: string;
   noShowHoyKidsEs?: string;

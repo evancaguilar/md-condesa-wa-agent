@@ -32,7 +32,7 @@ export function declinedKey(phone: string): string {
 }
 
 /** Who set the stop. */
-export type DeclineSource = "brain" | "not_interested" | "objection" | "promise" | "complaint";
+export type DeclineSource = "brain" | "not_interested" | "objection" | "promise" | "complaint" | "autoresponder";
 
 export interface DeclineMarker {
   /** When the stop was (last) set, epoch seconds. */
@@ -42,7 +42,7 @@ export interface DeclineMarker {
   text?: string;
 }
 
-const SOURCES: readonly DeclineSource[] = ["brain", "not_interested", "objection", "promise", "complaint"];
+const SOURCES: readonly DeclineSource[] = ["brain", "not_interested", "objection", "promise", "complaint", "autoresponder"];
 
 export function encodeDeclineMarker(m: DeclineMarker): string {
   const out: DeclineMarker = { ts: m.ts, source: m.source };
@@ -305,6 +305,7 @@ const SOURCE_LABEL: Record<DeclineSource, string> = {
   objection: "puso una objeción (distancia/precio)",
   promise: "el bot le prometió no escribirle más",
   complaint: "queja / enojo — pasó a humano",
+  autoresponder: "respuesta automática de otro negocio",
 };
 
 /** Pure. The ONE ops_log line per stop event. */

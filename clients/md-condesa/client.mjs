@@ -317,6 +317,14 @@ export default {
       "¡Hola{who}! 🥋 Tu clase de prueba quedó agendada. Estamos en {address}. Trae ropa cómoda, agua, y si tienes guantes y vendas tráelos; si no, sin bronca, nosotros te prestamos. ¡Nos vemos!",
     confirmEn:
       "Hi{who}! 🥋 Your trial class is booked. We're at {address}. Bring comfortable clothes, water, and your gloves and wraps if you have them; if not, no worries, we lend them. See you soon!",
+    // A known STUDENT writing on the lead line (inbound gate 4): no brain turn,
+    // a #wa-leads task, and THIS text at most once per 12 h (2026-11-11,
+    // PROPOSED wording — Evan to confirm). Never promise a time. Delete both
+    // keys to go back to silence.
+    studentAckEs:
+      "¡Hola! 🙌 Recibimos tu mensaje y alguien del equipo te contesta por aquí. Si es algo de recepción o administración, también puedes escribir al +52 55 3426 0813.",
+    studentAckEn:
+      "Hi! 🙌 We got your message and someone from the team will answer you here. For front desk or admin matters you can also message +52 55 3426 0813.",
     checkinEs: "¡Hola! Te escribimos de MD Condesa 🥋",
     checkinEn: "Hi! Just checking in from MD Condesa 🥋",
     // {cta} = the engine's closing line: ONE real upcoming slot from the

@@ -19,9 +19,10 @@ import type {
   QualUpdate,
   StoredMessage,
 } from "../types.js";
-import { buildSystem, buildContextBlock, type SystemBlock } from "./prompt.js";
+import { buildSystem, buildContextBlock, isNoReplySentinel, type SystemBlock } from "./prompt.js";
 import {
   TOOLS,
+  closedDateInfo,
   disciplineNeverRunsAt,
   disciplineTimes,
   isKnownDiscipline,
@@ -49,6 +50,16 @@ import {
 import { SLOTS } from "./slots.gen.js";
 import { classifyProgram, parseQualification } from "../cron/nudge-copy.js";
 import { findSlotClaimIssues } from "./slot-claims.js";
+import { capacityClaim, comboClaimIssues } from "./fact-guards.js";
+import { INTERNAL_NOTE_ERROR, looksInternalNote } from "./followup-note.js";
+import {
+  confirmationDateIssues,
+  leadRequestedDate,
+  longDateEs,
+  weekdayOfYmd,
+  withDayOfMonth,
+  WEEKDAY_NAMES_ES,
+} from "./stated-date.js";
 import { cleanDayKeys } from "../services/program-signal.js";
 import { CLIENT } from "../client.gen.js";
 import { classifyEscalation } from "../services/slack-timeouts.js";
@@ -186,6 +197,9 @@ export function createBrain(deps: BrainDeps): BrainPort {
     // text-only turns become sureness-less low drafts that ALWAYS queue and
     // that best-bet can never rescue (the 2:15am no_tool_call card, 2026-08-28).
     let retriedNoTool = false;
+    // trial_dates book_trial refused for contradicting the lead's stated date
+    // this turn; a second call with the same date books it with a warning.
+    const dateRefused = new Set<string>();
 
     try {
       for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -222,10 +236,16 @@ export function createBrain(deps: BrainDeps): BrainPort {
           // A booking that succeeded this turn + a send_reply → 'book' result
           // (types.ts union carries the followupMessage + recordId on 'book').
           if (pendingBookings.length) return bookResult(pendingBookings, ctx, sendReply);
-          return guardUnverifiedSlotClaim(
-            guardUnbackedBookingClaim(
-              sendResult(sendReply, pendingFollowup),
-              ctx.recordedBooking,
+          return guardFactClaims(
+            guardBookingDateClaim(
+              guardUnverifiedSlotClaim(
+                guardUnbackedBookingClaim(
+                  sendResult(sendReply, pendingFollowup),
+                  ctx.recordedBooking,
+                ),
+                ctx,
+              ),
+              ctx,
             ),
             ctx,
           );
@@ -262,6 +282,7 @@ export function createBrain(deps: BrainDeps): BrainPort {
               ctx,
               tu,
               deps.onBookingFailure,
+              dateRefused,
             );
             results.push(outcome.result);
             if (outcome.booking) addPendingBooking(pendingBookings, outcome.booking);
@@ -270,6 +291,11 @@ export function createBrain(deps: BrainDeps): BrainPort {
             // We still acknowledge so the model proceeds to send_reply.
             const fu = tu.input as { hours_from_now?: number; note?: string };
             const hours = Number(fu.hours_from_now);
+            if (looksInternalNote(fu.note ?? "")) {
+              // The note would reach the lead word for word (A90, 2026-11).
+              results.push({ type: "tool_result", tool_use_id: tu.id, content: INTERNAL_NOTE_ERROR, is_error: true });
+              continue;
+            }
             if (Number.isFinite(hours) && hours > 0) {
               pendingFollowup = { hoursFromNow: hours, note: fu.note ?? "" };
             }
@@ -521,6 +547,9 @@ export interface PendingBooking {
   input: BookTrialInput;
   followupMessage: string;
   recordId: string;
+  /** The lead pinned another date and the model insisted (second call with the
+   *  same trial_date): booked, but the confirmation goes to Aprobar. */
+  dateWarning?: string;
 }
 
 export interface BookOutcome {
@@ -633,11 +662,55 @@ function mergeChecks(a: ValidateResult, b: ValidateResult): ValidateResult {
   return a.ok ? b : a;
 }
 
+const WEEKDAY_KEYS = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"] as const;
+
+/**
+ * Pure. Why this trial_date must not be booked, or null:
+ *  1. `trial_weekday` (book_trial input) is not the calendar weekday of the date;
+ *  2. the lead pinned another date in this turn (stated-date.leadRequestedDate):
+ *     a day of the month / "el otro sábado" / an offer of ours they accepted;
+ *  3. the lead's weekday and day of the month disagree ("sábado 17" = a Tuesday);
+ *  4. the lead asked for "la próxima semana" and the date is outside it.
+ */
+export function bookingDateError(
+  ctx: Pick<ConvoContext, "nowCdmx" | "history">,
+  trialDate: string,
+  trialWeekday?: string,
+): string | null {
+  const wd = weekdayIndex(trialDate);
+  if (wd === null) return null; // validateSlot reports the bad format
+  const statedKey = (trialWeekday ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").slice(0, 3);
+  const statedIdx = WEEKDAY_KEYS.indexOf(statedKey as (typeof WEEKDAY_KEYS)[number]);
+  if (statedIdx >= 0 && statedIdx !== wd) {
+    return `trial_date ${trialDate} is a ${WEEKDAY_NAMES_ES[wd]}, not a ${WEEKDAY_NAMES_ES[statedIdx]}. Read the calendario line in <context>, pick the date the lead actually asked for, and call book_trial again.`;
+  }
+  const today = ctx.nowCdmx.slice(0, 10);
+  const asked = leadRequestedDate(ctx.history ?? [], today);
+  if (!asked) return null;
+  if (asked.kind === "mismatch") {
+    return `the lead wrote «${asked.text}», but that day of the month is a ${WEEKDAY_NAMES_ES[weekdayOfYmd(asked.ymd)]}. Do not book: ask the lead which date they mean (one short line) and end with send_reply.`;
+  }
+  if (asked.kind === "week") {
+    if (trialDate < asked.start || trialDate > asked.end) {
+      return `the lead asked for «${asked.text}» (${longDateEs(asked.start)} – ${longDateEs(asked.end)}), but trial_date ${trialDate} is outside that week. Book a class of their group inside that week.`;
+    }
+    return null;
+  }
+  // A closed / TBD-holiday date can't be booked anyway (validateSlot refuses
+  // it): the model offers the nearest real day instead — don't block that.
+  if (asked.ymd !== trialDate && !closedDateInfo(asked.ymd)) {
+    const who = asked.source === "lead" ? "the lead asked for" : "the lead accepted our offer of";
+    return `${who} «${asked.text}» = ${longDateEs(asked.ymd)} (${asked.ymd}), but trial_date is ${trialDate} (${longDateEs(trialDate)}). Book ${asked.ymd} — the nearest ${WEEKDAY_NAMES_ES[weekdayOfYmd(asked.ymd)]} is NOT what they asked for — and confirm with «${WEEKDAY_NAMES_ES[weekdayOfYmd(asked.ymd)]} ${Number(asked.ymd.slice(8, 10))}».`;
+  }
+  return null;
+}
+
 export async function handleBookTrial(
   airtable: AirtablePort,
   ctx: ConvoContext,
   tu: ToolUseContent,
   onFailure?: BookingFailureNotifier,
+  dateRefused?: Set<string>,
 ): Promise<BookOutcome> {
   const input = tu.input as {
     name?: string;
@@ -647,6 +720,7 @@ export async function handleBookTrial(
     audience?: string;
     trial_date?: string;
     trial_time?: string;
+    trial_weekday?: string;
     followup_message?: string;
   };
 
@@ -708,6 +782,29 @@ export async function handleBookTrial(
       ? "adult"
       : audience;
 
+  // Date sanity (2026-11-11 grading, BOOKING_MISMATCH): the weekday the model
+  // meant must be the calendar weekday of trial_date, and a date the lead
+  // pinned ("sábado 14", "el 16", "la próxima semana") wins over the nearest
+  // such weekday. Refused, not booked — the model re-calls with the right date.
+  const dateError = bookingDateError(ctx, trialDate, input.trial_weekday);
+  let dateWarning: string | undefined;
+  if (dateError && dateRefused?.has(trialDate) && !/^trial_date /.test(dateError)) {
+    // Second call with the same date: the model read something the extractor
+    // missed (the lead changed their mind mid-message). Book, but a human
+    // checks the confirmation.
+    dateWarning = `⚠️ Fecha: el lead mencionó otra fecha (${dateError.slice(0, 160)}). Verifica la fecha antes de aprobar.`;
+  } else if (dateError) {
+    dateRefused?.add(trialDate);
+    return {
+      result: {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `error: ${dateError} (If the lead clearly changed the date later in their own message, call book_trial again with the same trial_date — it then goes to human review.)`,
+        is_error: true,
+      },
+    };
+  }
+
   const check = band
     ? mergeChecks(
         validateSlot(trialDate, trialTime, slotAudience, discipline),
@@ -764,7 +861,7 @@ export async function handleBookTrial(
         tool_use_id: tu.id,
         content: `ok: booked (record ${recordId}). Now end the turn with send_reply confirming to the lead.`,
       },
-      booking: { input: bookInput, followupMessage, recordId },
+      booking: { input: bookInput, followupMessage, recordId, ...(dateWarning ? { dateWarning } : {}) },
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1109,6 +1206,68 @@ export function guardUnverifiedSlotClaim(
 }
 
 /**
+ * Pure. Fact-guard notes for outgoing copy (brain/fact-guards.ts): capacity
+ * talk, and — for adult leads — a two-class combo the grid does not support.
+ * Each note starts with "⚠️" so the approval is guarded (never best-bets).
+ */
+export function factGuardIssues(
+  message: string,
+  ctx: Pick<ConvoContext, "nowCdmx"> & Partial<Pick<ConvoContext, "contact" | "campaign">>,
+): string[] {
+  const out: string[] = [];
+  const cap = capacityClaim(message);
+  if (cap) {
+    out.push(
+      `⚠️ Cupo: el mensaje dice «${cap}». No existe un sistema de cupos — nunca afirmes que hay o que no hay lugar/cupo. Quítalo antes de aprobar.`,
+    );
+  }
+  const band = ctx.contact
+    ? (bandFromQualification(parseQualification(ctx.contact)) ?? classifyProgram(ctx.contact, ctx.campaign?.name ?? null))
+    : "adults";
+  if (band === "adults") {
+    const combos = comboClaimIssues(message, ctx.nowCdmx.slice(0, 10));
+    if (combos.length) {
+      out.push(`⚠️ Combo que no existe: ${combos.join(" ")} Verifica antes de aprobar.`);
+    }
+  }
+  return out;
+}
+
+/** Send/draft guard over factGuardIssues. */
+export function guardFactClaims(
+  res: BrainResult,
+  ctx: Pick<ConvoContext, "nowCdmx"> & Partial<Pick<ConvoContext, "contact" | "campaign">>,
+): BrainResult {
+  if (res.action !== "send" && res.action !== "draft") return res;
+  if (isNoReplySentinel(res.message)) return res;
+  const issues = factGuardIssues(res.message, ctx);
+  return issues.length ? downgradeToDraft(res, issues.join("\n")) : res;
+}
+
+/**
+ * A plain reply that CLAIMS the lead's booking ("te esperamos mañana a las 9")
+ * while the recorded booking is another date (A205: "mañana" for a Saturday
+ * class written on a Thursday; A51: "mañana sábado" for a Sat-14 booking).
+ * Downgraded to a draft with the dates spelled out. Pure.
+ */
+export function guardBookingDateClaim(
+  res: BrainResult,
+  ctx: Pick<ConvoContext, "nowCdmx"> & Partial<Pick<ConvoContext, "recordedBooking">>,
+): BrainResult {
+  if (res.action !== "send" && res.action !== "draft") return res;
+  const booked = ctx.recordedBooking?.trialDate;
+  if (!booked || !claimsBooking(res.message)) return res;
+  const today = ctx.nowCdmx.slice(0, 10);
+  if (booked < today) return res;
+  const issues = confirmationDateIssues(res.message, [booked], today);
+  if (issues.length === 0) return res;
+  return downgradeToDraft(
+    res,
+    `⚠️ Fecha ≠ reserva registrada: ${issues.join(" ")} Corrige la fecha antes de aprobar.`,
+  );
+}
+
+/**
  * Turn a send/draft into a low-confidence draft carrying `reason`, without
  * duplicating a reason the draft already has. `sureness` is dropped on purpose
  * (see guardUnbackedBookingClaim) so the 1h best-bet timeout can never deliver
@@ -1174,19 +1333,32 @@ export function bookResult(
   const reply = (sendReply?.input ?? {}) as { sureness?: unknown; escalation_reason?: unknown };
   const sureness = sendReply ? parseSureness(reply.sureness) : undefined;
   const reason = typeof reply.escalation_reason === "string" ? reply.escalation_reason.trim() : "";
-  let warning: string | undefined;
+  const warnings: string[] = [];
+  let followupMessage = last.followupMessage;
   if (ctx) {
+    const today = ctx.nowCdmx.slice(0, 10);
+    const dates = [...new Set(bs.map((b) => b.input.trialDate))];
+    // A class 2+ days out always carries its day of the month ("sábado 14"):
+    // a bare "el sábado" is read as the nearest one (2026-11 BOOKING_MISMATCH).
+    if (dates.length === 1) followupMessage = withDayOfMonth(followupMessage, dates[0]!, today);
     const probe = guardUnverifiedSlotClaim(
-      { action: "send", message: last.followupMessage, language: "es", confidence: "high" },
+      { action: "send", message: followupMessage, language: "es", confidence: "high" },
       ctx,
       last.input.program ? { band: last.input.program, ageMonths: last.input.childAgeMonths ?? null } : undefined,
     );
-    if (probe.action === "draft" && probe.reason) warning = probe.reason;
+    if (probe.action === "draft" && probe.reason) warnings.push(probe.reason);
+    const dateIssues = confirmationDateIssues(followupMessage, dates, today, { requireDay: true });
+    if (dateIssues.length) {
+      warnings.push(`⚠️ Fecha de la confirmación ≠ reserva: ${dateIssues.join(" ")} Corrige la fecha antes de aprobar.`);
+    }
+    warnings.push(...factGuardIssues(followupMessage, ctx));
   }
+  for (const b of bs) if (b.dateWarning) warnings.push(b.dateWarning);
+  const warning = warnings.length ? [...new Set(warnings)].join("\n") : undefined;
   return {
     action: "book",
     ...first.input,
-    followupMessage: last.followupMessage,
+    followupMessage,
     recordId: first.recordId,
     bookings: bs.map((b) => ({ ...b.input, recordId: b.recordId })),
     ...(sureness !== undefined ? { replySureness: sureness } : {}),

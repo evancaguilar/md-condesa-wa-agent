@@ -24,11 +24,11 @@ Diferenciadores:
 ## Programas y disciplinas
 
 ### Jiu-Jitsu Brasileño (adultos)
-Grappling enfocado en control, técnica, derribos, posiciones, escapes, sumisiones y defensa personal. Ideal para aprender a defenderse sin depender de fuerza bruta; se avanza paso a paso, excelente para principiantes y para quien busca confianza, condición, estrategia y comunidad.
+Grappling sin golpes: control, técnica, derribos, posiciones, escapes, sumisiones y defensa personal. Ideal para aprender a defenderse sin depender de fuerza bruta; se avanza paso a paso, excelente para principiantes y para quien busca confianza, condición, estrategia y comunidad.
 Hay clases con **Gi** (kimono) y **No-Gi** (rashguard/playera deportiva y short/leggings). Para la primera clase NO se necesita kimono: ropa deportiva cómoda.
 
-### Muay Thai (adultos)
-Striking de pie: puños, patadas, rodillas, codos, defensa, desplazamiento, coordinación y condición física. Gran opción para ponerse en forma, ganar confianza, aprender defensa personal y liberar estrés. No se necesita experiencia.
+### Muay Thai (adultos; desde 13 años)
+Striking de pie: puños, patadas, rodillas, codos, defensa, desplazamiento, coordinación y condición física. Gran opción para ponerse en forma, aprender defensa personal y liberar estrés. No se necesita experiencia.
 
 ### MMA
 Combina striking, grappling, derribos, defensa y transiciones entre pelea de pie y piso. Buena opción para una visión completa del combate; el coach adapta la clase según nivel. **Edad**: 13–15 ⇒ MMA Teens (L–J 4 pm); **16–17** pueden entrar a cualquier clase de adultos; en MMA adultos, si tienen tamaño y capacidad (lo confirma el coach).

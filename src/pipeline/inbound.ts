@@ -90,6 +90,13 @@ import {
   parseOverrideCheck,
 } from "./override-check.js";
 import { isOptOut, isOptOutBurst, OPT_OUT_BURST_SECONDS } from "./opt-out.js";
+import { autoResponderNote, autoResponderResumeNote, autoResponderSignal } from "./auto-responder.js";
+import {
+  RETURNING_COOLDOWN_SECONDS,
+  isReturningRequest,
+  returningOptOutTask,
+  studentAckText,
+} from "./returning-contact.js";
 import { detectDecline, routeDeclineSource, shouldClearDecline } from "./decline.js";
 import { applyDecline, clearDecline, getDeclineMarker } from "../services/decline-stop.js";
 import { isRetoLoginRequest, retoLoginConfigured } from "./reto-login.js";
@@ -614,11 +621,23 @@ export async function processInbound(
     }
   }
 
-  // 4. Student on the lead line: silent, ping Slack.
+  // 4. Student on the lead line: no brain, ping Slack — plus ONE fixed,
+  // owner-editable acknowledgement (copy.studentAckEs/En) per 12 h so the
+  // student is not left on read (2026-11 grading, B1: 30 h of silence).
   if (contact.status === "student") {
     await taskNote(ports.slack, 
       `Alumno conocido escribió en la línea de leads (${msg.phone}): ${body}`,
     );
+    const ack = studentAckText(CLIENT.copy, contact.lang);
+    if (ack) {
+      try {
+        if (await kvClaimIfAbsentOrOlder(env.DB, `student_ack:${msg.phone}`, msg.ts, RETURNING_COOLDOWN_SECONDS)) {
+          await sendText(env, msg.phone, ack);
+        }
+      } catch (err) {
+        if (!(err instanceof WindowClosedError)) console.warn("[inbound] student ack failed", msg.phone, err);
+      }
+    }
     return;
   }
 
@@ -672,6 +691,53 @@ export async function processInbound(
       `🚨 SEÑAL DE CRISIS (${msg.phone}). Bot pausado ${safety.pauseHours}h; se envió el mensaje de contención con recursos. ATENCIÓN HUMANA URGENTE.\nMensaje: ${body}`,
     );
     return;
+  }
+
+  // 5b-ret. Opted-out contact writing again (2026-11 grading, A93: asked to
+  // book twice, nobody saw it). The bot never reopens messaging on its own —
+  // no brain turn (its drafts could not be sent anyway); a clear new request
+  // opens a #wa-leads task, at most once per 12 h. After the crisis gate on
+  // purpose: a person in crisis gets the containment message even after a baja.
+  if (contact.status === "opted_out") {
+    if (isReturningRequest(body)) {
+      try {
+        if (await kvClaimIfAbsentOrOlder(env.DB, `optout_return:${msg.phone}`, msg.ts, RETURNING_COOLDOWN_SECONDS)) {
+          await taskNote(ports.slack, returningOptOutTask(msg.phone, contact.name, body));
+        }
+      } catch (err) {
+        console.warn("[inbound] opted-out return task failed", msg.phone, err);
+      }
+    }
+    return;
+  }
+
+  // 5b-auto. Auto-responders (2026-11 grading, A108: ~50 bot-to-bot replies to
+  // a vet school's WhatsApp bot; A237/A247/A250). While the inbound looks
+  // automated (pipeline/auto-responder.ts) there is no brain turn, and the
+  // declined stop (source autoresponder) cancels every chase; ONE ops note.
+  // The first message that does not look automated lifts the stop and goes on.
+  try {
+    const marker = await getDeclineMarker(env.DB, msg.phone);
+    const recentAuto = await recentMessages(env.DB, msg.phone, 20, nowSec - 3 * 24 * 3600);
+    const signal = msg.kind === "button" ? null : autoResponderSignal(body, recentAuto);
+    if (signal) {
+      // A stop already set for another reason (objection, complaint…) is kept
+      // as is: only an autoresponder stop is lifted automatically below.
+      if (!marker) {
+        await applyDecline(env.DB, msg.phone, "autoresponder", {
+          text: body,
+          postNote: (_t, meta) =>
+            ports.slack.postNote(autoResponderNote(msg.phone, signal, body), { kind: "decline", meta }),
+        });
+      }
+      console.log(`[inbound] auto-responder (${signal}) from ${msg.phone}; no brain turn`);
+      return;
+    }
+    if (marker?.source === "autoresponder" && (await clearDecline(env.DB, msg.phone))) {
+      await ports.slack.postNote(autoResponderResumeNote(msg.phone), { kind: "decline", meta: { phone: msg.phone } });
+    }
+  } catch (err) {
+    console.warn("[inbound] auto-responder check failed", msg.phone, err);
   }
 
   // 5b'. Trial-reminder quick replies (owner decision 2026-10-11; …2139 got

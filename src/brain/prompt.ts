@@ -30,8 +30,10 @@ import {
   type NextSlot,
 } from "../cron/next-slot.js";
 import { bandLabel, isNivel0, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
-import { SLOTS } from "./slots.gen.js";
-import { isKnownDiscipline, normalizeDiscipline } from "./tools.js";
+import { SLOTS, type Slot } from "./slots.gen.js";
+import { closedDateInfo, isKnownDiscipline, normalizeDiscipline } from "./tools.js";
+import { calendarLine, statedDateLine, weekdayOfYmd } from "./stated-date.js";
+import { dayCombos } from "./fact-guards.js";
 import { cdmxToEpoch } from "../cron/time.js";
 import { hasBuyIntent } from "../cron/nudge-signals.js";
 
@@ -292,6 +294,10 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
     );
     const combo = band === "adults" && disc ? comboLine(days, disc) : null;
     if (combo) lines.push(combo);
+    if (band === "adults") {
+      const combos = combosLine(days);
+      if (combos) lines.push(combos);
+    }
   }
 
   // A kids/baby band guessed from the CAMPAIGN (no stated age) may really be a
@@ -303,6 +309,46 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
     "Ofrece SOLO filas de su grupo de edad, la más próxima primero, salvo que el lead haya pedido otro día.",
   );
   return lines;
+}
+
+/**
+ * Pure. The adult two-class combos the GRID supports on the listed days
+ * (2026-11-11 grading: "a las 7 pm pruebas Jiu-Jitsu y Muay Thai seguidas"
+ * when both run at 7 pm; a 10 am combo on a day with one 10 am class). Any
+ * other hour is a single class. null when no listed day has a combo.
+ */
+export function combosLine(days: readonly BandDay[]): string | null {
+  const parts: string[] = [];
+  for (const d of days) {
+    const from = d.slots[0]?.time ?? "00:00";
+    const c = dayCombos(d.weekday, from);
+    if (c.length) parts.push(`${d.label}: ${c.join(", ")}`);
+  }
+  if (parts.length === 0) return null;
+  return `combos de 2 clases seguidas que SÍ existen (hora de llegada: 1a→2a): ${parts.join(" | ")}. Otra hora = UNA sola clase: ahí nunca digas «seguidas» ni «dos clases».`;
+}
+
+/** Pure. "10:00 am Jiu-Jitsu, 10:00 am Muay Thai" — the band's trial rows on one
+ *  date; null when the date is closed or has a special (TBD) holiday schedule. */
+export function bandOptionsOn(
+  ymd: string,
+  band: ProgramBand,
+  ageMonths: number | null,
+  schedule: readonly Slot[] = SLOTS,
+): string[] | null {
+  if (closedDateInfo(ymd)) return null;
+  const wd = weekdayOfYmd(ymd);
+  const out: string[] = [];
+  const rows = schedule
+    .filter((s) => s.weekday === wd && s.trial !== false && slotMatchesBand(s, band, ageMonths))
+    .slice()
+    .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+  for (const s of rows) {
+    const what = s.name ?? (band === "baby" ? "Baby Fight Club" : band === "mini" ? "Mini Muay Thai" : disciplineLabel(s.discipline));
+    const label = `${time12h(s.time)} ${what}`;
+    if (!out.includes(label)) out.push(label);
+  }
+  return out;
 }
 
 /** A class that started up to this long ago still takes a lead who asks to come now. */
@@ -428,6 +474,55 @@ export function sanitizeContextValue(v: string): string {
     .slice(0, 60);
 }
 
+/**
+ * Pure. The 14-day calendar + the date the lead pinned this turn (2026-11-11
+ * BOOKING_MISMATCH: "sábado 14" booked as the nearest Saturday). [] when the
+ * clock can't be read.
+ */
+export function dateLines(ctx: Pick<ConvoContext, "nowCdmx" | "history" | "contact" | "campaign">): string[] {
+  const today = /^(\d{4}-\d{2}-\d{2})/.exec(ctx.nowCdmx)?.[1];
+  if (!today) return [];
+  const out = [calendarLine(today)];
+  const q = parseQualification(ctx.contact.qualification);
+  const band = classifyProgram(ctx.contact, ctx.campaign?.name ?? null);
+  const ageMonths = typeof q.child_age_months === "number" ? q.child_age_months : null;
+  const stated = statedDateLine(ctx.history ?? [], today, (ymd) => bandOptionsOn(ymd, band, ageMonths));
+  if (stated) out.push(stated);
+  return out;
+}
+
+/** The lead asks what it costs (es/en). */
+const PRICE_ASK_RE =
+  /\b(?:precios?|costos?|cu[aá]nto\s+(?:cuesta|cuestan|es|sale|salen|cobran|ser[ií]a)|colegiatura|mensualidad(?:es)?|cuotas?|tarifas?|inscripci[oó]n|membres[ií]a|prices?|costs?|how\s+much|fees?)\b/i;
+
+/** Pure. Does this text ask a price? */
+export function asksPrice(text: string): boolean {
+  return PRICE_ASK_RE.test(text);
+}
+
+/**
+ * Pure. Baby Fight Club is the ONE program whose price goes out at the FIRST
+ * ask (persona «Manejo de precios», intake «Excepción Baby Fight Club»), yet 8
+ * graded conversations (2026-11-04→11) got the generic plans/promos reframe —
+ * it sits first in both persona and KB and the model pattern-matched it. When
+ * the lead's latest messages ask a price and the lead is a BFC parent (age,
+ * campaign, ad or their own words), the turn carries an explicit override.
+ */
+export function bfcPriceLine(ctx: Pick<ConvoContext, "contact" | "campaign" | "history" | "adRef">): string | null {
+  const run: string[] = [];
+  for (let i = ctx.history.length - 1; i >= 0 && ctx.history[i]!.direction === "in"; i--) run.unshift(ctx.history[i]!.body);
+  if (run.length === 0 || !asksPrice(run.join("\n"))) return null;
+  const band = classifyProgram(ctx.contact, ctx.campaign?.name ?? null);
+  const q = parseQualification(ctx.contact.qualification);
+  const stated = typeof q.child_age_months === "number";
+  const said = ctx.history.some((m) => m.direction === "in" && /baby\s*fight|\bbfc\b/i.test(m.body));
+  const ad = /baby\s*fight|\bbfc\b/i.test(`${ctx.adRef?.headline ?? ""} ${ctx.adRef?.body ?? ""}`);
+  // A stated age outside BFC wins over a BFC campaign/ad.
+  const isBaby = band === "baby" || (!stated && (said || ad));
+  if (!isBaby) return null;
+  return "precio Baby Fight Club: el lead pregunta precio y su programa es Baby Fight Club — aplica la «Excepción Baby Fight Club» del KB EN ESTA respuesta: da la inscripción y la membresía tal cual (sin el reencuadre de planes/promos, sin «lo vemos en la clase de prueba») y sigue agendando con día y hora concretos.";
+}
+
 export function buildContextBlock(
   ctx: ConvoContext,
   opts: { priceExperiment?: PriceExperimentConfig | null } = {},
@@ -468,8 +563,9 @@ export function buildContextBlock(
     ...(channelLine ? [channelLine] : []),
     windowLine,
     ...closureLines(ctx.nowCdmx),
+    ...dateLines(ctx),
     ...upcomingSlotLines(ctx),
-    "Resolve any relative date ('hoy', 'mañana', 'el sábado') against `now`/`weekday` above.",
+    "Resolve any date ('hoy', 'mañana', 'el sábado', 'sábado 14') with the calendario line above; a day of the month the lead gives is THE date, never the nearest such weekday.",
     "The timestamp is 24h ISO. Any class time LATER today than `now` is still bookable for TODAY (e.g. at 01:49 it is 1:49 AM — today's 7:00 AM class has NOT passed).",
     ...(ctx.recordedBooking
       ? [
@@ -585,6 +681,8 @@ export function buildContextBlock(
     campaignInfo: ctx.campaign?.info ?? null,
   });
   if (priceTest.variant === "B") lines.push(...PRICE_VARIANT_B_LINES);
+  const bfcPrice = bfcPriceLine(ctx);
+  if (bfcPrice) lines.push(bfcPrice);
 
   // The lead asked to enrol / pay (2026-10-30, Luis Ortega: "quiero
   // inscribirme sin clase de prueba" got a Saturday trial pitch, then a

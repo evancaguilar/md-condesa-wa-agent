@@ -215,7 +215,9 @@ test("justSentWelcome briefs the model with the welcome text and the no-reply op
 
 test("a very long welcome is truncated so it can't bloat the per-turn context", () => {
   const block = buildContextBlock(ctx({ justSentWelcome: "a".repeat(5000) }));
-  assert.ok(block.length < 4000);
+  // 4000 → 4500 (2026-11-11): the context now also carries the 14-day
+  // calendario and the grid's combos line; the welcome itself is still capped.
+  assert.ok(block.length < 4500);
   assert.ok(block.includes("…"));
 });
 

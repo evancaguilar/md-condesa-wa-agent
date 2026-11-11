@@ -45,7 +45,6 @@ import { channelOf, displayContact } from "./channel.js";
 import {
   adAttributionLine,
   decideTimeout,
-  HOLDING_LINE,
   windowHoursLeft,
   decideEscalationPing,
   escalationTaskKey,
@@ -74,6 +73,7 @@ import { AUTO_SEND_DAILY_CAP, isAutoSendEnabled } from "./auto-send.js";
 import { claimApproval, getCampaign } from "../db/queries-admin.js";
 import type { Proposal } from "./kb-editor.js";
 import { CLIENT } from "../client.gen.js";
+import { holdingClaimMinAge, holdingLineFor } from "./holding-line.js";
 import {
   criticalAlertLine,
   criticalDedupeKey,
@@ -1088,7 +1088,8 @@ export async function runApprovalTimeouts(
             env.DB,
             `holding_line:${a.phone}`,
             now,
-            45 * 60,
+            // Once per CDMX day per phone (2026-11 grading, A140: three in one chat).
+            holdingClaimMinAge(now),
           ))
         )
           continue;
@@ -1104,7 +1105,7 @@ export async function runApprovalTimeouts(
         try {
           // meta.holding=1: the inbox list skips holding lines when deriving a
           // chat's "last message", so the lead still shows as waiting (unread).
-          await deps.sendText(env, a.phone, HOLDING_LINE, {
+          await deps.sendText(env, a.phone, holdingLineFor(contact?.lang), {
             metaExtra: { holding: 1 },
           });
         } catch (err) {

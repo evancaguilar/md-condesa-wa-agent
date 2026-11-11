@@ -2,6 +2,18 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-11** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### Conversation-quality fixes from grading 475 chats (2026-11-11) — branch `fix/quality-brain-2026-11-11`, NOT pushed
+
+- **Wrong-date bookings** (BOOKING_MISMATCH ×9): new pure `src/brain/stated-date.ts`. <context> now carries a 14-day `calendario` line and, when the lead pinned a date this turn («sábado 14», «el 16», «14/11», «la próxima semana», «el otro sábado», or our own offer they accepted), a `fecha que el lead pidió` line with that day's options for their group. `book_trial` takes `trial_weekday` (refused when it is not the calendar weekday) and refuses a trial_date that contradicts the pinned date (a second call with the same date books it, with a ⚠️ warning → Aprobar). `bookResult` writes the day of the month after the weekday for classes 2+ days out and flags any confirmation whose «hoy/mañana/sábado 7/sábado 17 de noviembre» ≠ the booked record (`confirmationWarning` ⇒ never auto-confirms). Plain replies claiming the recorded booking on another date become drafts (`guardBookingDateClaim`).
+- **Fact guards** (`src/brain/fact-guards.ts`): capacity talk («hay lugar», «ya no tenemos cupo») and adult two-class combos the grid does not support («7 pm Jiu-Jitsu y Muay Thai seguidas») turn the reply into a ⚠️ draft; <context> lists the grid's real combos for the next two class days. Persona example «también hay lugar» → «también hay clase». KB: Jiu-Jitsu «sin golpes», Muay Thai «desde 13 años» (net −1 char).
+- **BFC price at the first ask**: persona puts the BFC exception BEFORE the generic reframe; a `precio Baby Fight Club` context line when a BFC parent asks a price.
+- **Auto-responders** (`src/pipeline/auto-responder.ts`, inbound gate after crisis): boilerplate phrase / same text 3× / fast long ping-pong ⇒ no brain turn + declined stop `autoresponder` (cancels chases) + one ops note; the first human-looking message lifts it.
+- **Returning contacts** (`src/pipeline/returning-contact.ts`): opted-out contact with a clear new request ⇒ #wa-leads task (≤ 1 / 12 h), still no bot reply. Student on the lead line ⇒ task + ONE `copy.studentAckEs/En` acknowledgement (≤ 1 / 12 h). **Wording is a proposal — Evan to confirm** (client.mjs).
+- **Holding line** (`src/services/holding-line.ts`, wired in services/slack.ts): contact's language (EN copy added) and at most once per CDMX day per phone (was 45 min).
+- **Internal note sent to a lead (A90)**: root cause = `set_followup.note` is sent verbatim by cron/followups.ts `customText`. The tool description now says so and the brain refuses a note that reads like a staff note (`src/brain/followup-note.ts`). A send-time check in cron/followups.ts is still open (another session owns that file).
+- KB 12,098 / 12,100 tok. Tests 1648 → **1682**.
+- [ ] After deploy: sandbox «Tendría que ser el sábado 14» on a Thursday → books the 14th and says «sábado 14»; «¿cuánto cuesta?» from a BFC lead → figures at once; check one ⚠️ Cupo / Combo card.
+
 ### Baby Fight Club Nivel 0 (6–11 meses) across bot, site, forms and poster (2026-11-11) — branch `claude/baby-fight-club-booking-p4rx35` in BOTH repos, merged to main on Evan's OK
 
 **Levels (Evan, 2026-11-11):** Nivel 0 = 6–11 meses (viernes 12 pm) · Nivel 1 = 12–24 meses · Nivel 2 = 24–36 meses. Trial classes for Nivel 1/2 stay mié 1 pm / sáb 2 pm.
