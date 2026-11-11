@@ -146,6 +146,7 @@ import { parseApprovalHistoryParams } from "../db/approvals-history.js";
 import { ensureIndexes } from "../db/indexes.js";
 import { parseCatchupBody, parseCatchupCancelBody } from "../services/nudge-catchup.js";
 import { cancelNudgeCatchup, runNudgeCatchup } from "../services/nudge-catchup-db.js";
+import { parseBackfillBody, runDeclineBackfill } from "../services/decline-backfill.js";
 import { clearDecline, declinedPhones, getDeclineMarker, getDeclineMarkers } from "../services/decline-stop.js";
 import { migrationState, runMigrationStep, type MigrationInput } from "../services/wa-migrate.js";
 import {
@@ -718,6 +719,23 @@ export async function handleAdminApi(
     return json(
       await cancelNudgeCatchup(env.DB, parsed.opts, {
         postNote: (t) => ports.slack.postNote(t, { kind: "followup" }),
+      }),
+    );
+  }
+
+  // Declined-stop backfill (owner-only, 2026-11-11): leads who declined BEFORE
+  // the 2026-11-10 stop shipped have no marker and are still chased. Re-reads
+  // the last `sinceDays` (default 14, max 30) of messages with the live
+  // detectors + our "no te escribimos más" promises and applies applyDecline.
+  // {dryRun?: true (default), sinceDays?, limit?} → counts + masked sample.
+  if (path === "/admin/api/nudges/decline-backfill" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const parsed = parseBackfillBody(await readJson<Record<string, unknown>>(req));
+    if (!parsed.ok) return json({ error: parsed.error }, 400);
+    await ensureIndexes(env.DB);
+    return json(
+      await runDeclineBackfill(env.DB, parsed.opts, nowSec(), {
+        postNote: (t) => ports.slack.postNote(t, { kind: "decline" }),
       }),
     );
   }

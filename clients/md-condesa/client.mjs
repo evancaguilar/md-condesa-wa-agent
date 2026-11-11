@@ -108,6 +108,11 @@ export default {
     silent: ["d2", "d7"],
     silentFreshFull: false,
     silentFreshDays: 7,
+    // Hard ceiling across EVERY unsolicited kind (day-1 nudges, d2–d7, post-
+    // trial / no-show chains, reengage, origin_ask; blasts + custom count but
+    // are not blocked), counted after the lead's last message: 1 per CDMX day,
+    // 4 per rolling 7 days (src/cron/send-ceiling.ts, 2026-11-11 review).
+    ceiling: { perDay: 1, per7Days: 4 },
   },
   // Approval timeouts with training wheels ON (src/services/slack-timeouts.ts
   // decideTimeout, runApprovalTimeouts). A draft nobody reviewed that passes

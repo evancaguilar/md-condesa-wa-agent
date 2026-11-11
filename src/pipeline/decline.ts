@@ -189,6 +189,11 @@ const OBJECTION_PATTERNS: RegExp[] = [
   /(?<!\bno (?:me |nos |les |le )?)\b(?:esta|estan|queda|quedan|es) (?:muy |bastante |super |demasiado |algo |un poco )?lejos(?: de (?:mi|nosotros|mi casa|casa|donde vivo|mi trabajo))?$/,
   /\bvivo (?:muy |bastante |super |demasiado )?lejos\b/,
   /\bno (?:me|nos) queda (?:cerca|de paso)\b/,
+  // 2026-11-11 review: "me queda muy retirado" (A26, A151), "estoy lejos, en
+  // Tláhuac" (A153), "no soy de México / no vivo en CDMX" (A290).
+  /(?<!\bno )\b(?:me|nos|les|le) (?:queda|quedan|quedaria) (?:muy |bastante |super |demasiado |algo |un poco )?retirad[oa]s?\b/,
+  /^(?:estoy|estamos|vivo|vivimos) (?:muy |bastante |super |demasiado )?(?:lejos|retirad[oa]s?)\b/,
+  /\bno (?:soy|somos|vivo|vivimos|estoy) (?:de|en) (?:la )?(?:cdmx|ciudad de mexico|mexico|la ciudad|df)\b/,
   // price stated as a fact: "está caro", "es muy caro", "no me alcanza", "fuera de mi presupuesto"
   /(?<!\bno (?:me |nos |les |le )?)\b(?:esta|es|sale|salen|estan|son) (?:muy |bastante |super |algo |un poco |demasiado )?car[oa]s?\b/,
   /\bno (?:me|nos) alcanza\b/,
@@ -210,6 +215,57 @@ export function isObjection(body: string): boolean {
     return n !== "" && OBJECTION_PATTERNS.some((re) => re.test(n));
   });
 }
+
+// ---- soft deferral (2026-11-11) ---------------------------------------------
+//
+// NOT a stop. "Más adelante me comunico", "yo les aviso", "estoy de viaje":
+// the lead is not saying no, but a nudge 4 minutes later (A271) or three chases
+// (A84, A31, A175) read as spam. The drip reacts in src/cron/nudges.ts: the
+// day-1 nudges are cancelled and the chain is pushed so the next automated
+// message is the single goodbye, no sooner than DEFERRAL_HOLD_SECONDS after
+// the deferral. Any later message from the lead supersedes it (only the
+// lead's LAST burst is read), and a decline still sets the full stop.
+
+const DEFERRAL_PATTERNS: RegExp[] = [
+  // "más adelante (me comunico / les escribo)", "los contacto más adelante"
+  /\bmas adelante\b/,
+  // "yo les aviso", "te aviso", "les escribo luego", "luego les marco"
+  /^(?:yo |ya |luego |despues |pronto )?(?:les|te|le|los|las) (?:aviso|avisamos|avisare|escribo|escribimos|escribire|marco|hablo|contacto|busco|comento)\b/,
+  // "…y les aviso", "pido permiso y les aviso" (A235)
+  /\b(?:y|ya|yo) (?:les|te|le) (?:aviso|avisamos|avisare|escribo|escribire)\b(?! que)/,
+  /\b(?:luego|despues|en otro momento|mas tarde|pronto|en cuanto pueda|cuando pueda) (?:yo )?(?:les |te |le |los |las )?(?:aviso|escribo|contacto|marco|comunico|busco|hablo)\b/,
+  /\b(?:me|nos) (?:comunico|comunicamos|comunicare|pondre en contacto|pongo en contacto) (?:con ustedes |contigo )?(?:despues|luego|mas tarde|en otro momento|pronto|cuando|en cuanto)\b/,
+  /\b(?:los|las|lo|la|les) (?:contacto|contactare|busco|buscare) (?:despues|luego|de nuevo|mas tarde|en otro momento|pronto|cuando)\b/,
+  /\bme organizo\b|\bme organizare\b|\bme voy a organizar\b/,
+  // travel: "salgo de viaje", "estoy de viaje", "ando fuera de la ciudad"
+  /\b(?:estoy|ando|voy|salgo|me voy|estare|andare|estamos|andamos|salimos|nos vamos) (?:de viaje|fuera de (?:la ciudad|cdmx|mexico)|de vacaciones)\b/,
+  // "por ahora no", "por el momento no" (not "no me interesa" — that is a stop)
+  /^(?:por (?:ahora|el momento|lo pronto|lo mientras)|de momento|ahorita) no\b/,
+  // "lo voy a pensar", "déjame revisarlo", "necesito comentarlo con mi esposo"
+  /^(?:lo|la) (?:voy a )?(?:pienso|pensar|platico|platicar|comento|comentar|consulto|consultar|reviso|revisar)\b/,
+  /^deja(?:me)? (?:lo |la )?(?:reviso|revisar|checo|checar|pienso|pensar|veo|ver|consulto|organizo)\b/,
+  /\bnecesito (?:comentarlo|platicarlo|pensarlo|consultarlo|revisarlo|verlo)\b/,
+  // English
+  /\b(?:i ll|i will|we ll|we will) (?:let you know|get back to you|reach out|be in touch)\b/,
+  /\b(?:i m|im|i am|we re|we are) (?:traveling|travelling|out of town|away)\b/,
+];
+
+/** Only greetings / courtesy are stripped here ("lo", "por", "de" carry meaning). */
+const DEFER_LEAD = new Set([
+  "hola", "buenas", "pues", "pero", "y", "ok", "okey", "va", "mira", "oye", "oiga",
+  "gracias", "muchas", "mil", "perdon", "disculpa", "bueno", "si", "sale", "claro", "ah", "vale",
+]);
+
+/** Pure. The lead postpones without declining (statement clauses only). */
+export function detectDeferral(body: string): boolean {
+  return statementClauses(body).some((c) => {
+    const n = strip(normalizeText(c), DEFER_LEAD, TRAIL_FILLER);
+    return n !== "" && DEFERRAL_PATTERNS.some((re) => re.test(n));
+  });
+}
+
+/** After a soft deferral the next automated message waits at least this long. */
+export const DEFERRAL_HOLD_SECONDS = 7 * 86400;
 
 /** Pure. The deterministic source for an inbound text, or null. */
 export function detectDecline(body: string): "not_interested" | "objection" | null {
