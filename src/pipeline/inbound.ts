@@ -1026,27 +1026,23 @@ export async function runOverrideChecks(
 }
 
 /**
- * Step 7 of the pipeline: build the brain context for `msg` (the newest
- * inbound of its phone), call the brain, route the result. Exported for the
- * outage redrive; processInbound calls it after the debounce.
+ * The brain context for `phone` right now — the exact assembly a live turn
+ * uses (history with template text, window, training wheels, campaign, ad,
+ * recorded booking, the per-turn hints). Shared by runBrainTurn and the
+ * AI-written day-1 follow-up (src/cron/ai-followup.ts, wired in index.ts), so
+ * both see the same lead the same way. null ⇒ no contact row.
  */
-export async function runBrainTurn(
+export async function buildBrainContext(
   env: Env,
-  ports: Ports,
-  msg: InboundMessage,
+  phone: string,
   nowSec: number,
-  justSentWelcome: string | undefined,
-  opts?: BrainTurnOptions,
-): Promise<void> {
-  // 7. Brain → route.
-  // When this turn starts reading state: a confirmation a PARALLEL turn
-  // claims after this moment is not in the history the model sees.
-  const turnStartedAt = Math.floor(Date.now() / 1000);
-  const fresh = await getContact(env.DB, msg.phone);
-  if (!fresh) return;
+  o: { referral?: InboundMessage["referral"]; justSentWelcome?: string | undefined; turn?: BrainTurnOptions } = {},
+): Promise<{ ctx: ConvoContext; history: StoredMessage[] } | null> {
+  const fresh = await getContact(env.DB, phone);
+  if (!fresh) return null;
   const history = await withTemplateText(
     env,
-    await recentMessages(env.DB, msg.phone, HISTORY_LIMIT, nowSec - HISTORY_WINDOW_SECONDS),
+    await recentMessages(env.DB, phone, HISTORY_LIMIT, nowSec - HISTORY_WINDOW_SECONDS),
     fresh.name,
   );
   const windowOpen =
@@ -1066,11 +1062,11 @@ export async function runBrainTurn(
   // stored contact.ad_ref, which keeps the FIRST-ever attribution for the CRM:
   // a returning lead clicking a NEW ad must not be briefed with the old one.
   let adRef: ConvoContext["adRef"];
-  if (msg.referral && (msg.referral.headline || msg.referral.body)) {
+  if (o.referral && (o.referral.headline || o.referral.body)) {
     adRef = {
-      headline: msg.referral.headline ?? null,
-      body: msg.referral.body ?? null,
-      sourceId: msg.referral.sourceId ?? null,
+      headline: o.referral.headline ?? null,
+      body: o.referral.body ?? null,
+      sourceId: o.referral.sourceId ?? null,
     };
   } else if (fresh.ad_ref) {
     try {
@@ -1091,7 +1087,7 @@ export async function runBrainTurn(
   let recordedBooking: ConvoContext["recordedBooking"];
   try {
     const marker = parseBookingRecordedMarker(
-      await kvGet(env.DB, bookingRecordedKey(msg.phone)),
+      await kvGet(env.DB, bookingRecordedKey(phone)),
     );
     if (marker && bookingMarkerLive(marker, nowSec)) {
       recordedBooking = marker;
@@ -1100,19 +1096,19 @@ export async function runBrainTurn(
       // anti-no-show sequence (armed by syncBookings from the real Airtable
       // record). An upcoming trial date there backs the claim just the same.
       const trialDate = upcomingTrialDateFromReminders(
-        await trialReminderRows(env.DB, msg.phone),
+        await trialReminderRows(env.DB, phone),
         nowSec,
       );
       if (trialDate) recordedBooking = { ts: nowSec, trialDate };
     }
   } catch (err) {
-    console.error("[inbound] recordedBooking read failed", msg.phone, err);
+    console.error("[inbound] recordedBooking read failed", phone, err);
   }
 
   const cdmx = cdmxNow();
   const brainCtx: ConvoContext = {
-    phone: msg.phone,
-    channel: channelOf(msg.phone),
+    phone,
+    channel: channelOf(phone),
     contact: fresh,
     history,
     nowCdmx: cdmx.iso,
@@ -1121,13 +1117,41 @@ export async function runBrainTurn(
     trainingWheels,
     campaign,
     adRef,
-    justSentWelcome,
+    justSentWelcome: o.justSentWelcome,
     recordedBooking,
-    ...(opts?.stale ? { staleReply: opts.stale } : {}),
-    ...(opts?.reschedule ? { reschedule: true } : {}),
-    ...(opts?.leadCancel ? { leadCancel: opts.leadCancel } : {}),
-    ...(opts?.originAnswer ? { originAnswer: opts.originAnswer } : {}),
+    ...(o.turn?.stale ? { staleReply: o.turn.stale } : {}),
+    ...(o.turn?.reschedule ? { reschedule: true } : {}),
+    ...(o.turn?.leadCancel ? { leadCancel: o.turn.leadCancel } : {}),
+    ...(o.turn?.originAnswer ? { originAnswer: o.turn.originAnswer } : {}),
   };
+
+  return { ctx: brainCtx, history };
+}
+
+/**
+ * Step 7 of the pipeline: build the brain context for `msg` (the newest
+ * inbound of its phone), call the brain, route the result. Exported for the
+ * outage redrive; processInbound calls it after the debounce.
+ */
+export async function runBrainTurn(
+  env: Env,
+  ports: Ports,
+  msg: InboundMessage,
+  nowSec: number,
+  justSentWelcome: string | undefined,
+  opts?: BrainTurnOptions,
+): Promise<void> {
+  // 7. Brain → route.
+  // When this turn starts reading state: a confirmation a PARALLEL turn
+  // claims after this moment is not in the history the model sees.
+  const turnStartedAt = Math.floor(Date.now() / 1000);
+  const built = await buildBrainContext(env, msg.phone, nowSec, {
+    ...(msg.referral ? { referral: msg.referral } : {}),
+    justSentWelcome,
+    ...(opts ? { turn: opts } : {}),
+  });
+  if (!built) return;
+  const { ctx: brainCtx, history } = built;
 
   const result = await ports.brain.respond(brainCtx);
   // The 8s debounce is check-then-act: two inbound messages a few seconds

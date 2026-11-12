@@ -78,6 +78,13 @@ export interface CronDeps {
   rescueTurn?(row: UnansweredRow, nowSec: number): Promise<void>;
   /** Human override v2 (pipeline/inbound.runOverrideChecks); absent ⇒ skipped. */
   overrideChecks?(nowSec: number): Promise<unknown>;
+  /**
+   * AI-written day-1 follow-up (src/cron/ai-followup.ts, features.aiFollowups):
+   * one brain call (BrainPort.writeFollowup) on the lead's context with
+   * `instruction` as the turn's <seguimiento> block. Wired in index.ts; absent
+   * ⇒ every day-1 nudge uses the fixed copy.
+   */
+  aiFollowup?(env: import("../types.js").Env, phone: string, instruction: string): Promise<import("../types.js").FollowupWrite>;
   slack: CronSlackDeps;
   runApprovalTimeouts: RunApprovalTimeouts;
   ensureControlPanel: EnsureControlPanel;

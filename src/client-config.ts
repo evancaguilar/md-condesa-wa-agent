@@ -216,6 +216,10 @@ export interface ClientFeatures {
   /** Training wheels ON: a SUCCESSFUL book_trial's confirmation sends at once
    *  instead of waiting in Aprobar (services/auto-confirm.ts). Off ⇒ Aprobar. */
   autoConfirmBookings?: boolean;
+  /** Day-1 nudges (nudge_1h / nudge_8h) to ENGAGED leads are written by the
+   *  brain as a continuation of the open thread (src/cron/ai-followup.ts);
+   *  any guard trip / brain failure sends the fixed copy. Absent = off. */
+  aiFollowups?: boolean;
 }
 
 /**

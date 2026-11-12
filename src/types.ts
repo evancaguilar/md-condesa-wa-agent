@@ -433,6 +433,12 @@ export interface ConvoContext {
    *  already recorded → <origen> hint, thank briefly, never ask again.
    *  canal null = they named a source we couldn't place (e.g. "Instagram"). */
   originAnswer?: { canal: string | null };
+  /**
+   * Set ONLY by the AI-written day-1 follow-up (src/cron/ai-followup.ts): the
+   * complete `<seguimiento>` instruction block, appended LAST to the per-turn
+   * context. The cached system blocks stay byte-identical to a normal turn.
+   */
+  followupInstruction?: string;
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */
@@ -567,8 +573,17 @@ export type BrainResult =
 
 // ---- Ports (stable interfaces B/C/D implement against) ----
 
+/** What the brain wrote for an AI follow-up: plain text, or why it could not. */
+export type FollowupWrite = { ok: true; text: string } | { ok: false; reason: string };
+
 export interface BrainPort {
   respond(ctx: ConvoContext): Promise<BrainResult>;
+  /**
+   * One brain call for a day-1 follow-up (ctx.followupInstruction set): text
+   * only — no booking, no escalation, no follow-up row, no side effects.
+   * Optional so the many test fakes stay one-liners; absent ⇒ fixed copy.
+   */
+  writeFollowup?(ctx: ConvoContext, opts?: { timeoutMs?: number }): Promise<FollowupWrite>;
 }
 
 /** Payload of the "the bot answered on its own" card (gated auto-send lane). */

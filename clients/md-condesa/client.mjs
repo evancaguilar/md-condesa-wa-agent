@@ -95,6 +95,11 @@ export default {
     // escalations, low sureness, slot warnings and prices in the text still
     // queue — src/services/auto-confirm.ts. false ⇒ every confirmation queues.
     autoConfirmBookings: true,
+    // Owner request 2026-11-11: the day-1 follow-ups (nudge_1h / nudge_8h) to a
+    // lead who wrote something real are written by the brain and continue the
+    // open thread (src/cron/ai-followup.ts). Silent leads keep the fixed copy;
+    // any guard trip or brain failure sends the fixed copy. false ⇒ fixed copy only.
+    aiFollowups: true,
   },
   // Extended drip (d2…d7, paid MARKETING templates once the 24h window closes)
   // by engagement — 2026-11-09, after Meta flagged the number for spam twice in

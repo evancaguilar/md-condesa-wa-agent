@@ -8,7 +8,7 @@ import { handleGoogleClickBeacon } from "./routes/google-click.js";
 import { handleCuestionario } from "./routes/cuestionario.js";
 import { HOOK_PATH, handleEnrolledHook, makeEnrolledHookDeps } from "./routes/airtable-hooks.js";
 import { getCronDeps, runCron, setCronDeps } from "./cron/dispatcher.js";
-import { runBrainTurn, runOverrideChecks } from "./pipeline/inbound.js";
+import { buildBrainContext, runBrainTurn, runOverrideChecks } from "./pipeline/inbound.js";
 import { turnRunnerClass } from "./pipeline/turn-runner.js";
 import { staleReplyFor } from "./cron/redrive.js";
 import { rescueTurnOptions } from "./cron/missed-turns.js";
@@ -90,6 +90,16 @@ function makePorts(env: Env): Ports {
         }),
       ensureControlPanel: (e) => ensureControlPanel(e).then(() => {}),
       overrideChecks: (nowSec) => runOverrideChecks(env, cachedPorts!, nowSec),
+      // AI-written day-1 follow-up (cron/ai-followup.ts): the lead's normal
+      // brain context + the <seguimiento> block, ONE brain call, text only.
+      // Every failure is a reason the cron turns into the fixed copy.
+      aiFollowup: async (e, phone, instruction) => {
+        const brain = cachedPorts!.brain;
+        if (!brain.writeFollowup) return { ok: false, reason: "no_writer" };
+        const built = await buildBrainContext(e, phone, Math.floor(Date.now() / 1000));
+        if (!built) return { ok: false, reason: "no_contact" };
+        return brain.writeFollowup({ ...built.ctx, followupInstruction: instruction });
+      },
       redriveTurn: (row, nowSec) =>
         runBrainTurn(
           env,

@@ -84,6 +84,20 @@ import {
 } from "./nudge-policy.js";
 import { engagementByPhone } from "../db/nudge-engagement.js";
 import { isDeclined } from "../services/decline-stop.js";
+import type { FollowupWrite } from "../types.js";
+import { cdmxHintContext } from "./time.js";
+import {
+  AI_FOLLOWUP_DEFER_SECONDS,
+  aiTickHasRoom,
+  buildFollowupInstruction,
+  composeAiFollowup,
+  isAiFollowupKind,
+  recordAiFallback,
+  validateAiFollowup,
+  type AiFollowupBrief,
+  type AiFollowupKind,
+  type AiFollowupTick,
+} from "./ai-followup.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -1002,6 +1016,52 @@ export async function cancelNudges(
 }
 
 /**
+ * Pure. The AI follow-up brief from the SAME plan the fixed copy uses
+ * (planNudgeCopy: band, discipline, declined/preferred days, time of day,
+ * ruled-out dates, slots already proposed, the next valid slot), plus what we
+ * sent since the lead's last message (the open thread; on nudge_8h it holds
+ * the nudge_1h text the new one must not repeat).
+ */
+export function aiFollowupBrief(
+  kind: AiFollowupKind,
+  contact: Contact,
+  plan: NudgeCopyPlan,
+  recent: readonly { direction: string; body: string | null; ts: number }[],
+  proposedKeys: ReadonlySet<string>,
+  now: number,
+): AiFollowupBrief {
+  let lastIn = -1;
+  recent.forEach((m, i) => {
+    if (m.direction === "in") lastIn = i;
+  });
+  const sentSince = recent
+    .slice(lastIn + 1)
+    .filter((m) => m.direction !== "in" && (m.body ?? "").trim())
+    .map((m) => m.body ?? "");
+  const lastInTs = contact.last_inbound_at ?? (lastIn >= 0 ? recent[lastIn]!.ts : now);
+  const q = parseQualification(contact);
+  const declined = weekdaySet(q.declined_days);
+  for (const d of plan.facts.declinedWeekdays) declined.add(d);
+  const preferred = plan.facts.preferredWeekdays ?? (q.preferred_days?.length ? [...weekdaySet(q.preferred_days)] : null);
+  return {
+    kind,
+    lang: contact.lang === "en" ? "en" : "es",
+    hoursSilent: Math.max(1, Math.round((now - lastInTs) / HOUR)),
+    sentSinceLastInbound: sentSince,
+    band: plan.band,
+    discipline: plan.band === "baby" || plan.band === "mini" ? null : (plan.facts.discipline ?? (parseQualification(plan.contact).discipline || null)),
+    declinedWeekdays: [...declined],
+    preferredWeekdays: preferred ? preferred.filter((d) => !declined.has(d)) : null,
+    timeRanges: plan.facts.timeRanges ?? campaignTimeRanges(plan.campaignName),
+    excludeDates: [...plan.facts.excludeDates],
+    proposedSlots: [...proposedKeys],
+    cta: plan.cta,
+    nextSlot: plan.slot,
+    now,
+  };
+}
+
+/**
  * Send-time processing for a due DAY-1 nudge. Re-verifies eligibility (lead / not
  * opted / not overridden / no booking / under cap), sends the free-form nudge,
  * and records the send in the rolling cap. A closed window → cancel (no template
@@ -1013,13 +1073,30 @@ export async function processNudge(
   phone: string,
   kind: NudgeKind,
   deps: {
-    sendText: (env: Env, phone: string, body: string) => Promise<string>;
+    sendText: (
+      env: Env,
+      phone: string,
+      body: string,
+      opts?: { metaExtra?: Record<string, unknown> },
+    ) => Promise<string>;
     isWindowClosed: (err: unknown) => boolean;
     /** Optional so existing callers/tests keep working; without it a
      *  campaign-only lead falls back to the adults copy (the old behavior). */
     campaignName?: (env: Env, campaignId: number) => Promise<string | null>;
     /** Called when the nudge is dropped because the lead wants to pay/enrol. */
     onBuyIntent?: (env: Env, phone: string) => Promise<void>;
+    /**
+     * AI-written follow-up (features.aiFollowups, ./ai-followup.ts): ONE brain
+     * call with `instruction` as the turn's <seguimiento> block. Absent (or
+     * the flag off) ⇒ the fixed copy, exactly as before.
+     */
+    writeFollowup?: (env: Env, phone: string, instruction: string) => Promise<FollowupWrite>;
+    /** Engagement (nudgePolicy class) for the AI decision; absent ⇒ one indexed lookup. */
+    engagement?: (phone: string) => Promise<LeadEngagement>;
+    /** The cron tick's AI budget + counters; absent ⇒ no per-tick cap. */
+    aiTick?: AiFollowupTick;
+    /** Brain deadline override (tests). */
+    aiTimeoutMs?: number;
   },
 ): Promise<"sent" | "cancelled" | "skipped_optout" | NudgeDeferred> {
   const contact = await getContact(env.DB, phone);
@@ -1076,6 +1153,28 @@ export async function processNudge(
   const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
   if (isDuplicateSend(body, outbound, now)) return "cancelled";
 
+  // AI-written follow-up (features.aiFollowups): only for a lead who wrote
+  // something real (the nudgePolicy "engaged" class). Decided AFTER every stop
+  // above, so no brain call is spent on a nudge that would not go out. Over the
+  // tick's budget the row waits a few minutes — it is not downgraded.
+  const ai = CLIENT.features.aiFollowups === true && !!deps.writeFollowup && isAiFollowupKind(kind);
+  let aiPlanned = false;
+  if (ai) {
+    let engagement: LeadEngagement;
+    try {
+      engagement = deps.engagement ? await deps.engagement(phone) : await lookupEngagement(env, phone);
+    } catch {
+      engagement = SILENT;
+    }
+    if (engagement.engaged) {
+      if (deps.aiTick && !aiTickHasRoom(deps.aiTick)) {
+        deps.aiTick.deferred++;
+        return { outcome: "deferred", retryAt: shiftOutOfQuiet(now + AI_FOLLOWUP_DEFER_SECONDS) };
+      }
+      aiPlanned = true;
+    }
+  }
+
   // Claim BEFORE sending, but NOT the one-per-day extended claim (that made
   // nudge_8h lose to nudge_1h every day). A 2h timestamp claim instead: two
   // ticks (or two rows) racing in the same minute can never both send
@@ -1086,8 +1185,38 @@ export async function processNudge(
     const from = Number.isFinite(held) && held > 0 ? held : now;
     return { outcome: "deferred", retryAt: shiftOutOfQuiet(Math.max(from + DAY1_MIN_GAP_SECONDS, now + 60)) };
   }
+  let sendBody = body;
+  let metaExtra: Record<string, unknown> | undefined;
+  if (aiPlanned && deps.writeFollowup) {
+    if (deps.aiTick) deps.aiTick.started++;
+    const brief = aiFollowupBrief(kind as AiFollowupKind, contact, c, recent, parseProposedSlots(slotsRaw, now), now);
+    const instruction = buildFollowupInstruction(brief);
+    const write = deps.writeFollowup;
+    const res = await composeAiFollowup({
+      write: () => write(env, phone, instruction),
+      check: (text) =>
+        validateAiFollowup(text, {
+          nowCdmx: cdmxHintContext(now).iso,
+          now,
+          contact: c.contact ?? contact,
+          campaignName: c.campaignName,
+          lang: brief.lang,
+          recentOutbound: outbound,
+        }),
+      ...(deps.aiTimeoutMs !== undefined ? { timeoutMs: deps.aiTimeoutMs } : {}),
+    });
+    if (res.ok) {
+      sendBody = res.text;
+      metaExtra = { aiFollowup: true };
+      if (deps.aiTick) deps.aiTick.written++;
+    } else {
+      metaExtra = { aiFollowupFallback: res.reason };
+      if (deps.aiTick) recordAiFallback(deps.aiTick, res.reason);
+      console.log(`[nudges] ${kind} ${phone}: AI follow-up fell back to the fixed copy (${res.reason})`);
+    }
+  }
   try {
-    await deps.sendText(env, phone, body);
+    await deps.sendText(env, phone, sendBody, ...(metaExtra ? [{ metaExtra }] : []));
   } catch (err) {
     await kvDelete(env.DB, gapKey); // nothing went out — free the gap again
     if (deps.isWindowClosed(err)) return "cancelled";

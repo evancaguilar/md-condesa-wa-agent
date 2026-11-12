@@ -13,6 +13,16 @@ interface RequestInit {
   method?: string;
   headers?: Record<string, string>;
   body?: string | FormData | Uint8Array;
+  signal?: AbortSignal;
+}
+
+interface AbortSignal {
+  readonly aborted: boolean;
+}
+
+declare class AbortController {
+  readonly signal: AbortSignal;
+  abort(reason?: unknown): void;
 }
 
 declare function fetch(input: string, init?: RequestInit): Promise<Response>;

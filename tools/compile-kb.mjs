@@ -397,6 +397,7 @@ function renderClientTs(cfg, persona, version) {
       metaCapi: !!cfg.features?.metaCapi,
       metaAudiences: !!cfg.features?.metaAudiences,
       autoConfirmBookings: !!cfg.features?.autoConfirmBookings,
+      aiFollowups: !!cfg.features?.aiFollowups,
     },
     ...(cfg.safety ? { safety: cfg.safety } : {}),
     ...(cfg.airtableLeads ? { airtableLeads: cfg.airtableLeads } : {}),

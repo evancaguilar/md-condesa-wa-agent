@@ -15,6 +15,7 @@ import type {
   BrainResult,
   Confidence,
   ConvoContext,
+  FollowupWrite,
   Language,
   QualUpdate,
   StoredMessage,
@@ -350,7 +351,72 @@ export function createBrain(deps: BrainDeps): BrainPort {
     }
   }
 
-  return { respond };
+  /**
+   * AI-written day-1 follow-up (src/cron/ai-followup.ts). Exactly ONE Messages
+   * call with the SAME system blocks, tools and thinking config as respond(),
+   * so the cached prefix is shared byte for byte; the follow-up instructions
+   * ride in ctx.followupInstruction (end of the per-turn <context>). No tool
+   * is ever executed: only a send_reply is read (parseFollowupResponse), and
+   * any other tool call is refused → the caller sends the fixed copy.
+   */
+  async function writeFollowup(ctx: ConvoContext, opts: { timeoutMs?: number } = {}): Promise<FollowupWrite> {
+    const usageAcc: Required<ApiUsage> = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    };
+    // One deadline for the whole call (both callAnthropic attempts).
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20_000);
+    const timedFetch: typeof fetch = (input, init) => doFetch(input, { ...(init ?? {}), signal: ctrl.signal });
+    try {
+      const overlay = deps.loadOverlay ? await deps.loadOverlay() : "";
+      const system = buildSystem(deps.kb, overlay);
+      const messages = buildInitialMessages(ctx);
+      const resp = await callAnthropic(timedFetch, deps.apiKey, system, messages, TOOLS, MAX_TOKENS, {
+        thinking: { type: "adaptive" },
+        effort: "medium",
+      });
+      accumulate(usageAcc, resp.usage);
+      await flushUsage(deps.accrueUsage, usageAcc).catch(() => {});
+      return parseFollowupResponse(resp);
+    } catch (err) {
+      await flushUsage(deps.accrueUsage, usageAcc).catch(() => {});
+      if (ctrl.signal.aborted) return { ok: false, reason: "timeout" };
+      const detail = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, " ").slice(0, 160);
+      console.error(`[brain] follow-up api_error for ${ctx.phone}: ${detail}`);
+      return { ok: false, reason: "brain_error" };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return { respond, writeFollowup };
+}
+
+/**
+ * Pure. The one response of an AI follow-up call → its text, or why not.
+ * ONLY send_reply is accepted: book_trial / set_followup / escalate_to_human
+ * (or any unknown tool) is refused, so a follow-up can never book, escalate or
+ * schedule anything. A send_reply that flags an escalation or a decline, the
+ * no-reply sentinel, or an empty message is refused too.
+ */
+export function parseFollowupResponse(resp: ApiResponse): FollowupWrite {
+  const toolUses = resp.content.filter((b): b is ToolUseContent => b.type === "tool_use");
+  const other = toolUses.find((t) => t.name !== "send_reply");
+  if (other) return { ok: false, reason: `other_tool:${other.name}` };
+  const reply = toolUses.find((t) => t.name === "send_reply");
+  if (!reply) return { ok: false, reason: "no_send_reply" };
+  const input = reply.input as { message?: unknown; escalation_reason?: unknown; lead_declined?: unknown };
+  if (typeof input.escalation_reason === "string" && input.escalation_reason.trim()) {
+    return { ok: false, reason: "escalation" };
+  }
+  if (input.lead_declined === true) return { ok: false, reason: "declined_signal" };
+  const text = typeof input.message === "string" ? unescapeNewlines(input.message).trim() : "";
+  if (!text) return { ok: false, reason: "empty" };
+  if (isNoReplySentinel(text)) return { ok: false, reason: "no_reply_sentinel" };
+  return { ok: true, text };
 }
 
 // ---- request / response --------------------------------------------------

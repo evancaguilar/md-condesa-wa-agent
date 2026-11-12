@@ -9,7 +9,7 @@
 // didn't-sign-up chain and the second no-show touch); processResult below is
 // what arms both.
 
-import type { Contact, Env, Followup, NoteOpts } from "../types.js";
+import type { Contact, Env, Followup, FollowupWrite, NoteOpts } from "../types.js";
 import {
   scheduleFollowup,
   rescheduleFollowup,
@@ -82,6 +82,7 @@ import {
   DAY,
 } from "./time.js";
 import { isQuietHour, next8am, shiftOutOfQuiet } from "./quiet.js";
+import { aiFollowupNote, aiFollowupNoteMeta, newAiFollowupTick, type AiFollowupTick } from "./ai-followup.js";
 import { greetingName } from "./display-name.js";
 import {
   airtableFetch,
@@ -453,6 +454,10 @@ async function bumpAttempts(
 export interface FollowupDeps {
   slack: CronSlackDeps;
   getRecord?: (env: Env, recordId: string) => Promise<BookingRecord | null>;
+  /** AI-written day-1 follow-up (cron/ai-followup.ts, features.aiFollowups):
+   *  one brain call for `phone` with `instruction` as the <seguimiento> block.
+   *  Absent ⇒ the fixed copy (wired in index.ts). */
+  aiFollowup?: (env: Env, phone: string, instruction: string) => Promise<FollowupWrite>;
 }
 
 /** Per-tick state shared by the rows of one runDueFollowups pass. */
@@ -463,6 +468,8 @@ interface TickCtx {
   policySkips: Map<string, number>;
   /** Send-ceiling hits this tick, "<día|semana> <kind>" → n (one aggregated ops note). */
   ceilingHits?: Map<string, number>;
+  /** AI follow-ups this tick: the per-tick budget + outcome counts (one aggregated ops note). */
+  ai?: AiFollowupTick;
 }
 
 /**
@@ -494,7 +501,12 @@ export async function runDueFollowups(
   // retried (attempts counter still bounds them).
   await releaseStaleSendClaims(env.DB, nowSec(), 30 * 60);
   const due = await dueFollowups(env.DB);
-  const tick: TickCtx = { engagement: tickEngagement(env, due), policySkips: new Map(), ceilingHits: new Map() };
+  const tick: TickCtx = {
+    engagement: tickEngagement(env, due),
+    policySkips: new Map(),
+    ceilingHits: new Map(),
+    ai: newAiFollowupTick(),
+  };
   for (const f of due) {
     // Claim BEFORE any send: an overlapping tick that read the same row loses
     // the UPDATE race and skips it.
@@ -525,6 +537,15 @@ export async function runDueFollowups(
       await deps.slack.postNote(cNote, { kind: "followup", meta: Object.fromEntries(tick.ceilingHits ?? new Map()) });
     } catch (err) {
       console.warn(`[followups] ceiling note failed: ${String(err)}`);
+    }
+  }
+  // …and ONE for the AI-written day-1 follow-ups (written / fallback / deferred).
+  const aNote = tick.ai ? aiFollowupNote(tick.ai) : null;
+  if (aNote && tick.ai) {
+    try {
+      await deps.slack.postNote(aNote, { kind: "followup", meta: aiFollowupNoteMeta(tick.ai) });
+    } catch (err) {
+      console.warn(`[followups] ai-followup note failed: ${String(err)}`);
     }
   }
 }
@@ -704,6 +725,9 @@ async function processOne(
         sendText,
         isWindowClosed: (err) => err instanceof WindowClosedError,
         campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
+        ...(deps.aiFollowup ? { writeFollowup: deps.aiFollowup } : {}),
+        ...(tick ? { engagement: tick.engagement } : {}),
+        ...(tick?.ai ? { aiTick: tick.ai } : {}),
         onBuyIntent: async (_e, phone) => {
           await taskNote(deps.slack, 
             `<!here> 💳 ${phone} dijo que quiere pagar/inscribirse (o que ya pagó). Se canceló el seguimiento automático — atiéndelo un humano.`,

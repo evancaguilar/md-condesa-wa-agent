@@ -704,6 +704,10 @@ export function buildContextBlock(
     );
   }
 
+  // AI-written day-1 follow-up (src/cron/ai-followup.ts): its instruction
+  // block rides LAST in the per-turn context, never in the cached system.
+  if (ctx.followupInstruction) lines.push(ctx.followupInstruction);
+
   return lines.join("\n");
 }
 
