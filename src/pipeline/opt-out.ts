@@ -61,6 +61,14 @@ const CLAUSE_PATTERNS: RegExp[] = [
   new RegExp(`^(?:no|ya no) quiero (?:recibir|que me ${SEND_VERB})${TAIL}$`),
   // "borren mi numero", "borra mi contacto", "eliminen mi numero"
   /^(?:borren|borra|borrar|eliminen|elimina|eliminar|quiten|quita) (?:mi|este) (?:numero|contacto|telefono|cel|celular)(?: de su (?:lista|base))?$/,
+  // v3 (2026-11-12) polite lead-ins: "pueden (por favor) eliminar mi contacto",
+  // "me podrian borrar mi numero", "favor de eliminar mi numero" (the leading
+  // "por favor" is already stripped, so "de" may be left over), "quiero que
+  // eliminen mi numero". Anchored: needs "mi/este" + numero/contacto, so
+  // "pueden eliminar el cargo" / "borre mi numero viejo" do not match.
+  new RegExp(`^(?:(?:me |nos )?(?:pueden|puedes|podrian|podrias|podria|puede) |de |quiero que |necesito que |les pido que )?(?:(?:por favor|porfa|porfavor) )?(?:borren|borra|borrar|borrarme|eliminen|elimina|eliminar|eliminarme|quiten|quita|quitar|quitarme) (?:mi|este) (?:numero|contacto|telefono|cel|celular)(?: de (?:su|la|sus) (?:lista|base|listas|sistema|contactos))?(?: (?:por favor|porfa|porfavor|ya))?$`),
+  // "eliminenme de su lista", "borrenme de su base", "quitenme de la lista"
+  /^(?:eliminenme|borrenme|quitenme|saquenme)(?: de (?:su|la|sus) (?:lista|base|listas|sistema|contactos))?$/,
   // "quiero darme de baja", "denme de baja de la lista"
   /^(?:quiero |me quiero )?(?:darme|denme|dame|dar) de baja(?: de (?:la|su) (?:lista|base))?$/,
   // English
