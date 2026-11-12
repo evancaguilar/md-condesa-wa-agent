@@ -297,13 +297,22 @@ export async function approveAndSend(
   return res;
 }
 
+/** Pure. The text of a staff edit as it is sent and stored (whitespace-trimmed). */
+export function cleanEditedText(raw: string | null | undefined): string {
+  return (raw ?? "").trim();
+}
+
 /** Send an edited version of the reply, logging the draft→final edit. */
 export async function editAndSend(
   env: Env,
   id: number,
-  finalText: string,
+  rawText: string,
   opts: SendOpts = {},
 ): Promise<ApprovalResult> {
+  // Staff edits arrive with stray leading/trailing spaces or newlines from the
+  // Slack modal / panel textarea: trim before sending AND storing.
+  const finalText = cleanEditedText(rawText);
+  if (!finalText) return EMPTY_DRAFT;
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
   const res = await claimAndSend(env, id, "edited", finalText, finalText, opts);

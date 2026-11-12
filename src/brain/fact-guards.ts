@@ -28,6 +28,21 @@ export function capacityClaim(text: string): string | null {
   return m ? m[0].trim() : null;
 }
 
+/**
+ * Group-size / scarcity selling claims that are not in the KB (AI follow-up
+ * preview 2026-11-12: "grupos chicos"). Capacity wording ("cupo limitado",
+ * "últimos lugares") is already capacityClaim's job; this adds the group-size
+ * phrasings and the English "limited spots/space". Conservative list. Pure.
+ */
+const UNBACKED_CLAIM_RE =
+  /\bgrupos?\s+(?:muy\s+)?(?:chic[oa]s?|peque[ñn][oa]s?|reducid[oa]s?)\b|\bclases?\s+(?:muy\s+)?(?:reducid[oa]s?|con\s+pocos\s+alumnos)\b|\bsmall(?:er)?\s+(?:groups?|class(?:es)?|class\s+sizes?)\b|\blimited\s+(?:spots?|space|spaces|availability|capacity)\b/i;
+
+/** The group-size / capacity-style selling phrase in `text`, or null. Pure. */
+export function unbackedClaim(text: string): string | null {
+  const m = UNBACKED_CLAIM_RE.exec(text);
+  return m ? m[0].trim() : null;
+}
+
 // ---- two-class combos ---------------------------------------------------
 
 /** Cues that claim a two-class sequence on their own. */

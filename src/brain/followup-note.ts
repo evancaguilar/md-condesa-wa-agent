@@ -8,7 +8,10 @@ const INTERNAL_NOTE_RE: readonly RegExp[] = [
   /\b(?:el|la|al|del)\s+lead\b/i,
   /\blead\s+(?:pidi[oó]|quiere|dijo|espera|pregunt[oó])\b/i,
   /^\s*(?:nota|recordatorio|pendiente|tarea|to\s?do|seguimiento|follow[-\s]?up)\s*:/i,
-  /\b(?:ni[ñn][oa]|hij[oa]|beb[eé]|edad|tel[eé]fono|nombre|programa|disciplina)\s*:\s*\S/i,
+  // Staff-style "Field: value". NOT a note when the label is preceded by a
+  // possessive/article ("…le quede mejor a tu hijo: https://…" is a customer
+  // sentence) or when the value is a URL.
+  /(?<!\b(?:tu|tus|su|sus|mi|mis|del|al|el|la|un|una)\s)\b(?:ni[ñn][oa]|hij[oa]|beb[eé]|edad|tel[eé]fono|nombre|programa|disciplina)\s*:\s*(?!(?:https?:\/\/|www\.))\S/i,
   /\bconfirmar\s+y\s+agendar\b/i,
   /\bespera(?:n)?\s+(?:confirmaci[oó]n|respuesta|que\s+le)\b/i,
   /\b(?:llamarle|escribirle|preguntarle|recordarle|confirmarle|contactarle|avisarle|darle\s+seguimiento)\b/i,

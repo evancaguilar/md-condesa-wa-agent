@@ -29,6 +29,7 @@ import {
   guardUnverifiedSlotClaim,
 } from "../brain/claude.js";
 import { looksInternalNote } from "../brain/followup-note.js";
+import { unbackedClaim } from "../brain/fact-guards.js";
 import { CLIENT } from "../client.gen.js";
 
 /** Day-1 kinds the brain may write. The legacy nudge_6h keeps its copy. */
@@ -190,6 +191,8 @@ export function buildFollowupInstruction(b: AiFollowupBrief): string {
       "- UNA sola pregunta o UNA propuesta concreta. Máximo 2 frases cortas y 280 caracteres en total.",
       "- Sin presión ni urgencia falsa (nada de \"últimos lugares\", \"se acaba hoy\", \"no te lo pierdas\").",
       "- Solo datos que estén en la base de conocimiento o en este contexto: no inventes precios, horarios, promociones, cupos ni nada nuevo. Si mencionas un precio, que sea uno que ya le dimos en esta conversación. Sin links, salvo el de agendar de su programa.",
+      "- NO agregues beneficios, características ni afirmaciones sobre la academia que no estén en la base de conocimiento (nada de \"grupos chicos\", \"atención personalizada\" y similares).",
+      "- Si es para un menor y no sabemos su edad, pregunta SOLO la edad: no nombres ningún día ni hora, ni retomes una promesa vaga anterior del hilo (por ejemplo \"el horario del sábado\"): puede que ese día no haya clase para su edad.",
       "- Es un seguimiento: NO agendes ni confirmes ninguna clase (no llames book_trial), no programes recordatorios (set_followup) y no escales (escalate_to_human). Llama SOLO send_reply con el texto en message, language \"es\" y tu sureness; deja escalation_reason vacío.",
     );
     if (sent.length) {
@@ -216,6 +219,8 @@ export function buildFollowupInstruction(b: AiFollowupBrief): string {
       "- ONE question or ONE concrete proposal. At most 2 short sentences and 280 characters in total.",
       "- No pressure and no fake urgency (no \"last spots\", \"ends today\", \"don't miss out\").",
       "- Only facts that are in the knowledge base or in this context: do not invent prices, schedules, promotions, capacity or anything new. If you mention a price, it must be one we already gave them in this conversation. No links, except their program's booking link.",
+      "- Do NOT add benefits, features or claims about the academy that are not in the knowledge base (no \"small groups\", \"personal attention\" and the like).",
+      "- If it is for a minor and we do not know their age, ask ONLY for the age: name no day or time, and do not build on a vague earlier promise in the thread (e.g. \"the Saturday schedule\"): there may be no class that day for their age.",
       "- It is a follow-up: do NOT book or confirm any class (no book_trial), do not schedule reminders (set_followup) and do not escalate (escalate_to_human). Call ONLY send_reply with the text in message, language \"en\" and your sureness; leave escalation_reason empty.",
     );
     if (sent.length) {
@@ -263,6 +268,7 @@ export const AI_FOLLOWUP_GUARD_REASONS: readonly string[] = [
   "slot_claim",
   "booking_date",
   "fact_claim",
+  "unbacked_claim",
   "price",
 ];
 
@@ -343,6 +349,8 @@ export function validateAiFollowup(raw: string, ctx: AiFollowupCheckCtx): AiFoll
       return { ok: false, reason, ...(r.action === "draft" && r.reason ? { detail: r.reason } : {}) };
     }
   }
+  const unbacked = unbackedClaim(text);
+  if (unbacked) return { ok: false, reason: "unbacked_claim", detail: unbacked };
   if (unquotedPrices(text, ctx.recentOutbound.map((m) => m.body)).length) return { ok: false, reason: "price" };
   return { ok: true, text };
 }

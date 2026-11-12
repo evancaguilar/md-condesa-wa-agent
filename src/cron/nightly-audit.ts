@@ -15,6 +15,9 @@ import { SLOTS } from "../brain/slots.gen.js";
 import { accrueUsage } from "../db/queries.js";
 import { listApprovalHistory, namesForPhones } from "../db/queries-admin.js";
 import { cdmxDateStr } from "./time.js";
+import { CLIENT } from "../client.gen.js";
+import { priceTestActive } from "../services/price-experiment.js";
+import type { PriceExperimentConfig } from "../client-config.js";
 import { dashboardUrl } from "../services/dashboard-link.js";
 
 export const AUDIT_MODEL = "claude-opus-5-5";
@@ -227,7 +230,32 @@ export function formatApprovals(rows: AuditApprovalRow[]): string {
 
 // ---- pure: prompt ----------------------------------------------------------
 
-export function buildAuditSystem(kb: string): SystemBlock[] {
+/**
+ * Pure. Prompt lines about A/B tests that are ACTIVE on `cdmxDate`, derived
+ * from the client config (no dates/percentages hardcoded here). Empty when
+ * nothing runs, so the line disappears once an experiment expires. The
+ * auditor kept reporting the deliberate price-on-first-ask variant as a bug.
+ */
+export function activeExperimentLines(
+  cfg: { priceFirstAsk?: PriceExperimentConfig } | null | undefined,
+  cdmxDate: string,
+): string[] {
+  const out: string[] = [];
+  const p = cfg?.priceFirstAsk;
+  if (p && priceTestActive(p, cdmxDate)) {
+    out.push(
+      `- EXPERIMENTO ACTIVO (A/B de precio en la primera pregunta, del ${p.start} al ${p.end} CDMX, fin excluyente): una parte de los leads, asignada por hash del teléfono, recibe el precio aprobado YA en la primera pregunta de precio, junto con la invitación a la clase de prueba con día y hora; el resto recibe el reencuadre del KB. Que el bot dé el precio a la primera pregunta NO es un problema ni una contradicción con el flujo del KB: no lo reportes. SÍ repórtalo si el monto es INCORRECTO para el programa del lead (p. ej. el rango de precios de adultos dado a un lead de Kids/Teens/Baby) o si inventa una cifra.`,
+    );
+  }
+  return out;
+}
+
+export function buildAuditSystem(
+  kb: string,
+  opts: { experiments?: { priceFirstAsk?: PriceExperimentConfig } | null; today?: string } = {},
+): SystemBlock[] {
+  const experiments = opts.experiments !== undefined ? opts.experiments : CLIENT.experiments;
+  const expLines = activeExperimentLines(experiments, opts.today ?? cdmxDateStr(Math.floor(Date.now() / 1000)));
   return [
     {
       type: "text",
@@ -240,7 +268,7 @@ Tu ÚNICA salida es el reporte. Reglas:
 - NUNCA inventes: cita textual. Si dudas de un dato del negocio, márcalo "(verificar)".
 - Qué buscar, en orden de gravedad: leads con pregunta SIN respuesta del bot; respuestas con datos incorrectos (horarios/edades/precios que contradigan la parrilla o el KB); horarios propuestos que no existen en la parrilla; textos internos filtrados al lead (p.ej. "<sin_respuesta>", "no_tool_call"); mensajes duplicados o contradictorios al mismo lead; leads calientes que se enfriaron sin seguimiento; preguntas que el bot no supo responder (huecos de conocimiento); aprobaciones que esperaron >1h.
 - El bot agenda en el chat, manda nudges automáticos y plantillas: los mensajes marcados [plantilla #N] son copys automáticos, no juzgues su repetición entre leads distintos — SÍ es problema el mismo lead recibiendo lo mismo dos veces.
-- No propongas cambios de código; describe el síntoma y a quién le pasó.`,
+- No propongas cambios de código; describe el síntoma y a quién le pasó.${expLines.length ? `\n- Experimentos en curso (decisiones deliberadas del dueño, no errores):\n${expLines.map((l) => `  ${l}`).join("\n")}` : ""}`,
       cache_control: { type: "ephemeral", ttl: "1h" },
     },
     {
