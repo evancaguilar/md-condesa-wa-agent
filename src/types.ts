@@ -439,6 +439,13 @@ export interface ConvoContext {
    * context. The cached system blocks stay byte-identical to a normal turn.
    */
   followupInstruction?: string;
+  /**
+   * Set ONLY by respond()'s one corrective call (brain/booking-retry.ts): the
+   * first pass claimed a booking without calling book_trial. The
+   * `<reintento_agendado>` block rides at the end of the per-turn context; the
+   * cached system blocks, tools and thinking config stay byte-identical.
+   */
+  bookingRetryInstruction?: string;
 }
 
 /** Input to AirtablePort.bookTrial (also emitted inside a 'book' BrainResult). */

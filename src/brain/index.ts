@@ -7,6 +7,7 @@ import type { AirtablePort, BookingFailureNotifier, BrainPort } from "../types.j
 import { KB } from "../kb.js";
 import { createBrain, type AccrueUsage } from "./claude.js";
 import { assembleOverlay } from "./overlay.js";
+import type { BookingRetryEvent } from "./booking-retry.js";
 import { listKbSections } from "../db/queries-admin.js";
 
 export { createBrain } from "./claude.js";
@@ -21,6 +22,8 @@ export function createBrainWithKb(deps: {
   /** Slack/log sink for failed book_trial attempts. Live wiring only — the
    *  admin sandbox constructs its own deps without one. */
   onBookingFailure?: BookingFailureNotifier;
+  /** ops_log sink for promised-but-unbooked retries (brain/booking-retry.ts). */
+  onBookingRetry?: (ev: BookingRetryEvent) => Promise<void>;
   fetchImpl?: typeof fetch;
 }): BrainPort {
   return createBrain({ ...deps, kb: KB });

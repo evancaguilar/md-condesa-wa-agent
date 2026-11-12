@@ -19,6 +19,7 @@ import { reportInfraError } from "./services/infra-alert.js";
 import { makeAirtablePort } from "./services/airtable.js";
 import { sendText } from "./services/send.js";
 import { makeBookingFailureNotifier } from "./services/booking-alerts.js";
+import { bookingRetryNote } from "./brain/booking-retry.js";
 import {
   makeSlackPort,
   postNote,
@@ -50,6 +51,12 @@ function makePorts(env: Env): Ports {
       accrueUsage(env.DB, day, inTok, cachedTok, outTok, cost),
     loadOverlay: makeOverlayLoader(env.DB),
     onBookingFailure: makeBookingFailureNotifier(env),
+    onBookingRetry: (ev) =>
+      postNote(env, bookingRetryNote(ev), {
+        kind: "booking",
+        level: ev.ending === "booked" || ev.ending === "asked" ? "info" : "warn",
+        meta: { phone: ev.phone, ending: ev.ending, ms: ev.ms },
+      }),
   });
   const slack = makeSlackPort(env);
 
