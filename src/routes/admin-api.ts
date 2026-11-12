@@ -260,6 +260,11 @@ import {
   selectOwed,
   waMeLink,
 } from "../services/owed-approvals.js";
+import {
+  cachedUnansweredCount,
+  getUnansweredForPanel,
+  markUnansweredDone,
+} from "../services/unanswered-db.js";
 import { runKbChat, applyProposal, accrueChatUsage } from "../services/kb-editor.js";
 import { parseBookingFromText } from "../services/booking-guard.js";
 import { auditStaffSend } from "../services/slot-audit.js";
@@ -1041,6 +1046,31 @@ export async function handleAdminApi(
     );
     return json({ ok: true });
   }
+  // «💬 Esperando respuesta»: the lead wrote last and nobody answered
+  // (services/unanswered.ts). One shared kv-cached computation per ~2 min.
+  if (path === "/admin/api/unanswered" && method === "GET") {
+    const now = nowSec();
+    const c = await getUnansweredForPanel(env.DB, now);
+    return json({ items: c.items, computedAt: c.at, now });
+  }
+  if (path === "/admin/api/unanswered/done" && method === "POST") {
+    const body = await readJson<{ phone?: unknown; wamid?: unknown }>(req);
+    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+    const wamid = typeof body.wamid === "string" ? body.wamid.trim() : "";
+    if (!phone || phone.length > 64 || !wamid || wamid.length > 200) {
+      return json({ ok: false, reason: "bad_request" }, 400);
+    }
+    await markUnansweredDone(env.DB, phone, wamid, session.user, nowSec());
+    ctx.waitUntil(
+      ports.slack
+        .postNote(
+          `☑️ Chat ${phone} («Esperando respuesta») marcado como atendido por ${session.user} desde el panel.`,
+          { kind: "approvals", meta: { phone } },
+        )
+        .catch(() => {}),
+    );
+    return json({ ok: true });
+  }
   const apprMatch = path.match(/^\/admin\/api\/approvals\/(\d+)\/(approve|edit|discard)$/);
   if (apprMatch && method === "POST") {
     const id = Number(apprMatch[1]);
@@ -1740,7 +1770,7 @@ async function handleAssign(req: Request, env: Env, phone: string): Promise<Resp
 
 async function handleOverview(env: Env, session: Session): Promise<Response> {
   const owner = session.role === "owner";
-  const [stats, botEnabled, trainingWheels, tokens, blastCounters] = await Promise.all([
+  const [stats, botEnabled, trainingWheels, tokens, blastCounters, unansweredCount] = await Promise.all([
     statsOverview(env.DB),
     isBotEnabled(env.DB),
     getTrainingWheels(env),
@@ -1748,11 +1778,15 @@ async function handleOverview(env: Env, session: Session): Promise<Response> {
     // Bulk sends are owner-only, and so is what they cost (two kv index range
     // scans, ≤62 rows — see loadMonthCostCounters).
     owner ? loadMonthCostCounters(env, nowSec()) : Promise.resolve(null),
+    // «Esperando respuesta» badge: the shared cache only (one kv row; null =
+    // stale, the browser keeps its last count). Never computes here.
+    cachedUnansweredCount(env.DB, nowSec()).catch(() => null),
   ]);
   return json({
     botEnabled,
     trainingWheels,
     pendingCount: stats.pendingCount,
+    unansweredCount,
     convosToday: stats.convosToday,
     convosWeek: stats.convosWeek,
     month: stats.month,
