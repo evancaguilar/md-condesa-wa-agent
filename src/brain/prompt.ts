@@ -707,6 +707,9 @@ export function buildContextBlock(
   // AI-written day-1 follow-up (src/cron/ai-followup.ts): its instruction
   // block rides LAST in the per-turn context, never in the cached system.
   if (ctx.followupInstruction) lines.push(ctx.followupInstruction);
+  // Promised-but-unbooked retry (brain/booking-retry.ts): same rule — per-turn
+  // context only, last, so the cached prefix is untouched.
+  if (ctx.bookingRetryInstruction) lines.push(ctx.bookingRetryInstruction);
 
   return lines.join("\n");
 }

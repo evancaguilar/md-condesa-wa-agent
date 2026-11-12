@@ -64,6 +64,14 @@ import {
 import { cleanDayKeys } from "../services/program-signal.js";
 import { CLIENT } from "../client.gen.js";
 import { classifyEscalation } from "../services/slack-timeouts.js";
+import {
+  bookingRetryInstruction,
+  bookingRetryTimeoutMs,
+  resolveBookingRetry,
+  withBookingRetry,
+  type BookingRetryEvent,
+  type BookingRetryRun,
+} from "./booking-retry.js";
 
 // ---- deps (injected at construction) -------------------------------------
 
@@ -97,6 +105,13 @@ export interface BrainDeps {
    * a broken notifier must never break the tool loop. Omit in the sandbox.
    */
   onBookingFailure?: BookingFailureNotifier;
+  /**
+   * Called once per promised-but-unbooked retry (brain/booking-retry.ts) with
+   * how it ended. Observability only (ops_log); any throw is swallowed.
+   */
+  onBookingRetry?: (ev: BookingRetryEvent) => Promise<void>;
+  /** Tests only: caps the booking-retry deadline (default BOOKING_RETRY_TIMEOUT_MS). */
+  bookingRetryCapMs?: number;
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
 }
@@ -173,7 +188,246 @@ export interface ApiResponse {
 export function createBrain(deps: BrainDeps): BrainPort {
   const doFetch = deps.fetchImpl ?? fetch;
 
+  /** Mutable state of ONE tool loop (the first pass, or the booking retry). */
+  interface LoopState {
+    // EVERY successful book_trial of this loop, in call order. The model may
+    // book a whole family in one turn (one call per person) — before slice 5
+    // only the last one survived, so the earlier people got no Slack FYI and no
+    // anti-no-show sequence.
+    pendingBookings: PendingBooking[];
+    pendingFollowup: { hoursFromNow: number; note: string } | null;
+    // One-shot recovery for the "wrote the reply as prose, skipped send_reply"
+    // failure mode that appeared with adaptive thinking (2026-08-25): those
+    // text-only turns become sureness-less low drafts that ALWAYS queue and
+    // that best-bet can never rescue (the 2:15am no_tool_call card, 2026-08-28).
+    retriedNoTool: boolean;
+    // trial_dates book_trial refused for contradicting the lead's stated date
+    // this turn; a second call with the same date books it with a warning.
+    dateRefused: Set<string>;
+  }
+
+  type LoopEnd =
+    | { kind: "reply"; sendReply: ToolUseContent }
+    | { kind: "escalate"; tu: ToolUseContent }
+    | { kind: "text"; resp: ApiResponse }
+    | { kind: "max_iterations" };
+
+  function newLoopState(): LoopState {
+    return { pendingBookings: [], pendingFollowup: null, retriedNoTool: false, dateRefused: new Set() };
+  }
+
+  /** The tool loop: call → run non-terminal tools → feed results back, until a
+   *  terminal tool (send_reply / escalate), a text-only miss, or MAX_ITERATIONS. */
+  async function runLoop(
+    ctx: ConvoContext,
+    system: SystemBlock[],
+    messages: ApiMessage[],
+    fetchImpl: typeof fetch,
+    st: LoopState,
+    usageAcc: Required<ApiUsage>,
+  ): Promise<LoopEnd> {
+    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+      const resp = await callAnthropic(
+        fetchImpl,
+        deps.apiKey,
+        system,
+        messages,
+        TOOLS,
+        MAX_TOKENS,
+        // Adaptive thinking (owner-approved 2026-08-25): the audit's worst
+        // model errors were slot math, weekday arithmetic and calibration —
+        // exactly what thinking helps. Thinking tokens count against
+        // max_tokens, hence the 4096 budget.
+        { thinking: { type: "adaptive" }, effort: "medium" },
+      );
+      accumulate(usageAcc, resp.usage);
+
+      const toolUses = resp.content.filter(
+        (b): b is ToolUseContent => b.type === "tool_use",
+      );
+
+      // Terminal: send_reply ends the turn regardless of anything else.
+      const sendReply = toolUses.find((t) => t.name === "send_reply");
+      const escalate = toolUses.find((t) => t.name === "escalate_to_human");
+
+      if (escalate && !sendReply) return { kind: "escalate", tu: escalate };
+      if (sendReply) return { kind: "reply", sendReply };
+
+      // No terminal tool yet — process the non-terminal tools, feed results
+      // back, and loop. (book_trial / set_followup / escalate-without-send.)
+      if (toolUses.length === 0) {
+        // Model produced only text and no tool. Retry ONCE with an explicit
+        // corrective nudge — recovering the tool call restores sureness and
+        // the auto-send/best-bet lanes. A second miss still falls back to a
+        // reviewable low draft.
+        if (!st.retriedNoTool && iter < MAX_ITERATIONS - 1) {
+          st.retriedNoTool = true;
+          messages.push({ role: "assistant", content: resp.content });
+          messages.push({
+            role: "user",
+            content:
+              "[sistema] Tu turno DEBE terminar con una llamada a la herramienta send_reply (con sureness 0-100). Emite AHORA tu respuesta anterior como send_reply, sin cambiar el texto del mensaje.",
+          });
+          continue;
+        }
+        return { kind: "text", resp };
+      }
+
+      messages.push({ role: "assistant", content: resp.content });
+      const results: ToolResultContent[] = [];
+
+      for (const tu of toolUses) {
+        if (tu.name === "book_trial") {
+          const outcome = await handleBookTrial(
+            deps.airtable,
+            ctx,
+            tu,
+            deps.onBookingFailure,
+            st.dateRefused,
+          );
+          results.push(outcome.result);
+          if (outcome.booking) addPendingBooking(st.pendingBookings, outcome.booking);
+        } else if (tu.name === "set_followup") {
+          // Capture the request; the pipeline persists it (the brain has no DB).
+          // We still acknowledge so the model proceeds to send_reply.
+          const fu = tu.input as { hours_from_now?: number; note?: string };
+          const hours = Number(fu.hours_from_now);
+          if (looksInternalNote(fu.note ?? "")) {
+            // The note would reach the lead word for word (A90, 2026-11).
+            results.push({ type: "tool_result", tool_use_id: tu.id, content: INTERNAL_NOTE_ERROR, is_error: true });
+            continue;
+          }
+          if (Number.isFinite(hours) && hours > 0) {
+            st.pendingFollowup = { hoursFromNow: hours, note: fu.note ?? "" };
+          }
+          results.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content: "ok: follow-up noted. Now end the turn with send_reply.",
+          });
+        } else if (tu.name === "escalate_to_human") {
+          // escalate alongside other tools but no send_reply this turn:
+          // treat as terminal escalation.
+          return { kind: "escalate", tu };
+        } else {
+          results.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content: `error: unknown tool '${tu.name}'.`,
+            is_error: true,
+          });
+        }
+      }
+
+      messages.push({ role: "user", content: results });
+    }
+    return { kind: "max_iterations" };
+  }
+
+  /** A send_reply with no booking this loop, through every copy guard. */
+  function guardedReply(ctx: ConvoContext, sendReply: ToolUseContent, st: LoopState): BrainResult {
+    return guardFactClaims(
+      guardBookingDateClaim(
+        guardUnverifiedSlotClaim(
+          guardUnbackedBookingClaim(
+            sendResult(sendReply, st.pendingFollowup),
+            ctx.recordedBooking,
+          ),
+          ctx,
+        ),
+        ctx,
+      ),
+      ctx,
+    );
+  }
+
+  /** A loop's end → the BrainResult the turn returns (pre-retry mapping). */
+  function endResult(ctx: ConvoContext, end: LoopEnd, st: LoopState): BrainResult {
+    switch (end.kind) {
+      case "escalate":
+        return escalateResult(end.tu);
+      case "reply":
+        // A booking that succeeded this turn + a send_reply → 'book' result
+        // (types.ts union carries the followupMessage + recordId on 'book').
+        if (st.pendingBookings.length) return bookResult(st.pendingBookings, ctx, end.sendReply);
+        return guardedReply(ctx, end.sendReply, st);
+      case "text":
+        return textFallback(end.resp, ctx);
+      case "max_iterations":
+        // Exhausted iterations without a terminal send_reply.
+        if (st.pendingBookings.length) return bookResult(st.pendingBookings, ctx, null);
+        return {
+          action: "draft",
+          message: safeApology(ctx.contact.lang),
+          language: ctx.contact.lang,
+          confidence: "low",
+          reason: "max_iterations",
+        };
+    }
+  }
+
+  /**
+   * The ONE corrective call for a reply that promised a booking without
+   * book_trial (brain/booking-retry.ts). Same system blocks, tools and
+   * thinking config (the cache holds); the instruction rides at the end of the
+   * per-turn <context>. Its own tool loop under one deadline, with fresh state:
+   * a date refused in the first pass is NOT pre-refused here, so the
+   * pinned-date guard still needs its own second call to book with a warning.
+   * Never throws; never retries again.
+   */
+  async function retryUnbackedClaim(
+    ctx: ConvoContext,
+    system: SystemBlock[],
+    firstDraft: BrainResult,
+    reply: string,
+    timeoutMs: number,
+    usageAcc: Required<ApiUsage>,
+  ): Promise<BrainResult> {
+    const t0 = Date.now();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timedFetch: typeof fetch = (input, init) => doFetch(input, { ...(init ?? {}), signal: ctrl.signal });
+    const st = newLoopState();
+    const rctx = withBookingRetry(ctx, bookingRetryInstruction(ctx.contact.lang, reply));
+    let run: BookingRetryRun;
+    try {
+      const end = await runLoop(rctx, system, buildInitialMessages(rctx), timedFetch, st, usageAcc);
+      if (st.pendingBookings.length) {
+        // Booked: the normal booking path (bookResult = same confirmation,
+        // auto-confirm inputs and confirmationWarning as a first-pass booking).
+        run = { kind: "booked", result: bookResult(st.pendingBookings, ctx, end.kind === "reply" ? end.sendReply : null) };
+      } else if (end.kind === "reply") {
+        run = { kind: "reply", result: guardedReply(ctx, end.sendReply, st) };
+      } else {
+        run = { kind: "no_reply", detail: end.kind };
+      }
+    } catch (err) {
+      const detail = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, " ").slice(0, 160);
+      // A record created before the deadline / error is real: never drop it.
+      if (st.pendingBookings.length) run = { kind: "booked", result: bookResult(st.pendingBookings, ctx, null) };
+      else if (ctrl.signal.aborted) run = { kind: "timeout" };
+      else run = { kind: "error", detail };
+    } finally {
+      clearTimeout(timer);
+    }
+    const { result, ending } = resolveBookingRetry(firstDraft, run);
+    if (deps.onBookingRetry) {
+      try {
+        await deps.onBookingRetry({
+          phone: ctx.phone,
+          ending,
+          ms: Date.now() - t0,
+          ...(run.kind === "error" || run.kind === "no_reply" ? { detail: run.detail } : {}),
+        });
+      } catch (err) {
+        console.error("[booking-retry] notifier threw", err);
+      }
+    }
+    return result;
+  }
+
   async function respond(ctx: ConvoContext): Promise<BrainResult> {
+    const startedAt = Date.now();
     // Assemble the system per call so live overlay edits take effect immediately.
     // No overlay loader (or an empty overlay) → single static block, unchanged.
     const overlay = deps.loadOverlay ? await deps.loadOverlay() : "";
@@ -186,153 +440,32 @@ export function createBrain(deps: BrainDeps): BrainPort {
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0,
     };
-
-    // EVERY successful book_trial of this turn, in call order. The model may
-    // book a whole family in one turn (one call per person) — before slice 5
-    // only the last one survived, so the earlier people got no Slack FYI and no
-    // anti-no-show sequence.
-    const pendingBookings: PendingBooking[] = [];
-    let pendingFollowup: { hoursFromNow: number; note: string } | null = null;
-    // One-shot recovery for the "wrote the reply as prose, skipped send_reply"
-    // failure mode that appeared with adaptive thinking (2026-08-25): those
-    // text-only turns become sureness-less low drafts that ALWAYS queue and
-    // that best-bet can never rescue (the 2:15am no_tool_call card, 2026-08-28).
-    let retriedNoTool = false;
-    // trial_dates book_trial refused for contradicting the lead's stated date
-    // this turn; a second call with the same date books it with a warning.
-    const dateRefused = new Set<string>();
+    const st = newLoopState();
 
     try {
-      for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-        const resp = await callAnthropic(
-          doFetch,
-          deps.apiKey,
-          system,
-          messages,
-          TOOLS,
-          MAX_TOKENS,
-          // Adaptive thinking (owner-approved 2026-08-25): the audit's worst
-          // model errors were slot math, weekday arithmetic and calibration —
-          // exactly what thinking helps. Thinking tokens count against
-          // max_tokens, hence the 4096 budget.
-          { thinking: { type: "adaptive" }, effort: "medium" },
-        );
-        accumulate(usageAcc, resp.usage);
-
-        const toolUses = resp.content.filter(
-          (b): b is ToolUseContent => b.type === "tool_use",
-        );
-
-        // Terminal: send_reply ends the turn regardless of anything else.
-        const sendReply = toolUses.find((t) => t.name === "send_reply");
-        const escalate = toolUses.find((t) => t.name === "escalate_to_human");
-
-        if (escalate && !sendReply) {
-          await flushUsage(deps.accrueUsage, usageAcc);
-          return escalateResult(escalate);
+      const end = await runLoop(ctx, system, messages, doFetch, st, usageAcc);
+      let result = endResult(ctx, end, st);
+      // Promised-but-unbooked (2026-11-12): the reply claims a booking that
+      // does not exist → ONE corrective call before the ⚠️ draft stands.
+      if (end.kind === "reply" && st.pendingBookings.length === 0) {
+        const input = end.sendReply.input as { message?: unknown; escalation_reason?: unknown };
+        const reply = unescapeNewlines(typeof input.message === "string" ? input.message : "");
+        const timeoutMs = bookingRetryTimeoutMs({
+          reply,
+          escalationReason: typeof input.escalation_reason === "string" ? input.escalation_reason : null,
+          bookedThisTurn: false,
+          recordedBooking: !!ctx.recordedBooking,
+          staleReply: !!ctx.staleReply,
+          bookingEnabled: TOOLS.some((t) => t.name === "book_trial"),
+          elapsedMs: Date.now() - startedAt,
+        });
+        if (timeoutMs !== null) {
+          const ms = Math.min(timeoutMs, deps.bookingRetryCapMs ?? timeoutMs);
+          result = await retryUnbackedClaim(ctx, system, result, reply, ms, usageAcc);
         }
-
-        if (sendReply) {
-          await flushUsage(deps.accrueUsage, usageAcc);
-          // A booking that succeeded this turn + a send_reply → 'book' result
-          // (types.ts union carries the followupMessage + recordId on 'book').
-          if (pendingBookings.length) return bookResult(pendingBookings, ctx, sendReply);
-          return guardFactClaims(
-            guardBookingDateClaim(
-              guardUnverifiedSlotClaim(
-                guardUnbackedBookingClaim(
-                  sendResult(sendReply, pendingFollowup),
-                  ctx.recordedBooking,
-                ),
-                ctx,
-              ),
-              ctx,
-            ),
-            ctx,
-          );
-        }
-
-        // No terminal tool yet — process the non-terminal tools, feed results
-        // back, and loop. (book_trial / set_followup / escalate-without-send.)
-        if (toolUses.length === 0) {
-          // Model produced only text and no tool. Retry ONCE with an explicit
-          // corrective nudge — recovering the tool call restores sureness and
-          // the auto-send/best-bet lanes. A second miss still falls back to a
-          // reviewable low draft.
-          if (!retriedNoTool && iter < MAX_ITERATIONS - 1) {
-            retriedNoTool = true;
-            messages.push({ role: "assistant", content: resp.content });
-            messages.push({
-              role: "user",
-              content:
-                "[sistema] Tu turno DEBE terminar con una llamada a la herramienta send_reply (con sureness 0-100). Emite AHORA tu respuesta anterior como send_reply, sin cambiar el texto del mensaje.",
-            });
-            continue;
-          }
-          await flushUsage(deps.accrueUsage, usageAcc);
-          return textFallback(resp, ctx);
-        }
-
-        messages.push({ role: "assistant", content: resp.content });
-        const results: ToolResultContent[] = [];
-
-        for (const tu of toolUses) {
-          if (tu.name === "book_trial") {
-            const outcome = await handleBookTrial(
-              deps.airtable,
-              ctx,
-              tu,
-              deps.onBookingFailure,
-              dateRefused,
-            );
-            results.push(outcome.result);
-            if (outcome.booking) addPendingBooking(pendingBookings, outcome.booking);
-          } else if (tu.name === "set_followup") {
-            // Capture the request; the pipeline persists it (the brain has no DB).
-            // We still acknowledge so the model proceeds to send_reply.
-            const fu = tu.input as { hours_from_now?: number; note?: string };
-            const hours = Number(fu.hours_from_now);
-            if (looksInternalNote(fu.note ?? "")) {
-              // The note would reach the lead word for word (A90, 2026-11).
-              results.push({ type: "tool_result", tool_use_id: tu.id, content: INTERNAL_NOTE_ERROR, is_error: true });
-              continue;
-            }
-            if (Number.isFinite(hours) && hours > 0) {
-              pendingFollowup = { hoursFromNow: hours, note: fu.note ?? "" };
-            }
-            results.push({
-              type: "tool_result",
-              tool_use_id: tu.id,
-              content: "ok: follow-up noted. Now end the turn with send_reply.",
-            });
-          } else if (tu.name === "escalate_to_human") {
-            // escalate alongside other tools but no send_reply this turn:
-            // treat as terminal escalation.
-            await flushUsage(deps.accrueUsage, usageAcc);
-            return escalateResult(tu);
-          } else {
-            results.push({
-              type: "tool_result",
-              tool_use_id: tu.id,
-              content: `error: unknown tool '${tu.name}'.`,
-              is_error: true,
-            });
-          }
-        }
-
-        messages.push({ role: "user", content: results });
       }
-
-      // Exhausted iterations without a terminal send_reply.
       await flushUsage(deps.accrueUsage, usageAcc);
-      if (pendingBookings.length) return bookResult(pendingBookings, ctx, null);
-      return {
-        action: "draft",
-        message: safeApology(ctx.contact.lang),
-        language: ctx.contact.lang,
-        confidence: "low",
-        reason: "max_iterations",
-      };
+      return result;
     } catch (err) {
       // callAnthropic already retried once. Return a safe apology draft. The
       // cause rides in `reason` (shown on the Slack card) and in the logs —
