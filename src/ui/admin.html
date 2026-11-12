@@ -1876,6 +1876,7 @@ function apprCard(it){
   return '<div class="card" id="appr-'+it.id+'">'
     +'<div class="between"><div style="font-weight:700">'+esc(nameOr(it.name,it.phone))+'</div>'
     +'<div class="muted sm">'+esc(relTime(it.createdAt))+'</div></div>'
+    +((it.name && String(it.name).trim())?'<div class="muted sm">'+esc(fmtPhone(it.phone))+'</div>':'')
     +(ctxHtml?'<div style="margin:8px 0">'+ctxHtml+'</div>':"")
     // Escalation row (no draft): the bot asked for a human. No Aprobar — there
     // is nothing to send — the edit box opens as the reply composer.
@@ -1963,6 +1964,7 @@ function owedCard(it){
   return '<div class="card" id="owed-'+it.id+'" style="border-left:3px solid var(--amber)">'
     +'<div class="between"><div style="font-weight:700">'+esc(nameOr(it.name,it.phone))+'</div>'
     +'<div class="muted sm">escribió '+esc(relTime(it.createdAt))+'</div></div>'
+    +((it.name && String(it.name).trim())?'<div class="muted sm">'+esc(fmtPhone(it.phone))+'</div>':'')
     +'<div class="chips" style="margin-top:6px"><span class="chip amber">⏱ Expiró sin respuesta</span>'+winChip+'</div>'
     +(ctxHtml?'<div style="margin:8px 0">'+ctxHtml+'</div>':"")
     +(it.escalation
