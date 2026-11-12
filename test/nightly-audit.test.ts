@@ -108,3 +108,18 @@ test("audit prompt: opus model, rubric, and the REAL slot grid ride along", () =
   const user = buildAuditUser("TRANSCRIPTS", "APPROVALS", "ventana X");
   assert.ok(user.includes("ventana X") && user.includes("TRANSCRIPTS") && user.includes("APPROVALS"));
 });
+
+test("audit prompt: active price A/B is explained from config; inactive/expired drops the line", async () => {
+  const { activeExperimentLines } = await import("../src/cron/nightly-audit.js");
+  const cfg = { priceFirstAsk: { enabled: true, start: "2026-11-10", end: "2026-11-24", salt: "x" } };
+  const on = buildAuditSystem("KB", { experiments: cfg, today: "2026-11-12" })[0]!.text;
+  assert.match(on, /EXPERIMENTO ACTIVO/);
+  assert.match(on, /2026-11-10 al 2026-11-24/);
+  assert.match(on, /rango de precios de adultos dado a un lead de Kids/);
+  const expired = buildAuditSystem("KB", { experiments: cfg, today: "2026-11-24" })[0]!.text;
+  assert.ok(!expired.includes("EXPERIMENTO") && !expired.includes("Experimentos en curso"));
+  const off = buildAuditSystem("KB", { experiments: { priceFirstAsk: { ...cfg.priceFirstAsk, enabled: false } }, today: "2026-11-12" })[0]!.text;
+  assert.ok(!off.includes("EXPERIMENTO"));
+  assert.deepEqual(activeExperimentLines(null, "2026-11-12"), []);
+  assert.deepEqual(activeExperimentLines({}, "2026-11-12"), []);
+});
