@@ -58,6 +58,8 @@ import { runMissedTurnRescue } from "./missed-turns.js";
 import { gcGoogleRefs } from "../routes/google-click.js";
 import { gcCuestionarioRate } from "../services/cuestionario.js";
 import { copyStep, startCursor, type CopyCursor, type DbLike } from "../services/d1-copy.js";
+import { runUnansweredReminder } from "../services/unanswered-db.js";
+import { dashboardChatUrl, dashboardUrl } from "../services/dashboard-link.js";
 
 // Injected by E at integration; default is a safe no-op set. postNote falls back
 // to console so budget reports aren't silently dropped pre-integration.
@@ -232,6 +234,24 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
   if (cronDeps.overrideChecks) {
     const run = cronDeps.overrideChecks;
     await safe("overrideChecks", () => run(nowEpoch).then(() => {}));
+  }
+  // «💬 Esperando respuesta» (services/unanswered.ts): ONE aggregated #wa-leads
+  // note for chats where the lead wrote last and nobody answered in ≥ 60 min,
+  // 08:00–21:30 CDMX, once per inbound. Every 15 min (a ≥ 60-min reminder
+  // needs no finer clock; rows-read budget): zero D1 reads outside the window,
+  // and inside it the panel's cached list is reused when ≤ 5 min old.
+  if (p.minute % 15 >= 10) {
+    await safe("unansweredReminder", () =>
+      runUnansweredReminder(
+        env,
+        {
+          postTask: (t) => taskNote(cronDeps.slack, t),
+          panelUrl: dashboardUrl(env, "aprobaciones"),
+          chatUrl: (phone) => dashboardChatUrl(env, phone),
+        },
+        nowEpoch,
+      ),
+    );
   }
   // Template blasts (docs/blasts.md): a few paced sends per tick, 09:00–21:00
   // CDMX, under the run's daily cap; auto-pauses on template/account errors.
