@@ -575,6 +575,11 @@ test("instruction: slot constraints planNudgeCopy computed, ES/EN by contact lan
   assert.match(en, /DIFFERENT angle/);
   const ask = buildFollowupInstruction(brief({ band: "kids", cta: "ask_age", nextSlot: null, discipline: null }));
   assert.match(ask, /NO sabemos su edad: no propongas día ni hora/);
+  // 2026-11-12 preview defects: invented selling claims + building on a vague promise
+  assert.match(es, /NO agregues beneficios, características ni afirmaciones/);
+  assert.match(es, /pregunta SOLO la edad: no nombres ningún día ni hora/);
+  assert.match(en, /Do NOT add benefits, features or claims/);
+  assert.match(en, /ask ONLY for the age: name no day or time/);
 });
 
 test("the instruction rides LAST in the per-turn <context> block, never in system", () => {
@@ -646,6 +651,10 @@ test("validateAiFollowup: each guard names its fallback reason", () => {
   assert.equal(reason("Ya quedó agendada tu clase, ¡te esperamos!"), "booking_claim");
   assert.equal(reason("¿Te late Muay Thai a las 3:00 am?"), "slot_claim");
   assert.equal(reason("Todavía hay lugares para tu clase de prueba, ¿te animas?"), "fact_claim");
+  assert.equal(reason("Tenemos grupos chicos, ¿te late probar una clase?"), "unbacked_claim");
+  assert.equal(reason("We run small groups, want to try a class?"), "unbacked_claim");
+  assert.equal(reason("Hay limited spots this week, ¿te late?"), "unbacked_claim");
+  assert.equal(reason("Cupo limitado esta semana, ¿te animas?"), "fact_claim");
   assert.equal(reason("El plan cuesta $1,500 al mes, ¿te late?"), "price");
   assert.equal(reason("Como te comenté, son $1,996 cada 4 semanas. ¿Te late probar primero?"), "ok");
   assert.equal(reason("<sin_respuesta>"), "markup");
