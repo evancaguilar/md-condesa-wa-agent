@@ -117,9 +117,18 @@ function evalSchedule(code) {
 }
 
 /** Evaluate a CommonJS module's source and return its module.exports. */
-function evalCjs(code) {
+function evalCjs(code, dir = null) {
   const mod = { exports: {} };
-  new Function("module", "exports", code)(mod, mod.exports);
+  // Site pages may `require("../pricing")` (precios.js, 2026-11-11): resolve
+  // RELATIVE paths against the file's own folder, nothing else.
+  const req = (spec) => {
+    if (!dir || !/^\.\.?\//.test(spec)) throw new Error(`kb-build: require("${spec}") no soportado`);
+    const base = join(dir, spec);
+    const file = [base, `${base}.js`, join(base, "index.js")].find((f) => existsSync(f) && !f.endsWith("/"));
+    if (!file || !/\.js$/.test(file)) throw new Error(`kb-build: no encuentro ${spec} desde ${dir}`);
+    return evalCjs(readFileSync(file, "utf8"), dirname(file));
+  };
+  new Function("module", "exports", "require", code)(mod, mod.exports, req);
   return mod.exports;
 }
 
@@ -505,7 +514,7 @@ function loadContent() {
   const pages = [];
   if (existsSync(pagesDir)) {
     for (const f of readdirSync(pagesDir).filter((n) => n.endsWith(".js")).sort()) {
-      pages.push(evalCjs(readFileSync(join(pagesDir, f), "utf8")));
+      pages.push(evalCjs(readFileSync(join(pagesDir, f), "utf8"), pagesDir));
     }
   }
   const enHubPath = join(SITE_LOCAL, "content", "en-hub.js");

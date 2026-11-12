@@ -32,6 +32,13 @@ import { cdmxDateStr, DAY } from "./time.js";
 export interface SendCeiling {
   perDay: number;
   per7Days: number;
+  /**
+   * Cap for the first 24 h after the lead's last message (owner, 2026-11-11:
+   * "keep at least 2 automated messages within the first day, if not 3" —
+   * that is the free-form window, where the day-1 follow-ups live). It
+   * REPLACES perDay inside those 24 h; absent ⇒ perDay.
+   */
+  firstDay?: number;
 }
 
 export const DEFAULT_SEND_CEILING: SendCeiling = Object.freeze({ perDay: 1, per7Days: 4 });
@@ -40,9 +47,11 @@ export const DEFAULT_SEND_CEILING: SendCeiling = Object.freeze({ perDay: 1, per7
 export function resolveSendCeiling(cfg: NudgeCeilingConfig | null | undefined): SendCeiling {
   const day = Number(cfg?.perDay);
   const week = Number(cfg?.per7Days);
+  const first = Number(cfg?.firstDay);
   return {
     perDay: Number.isInteger(day) && day >= 1 ? day : DEFAULT_SEND_CEILING.perDay,
     per7Days: Number.isInteger(week) && week >= 1 ? week : DEFAULT_SEND_CEILING.per7Days,
+    ...(Number.isInteger(first) && first >= 1 ? { firstDay: first } : {}),
   };
 }
 
@@ -83,6 +92,15 @@ export function ceilingVerdict(
   const since = Math.max(lastInboundAt ?? -Infinity, now - 7 * DAY);
   const counted = sentAts.filter((t) => t > since && t <= now);
   if (counted.length >= ceiling.per7Days) return { ok: false, scope: "week", action: "cancel" };
+  // First 24 h after the lead's last message: everything counted is inside
+  // that window already (counted = after the last inbound), so the first-day
+  // cap bounds the whole day-1 chase, across midnight too.
+  if (ceiling.firstDay !== undefined && lastInboundAt !== null && now - lastInboundAt < DAY) {
+    if (counted.length >= ceiling.firstDay) {
+      return { ok: false, scope: "day", action: DAY1_KINDS.has(kind) ? "cancel" : "defer", retryAt: next8am(now) };
+    }
+    return { ok: true };
+  }
   const today = cdmxDateStr(now);
   if (counted.filter((t) => cdmxDateStr(t) === today).length >= ceiling.perDay) {
     return { ok: false, scope: "day", action: DAY1_KINDS.has(kind) ? "cancel" : "defer", retryAt: next8am(now) };
@@ -115,7 +133,7 @@ export function ceilingNote(counts: ReadonlyMap<string, number>, ceiling: SendCe
   }
   if (total === 0) return null;
   return (
-    `🧱 Tope de mensajes automáticos (${ceiling.perDay}/día, ${ceiling.per7Days}/7 días sin respuesta del lead): ` +
+    `🧱 Tope de mensajes automáticos (${ceiling.firstDay !== undefined ? `${ceiling.firstDay} en las primeras 24 h, ` : ""}${ceiling.perDay}/día, ${ceiling.per7Days}/7 días sin respuesta del lead): ` +
     `${total} envío(s) detenidos en este tick — ${parts.join(", ")}.`
   );
 }

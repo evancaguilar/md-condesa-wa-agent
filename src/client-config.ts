@@ -544,7 +544,14 @@ export interface ApprovalsConfig {
   taskAutoSendAfterMin: number;
   /** Sureness floor (0–100) for a timeout send. */
   minSureness: number;
-  /** CDMX "HH:MM" window for timeout sends + escalations; outside it they wait for `start`. */
+  /**
+   * Sureness floor for a timeout send OUTSIDE sendWindow (the lead wrote at
+   * night; a confident answer may go at once). Absent ⇒ nothing sends outside
+   * the window.
+   */
+  overnightMinSureness?: number;
+  /** CDMX "HH:MM" window for timeout sends + escalations; outside it they wait for `start`
+   *  (except a clean draft at ≥ overnightMinSureness, which sends at once). */
   sendWindow: { start: string; end: string };
   /** A draft sent at least this many minutes after it was written gets the stale-date check. */
   staleCheckAfterMin: number;
@@ -587,6 +594,8 @@ export interface NudgePolicyConfig {
 export interface NudgeCeilingConfig {
   perDay: number;
   per7Days: number;
+  /** Cap inside the first 24 h after the lead's last inbound (replaces perDay there). */
+  firstDay?: number;
 }
 
 /** A prerecorded clip hosted on the client's site, sent by link (WA `video.link`). */

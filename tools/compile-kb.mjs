@@ -277,6 +277,14 @@ function nudgePolicy(p) {
       process.exit(1);
     }
     ceiling = { perDay, per7Days };
+    if (p.ceiling.firstDay != null) {
+      const firstDay = Number(p.ceiling.firstDay);
+      if (!Number.isInteger(firstDay) || firstDay < perDay || firstDay > per7Days) {
+        console.error(`FAIL: nudgePolicy.ceiling.firstDay debe ser un entero entre perDay y per7Days.`);
+        process.exit(1);
+      }
+      ceiling.firstDay = firstDay;
+    }
   }
   return {
     engaged: list("engaged"),
@@ -335,6 +343,13 @@ function approvals(a) {
     staleCheckAfterMin: num("staleCheckAfterMin", 20, 1, 720),
     expireAfterHours: num("expireAfterHours", 12, 1, 24),
   };
+  if (a?.overnightMinSureness != null) {
+    out.overnightMinSureness = num("overnightMinSureness", 75, 0, 100);
+    if (out.overnightMinSureness < out.minSureness) {
+      console.error(`FAIL: approvals.overnightMinSureness no puede ser menor que minSureness.`);
+      process.exit(1);
+    }
+  }
   if (out.expireAfterHours * 60 <= out.autoSendAfterMin) {
     console.error(`FAIL: approvals.expireAfterHours debe ser mayor que autoSendAfterMin.`);
     process.exit(1);

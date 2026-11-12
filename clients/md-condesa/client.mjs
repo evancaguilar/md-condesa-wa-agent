@@ -110,9 +110,10 @@ export default {
     silentFreshDays: 7,
     // Hard ceiling across EVERY unsolicited kind (day-1 nudges, d2–d7, post-
     // trial / no-show chains, reengage, origin_ask; blasts + custom count but
-    // are not blocked), counted after the lead's last message: 1 per CDMX day,
-    // 4 per rolling 7 days (src/cron/send-ceiling.ts, 2026-11-11 review).
-    ceiling: { perDay: 1, per7Days: 4 },
+    // are not blocked), counted after the lead's last message: up to 3 in the
+    // first 24 h (Evan 2026-11-11: the 1 h + 8 h follow-ups both go), then 1
+    // per CDMX day, 4 per rolling 7 days (src/cron/send-ceiling.ts).
+    ceiling: { perDay: 1, firstDay: 3, per7Days: 4 },
   },
   // Approval timeouts with training wheels ON (src/services/slack-timeouts.ts
   // decideTimeout, runApprovalTimeouts). A draft nobody reviewed that passes
@@ -130,6 +131,9 @@ export default {
     autoSendAfterMin: 15,
     taskAutoSendAfterMin: 60,
     minSureness: 25,
+    // Evan 2026-11-11: a lead who writes at night may be answered at night
+    // when the draft is confident. Below this it waits for sendWindow.start.
+    overnightMinSureness: 75,
     sendWindow: { start: "08:00", end: "21:30" },
     staleCheckAfterMin: 20,
     expireAfterHours: 12,

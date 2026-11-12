@@ -521,6 +521,27 @@ test("runApprovalTimeouts: the same overnight draft WITHOUT relative dates sends
   assert.ok(slackCalls[0]!.body.text!.includes("min sin revisión"), slackCalls[0]!.body.text);
 });
 
+test("runApprovalTimeouts: a CONFIDENT overnight draft (≥ 75 %) sends 15 min later, not at 08:00 (owner 2026-11-11)", async () => {
+  slackCalls.length = 0;
+  const row = approval({ created_at: FRI_7PM, slack_ts: "1700000000.000001", draft: "Estamos en Av. México 49, 1er piso, Condesa 📍" });
+  const at = FRI_7PM + 16 * 60; // 21:56 CDMX
+  {
+    const { queries, log } = makeQueries([row], { lastInboundAt: FRI_7PM - 30 });
+    const { deps, log: sendLog } = makeDeps();
+    await runApprovalTimeouts(envWith(withSureness(80)), queries, { ...deps, now: at });
+    assert.deepEqual(log.resolved, [{ id: 42, status: "auto_sent" }]);
+    assert.equal(sendLog.sends[0]!.body, row.draft);
+  }
+  // 70 % is safe by day but not confident enough for the night: it waits.
+  {
+    const { queries, log } = makeQueries([row], { lastInboundAt: FRI_7PM - 30 });
+    const { deps, log: sendLog } = makeDeps();
+    await runApprovalTimeouts(envWith(withSureness(70)), queries, { ...deps, now: at });
+    assert.deepEqual(log.resolved, []);
+    assert.equal(sendLog.sends.length, 0);
+  }
+});
+
 test("runApprovalTimeouts: the lead wrote again after the draft ⇒ fresh brain turn, old card superseded", async () => {
   slackCalls.length = 0;
   const row = stale({ created_at: NOW - 30 * 60 });

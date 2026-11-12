@@ -176,7 +176,7 @@ test("nudgePolicy ships engaged d2,d4,d7 / silent d2,d7 / silentFreshFull off (c
     silent: ["d2", "d7"],
     silentFreshFull: false,
     silentFreshDays: 7,
-    ceiling: { perDay: 1, per7Days: 4 },
+    ceiling: { perDay: 1, per7Days: 4, firstDay: 3 },
   });
   assert.deepEqual(NUDGE_POLICY.engaged, ["nudge_d2", "nudge_d4", "nudge_d7"]);
   assert.deepEqual(NUDGE_POLICY.silent, ["nudge_d2", "nudge_d7"]);

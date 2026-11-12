@@ -265,22 +265,43 @@ test("the goodbye step keeps its link-only close whatever the plan", () => {
 // ---- 2. hard per-lead ceiling ---------------------------------------------------
 
 test("ceiling: config lands in client.gen.ts and resolves to 1/day, 4/7 days", () => {
-  assert.deepEqual(CLIENT.nudgePolicy?.ceiling, { perDay: 1, per7Days: 4 });
-  assert.deepEqual(SEND_CEILING, { perDay: 1, per7Days: 4 });
+  assert.deepEqual(CLIENT.nudgePolicy?.ceiling, { perDay: 1, per7Days: 4, firstDay: 3 });
+  assert.deepEqual(SEND_CEILING, { perDay: 1, per7Days: 4, firstDay: 3 });
   assert.deepEqual(resolveSendCeiling(null), DEFAULT_SEND_CEILING);
   assert.deepEqual(resolveSendCeiling({ perDay: 0, per7Days: -2 }), DEFAULT_SEND_CEILING);
   assert.deepEqual(resolveSendCeiling({ perDay: 2, per7Days: 5 }), { perDay: 2, per7Days: 5 });
 });
 
 test("ceiling: second unsolicited message on the same CDMX day — day-1 dropped, others wait for 08:00", () => {
+  const C = DEFAULT_SEND_CEILING; // no first-day allowance
   const last = TUE_10 - 2 * H;
   const sent = [TUE_10 - H];
-  assert.deepEqual(ceilingVerdict("nudge_8h", sent, last, TUE_10 + 6 * H), { ok: false, scope: "day", action: "cancel", retryAt: next8am(TUE_10 + 6 * H) });
-  const d = ceilingVerdict("no_show_d2", sent, last, TUE_10 + 6 * H);
+  assert.deepEqual(ceilingVerdict("nudge_8h", sent, last, TUE_10 + 6 * H, C), { ok: false, scope: "day", action: "cancel", retryAt: next8am(TUE_10 + 6 * H) });
+  const d = ceilingVerdict("no_show_d2", sent, last, TUE_10 + 6 * H, C);
   assert.equal(d.ok, false);
   if (!d.ok) assert.equal(d.action, "defer");
   // next CDMX day it goes
-  assert.deepEqual(ceilingVerdict("nudge_d2", sent, last, TUE_10 + DAY), { ok: true });
+  assert.deepEqual(ceilingVerdict("nudge_d2", sent, last, TUE_10 + DAY, C), { ok: true });
+});
+
+test("ceiling: first 24 h after the lead's message allow 3 (1 h + 8 h both go), then 1 per day (owner 2026-11-11)", () => {
+  assert.equal(SEND_CEILING.firstDay, 3);
+  assert.equal(SEND_CEILING.perDay, 1);
+  const last = TUE_10;
+  // 1 h nudge went → the 8 h one still goes
+  assert.deepEqual(ceilingVerdict("nudge_8h", [last + H], last, last + 8 * H), { ok: true });
+  // two went → a third inside 24 h still goes; a fourth does not
+  assert.deepEqual(ceilingVerdict("nudge_d2", [last + H, last + 8 * H], last, last + 23 * H), { ok: true });
+  const v = ceilingVerdict("nudge_d2", [last + H, last + 8 * H, last + 20 * H], last, last + 23 * H);
+  assert.equal(v.ok, false);
+  // past 24 h the 1-per-CDMX-day rule is back
+  const later = last + 2 * DAY;
+  const w = ceilingVerdict("no_show_d2", [later - H], last, later);
+  assert.equal(w.ok, false);
+  // config: firstDay survives resolve; junk is dropped
+  assert.equal(resolveSendCeiling({ perDay: 1, per7Days: 4, firstDay: 3 }).firstDay, 3);
+  assert.equal(resolveSendCeiling({ perDay: 1, per7Days: 4, firstDay: 0 }).firstDay, undefined);
+  assert.match(ceilingNote(new Map([["día nudge_8h", 1]]))!, /3 en las primeras 24 h/);
 });
 
 test("ceiling: 4 unanswered in 7 days stops the 5th; a reply from the lead resets it (A258, A224)", () => {

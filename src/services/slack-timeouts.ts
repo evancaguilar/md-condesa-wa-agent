@@ -233,6 +233,8 @@ export interface TimeoutPolicy {
   autoSendAfterSec: number;
   taskAutoSendAfterSec: number;
   minSureness: number;
+  /** Sureness floor for a send outside the window; null ⇒ never outside it. */
+  overnightMinSureness: number | null;
   /** CDMX minute of day, [start, end). */
   windowStart: number;
   windowEnd: number;
@@ -251,6 +253,7 @@ export function timeoutPolicy(cfg: ApprovalsConfig = DEFAULT_APPROVALS): Timeout
     autoSendAfterSec: cfg.autoSendAfterMin * 60,
     taskAutoSendAfterSec: cfg.taskAutoSendAfterMin * 60,
     minSureness: cfg.minSureness,
+    overnightMinSureness: typeof cfg.overnightMinSureness === "number" ? cfg.overnightMinSureness : null,
     windowStart: hhmmToMin(cfg.sendWindow.start, 8 * 60),
     windowEnd: hhmmToMin(cfg.sendWindow.end, 21 * 60 + 30),
     staleCheckAfterSec: cfg.staleCheckAfterMin * 60,
@@ -591,6 +594,24 @@ export function decideTimeout(
   const b = timeoutBlockers(a, now, p);
   const clean = b.hard.length === 0 && b.soft.length === 0 && !b.settling;
   const paged = a.tasked === true || a.escalated === true;
+
+  // Outside the send window (the lead wrote at night): a clean, CONFIDENT
+  // draft still goes once its wait is over — the lead is awake and asking.
+  // Everything else (regeneration, escalation pages, shakier drafts) keeps
+  // waiting for the window to open.
+  const rawDue = a.createdAt + (a.tasked ? p.taskAutoSendAfterSec : p.autoSendAfterSec);
+  if (
+    now >= rawDue &&
+    now < due &&
+    p.overnightMinSureness !== null &&
+    clean &&
+    !b.regenerate &&
+    !a.optedOut &&
+    a.sureness !== undefined &&
+    a.sureness >= p.overnightMinSureness
+  ) {
+    return { kind: "bestbet", id: a.id, phone: a.phone, sureness: a.sureness };
+  }
 
   if (now >= due) {
     if (a.optedOut && a.hasDraft !== false) return { kind: "discard", id: a.id, phone: a.phone };
