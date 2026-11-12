@@ -82,7 +82,7 @@ import {
   DAY,
 } from "./time.js";
 import { isQuietHour, next8am, shiftOutOfQuiet } from "./quiet.js";
-import { aiFollowupNote, aiFollowupNoteMeta, newAiFollowupTick, type AiFollowupTick } from "./ai-followup.js";
+import { aiFollowupNote, aiFollowupNoteMeta, isAiFollowupKind, newAiFollowupTick, type AiFollowupTick } from "./ai-followup.js";
 import { greetingName } from "./display-name.js";
 import {
   airtableFetch,
@@ -106,6 +106,9 @@ import {
   processExtendedNudge,
   lookupEngagement,
   gateNudge,
+  endsWithQuestion,
+  openQuestionGuardSeconds,
+  OPEN_QUESTION_GUARD_SECONDS,
   ALL_EXTENDED_KINDS,
   ALL_NUDGE_KINDS,
   BOOKING_KINDS,
@@ -479,8 +482,15 @@ interface TickCtx {
  * the tick is SILENT (the conservative class).
  */
 function tickEngagement(env: Env, due: readonly Followup[]): TickCtx["engagement"] {
+  // AI follow-ups on: the day-1 rows' phones join the batch (the 1 h open-
+  // question guard and the AI decision both read it — one statement per tick).
+  const ai = CLIENT.features.aiFollowups === true;
   const phones = [
-    ...new Set(due.filter((f) => (ALL_EXTENDED_KINDS as readonly string[]).includes(f.kind)).map((f) => f.phone)),
+    ...new Set(
+      due
+        .filter((f) => (ALL_EXTENDED_KINDS as readonly string[]).includes(f.kind) || (ai && isAiFollowupKind(f.kind)))
+        .map((f) => f.phone),
+    ),
   ];
   let batch: Promise<Map<string, LeadEngagement>> | null = null;
   return async (phone) => {
@@ -717,7 +727,7 @@ async function processOne(
         return;
       }
       // Never stomp the bot's own open question (B3): defer, don't cancel.
-      if (await deferForOpenQuestion(env, f)) return;
+      if (await deferForOpenQuestion(env, f, { deps, ...(tick ? { tick } : {}) })) return;
       // Lead-nudge drip. processNudge re-verifies eligibility at send time,
       // sends the free-form nudge, and bumps the rolling cap. Nudges are always
       // in-window by construction; a closed window → cancel (no template).
@@ -1524,14 +1534,33 @@ async function handleSendFailure(
  * back the moment the guard lifts (quiet-shifted), so nothing is cancelled here.
  * A failed staff lookup fails soft to the bot-question guard alone.
  */
-async function deferForOpenQuestion(env: Env, f: Followup): Promise<boolean> {
+async function deferForOpenQuestion(
+  env: Env,
+  f: Followup,
+  ai?: { deps: FollowupDeps; tick?: TickCtx },
+): Promise<boolean> {
   let staffTs: number | null = null;
   try {
     staffTs = await lastStaffMessageTs(env.DB, f.phone);
   } catch (err) {
     console.warn(`[followups] staff-reply lookup failed for ${f.phone}: ${String(err)}`);
   }
-  const gate = gateNudge(await lastBotMessage(env.DB, f.phone), staffTs, nowSec());
+  const lastBot = await lastBotMessage(env.DB, f.phone);
+  // AI follow-up for an engaged lead: nudge_1h continues the bot's question,
+  // so it goes at 1 h (openQuestionGuardSeconds). Engagement is only looked up
+  // when it can change the answer (an open bot question, the flag + writer on).
+  let questionGuard = OPEN_QUESTION_GUARD_SECONDS;
+  const aiOn = CLIENT.features.aiFollowups === true && !!ai?.deps.aiFollowup;
+  if (aiOn && f.kind === "nudge_1h" && lastBot && endsWithQuestion(lastBot.body)) {
+    let engaged = false;
+    try {
+      engaged = (await (ai?.tick ? ai.tick.engagement(f.phone) : lookupEngagement(env, f.phone))).engaged;
+    } catch {
+      engaged = false;
+    }
+    questionGuard = openQuestionGuardSeconds(f.kind, aiOn, engaged);
+  }
+  const gate = gateNudge(lastBot, staffTs, nowSec(), questionGuard);
   if (gate.send) return false;
   await rescheduleRow(env, f, shiftOutOfQuiet(gate.retryAt));
   return true;

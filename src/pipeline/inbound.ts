@@ -8,6 +8,7 @@ import type {
   BrainResult,
   Campaign,
   ConvoContext,
+  FollowupWrite,
   Env,
   Ports,
   StoredMessage,
@@ -1126,6 +1127,23 @@ export async function buildBrainContext(
   };
 
   return { ctx: brainCtx, history };
+}
+
+/**
+ * The AI follow-up writer (src/cron/ai-followup.ts): the lead's normal brain
+ * context + the <seguimiento> block, ONE brain call, text only. Every failure
+ * is a reason the caller turns into the fixed copy. Used by the cron (index.ts)
+ * and the no-send preview route.
+ */
+export function followupWriter(
+  ports: Pick<Ports, "brain">,
+): (env: Env, phone: string, instruction: string) => Promise<FollowupWrite> {
+  return async (env, phone, instruction) => {
+    if (!ports.brain.writeFollowup) return { ok: false, reason: "no_writer" };
+    const built = await buildBrainContext(env, phone, Math.floor(Date.now() / 1000));
+    if (!built) return { ok: false, reason: "no_contact" };
+    return ports.brain.writeFollowup({ ...built.ctx, followupInstruction: instruction });
+  };
 }
 
 /**

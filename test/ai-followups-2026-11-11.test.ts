@@ -9,7 +9,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import { processNudge } from "../src/cron/nudges.js";
+import {
+  AI_OPEN_QUESTION_GUARD_SECONDS,
+  OPEN_QUESTION_GUARD_SECONDS,
+  openQuestionGuardSeconds,
+  processNudge,
+  textMentionsSlot,
+} from "../src/cron/nudges.js";
+import { time12h } from "../src/cron/next-slot.js";
+import { PREVIEW_SQL, parsePreviewBody, runAiFollowupPreview } from "../src/services/ai-followup-preview.js";
 import { runDueFollowups } from "../src/cron/followups.js";
 import {
   AI_FOLLOWUP_DEFER_SECONDS,
@@ -375,8 +383,9 @@ for (const flag of [false, undefined] as const) {
   });
 }
 
-test("the shipped client config turns the flag on (compile-kb whitelist kept it)", () => {
-  assert.equal((CLIENT.features as { aiFollowups?: boolean }).aiFollowups, true);
+test("the shipped client config keeps the flag OFF (ships dark) and compile-kb whitelists it", () => {
+  assert.equal((CLIENT.features as { aiFollowups?: boolean }).aiFollowups, false);
+  assert.match(readFileSync("tools/compile-kb.mjs", "utf8"), /aiFollowups: !!cfg\.features\?\.aiFollowups/);
 });
 
 // ---- 8. every pre-existing stop runs BEFORE the brain call -----------------------
@@ -646,7 +655,11 @@ test("validateAiFollowup: each guard names its fallback reason", () => {
 
 test("composeAiFollowup never throws and never waits past the deadline", async () => {
   const ok = (text: string) => ({ ok: true as const, text });
-  assert.deepEqual(await composeAiFollowup({ write: async () => ({ ok: true, text: "hola" }), check: ok }), { ok: true, text: "hola" });
+  assert.deepEqual(await composeAiFollowup({ write: async () => ({ ok: true, text: "hola" }), check: ok }), {
+    ok: true,
+    text: "hola",
+    draft: "hola",
+  });
   assert.deepEqual(
     await composeAiFollowup({
       write: async () => {
@@ -720,4 +733,229 @@ test("cron tick end to end: AI text goes out, the message row's meta says aiFoll
   const ai = notes.filter((n) => n.text.startsWith("✍️"));
   assert.equal(ai.length, 1);
   assert.deepEqual(ai[0]!.meta, { written: 1, deferred: 0, fallbacks: {} });
+});
+
+// ---- 11. 1 h means 1 h for AI follow-ups (open-question guard) -------------------
+
+function stubGraph(): { restore: () => void; posted: () => number } {
+  const g = globalThis as unknown as { fetch: unknown };
+  const real = g.fetch;
+  let n = 0;
+  g.fetch = async () => {
+    n++;
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.g${n}` }] }), text: async () => "" };
+  };
+  return { restore: () => (g.fetch = real), posted: () => n };
+}
+
+test("openQuestionGuardSeconds: 1 h only for nudge_1h with the flag on and an engaged lead", () => {
+  assert.equal(openQuestionGuardSeconds("nudge_1h", true, true), H);
+  assert.equal(openQuestionGuardSeconds("nudge_1h", true, false), 2 * H);
+  assert.equal(openQuestionGuardSeconds("nudge_1h", false, true), 2 * H);
+  assert.equal(openQuestionGuardSeconds("nudge_8h", true, true), 2 * H);
+  assert.equal(OPEN_QUESTION_GUARD_SECONDS, 2 * H);
+  assert.equal(AI_OPEN_QUESTION_GUARD_SECONDS, H);
+});
+
+for (const c of [
+  { name: "flag on + engaged → sends at 1 h (brain called)", flag: true, engaged: true, sends: true },
+  { name: "flag on + silent → still waits for the 2 h guard", flag: true, engaged: false, sends: false },
+  { name: "flag off + engaged → still waits for the 2 h guard", flag: false, engaged: true, sends: false },
+]) {
+  test(`open-question guard, cron tick: ${c.name}`, async () => {
+    const { raw, db } = sqliteDb();
+    const calls: string[] = [];
+    const graph = stubGraph();
+    const at = L + 60 + H + 60; // 1 h 1 min after the bot's question (L + 60)
+    try {
+      await withFlag(c.flag, () =>
+        withClock(at, async () => {
+          insertContact(raw, contact());
+          if (c.engaged) engagedConvo(raw);
+          else {
+            msg(raw, "in", "Hola, quiero más información", L);
+            msg(raw, "out_bot", BOT_THREAD, L + 60);
+          }
+          dueRow(raw, at - 60);
+          await runDueFollowups(envWith(db), {
+            slack: { async postNote() {}, async postAttendanceCheck() {} },
+            aiFollowup: async (_e, _p, instruction) => {
+              calls.push(instruction);
+              return { ok: true, text: AI_TEXT };
+            },
+          });
+        }),
+      );
+    } finally {
+      graph.restore();
+    }
+    const row = rowStatus(raw);
+    if (c.sends) {
+      assert.equal(row.status, "sent");
+      assert.equal(calls.length, 1);
+      assert.equal(graph.posted(), 1);
+    } else {
+      assert.equal(row.status, "scheduled");
+      assert.equal(row.due_at, L + 60 + 2 * H);
+      assert.equal(calls.length, 0);
+      assert.equal(graph.posted(), 0);
+    }
+  });
+}
+
+// ---- 12. proposed-slot memory only when the sent text names the slot -------------
+
+for (const names of [true, false]) {
+  test(`proposed-slot memory: AI text ${names ? "naming" : "not naming"} the plan's slot time → ${names ? "recorded" : "not recorded"}`, async () => {
+    const { raw, db } = sqliteDb();
+    const sent: Sent[] = [];
+    let slotTime = "";
+    const w = {
+      calls: [] as string[],
+      reply: async (instruction: string): Promise<FollowupWrite> => {
+        const m = /\((\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})\)/.exec(instruction);
+        assert.ok(m, "the instruction carries the next valid slot");
+        slotTime = m![2]!;
+        return { ok: true, text: names ? `¿Te late tu primera clase de Muay Thai a las ${time12h(slotTime)}?` : AI_TEXT };
+      },
+    };
+    await withFlag(true, () =>
+      withClock(L + H, async () => {
+        insertContact(raw, contact());
+        engagedConvo(raw);
+        assert.equal(await processNudge(envWith(db), PHONE, "nudge_1h", deps(sent, w)), "sent");
+      }),
+    );
+    assert.deepEqual(sent[0]!.meta, { aiFollowup: true });
+    const kv = raw.prepare(`SELECT value FROM kv WHERE key = ?`).get(`nudge_slots:${PHONE}`) as { value: string } | undefined;
+    if (names) {
+      assert.ok(kv, "recorded");
+      assert.match(kv!.value, new RegExp(slotTime));
+    } else {
+      assert.equal(kv, undefined);
+    }
+  });
+}
+
+test("proposed-slot memory: the fixed copy still records its slot (unchanged)", async () => {
+  const { raw, db } = sqliteDb();
+  const sent: Sent[] = [];
+  await withFlag(false, () =>
+    withClock(L + H, async () => {
+      insertContact(raw, contact());
+      engagedConvo(raw);
+      await processNudge(envWith(db), PHONE, "nudge_1h", deps(sent, writerReturning(AI_TEXT)));
+    }),
+  );
+  const kv = raw.prepare(`SELECT value FROM kv WHERE key = ?`).get(`nudge_slots:${PHONE}`);
+  assert.ok(kv);
+});
+
+test("textMentionsSlot reads the clock time with the booking-claims parser", () => {
+  assert.equal(textMentionsSlot("¿Te late el jueves a las 7:00 am?", { time: "07:00" }), true);
+  assert.equal(textMentionsSlot("¿Te late el jueves a las 7 pm?", { time: "19:00" }), true);
+  assert.equal(textMentionsSlot("¿Mañana o tarde?", { time: "07:00" }), false);
+});
+
+// ---- 13. no-send preview ----------------------------------------------------------
+
+function snapshot(raw: DatabaseSync): string {
+  const tables = (raw.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all() as { name: string }[]).map(
+    (t) => t.name,
+  );
+  return JSON.stringify(tables.map((t) => [t, raw.prepare(`SELECT * FROM "${t}" ORDER BY rowid`).all()]));
+}
+
+const P2 = "5215598765432";
+const P3 = "5215511112222";
+
+function seedPreview(raw: DatabaseSync): void {
+  insertContact(raw, contact()); // engaged, our message last → picked
+  engagedConvo(raw);
+  insertContact(raw, contact({ phone: P2 })); // silent
+  raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES('s1', ?, 'in', 'Hola, info', ?)`).run(P2, L - 100);
+  raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES('s2', ?, 'out_bot', '¡Hola! ¿Qué disciplina?', ?)`).run(P2, L - 90);
+  insertContact(raw, contact({ phone: P3 })); // engaged, but the LEAD wrote last → not quiet
+  raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES('t1', ?, 'in', 'Hola, info', ?)`).run(P3, L - 300);
+  raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES('t2', ?, 'out_bot', '¿Qué disciplina?', ?)`).run(P3, L - 290);
+  raw.prepare(`INSERT INTO messages(wamid, phone, direction, body, ts) VALUES('t3', ?, 'in', 'box', ?)`).run(P3, L - 200);
+  raw.prepare(`INSERT INTO kv(key, value) VALUES(?, ?)`).run(`nudge_count:${PHONE}`, JSON.stringify({ sends: [] }));
+}
+
+test("preview: picks only the engaged quiet lead, runs the brain even with the flag OFF, writes NOTHING", async () => {
+  const { raw, db } = sqliteDb();
+  const calls: string[] = [];
+  let res: Awaited<ReturnType<typeof runAiFollowupPreview>> | undefined;
+  await withFlag(false, () =>
+    withClock(L + 2 * H, async () => {
+      seedPreview(raw);
+      const before = snapshot(raw);
+      const parsed = parsePreviewBody({});
+      if (!parsed.ok) throw new Error(parsed.error);
+      res = await runAiFollowupPreview(envWith(db), parsed.opts, L + 2 * H, {
+        write: async (_e, _p, instruction) => {
+          calls.push(instruction);
+          return { ok: true, text: `${AI_TEXT} https://mdcondesa.com/clase-prueba-adultos/?utm_source=wa` };
+        },
+      });
+      assert.equal(snapshot(raw), before, "no row written anywhere");
+    }),
+  );
+  assert.equal(calls.length, 1);
+  assert.match(calls[0]!, /<seguimiento>/);
+  assert.equal(res!.kind, "nudge_1h");
+  assert.equal(res!.leads.length, 1);
+  const lead = res!.leads[0]!;
+  assert.equal(lead.phone, "…5678");
+  assert.equal(lead.lastLead, "sí me interesa muay thai");
+  assert.equal(lead.lastOurs, BOT_THREAD);
+  assert.equal(lead.hoursSilent, 2);
+  assert.ok(lead.fixedCopy.length > 0);
+  assert.equal(lead.ai.ok, true);
+  assert.ok(!JSON.stringify(res).includes("utm_source"), "no query strings");
+  assert.ok(!JSON.stringify(res).includes(PHONE) && !JSON.stringify(res).includes(P2), "no full phones");
+  assert.ok(lead.cta);
+});
+
+test("preview: a guard trip reports reason + guard + the rejected text; explicit phones report stops", async () => {
+  const { raw, db } = sqliteDb();
+  let res: Awaited<ReturnType<typeof runAiFollowupPreview>> | undefined;
+  await withClock(L + 2 * H, async () => {
+    seedPreview(raw);
+    raw.prepare(`INSERT INTO kv(key, value) VALUES(?, ?)`).run(`declined:${P3}`, JSON.stringify({ ts: L, source: "objection" }));
+    const before = snapshot(raw);
+    const parsed = parsePreviewBody({ kind: "nudge_8h", phones: [PHONE, P2, P3] });
+    if (!parsed.ok) throw new Error(parsed.error);
+    res = await runAiFollowupPreview(envWith(db), parsed.opts, L + 2 * H, {
+      write: async () => ({ ok: true, text: "¿Te late Muay Thai a las 3:00 am?" }),
+    });
+    assert.equal(snapshot(raw), before);
+  });
+  const [a, b, c] = res!.leads;
+  assert.deepEqual([a!.phone, b!.phone, c!.phone], ["…5678", "…5432", "…2222"]);
+  assert.equal(a!.ai.ok, false);
+  assert.equal(a!.ai.reason, "slot_claim");
+  assert.match(a!.ai.guard ?? "", /NUNCA se imparte/);
+  assert.equal(a!.ai.text, "¿Te late Muay Thai a las 3:00 am?");
+  assert.deepEqual(b!.ai, { ok: false, reason: "stop:silent" });
+  assert.deepEqual(c!.ai, { ok: false, reason: "stop:declined" });
+});
+
+test("parsePreviewBody: defaults and limits", () => {
+  assert.deepEqual(parsePreviewBody(undefined), { ok: true, opts: { kind: "nudge_1h", phones: null, limit: 3, sinceHours: 48 } });
+  assert.equal(parsePreviewBody({ kind: "nudge_d2" }).ok, false);
+  assert.equal(parsePreviewBody({ limit: 6 }).ok, false);
+  assert.equal(parsePreviewBody({ sinceHours: 169 }).ok, false);
+  assert.equal(parsePreviewBody({ phones: ["1", "2", "3", "4", "5", "6"] }).ok, false);
+  assert.equal(parsePreviewBody({ phones: ["+52 1 55 1234 5678"] }).ok, true);
+});
+
+test("preview SQL stays on its indexes (no table scans)", () => {
+  const { raw } = sqliteDb();
+  for (const sql of Object.values(PREVIEW_SQL)) {
+    const n = new Set(sql.match(/\?\d/g) ?? []).size;
+    const plan = JSON.stringify(raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...(["x", 1].slice(0, n) as never[])));
+    assert.match(plan, /USING (COVERING )?INDEX idx_messages_/);
+    assert.doesNotMatch(plan, /SCAN messages(?! USING)/);
+  }
 });

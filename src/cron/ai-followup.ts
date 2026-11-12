@@ -251,7 +251,25 @@ export interface AiFollowupCheckCtx {
   recentOutbound: readonly { body: string; ts: number }[];
 }
 
-export type AiFollowupCheck = { ok: true; text: string } | { ok: false; reason: string };
+/** Fallback reasons that are validateAiFollowup guards (not brain refusals / errors). */
+export const AI_FOLLOWUP_GUARD_REASONS: readonly string[] = [
+  "empty",
+  "too_long",
+  "url_not_allowed",
+  "internal_note",
+  "markup",
+  "duplicate",
+  "booking_claim",
+  "slot_claim",
+  "booking_date",
+  "fact_claim",
+  "price",
+];
+
+export type AiFollowupCheck = { ok: true; text: string } | { ok: false; reason: string; detail?: string };
+
+/** composeAiFollowup's result: the check, plus the brain's raw text when it wrote one (preview). */
+export type AiFollowupOutcome = AiFollowupCheck & { draft?: string };
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()]+|\bwww\.[^\s<>()]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|mx|net|org|io|app|link|ly|me|co)(?:\/[^\s<>()]*)?/gi;
 const PRICE_RE = /\$\s?\d[\d,.]*/g;
@@ -320,7 +338,10 @@ export function validateAiFollowup(raw: string, ctx: AiFollowupCheckCtx): AiFoll
     ["fact_claim", (r) => guardFactClaims(r, gctx)],
   ];
   for (const [reason, guard] of guards) {
-    if (guard(probe).action !== "send") return { ok: false, reason };
+    const r = guard(probe);
+    if (r.action !== "send") {
+      return { ok: false, reason, ...(r.action === "draft" && r.reason ? { detail: r.reason } : {}) };
+    }
   }
   if (unquotedPrices(text, ctx.recentOutbound.map((m) => m.body)).length) return { ok: false, reason: "price" };
   return { ok: true, text };
@@ -337,7 +358,7 @@ export async function composeAiFollowup(opts: {
   write: () => Promise<FollowupWrite>;
   check: (text: string) => AiFollowupCheck;
   timeoutMs?: number;
-}): Promise<AiFollowupCheck> {
+}): Promise<AiFollowupOutcome> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<FollowupWrite>((resolve) => {
     timer = setTimeout(() => resolve({ ok: false, reason: "timeout" }), opts.timeoutMs ?? AI_FOLLOWUP_TIMEOUT_MS);
@@ -355,7 +376,7 @@ export async function composeAiFollowup(opts: {
     if (timer !== undefined) clearTimeout(timer);
   }
   if (!res.ok) return res;
-  return opts.check(res.text);
+  return { ...opts.check(res.text), draft: res.text };
 }
 
 // ---- per-tick accounting -----------------------------------------------------

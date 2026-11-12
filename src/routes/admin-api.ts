@@ -7,7 +7,8 @@
 // the same overlay loader + real usage accrual as production.
 
 import { copySchema, copyStep, startCursor, tableCounts, type CopyCursor } from "../services/d1-copy.js";
-import { runBrainTurn } from "../pipeline/inbound.js";
+import { followupWriter, runBrainTurn } from "../pipeline/inbound.js";
+import { parsePreviewBody, runAiFollowupPreview } from "../services/ai-followup-preview.js";
 import { staleReplyFor } from "../cron/redrive.js";
 import {
   upsertContact as upsertContactRow,
@@ -747,6 +748,23 @@ export async function handleAdminApi(
     return json(
       await runDeclineBackfill(env.DB, parsed.opts, nowSec(), {
         postNote: (t) => ports.slack.postNote(t, { kind: "decline" }),
+      }),
+    );
+  }
+
+  // No-send preview of the AI-written day-1 follow-ups (features.aiFollowups
+  // ships dark): the exact processNudge compose path + one brain call per
+  // lead, zero writes (services/ai-followup-preview.ts). Owner-only.
+  // {kind?, phones?: ≤5, limit?: ≤5, sinceHours?: ≤168} → masked samples.
+  if (path === "/admin/api/nudges/ai-followup-preview" && method === "POST") {
+    if (session.role !== "owner") return json({ error: "forbidden" }, 403);
+    const parsed = parsePreviewBody(await readJson<Record<string, unknown>>(req));
+    if (!parsed.ok) return json({ error: parsed.error }, 400);
+    await ensureIndexes(env.DB);
+    return json(
+      await runAiFollowupPreview(env, parsed.opts, nowSec(), {
+        write: followupWriter(ports),
+        campaignName: async (e, id) => (await getCampaign(e.DB, id))?.name ?? null,
       }),
     );
   }

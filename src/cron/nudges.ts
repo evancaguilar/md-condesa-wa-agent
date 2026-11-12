@@ -96,8 +96,10 @@ import {
   validateAiFollowup,
   type AiFollowupBrief,
   type AiFollowupKind,
+  type AiFollowupOutcome,
   type AiFollowupTick,
 } from "./ai-followup.js";
+import { parseAllTimes } from "../services/booking-claims.js";
 
 // Re-exported so followups.ts + tests keep a single import surface.
 export {
@@ -538,7 +540,7 @@ export function hasBookingHistory(
  * (UNIQUE(phone, kind, …) autoindex). The followups probe fails SOFT — a
  * lookup error falls back to the marker alone, never blocks the drip outright.
  */
-async function bookedBefore(env: Env, phone: string): Promise<boolean> {
+export async function bookedBefore(env: Env, phone: string): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
   let row = false;
   try {
@@ -639,10 +641,23 @@ export function endsWithQuestion(body: string): boolean {
 export function gateOnOpenQuestion(
   last: LastBotMessage | null,
   now: number,
+  guardSeconds: number = OPEN_QUESTION_GUARD_SECONDS,
 ): NudgeGate {
   if (!last || !endsWithQuestion(last.body)) return { send: true };
-  const until = last.ts + OPEN_QUESTION_GUARD_SECONDS;
+  const until = last.ts + guardSeconds;
   return now >= until ? { send: true } : { send: false, retryAt: until };
+}
+
+/**
+ * AI-written nudge_1h (features.aiFollowups, engaged lead): the follow-up
+ * CONTINUES the bot's open question, so it may go 1 h after it — the owner
+ * asked for a 1 h follow-up (2026-11-11). Everything else keeps 2 h.
+ */
+export const AI_OPEN_QUESTION_GUARD_SECONDS = 1 * HOUR;
+
+/** Pure. The open-question guard for a due nudge row. */
+export function openQuestionGuardSeconds(kind: string, aiFollowups: boolean, engaged: boolean): number {
+  return kind === "nudge_1h" && aiFollowups && engaged ? AI_OPEN_QUESTION_GUARD_SECONDS : OPEN_QUESTION_GUARD_SECONDS;
 }
 
 /** A staff message younger than this holds every automatic nudge back. */
@@ -665,8 +680,9 @@ export function gateNudge(
   lastBot: LastBotMessage | null,
   lastStaffTs: number | null,
   now: number,
+  questionGuardSeconds: number = OPEN_QUESTION_GUARD_SECONDS,
 ): NudgeGate {
-  const a = gateOnOpenQuestion(lastBot, now);
+  const a = gateOnOpenQuestion(lastBot, now, questionGuardSeconds);
   const b = gateOnStaffReply(lastStaffTs, now);
   if (a.send && b.send) return { send: true };
   const retryAt = Math.max(a.send ? 0 : a.retryAt, b.send ? 0 : b.retryAt);
@@ -1061,6 +1077,111 @@ export function aiFollowupBrief(
   };
 }
 
+/** Everything a day-1 nudge decides from (read-only; see draftDayOne). */
+export interface DayOneDraft {
+  contact: Contact;
+  campaignName: string | null;
+  /** The lead's last 7 days of messages, oldest first. */
+  recent: { direction: string; body: string | null; ts: number }[];
+  inbound: string[];
+  /** Our outbound bodies + ts (duplicate check, quoted prices). */
+  outbound: { body: string; ts: number }[];
+  /** planNudgeCopy before the age-conflict downgrade (deferral facts). */
+  pre: NudgeCopyPlan;
+  /** The plan the copy uses (age conflict ⇒ no slot, link close). */
+  plan: NudgeCopyPlan;
+  /** The fixed copy. */
+  fixedBody: string;
+  /** kv nudge_slots raw value + what it still remembers. */
+  slotsRaw: string | null;
+  proposedKeys: Set<string>;
+}
+
+/**
+ * READ-ONLY: the plan and the fixed copy for a day-1 nudge — campaign name,
+ * the last 7 days of messages, the proposed-slot memory (one kv read), then
+ * planNudgeCopy (band, discipline, days, time of day, slots already proposed,
+ * next valid slot) and nudgeCopy. Shared by processNudge and the no-send AI
+ * follow-up preview (src/services/ai-followup-preview.ts).
+ */
+export async function draftDayOne(
+  env: Env,
+  phone: string,
+  kind: NudgeKind,
+  contact: Contact,
+  now: number,
+  campaignNameOf?: (env: Env, campaignId: number) => Promise<string | null>,
+): Promise<DayOneDraft> {
+  const campaignName =
+    contact.campaign_id !== null && campaignNameOf ? await campaignNameOf(env, contact.campaign_id) : null;
+  const recent = (await recentMessages(env.DB, phone, 30, now - 7 * DAY)).map((m) => ({
+    direction: m.direction,
+    body: m.body,
+    ts: m.ts,
+  }));
+  const inbound = recent.filter((m) => m.direction === "in").map((m) => m.body ?? "");
+  const slotsRaw = await kvGet(env.DB, proposedSlotsKey(phone));
+  const proposedKeys = parseProposedSlots(slotsRaw, now);
+  // Copy by AGE band (mini/teens included) and by what the lead SAID
+  // (discipline, adult/teen, days, time of day, deferrals — nudge-context.ts);
+  // the campaign name is only the last fallback.
+  const pre = planNudgeCopy(contact, campaignName, recent, now, { proposedKeys });
+  const plan = ageConflictsWithProgram(pre.program, inbound) ? { ...pre, slot: null, cta: "link" as const } : pre;
+  const fixedBody = nudgeCopy(plan.contact, kind, plan.campaignName, now, plan.schedule, { slot: plan.slot, cta: plan.cta });
+  const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
+  return { contact, campaignName, recent, inbound, outbound, pre, plan, fixedBody, slotsRaw, proposedKeys };
+}
+
+/**
+ * Pure. The stops a day-1 nudge hits from its own draft, in processNudge's
+ * order: buy intent (send-time signal), a deferral ("la próxima semana",
+ * "les aviso" — A271: 4 minutes after "salgo de viaje"), a duplicate of a
+ * recent send. null ⇒ it may go out.
+ */
+export function dayOneStop(d: DayOneDraft, now: number): "buy_intent" | "deferral" | "duplicate" | null {
+  if (hasBuyIntent(d.inbound)) return "buy_intent";
+  if (deferralVerdict(d.pre.facts, { day1: true, isFinal: false }, now).act !== "send") return "deferral";
+  if (isDuplicateSend(d.fixedBody, d.outbound, now)) return "duplicate";
+  return null;
+}
+
+/**
+ * The AI follow-up for a draft: brief → <seguimiento> instruction → ONE writer
+ * call (bounded) → validateAiFollowup. No side effects of its own (the writer
+ * may accrue usage). Shared by processNudge and the preview.
+ */
+export async function composeDayOneAi(
+  env: Env,
+  phone: string,
+  kind: AiFollowupKind,
+  d: DayOneDraft,
+  now: number,
+  write: (env: Env, phone: string, instruction: string) => Promise<FollowupWrite>,
+  timeoutMs?: number,
+): Promise<{ brief: AiFollowupBrief; instruction: string; outcome: AiFollowupOutcome }> {
+  const brief = aiFollowupBrief(kind, d.contact, d.plan, d.recent, d.proposedKeys, now);
+  const instruction = buildFollowupInstruction(brief);
+  const outcome = await composeAiFollowup({
+    write: () => write(env, phone, instruction),
+    check: (text) =>
+      validateAiFollowup(text, {
+        nowCdmx: cdmxHintContext(now).iso,
+        now,
+        contact: d.plan.contact ?? d.contact,
+        campaignName: d.plan.campaignName,
+        lang: brief.lang,
+        recentOutbound: d.outbound,
+      }),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
+  return { brief, instruction, outcome };
+}
+
+/** Pure. Does `text` name the slot's clock time (booking-claims parseAllTimes)? */
+export function textMentionsSlot(text: string, slot: Pick<NextSlot, "time">): boolean {
+  return parseAllTimes(text).includes(slot.time);
+}
+
 /**
  * Send-time processing for a due DAY-1 nudge. Re-verifies eligibility (lead / not
  * opted / not overridden / no booking / under cap), sends the free-form nudge,
@@ -1125,33 +1246,17 @@ export async function processNudge(
   const kv = await kvGet(env.DB, kvKey);
   if (!underNudgeCap(kv, now)) return "cancelled";
 
-  const campaignName =
-    contact.campaign_id !== null && deps.campaignName
-      ? await deps.campaignName(env, contact.campaign_id)
-      : null;
-
-  // Send-time signals from the lead's own words (src/cron/nudge-signals.ts).
-  const recent = await recentMessages(env.DB, phone, 30, now - 7 * DAY);
-  const inbound = recent.filter((m) => m.direction === "in").map((m) => m.body ?? "");
-  if (hasBuyIntent(inbound)) {
+  // Plan + fixed copy (read-only; shared with the AI follow-up preview).
+  const d = await draftDayOne(env, phone, kind, contact, now, deps.campaignName);
+  const stop = dayOneStop(d, now);
+  if (stop === "buy_intent") {
     // Wants to pay / enrol: a class push is the wrong message. Hand to a human.
     await deps.onBuyIntent?.(env, phone);
     return "cancelled";
   }
-  // Copy by AGE band (mini/teens included) and by what the lead SAID
-  // (discipline, adult/teen, days, time of day, deferrals — nudge-context.ts);
-  // the campaign name is only the last fallback.
-  const convo = recent.map((m) => ({ direction: m.direction, body: m.body, ts: m.ts }));
+  if (stop) return "cancelled";
+  const { plan: c, fixedBody: body, slotsRaw } = d;
   const slotsKey = proposedSlotsKey(phone);
-  const slotsRaw = await kvGet(env.DB, slotsKey);
-  const pre = planNudgeCopy(contact, campaignName, convo, now, { proposedKeys: parseProposedSlots(slotsRaw, now) });
-  // The lead deferred ("la próxima semana", "estoy de viaje", "les aviso"):
-  // a day-1 nudge would read as spam (A271: 4 minutes after "salgo de viaje").
-  if (deferralVerdict(pre.facts, { day1: true, isFinal: false }, now).act !== "send") return "cancelled";
-  const c = ageConflictsWithProgram(pre.program, inbound) ? { ...pre, slot: null, cta: "link" as const } : pre;
-  const body = nudgeCopy(c.contact, kind, c.campaignName, now, c.schedule, { slot: c.slot, cta: c.cta });
-  const outbound = recent.filter((m) => m.direction !== "in").map((m) => ({ body: m.body ?? "", ts: m.ts }));
-  if (isDuplicateSend(body, outbound, now)) return "cancelled";
 
   // AI-written follow-up (features.aiFollowups): only for a lead who wrote
   // something real (the nudgePolicy "engaged" class). Decided AFTER every stop
@@ -1189,22 +1294,8 @@ export async function processNudge(
   let metaExtra: Record<string, unknown> | undefined;
   if (aiPlanned && deps.writeFollowup) {
     if (deps.aiTick) deps.aiTick.started++;
-    const brief = aiFollowupBrief(kind as AiFollowupKind, contact, c, recent, parseProposedSlots(slotsRaw, now), now);
-    const instruction = buildFollowupInstruction(brief);
     const write = deps.writeFollowup;
-    const res = await composeAiFollowup({
-      write: () => write(env, phone, instruction),
-      check: (text) =>
-        validateAiFollowup(text, {
-          nowCdmx: cdmxHintContext(now).iso,
-          now,
-          contact: c.contact ?? contact,
-          campaignName: c.campaignName,
-          lang: brief.lang,
-          recentOutbound: outbound,
-        }),
-      ...(deps.aiTimeoutMs !== undefined ? { timeoutMs: deps.aiTimeoutMs } : {}),
-    });
+    const { outcome: res } = await composeDayOneAi(env, phone, kind as AiFollowupKind, d, now, write, deps.aiTimeoutMs);
     if (res.ok) {
       sendBody = res.text;
       metaExtra = { aiFollowup: true };
@@ -1224,8 +1315,11 @@ export async function processNudge(
   }
   await kvSet(env.DB, kvKey, recordNudgeSend(kv, now));
   // Remember the slot so the next nudge proposes a different one (nudge_8h
-  // repeated nudge_1h's slot in ~105 conversations).
-  if (c.slot) await kvSet(env.DB, slotsKey, recordProposedSlot(slotsRaw, c.slot, now));
+  // repeated nudge_1h's slot in ~105 conversations). The fixed copy always
+  // names it; an AI text only counts when it actually names the slot's time.
+  if (c.slot && (sendBody === body || textMentionsSlot(sendBody, c.slot))) {
+    await kvSet(env.DB, slotsKey, recordProposedSlot(slotsRaw, c.slot, now));
+  }
   return "sent";
 }
 

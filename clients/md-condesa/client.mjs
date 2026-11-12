@@ -99,7 +99,9 @@ export default {
     // lead who wrote something real are written by the brain and continue the
     // open thread (src/cron/ai-followup.ts). Silent leads keep the fixed copy;
     // any guard trip or brain failure sends the fixed copy. false ⇒ fixed copy only.
-    aiFollowups: true,
+    // Ships DARK (2026-11-11): the instruction has never met the real model.
+    // Check POST /admin/api/nudges/ai-followup-preview first; flip only with Evan's OK.
+    aiFollowups: false,
   },
   // Extended drip (d2…d7, paid MARKETING templates once the 24h window closes)
   // by engagement — 2026-11-09, after Meta flagged the number for spam twice in

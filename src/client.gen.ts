@@ -68,7 +68,7 @@ export const CLIENT: ClientConfig = {
     "metaCapi": false,
     "metaAudiences": true,
     "autoConfirmBookings": true,
-    "aiFollowups": true
+    "aiFollowups": false
   },
   "airtableLeads": {
     "phone": "# de Teléfono",
