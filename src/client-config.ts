@@ -479,8 +479,26 @@ export interface ClosedDate {
    * is coming but not decided yet — same blocking (no slot proposed, no
    * booking accepted), but the brain says the holiday schedule is being
    * confirmed and offers another day (or escalates if the lead insists).
+   * "special": open with a holiday schedule — ONLY `slots` run that day (they
+   * replace the weekday's regular grid everywhere: context, nudges,
+   * book_trial, reply guards). No slots ⇒ behaves like "closed".
    */
-  mode?: "closed" | "tbd";
+  mode?: "closed" | "tbd" | "special";
+  /** mode "special": the trial classes that run that day (CDMX clock). */
+  slots?: SpecialSlot[];
+  /** mode "special": one extra line for the brain (e.g. what is NOT a class). */
+  note?: string;
+}
+
+export interface SpecialSlot {
+  /** "HH:mm" 24h CDMX. */
+  time: string;
+  /** Service key (jiu, muay, …). */
+  discipline: string;
+  /** Client-facing class name for the context line ("Jiu-Jitsu No-Gi"). */
+  label?: string;
+  /** Age group (default "adult"). */
+  group?: "adult" | "kids" | "teens" | "mini" | "baby";
 }
 
 export interface ClientConfig {

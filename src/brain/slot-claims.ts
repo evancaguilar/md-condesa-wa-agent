@@ -14,6 +14,9 @@
 import { SLOTS, type Slot } from "./slots.gen.js";
 import { CLIENT } from "../client.gen.js";
 import { bandLabel, slotGroup, slotMatchesBand, slotOpenToBand, type ProgramBand } from "../services/age-band.js";
+import type { ClosedDate } from "../client-config.js";
+import { findDateRefs, weekdayOfYmd } from "./stated-date.js";
+import { scheduleOn } from "./tools.js";
 
 const WEEKDAY_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"] as const;
 
@@ -213,6 +216,33 @@ function time12(hhmm: string): string {
 }
 
 /** "4:00 pm Muay Thai, 5:00 pm Jiu-Jitsu" for a band's day. */
+/**
+ * Pure. The grid to judge `message` against (findSlotClaimIssues reads days as
+ * weekdays): a weekday the copy pins to a "special" holiday-schedule date ("el
+ * lunes" on Sat 14 = Mon 16, "hoy" on the day, "lunes 16") gets that date's
+ * slots instead of the regular rows — unless the copy also names ANOTHER date
+ * on the same weekday ("lunes 16 … y el lunes 23"), where the weekday is
+ * ambiguous and the regular grid stays.
+ */
+export function scheduleForCopy(
+  message: string,
+  todayYmd: string,
+  schedule: readonly Slot[] = SLOTS,
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
+): readonly Slot[] {
+  const special = new Set(closedDates.filter((c) => c.mode === "special").map((c) => c.date));
+  if (special.size === 0) return schedule;
+  const refs = findDateRefs(message, todayYmd).filter((r) => r.kind !== "week");
+  let out = schedule;
+  for (const ymd of new Set(refs.map((r) => r.ymd))) {
+    if (!special.has(ymd)) continue;
+    const wd = weekdayOfYmd(ymd);
+    if (refs.some((r) => r.ymd !== ymd && weekdayOfYmd(r.ymd) === wd)) continue;
+    out = scheduleOn(ymd, out, closedDates);
+  }
+  return out;
+}
+
 export function dayOptionsText(rows: readonly Slot[]): string {
   const seen: string[] = [];
   for (const s of rows.slice().sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))) {

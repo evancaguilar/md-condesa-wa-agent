@@ -491,10 +491,14 @@ test("statedDateLine: a closed / TBD date is never offered (A113: lunes 16 = hol
   assert.match(line!, /cerrado o con horario especial/);
 });
 
-test("bookingDateError: a lead asking for a closed/TBD date does not block the alternative", () => {
-  // 2026-11-16 is the TBD holiday in client.mjs closedDates
-  const ctx = ctxAt("2026-11-07T10:00", [msg("in", "Sería el 16 por favor")]);
-  assert.equal(bookingDateError(ctx, "2026-11-18", "mie"), null);
+test("bookingDateError: a lead asking for a closed date does not block the alternative", () => {
+  // 2026-09-16 is a full closure in client.mjs closedDates
+  const ctx = ctxAt("2026-09-07T10:00", [msg("in", "Sería el 16 por favor")]);
+  assert.equal(bookingDateError(ctx, "2026-09-17", "jue"), null);
+  // 2026-11-16 now has a real (special) schedule: it is bookable, so the
+  // lead's date wins over another day (2026-11-14).
+  const ctx2 = ctxAt("2026-11-07T10:00", [msg("in", "Sería el 16 por favor")]);
+  assert.match(bookingDateError(ctx2, "2026-11-18", "mie") ?? "", /Book 2026-11-16/);
 });
 
 // ---- reply-text slot guard false positives (approvals agent, 2026-11-11) ---------

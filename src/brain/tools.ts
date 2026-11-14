@@ -244,6 +244,38 @@ export function closedDateInfo(
   return closedDates.find((c) => c.date === d) ?? null;
 }
 
+/** Pure. True when nothing can be offered or booked on that closure row's day
+ *  ("closed" / "tbd"); a "special" holiday schedule is open (its own slots). */
+export function closureBlocksDay(c: ClosedDate | null | undefined): boolean {
+  return !!c && c.mode !== "special";
+}
+
+/** Pure. A "special" closure's slots as grid rows on weekday `wd`. */
+export function specialSlots(c: ClosedDate, wd: number): Slot[] {
+  return (c.slots ?? []).map((s) => {
+    const group = s.group ?? "adult";
+    return { weekday: wd, time: s.time, discipline: s.discipline, audience: group === "adult" ? "adult" : "kid", group };
+  });
+}
+
+/**
+ * Pure. The grid that applies on a CDMX date: `schedule` with that weekday's
+ * rows swapped for a "special" closure's own slots (holiday schedule). Ordinary,
+ * closed and TBD dates return `schedule` unchanged — callers block closures.
+ */
+export function scheduleOn(
+  dateYmd: string,
+  schedule: readonly Slot[] = SLOTS,
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
+): readonly Slot[] {
+  const c = closedDateInfo(dateYmd, closedDates);
+  if (!c || c.mode !== "special") return schedule;
+  const wd = weekdayIndex(dateYmd.trim().slice(0, 10));
+  if (wd === null) return schedule;
+  return [...schedule.filter((s) => s.weekday !== wd), ...specialSlots(c, wd)];
+}
+
+
 export function weekdayIndex(dateYmd: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateYmd.trim());
   if (!m) return null;
@@ -328,10 +360,22 @@ export function validateSlot(
       reason: `${trialDate}${closed.reason ? ` (${closed.reason})` : ""} has a SPECIAL holiday schedule that is not decided yet — the regular grid does not apply and nothing can be booked that day. Tell the lead the holiday schedule is being confirmed and offer another day from the KB; if they insist on that date, escalate_to_human.`,
     };
   }
-  if (closed) {
+  if (closed && (closed.mode !== "special" || (closed.slots ?? []).length === 0)) {
     return {
       ok: false,
       reason: `The academy is CLOSED on ${trialDate}${closed.reason ? ` (${closed.reason})` : ""} — no classes at all that day. Offer the next open day from the schedule in the KB.`,
+    };
+  }
+  if (closed) {
+    // Special holiday schedule: only its own slots exist that day.
+    const r = validateSlot(trialDate, trialTime, audience, discipline, scheduleOn(trialDate, schedule, closedDates), []);
+    if (r.ok) return r;
+    const only = specialSlots(closed, wd)
+      .map((s) => `${s.time} ${s.discipline} (${s.group})`)
+      .join(", ");
+    return {
+      ...r,
+      reason: `${trialDate}${closed.reason ? ` (${closed.reason})` : ""} has a SPECIAL holiday schedule — the regular grid does not apply. ONLY these classes run that day: ${only}. ${r.reason ?? ""}`.trim(),
     };
   }
   const disc = normalizeDiscipline(discipline);
@@ -438,7 +482,9 @@ export function validateSlotBand(
   if (wd === null) return { ok: true };
   const disc = normalizeDiscipline(discipline);
   const time = trialTime.trim();
-  const rows = schedule.filter(
+  // That DATE's grid (a special holiday schedule swaps the weekday's rows).
+  const day = scheduleOn(trialDate, schedule);
+  const rows = day.filter(
     (s) => s.weekday === wd && s.time === time && s.discipline === disc && s.trial !== false,
   );
   if (rows.length === 0) return { ok: true };
@@ -452,7 +498,7 @@ export function validateSlotBand(
     : groupLabel(slotGroup(rows[0]!));
   const sameDay = [
     ...new Set(
-      schedule
+      day
         .filter((s) => s.weekday === wd && s.trial !== false && slotMatchesBand(s, band, ageMonths))
         .map((s) => s.time),
     ),

@@ -31,7 +31,7 @@ import {
 } from "../cron/next-slot.js";
 import { bandLabel, isNivel0, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
 import { SLOTS, type Slot } from "./slots.gen.js";
-import { closedDateInfo, isKnownDiscipline, normalizeDiscipline } from "./tools.js";
+import { closedDateInfo, closureBlocksDay, isKnownDiscipline, normalizeDiscipline, scheduleOn } from "./tools.js";
 import { calendarLine, statedDateLine, weekdayOfYmd } from "./stated-date.js";
 import { dayCombos } from "./fact-guards.js";
 import { cdmxToEpoch } from "../cron/time.js";
@@ -141,6 +141,21 @@ export function closureLines(
     if (!cm) continue;
     const days = Math.round((Date.UTC(Number(cm[1]), Number(cm[2]) - 1, Number(cm[3])) - base) / 86400000);
     const why = c.reason ? ` (${c.reason})` : "";
+    if (c.mode === "special" && (c.slots ?? []).length > 0) {
+      if (days < 0 || days > CLOSURE_HORIZON_DAYS) continue;
+      const when = days === 0 ? `HOY ${c.date}` : `el ${c.date}`;
+      const groups = new Set((c.slots ?? []).map((s) => s.group ?? "adult"));
+      const who = [...groups].map((g) => (g === "adult" ? "adultos" : bandLabel(g))).join(", ");
+      const list = (c.slots ?? [])
+        .slice()
+        .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
+        .map((s) => `${time12h(s.time)} ${s.label ?? disciplineLabel(s.discipline)}`)
+        .join(", ");
+      out.push(
+        `HORARIO ESPECIAL ${when}${why}: el horario normal NO aplica ese día. SOLO hay estas clases (${who}): ${list}. Ninguna otra hora ni clase ese día (ningún otro grupo de edad); para cualquier otra clase ofrece otro día.${c.note ? ` ${c.note}` : ""}`,
+      );
+      continue;
+    }
     if (c.mode === "tbd") {
       if (days < 0 || days > CLOSURE_HORIZON_DAYS) continue;
       const when = days === 0 ? `HOY ${c.date}` : `el ${c.date}`;
@@ -321,7 +336,7 @@ export function combosLine(days: readonly BandDay[]): string | null {
   const parts: string[] = [];
   for (const d of days) {
     const from = d.slots[0]?.time ?? "00:00";
-    const c = dayCombos(d.weekday, from);
+    const c = dayCombos(d.weekday, from, scheduleOn(d.date));
     if (c.length) parts.push(`${d.label}: ${c.join(", ")}`);
   }
   if (parts.length === 0) return null;
@@ -336,10 +351,10 @@ export function bandOptionsOn(
   ageMonths: number | null,
   schedule: readonly Slot[] = SLOTS,
 ): string[] | null {
-  if (closedDateInfo(ymd)) return null;
+  if (closureBlocksDay(closedDateInfo(ymd))) return null;
   const wd = weekdayOfYmd(ymd);
   const out: string[] = [];
-  const rows = schedule
+  const rows = scheduleOn(ymd, schedule)
     .filter((s) => s.weekday === wd && s.trial !== false && slotMatchesBand(s, band, ageMonths))
     .slice()
     .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));

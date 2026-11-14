@@ -24,6 +24,7 @@ import { buildSystem, buildContextBlock, isNoReplySentinel, type SystemBlock } f
 import {
   TOOLS,
   closedDateInfo,
+  closureBlocksDay,
   disciplineNeverRunsAt,
   disciplineTimes,
   isKnownDiscipline,
@@ -50,7 +51,7 @@ import {
 } from "../services/age-band.js";
 import { SLOTS } from "./slots.gen.js";
 import { classifyProgram, parseQualification } from "../cron/nudge-copy.js";
-import { findSlotClaimIssues } from "./slot-claims.js";
+import { findSlotClaimIssues, scheduleForCopy } from "./slot-claims.js";
 import { capacityClaim, comboClaimIssues } from "./fact-guards.js";
 import { INTERNAL_NOTE_ERROR, looksInternalNote } from "./followup-note.js";
 import {
@@ -897,7 +898,7 @@ export function bookingDateError(
   }
   // A closed / TBD-holiday date can't be booked anyway (validateSlot refuses
   // it): the model offers the nearest real day instead — don't block that.
-  if (asked.ymd !== trialDate && !closedDateInfo(asked.ymd)) {
+  if (asked.ymd !== trialDate && !closureBlocksDay(closedDateInfo(asked.ymd))) {
     const who = asked.source === "lead" ? "the lead asked for" : "the lead accepted our offer of";
     return `${who} «${asked.text}» = ${longDateEs(asked.ymd)} (${asked.ymd}), but trial_date is ${trialDate} (${longDateEs(trialDate)}). Book ${asked.ymd} — the nearest ${WEEKDAY_NAMES_ES[weekdayOfYmd(asked.ymd)]} is NOT what they asked for — and confirm with «${WEEKDAY_NAMES_ES[weekdayOfYmd(asked.ymd)]} ${Number(asked.ymd.slice(8, 10))}».`;
   }
@@ -1362,6 +1363,8 @@ export function guardUnverifiedSlotClaim(
     const ageMonths =
       booked?.ageMonths ?? (ctx.contact ? (parseQualification(ctx.contact).child_age_months ?? null) : null);
     const issues = findSlotClaimIssues(res.message, weekdayIdx, {
+      // A day the copy pins to a special holiday schedule is judged on its slots.
+      schedule: scheduleForCopy(res.message, ctx.nowCdmx.slice(0, 10)),
       band: evidence,
       discipline: isKnownDiscipline(leadDisc) ? leadDisc : null,
       ageMonths,

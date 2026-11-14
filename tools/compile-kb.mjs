@@ -381,8 +381,23 @@ function renderClientTs(cfg, persona, version) {
           .map((c) => ({
             date: String(c.date),
             ...(c.reason ? { reason: String(c.reason) } : {}),
-            // Only the one non-default mode ships; anything else = "closed".
+            // Non-default modes: "tbd", "special" (+ its slots/note); anything
+            // else = "closed".
             ...(c.mode === "tbd" ? { mode: "tbd" } : {}),
+            ...(c.mode === "special"
+              ? {
+                  mode: "special",
+                  slots: (Array.isArray(c.slots) ? c.slots : [])
+                    .filter((s) => s && /^\d{2}:\d{2}$/.test(String(s.time)) && s.discipline)
+                    .map((s) => ({
+                      time: String(s.time),
+                      discipline: String(s.discipline),
+                      ...(s.label ? { label: String(s.label) } : {}),
+                      ...(["kids", "teens", "mini", "baby"].includes(s.group) ? { group: s.group } : {}),
+                    })),
+                  ...(c.note ? { note: String(c.note) } : {}),
+                }
+              : {}),
           }))
       : [],
     booking: { preferredBlocks: preferredBlocks(cfg.booking?.preferredBlocks) },

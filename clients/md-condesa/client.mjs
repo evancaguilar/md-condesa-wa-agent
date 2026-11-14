@@ -35,9 +35,25 @@ export default {
   // closure, but the brain says the holiday schedule is being confirmed (and
   // escalates if the lead insists on that date). Swap it for the real hours
   // (or delete the row) once Evan decides.
+  // mode "special" = open with a holiday schedule: ONLY `slots` run that day
+  // (they replace that weekday's regular grid for context, nudges, book_trial
+  // and the reply guards). slots: { time "HH:mm", discipline key, label?,
+  // group? (default adult) }.
   closedDates: [
     { date: "2026-09-16", reason: "Día de la Independencia" },
-    { date: "2026-11-16", reason: "lunes feriado", mode: "tbd" }, // Evan, 2026-11-10
+    {
+      // Evan, 2026-11-14. Open mat runs alongside each class — not a trial class.
+      date: "2026-11-16",
+      reason: "lunes feriado",
+      mode: "special",
+      slots: [
+        { time: "10:00", discipline: "muay", label: "Muay Thai" },
+        { time: "11:00", discipline: "jiu", label: "Jiu-Jitsu No-Gi" },
+        { time: "18:00", discipline: "muay", label: "Muay Thai" },
+        { time: "19:00", discipline: "jiu", label: "Jiu-Jitsu No-Gi" },
+      ],
+      note: "Junto a cada clase hay open mat / entrenamiento libre: NO es clase de prueba, nunca lo ofrezcas como clase.",
+    },
   ],
   // Trial offers are SOONEST-FIRST (same-day trials show 54% vs ~29% for ones
   // a day or more out — Jul 1–Sep 21 2026, 645 trials). preferredBlocks is the

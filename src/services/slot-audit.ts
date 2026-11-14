@@ -16,7 +16,7 @@
 import type { Env } from "../types.js";
 import { getContact } from "../db/queries.js";
 import { getCampaign } from "../db/queries-admin.js";
-import { findSlotClaimIssues } from "../brain/slot-claims.js";
+import { findSlotClaimIssues, scheduleForCopy } from "../brain/slot-claims.js";
 import { bandFromQualification, type ProgramBand } from "./age-band.js";
 import { classifyProgram, parseQualification } from "../cron/nudge-copy.js";
 import { isKnownDiscipline, normalizeDiscipline } from "../brain/tools.js";
@@ -104,8 +104,12 @@ export async function auditHumanSlotClaims(
   try {
     if (!HUMAN_TEXT_SOURCES.has(source) || !text.trim()) return;
     const ev = deps.leadEvidence ? await deps.leadEvidence(env, phone) : { band: null, discipline: null };
-    const { weekdayIdx } = cdmxHintContext(deps.now());
-    const issues = findSlotClaimIssues(text, weekdayIdx, { band: ev.band, discipline: ev.discipline });
+    const { iso, weekdayIdx } = cdmxHintContext(deps.now());
+    const issues = findSlotClaimIssues(text, weekdayIdx, {
+      schedule: scheduleForCopy(text, iso.slice(0, 10)),
+      band: ev.band,
+      discipline: ev.discipline,
+    });
     if (issues.length === 0) return;
     await deps.postTaskNote(env, slotWarningText(phone, source, by, text, issues.map((i) => i.note)));
   } catch (err) {

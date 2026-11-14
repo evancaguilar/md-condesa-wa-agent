@@ -142,7 +142,14 @@ import { decideAutoConfirm } from "../services/auto-confirm.js";
 import { isNoReplySentinel } from "../brain/prompt.js";
 import { dashboardChatUrl } from "../services/dashboard-link.js";
 import { alertNote, taskNote } from "../cron/deps.js";
-import { handoffButtonTemplate, isOptOutButton, isOptOutButtonLabel } from "./promo-button.js";
+import {
+  handoffAckText,
+  handoffButtonFor,
+  handoffNoteText,
+  humansOnlyPromo,
+  isOptOutButton,
+  isOptOutButtonLabel,
+} from "./promo-button.js";
 import {
   fetchMediaBytes,
   fetchMediaBytesFromUrl,
@@ -604,19 +611,40 @@ export async function processInbound(
   // an answer about promos it knows nothing about.
   if (msg.kind === "button") {
     const recent = await recentMessages(env.DB, msg.phone, 20, Math.floor(Date.now() / 1000) - HISTORY_WINDOW_SECONDS);
-    const template = handoffButtonTemplate(msg.kind, body, recent);
-    if (template) {
-      await setHumanOverride(env.DB, msg.phone, PROMO_HANDOFF_PAUSE_HOURS);
+    const row = handoffButtonFor(msg.kind, body, recent);
+    if (row) {
+      const template = row.template;
+      const pauseHours = row.pauseHours ?? PROMO_HANDOFF_PAUSE_HOURS;
+      await setHumanOverride(env.DB, msg.phone, pauseHours);
+      // ONE fixed acknowledgement when the row has one (Buen Fin); the
+      // Halloween row sends nothing. The tap itself opened the window.
+      let acked = false;
+      const ack = handoffAckText(row, contact.lang);
+      if (ack) {
+        try {
+          await sendText(env, msg.phone, ack);
+          acked = true;
+        } catch (err) {
+          console.warn("[inbound] promo button ack failed", msg.phone, err);
+        }
+      }
       const url = dashboardChatUrl(env, msg.phone);
-      const text =
-        `🎃 *${contact.name ?? msg.phone}* (${msg.phone}) tocó "${body}" en \`${template}\`. El bot no respondió; contéstale tú.` +
-        (url ? `\n<${url}|💬 Abrir chat>` : "");
+      const text = handoffNoteText(row, { name: contact.name, phone: msg.phone, body, url, acked, pauseHours });
+      let teamDone = false;
+      if (row.teamTask) {
+        try {
+          await taskNote(ports.slack, text);
+          teamDone = true;
+        } catch (err) {
+          console.error("[inbound] promo button task failed", msg.phone, err);
+        }
+      }
       try {
         await alertNote(ports.slack, text, { kind: "approvals", meta: { phone: msg.phone, template } });
       } catch (err) {
         // A lost alert means a lead nobody answers: fall back to the team channel.
         console.error("[inbound] promo button alert failed", msg.phone, err);
-        await taskNote(ports.slack, text);
+        if (!teamDone) await taskNote(ports.slack, text);
       }
       return;
     }
@@ -651,7 +679,9 @@ export async function processInbound(
     let armed = false;
     try {
       const recent = await recentMessages(env.DB, msg.phone, 10, nowSec - HISTORY_WINDOW_SECONDS);
-      if (overrideFromStaffReply(recent)) {
+      // Humans-only promo hand-off (Buen Fin «Quiero inscribirme»): package
+      // prices are staff's, so the IA never takes this chat back on a timer.
+      if (overrideFromStaffReply(recent) && !humansOnlyPromo(recent)) {
         const key = overrideCheckKey(msg.phone);
         const prev = parseOverrideCheck(await kvGet(env.DB, key));
         await kvSet(

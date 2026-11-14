@@ -12,6 +12,7 @@ import { SLOTS, type Slot } from "./slots.gen.js";
 import { CLIENT } from "../client.gen.js";
 import { parseAllTimes } from "../services/booking-claims.js";
 import { slotGroup } from "../services/age-band.js";
+import { scheduleOn } from "./tools.js";
 import { findDateRefs, normDate, weekdayOfYmd, WEEKDAY_NAMES_ES } from "./stated-date.js";
 
 /**
@@ -143,6 +144,8 @@ export function comboClaimIssues(
     const ymd = days.length === 1 ? days[0]! : days.length === 0 && wholeDays.length === 1 ? wholeDays[0]! : null;
     if (!ymd) continue;
     const wd = weekdayOfYmd(ymd);
+    // That date's grid (a special holiday schedule swaps the weekday's rows).
+    const grid = scheduleOn(ymd, schedule);
     const times = parseAllTimes(s);
     if (times.length === 0) continue;
     const discs = disciplinesInOrder(s);
@@ -156,15 +159,15 @@ export function comboClaimIssues(
         // The two halves of one combo ("llegas a las 9 … y a las 10 Muay Thai").
         const ok =
           first && second
-            ? comboStartsAt(wd, x, first, second, schedule) || comboStartsAt(wd, x, second, first, schedule)
-            : comboStartsAt(wd, x, null, null, schedule);
+            ? comboStartsAt(wd, x, first, second, grid) || comboStartsAt(wd, x, second, first, grid)
+            : comboStartsAt(wd, x, null, null, grid);
         if (!ok) issues.push(`el ${day} no hay combo de 2 clases ${clock(x)} + ${clock(y)}.`);
         continue;
       }
       // Two separate arrival offers: each one is checked below.
     }
     for (const t of times) {
-      const ok = first && second ? comboStartsAt(wd, t, first, second, schedule) : comboStartsAt(wd, t, first, null, schedule);
+      const ok = first && second ? comboStartsAt(wd, t, first, second, grid) : comboStartsAt(wd, t, first, null, grid);
       if (!ok) {
         const what = first && second ? `${labelOf(first)} y luego ${labelOf(second)}` : "dos clases seguidas";
         issues.push(`el ${day} a las ${clock(t)} no se puede tomar ${what} (a esa hora hay una sola clase o corren al mismo tiempo).`);

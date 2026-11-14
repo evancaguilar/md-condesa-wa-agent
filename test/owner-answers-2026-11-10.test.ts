@@ -68,10 +68,13 @@ test("sendResult: a high-sureness private-class reply is a draft carrying its re
 
 // ---- 2. Monday 2026-11-16: holiday schedule TBD ---------------------------
 
-test("client config: the 2026-11-16 tbd row survives the compile-kb whitelist", () => {
+// 2026-11-14: Evan gave the real schedule — the client row is now mode
+// "special" (test/buen-fin-2026.test.ts). The tbd mode itself is exercised
+// below through explicit lists.
+test("client config: the 2026-11-16 row survives the compile-kb whitelist", () => {
   const row = (CLIENT.closedDates ?? []).find((c) => c.date === "2026-11-16");
   assert.ok(row, "2026-11-16 missing from client.gen.ts");
-  assert.equal(row?.mode, "tbd");
+  assert.equal(row?.mode, "special");
 });
 
 const TBD = [{ date: "2026-11-16", reason: "lunes feriado", mode: "tbd" as const }];
@@ -93,7 +96,7 @@ test("closureLines: tbd day says 'por confirmar', never 'CERRADO', and only insi
 test("validateSlot: a regular Monday class on 2026-11-16 is rejected with the tbd message", () => {
   // Monday 19:00 Muay Thai exists on the grid (it validates the Monday after).
   assert.equal(validateSlot("2026-11-23", "19:00", "adult", "muay").ok, true);
-  const r = validateSlot("2026-11-16", "19:00", "adult", "muay");
+  const r = validateSlot("2026-11-16", "19:00", "adult", "muay", undefined, TBD);
   assert.equal(r.ok, false);
   assert.match(r.reason ?? "", /SPECIAL holiday schedule that is not decided yet/);
   assert.match(r.reason ?? "", /escalate_to_human/);
@@ -104,12 +107,12 @@ test("validateSlot: a regular Monday class on 2026-11-16 is rejected with the tb
 test("nudges and the brain's slot list skip 2026-11-16 (fake clock, CDMX)", () => {
   // Sunday 2026-11-15, 20:00 CDMX: the next class would normally be Monday 7 am.
   const sunNight = cdmxToEpoch(2026, 11, 15, 20, 0);
-  const adult = nextTrialSlot(null, "adult", sunNight);
+  const adult = nextTrialSlot(null, "adult", sunNight, undefined, TBD);
   assert.ok(adult);
   assert.equal(adult?.date, "2026-11-17");
   assert.equal(adult?.time, "07:00");
 
-  const kids = nextBandSlot("kids", null, sunNight);
+  const kids = nextBandSlot("kids", null, sunNight, { closedDates: TBD });
   assert.ok(kids);
   assert.equal(kids?.date, "2026-11-17");
   assert.equal(kids?.time, "16:00");
@@ -120,7 +123,7 @@ test("nudges and the brain's slot list skip 2026-11-16 (fake clock, CDMX)", () =
   assert.equal(mini?.date, "2026-11-18");
 
   for (const band of ["adults", "kids", "teens", "mini", "baby"] as const) {
-    const list = upcomingBandSlots(band, null, cdmxToEpoch(2026, 11, 13, 9, 0), 40);
+    const list = upcomingBandSlots(band, null, cdmxToEpoch(2026, 11, 13, 9, 0), 40, { closedDates: TBD });
     assert.ok(list.length > 0, band);
     assert.ok(!list.some((s) => s.date === "2026-11-16"), `${band} offered 2026-11-16`);
   }

@@ -18,8 +18,8 @@
 
 import { SLOTS, type Slot } from "../brain/slots.gen.js";
 import { CLIENT } from "../client.gen.js";
-import type { PreferredBlock } from "../client-config.js";
-import { isKnownDiscipline, normalizeDiscipline, weekdayIndex } from "../brain/tools.js";
+import type { ClosedDate, PreferredBlock } from "../client-config.js";
+import { closureBlocksDay, isKnownDiscipline, normalizeDiscipline, scheduleOn, weekdayIndex } from "../brain/tools.js";
 import { cdmxParts, cdmxToEpoch, DAY } from "./time.js";
 import { slotGroup, slotMatchesBand, type ProgramBand } from "../services/age-band.js";
 
@@ -132,7 +132,7 @@ export function nextTrialSlot(
   audience: "adult" | "kid",
   nowEpoch: number,
   schedule: readonly Slot[] = SLOTS,
-  closedDates: readonly { date: string }[] = CLIENT.closedDates ?? [],
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
   preferredBlocks: readonly PreferredBlock[] = CLIENT.booking?.preferredBlocks ?? [],
 ): NextSlot | null {
   // No blocks configured ⇒ the first hit IS the answer; don't scan 40 of them.
@@ -158,7 +158,7 @@ export function upcomingTrialSlots(
   nowEpoch: number,
   limit: number,
   schedule: readonly Slot[] = SLOTS,
-  closedDates: readonly { date: string }[] = CLIENT.closedDates ?? [],
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
   leadSeconds: number = SLOT_LEAD_SECONDS,
   /**
    * true ⇒ ONLY the parent-participation rows of that audience (kid ⇒ Mini Muay
@@ -199,7 +199,7 @@ export function upcomingTrialSlots(
 
 export interface BandSlotOpts {
   schedule?: readonly Slot[];
-  closedDates?: readonly { date: string }[];
+  closedDates?: readonly ClosedDate[];
   /** Minimum distance from now (default SLOT_LEAD_SECONDS). */
   leadSeconds?: number;
   /** Weekdays (0=Mon … 6=Sun) the lead declined — never listed. */
@@ -356,7 +356,7 @@ function collectSlots(
   nowEpoch: number,
   opts: {
     schedule?: readonly Slot[];
-    closedDates?: readonly { date: string }[];
+    closedDates?: readonly ClosedDate[];
     leadSeconds?: number;
     /** Only parent-participation rows (see upcomingTrialSlots). */
     ppOnly?: boolean;
@@ -377,7 +377,10 @@ function collectSlots(
   },
 ): DatedSlot[] {
   const schedule = opts.schedule ?? SLOTS;
-  const closed = new Set((opts.closedDates ?? CLIENT.closedDates ?? []).map((c) => c.date));
+  const closedDates = opts.closedDates ?? CLIENT.closedDates ?? [];
+  // Closed / TBD days are skipped; a "special" holiday schedule is open with
+  // its own slots (scheduleOn swaps them in for that date).
+  const closed = new Set(closedDates.filter((c) => closureBlocksDay(c)).map((c) => c.date));
   const wantKey = resolveDiscipline(discipline);
   const earliest = Math.max(nowEpoch + (opts.leadSeconds ?? SLOT_LEAD_SECONDS), opts.notBefore ?? 0);
   const p = cdmxParts(nowEpoch);
@@ -402,7 +405,7 @@ function collectSlots(
     // Every row of this day the lead's band/audience may take (the discipline
     // filter comes after, because the kids "second half" rule below needs the
     // whole day of the group).
-    const dayRows = schedule.filter((s) =>
+    const dayRows = scheduleOn(date, schedule, closedDates).filter((s) =>
       // Nivel 0 (Baby Fight Club 6–11 months, Friday 12 pm) is only PROPOSED
       // when the baby's age is known to fit: with the age unknown the regular
       // Wed / Sat class is the default (most BFC babies are 12–36 months).
