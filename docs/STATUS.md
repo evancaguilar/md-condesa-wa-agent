@@ -1,8 +1,18 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-11** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-14** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
-### Audit fixes 2026-11-12: «Esperando respuesta», promised-booking retry, small fixes — branch `release/2026-11-12`, NOT pushed
+### Buen Fin 2026 blast: «Quiero inscribirme» to staff + Monday 11-16 holiday schedule — branch `feat/buen-fin-2026`, pushed 2026-11-14
+
+- Template `buen_fin_2026_prueba_o_inscripcion` (es, MARKETING, APPROVED). Buttons: «Quiero mi día gratis» → normal brain turn; «Quiero inscribirme» → `PROMO_BUTTONS` row (`src/pipeline/promo-button.ts`, `humansOnly`): one ack to the lead, #wa-leads task + #evan-alerts note, human override 48 h, bot never quotes packages, no 60-min IA check; «No recibir mensajes» → opt-out. Only real button taps match.
+- `closedDates` mode `special` (client.mjs, whitelisted in compile-kb + client-config): Mon 2026-11-16 offers and books ONLY 10:00 Muay Thai, 11:00 Jiu-Jitsu No-Gi, 18:00 Muay Thai, 19:00 Jiu-Jitsu No-Gi (adults; open mat is not a trial). Enforced in brain context, slot lists/nudges, book_trial, date guard and reply-text guard.
+- KB overlay section 8 (live note): «Promo Buen Fin 2026 (hasta mar 17 nov)» — gifts per plan, no prices, price/enrolment → team. Remove after the promo ends.
+- Audience: people who booked a trial since 2026-07-07 and did not enrol. Wave 1 (attended + no-shows since 10-19) reviewed chat by chat for a prior "no": 418 after exclusions. Wave 2 (older no-shows, 471) needs the same review and Evan's OK; cancel if the quality rating drops.
+- Tests 1882 → **1896**.
+- [ ] The tap handling has never run on a real tap: watch the first «Quiero inscribirme» in #wa-leads.
+- [ ] After Tue 11-17: delete overlay section 8; the special date expires by itself.
+
+### Audit fixes 2026-11-12: «Esperando respuesta», promised-booking retry, small fixes — branch `release/2026-11-12`, pushed 2026-11-12 (3c88734)
 
 From the nightly audit of 11-11 + Evan's review. Root causes read on the live chats: a «Tomar control» chat where the lead wrote the next day and nobody answered; a discarded draft after the holding line («Si por favor» = wants to sign up); a student on the leads line; «Te apunto el lunes 23 a las 6 pm» with no book_trial.
 - **«💬 Esperando respuesta»** (Aprobaciones; `src/services/unanswered.ts` pure rules, `unanswered-db.ts` I/O): chats where the lead wrote last and nobody answered ≥ 20 min (≤ 7 d) — incl. Tomar control, students, discarded approvals; pending approvals stay in Aprobaciones, expired ones in «Sin responder» (no duplicates). Holding line / student ack ≠ answer; reactions, stickers, gracias/nos vemos never need a reply; ok/va/sí/👍 need one only after our question; baja never qualifies. Row shows why the bot is silent + «💬 Ver chat» / «☑️ Ya lo atendí» (kv per phone + message). Counted in the Aprobar badge. Nudges/templates sent after the lead's message DO count as an answer (open point).
