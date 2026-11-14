@@ -295,3 +295,17 @@ test("worker-applied index batch covers every index the inbox plan relies on", (
   }
   assert.equal(INDEX_MIGRATION_KEY, "migr_idx_2026_11_03");
 });
+
+test("likePattern: never exceeds D1's 50-byte LIKE limit, cuts on a character boundary", async () => {
+  const { likePattern, LIKE_PATTERN_MAX_BYTES } = await import("../src/db/queries-admin.js");
+  const bytes = (s: string) => new TextEncoder().encode(s).length;
+  assert.equal(likePattern("hola"), "%hola%");
+  const long = likePattern("Sí, quiero inscribirme en línea y asegurar mi lugar con la promo");
+  assert.ok(bytes(long) <= LIKE_PATTERN_MAX_BYTES);
+  assert.ok(long.startsWith("%Sí, quiero inscribirme en línea") && long.endsWith("%"));
+  const tricky = likePattern("ñ".repeat(40) + "100%_\\".repeat(10));
+  assert.ok(bytes(tricky) <= LIKE_PATTERN_MAX_BYTES);
+  assert.ok(!/�/.test(tricky));
+  const esc = likePattern("a".repeat(47) + "%");
+  assert.ok(bytes(esc) <= LIKE_PATTERN_MAX_BYTES && !/(^|[^\\])\\%$/.test(esc.slice(0, -1) + "") );
+});

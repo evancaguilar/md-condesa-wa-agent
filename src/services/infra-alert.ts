@@ -39,6 +39,9 @@ export function classifyInfraError(err: unknown): InfraClassification | null {
   const text = raw.replace(/\s+/g, " ").trim();
   const detail = text.slice(0, 180);
   if (/D1_ERROR|D1 DB|D1_TYPE_ERROR|D1_EXEC_ERROR/i.test(text)) {
+    // A rejected statement (bad search pattern), not an outage: the database
+    // is answering. Never page the team for it.
+    if (/LIKE or GLOB pattern too complex/i.test(text)) return null;
     if (/overloaded|queued for too long|too many requests|rate ?limit/i.test(text)) {
       return {
         kind: "d1_overloaded",

@@ -1048,8 +1048,26 @@ export interface ConversationRow {
 }
 
 /** Escapes LIKE wildcards so user input matches literally (ESCAPE '\'). */
-function likePattern(q: string): string {
-  return "%" + q.replace(/[\\%_]/g, (m) => "\\" + m) + "%";
+/**
+ * D1 rejects LIKE patterns over 50 BYTES ("LIKE or GLOB pattern too complex",
+ * 2026-11-14: a pasted sentence in the Chats search raised a false «D1 está
+ * fallando» alert). The term is cut on a character boundary so the whole
+ * pattern, wildcards and escapes included, fits; the first ~48 bytes of a
+ * phrase are plenty to find the chat.
+ */
+export const LIKE_PATTERN_MAX_BYTES = 50;
+export function likePattern(q: string): string {
+  const enc = new TextEncoder();
+  let body = "";
+  let bytes = 2; // the two % wildcards
+  for (const ch of q) {
+    const piece = /[\\%_]/.test(ch) ? "\\" + ch : ch;
+    const n = enc.encode(piece).length;
+    if (bytes + n > LIKE_PATTERN_MAX_BYTES) break;
+    body += piece;
+    bytes += n;
+  }
+  return "%" + body + "%";
 }
 
 /**

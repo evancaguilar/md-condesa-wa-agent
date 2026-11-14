@@ -15,6 +15,7 @@ const D1_OVERLOADED = new Error("D1_ERROR: D1 DB is overloaded. Requests queued 
 test("classify: D1 overload, D1 generic, Anthropic, Meta 5xx; ordinary bugs are null", () => {
   assert.equal(classifyInfraError(D1_OVERLOADED)?.kind, "d1_overloaded");
   assert.equal(classifyInfraError(new Error("D1_ERROR: no such table: foo"))?.kind, "d1_error");
+  assert.equal(classifyInfraError(new Error("D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR")), null);
   assert.equal(
     classifyInfraError(new Error("anthropic HTTP 400: credit balance is too low"))?.kind,
     "anthropic",
