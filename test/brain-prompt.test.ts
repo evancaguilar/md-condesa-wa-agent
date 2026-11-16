@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildSystem,
   buildContextBlock,
+  saysAdult,
   systemText,
   PERSONA_AND_POLICIES,
   NO_REPLY_SENTINEL,
@@ -282,6 +283,33 @@ test("slot hints follow the lead's program — a kids campaign never sees adult 
   assert.match(block, /programa por edad: Kids \(6–12 años\)/);
   assert.ok(block.includes("mañana martes a las 4:00 pm"), block); // Kids Muay Thai
   assert.ok(!block.includes("7:00 am"), "7 am is an adults-only hour");
+});
+
+test("an adult writing from a kids ad gets the adult hours, soonest first (2026-11-16)", () => {
+  // Holiday Monday 4:01 pm: Kids have no class today, adults have Jiu-Jitsu 7 pm.
+  const msg = (body: string) => ({ wamid: "w", phone: "5215512345678", direction: "in" as const, body, ts: 1, meta: null });
+  const base = {
+    nowCdmx: "2026-11-16T16:01:00-06:00",
+    contact: contact({ qualification: JSON.stringify({ discipline: "jiu" }) }),
+    campaign: { name: "fw jiu-jitsu kids (anuncios generales)", info: "" },
+  };
+  const adult = buildContextBlock(ctx({ ...base, history: [msg("Para personas de 27-28 años de edad hay?")] }));
+  const line = adult.split("\n").find((l) => l.startsWith("si quien va a entrenar es ADULTO"))!;
+  assert.ok(line, adult);
+  assert.ok(line.includes("hoy a las 7:00 pm (Jiu-Jitsu)"), line);
+  assert.ok(line.indexOf("hoy a las 7:00 pm") < line.indexOf("mañana martes a las 7:00 am"), line);
+  // A parent on the same ad still sees no adult row.
+  const parent = buildContextBlock(ctx({ ...base, history: [msg("Hola! Quiero info de las clases de Jiu-Jitsu para niños")] }));
+  assert.ok(!parent.includes("ADULTO"), parent);
+});
+
+test("saysAdult: adult word or an 18–69 age, never a child's age", () => {
+  for (const t of ["Para personas de 27-28 años de edad hay?", "¿Tienen para adultos?", "tengo 31", "es para mi esposo de 40 años"]) {
+    assert.ok(saysAdult(t), t);
+  }
+  for (const t of ["mi hijo tiene 7 años", "tiene 12 años", "es para mí y mi peque", "a las 7 pm", "son 2 niños de 10 y 8 años"]) {
+    assert.ok(!saysAdult(t), t);
+  }
 });
 
 test("a stated 3–5 age lists ONLY Mini Muay Thai hours, 'hoy' computed (2026-09-28 → bands 2026-10-11)", () => {

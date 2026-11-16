@@ -13,7 +13,7 @@
 //
 // Pure module (no I/O) — unit-tested.
 
-import type { ConvoContext, Qualification } from "../types.js";
+import type { ConvoContext, Qualification, StoredMessage } from "../types.js";
 import { CLIENT } from "../client.gen.js";
 import type { ClosedDate, PriceExperimentConfig } from "../client-config.js";
 import { PRICE_VARIANT_B_LINES, priceVariantForTurn } from "../services/price-experiment.js";
@@ -235,6 +235,27 @@ export function comboLine(days: readonly BandDay[], disc: string): string | null
   return null;
 }
 
+/** Pure. The lead's newest inbound message body ("" when none). */
+function lastInboundBody(history: readonly StoredMessage[] | undefined): string {
+  for (let i = (history?.length ?? 0) - 1; i >= 0; i--) {
+    const m = history![i]!;
+    if (m.direction === "in") return m.body ?? "";
+  }
+  return "";
+}
+
+/**
+ * Pure. True when a message plainly asks for an ADULT: the word "adulto(s)",
+ * or a stated age of 18–69 ("27 años", "27-28 años", "tengo 31"). Deliberately
+ * narrow — "para mí" alone is not enough (a parent says it about the booking).
+ */
+export function saysAdult(text: string): boolean {
+  const t = text.toLowerCase();
+  if (/\badult[oa]s?\b/.test(t)) return true;
+  if (/\b(?:1[89]|[2-6]\d)\s*(?:(?:-|–|a|o|y)\s*\d{2}\s*)?a[ñn]os\b/.test(t)) return true;
+  return /\btengo\s+(?:1[89]|[2-6]\d)\b/.test(t);
+}
+
 /**
  * Soonest-first hours for THIS lead's AGE BAND, pre-computed so the model never
  * has to do calendar math (persona.md, "Flujo de agendado"). Three compact
@@ -312,6 +333,32 @@ export function upcomingSlotLines(ctx: ConvoContext): string[] {
     if (band === "adults") {
       const combos = combosLine(days);
       if (combos) lines.push(combos);
+    }
+  }
+
+  // A band guessed only from the CAMPAIGN may be wrong the other way too: an
+  // adult writing from a kids ad ("¿para 27 años hay?", 2026-11-16) got a reply
+  // built from kids rows + the holiday notice — the adult hours were nowhere in
+  // the context. Hand them over ONLY when the lead's latest message says adult
+  // (a parent on a kids ad must never see adult hours).
+  if (!ageKnown && band !== "adults" && saysAdult(lastInboundBody(ctx.history))) {
+    const adultDisc = bandDiscipline(leadDiscipline(q, ctx.campaign?.name) ?? undefined, "adults");
+    const adultOpts = { leadSeconds: TODAY_BUFFER_SECONDS, ...(excludeWeekdays.size ? { excludeWeekdays } : {}) };
+    const adultSoon: { label: string; whats: string[] }[] = [];
+    for (const s of upcomingBandSlots("adults", adultDisc, now, CONTEXT_SLOT_COUNT * 4, adultOpts)) {
+      const hit = adultSoon.find((x) => x.label === s.label);
+      if (hit) {
+        if (!hit.whats.includes(slotWhat(s))) hit.whats.push(slotWhat(s));
+      } else if (adultSoon.length < CONTEXT_SLOT_COUNT) {
+        adultSoon.push({ label: s.label, whats: [slotWhat(s)] });
+      }
+    }
+    if (adultSoon.length > 0) {
+      lines.push(
+        `si quien va a entrenar es ADULTO (18+; el grupo de arriba solo se dedujo del anuncio): ignora las filas de ${label} y usa SOLO estas, la más próxima primero — próximos horarios válidos de adultos${adultDisc ? ` de ${disciplineLabel(adultDisc)}` : ""}: ${adultSoon
+          .map((s) => `${s.label} (${s.whats.join(" / ")})`)
+          .join(" · ")}`,
+      );
     }
   }
 

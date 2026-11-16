@@ -1884,12 +1884,14 @@ function apprCard(it){
       ? '<div class="pendcard" style="margin:8px 0 10px"><div class="lbl">⚠️ Necesita respuesta humana</div>'
         +'<div class="sm" style="white-space:pre-wrap;word-break:break-word">'+esc(it.escalation)+'</div></div>'
         +'<div class="row" style="flex-wrap:wrap"><button class="btn gold sm" data-a="edit">✏️ Responder</button>'
-        +'<button class="btn red sm" data-a="discard">🗑 Descartar</button></div>'
+        +'<button class="btn red sm" data-a="discard">🗑 Descartar</button>'
+        +'<button class="btn sm" data-a="chat">💬 Ver chat</button></div>'
       : '<div class="sm muted" style="margin-top:8px">Respuesta propuesta</div>'
         +'<div class="bub bot" style="max-width:100%;margin:4px 0 10px;align-self:stretch">'+esc(it.draft||"")+'</div>'
         +'<div class="row" style="flex-wrap:wrap"><button class="btn green sm" data-a="approve">✅ Aprobar</button>'
         +'<button class="btn sm" data-a="edit">✏️ Editar</button>'
-        +'<button class="btn red sm" data-a="discard">🗑 Descartar</button></div>')
+        +'<button class="btn red sm" data-a="discard">🗑 Descartar</button>'
+        +'<button class="btn sm" data-a="chat">💬 Ver chat</button></div>')
     +'<div class="editbox hidden" style="margin-top:10px"><textarea class="field ta" placeholder="Escribe la respuesta…">'+esc(it.draft||"")+'</textarea>'
     +'<div class="row" style="margin-top:8px;flex-wrap:wrap">'
     +'<input class="field guide" style="flex:1;min-width:180px;margin-top:0" placeholder="Dile al bot cómo cambiarlo…">'
@@ -1905,6 +1907,7 @@ function wireApprCard(it){
       if(a==="approve") resolveAppr(it.id,"approve");
       else if(a==="discard") resolveAppr(it.id,"discard");
       else if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); }
+      else if(a==="chat"){ location.hash="#chats/"+String(it.phone||"").replace(/\D/g,""); }
     };
   });
   q(".rewrite",card).onclick=function(){ rewriteDraft(it.id,card); };
