@@ -1453,34 +1453,43 @@ export async function processExtendedNudge(
   // and the bare `catch` then reported it as "not approved yet". The generic
   // steps (d7, and d5 → nudge_d5v2_* with the flag on) declare NO placeholder,
   // and a parameter there fails with the same 132000 — so they send none.
-  const components = isGenericExtendedStep(kind, day7)
-    ? []
-    : [
-        {
-          type: "body",
-          parameters: [
-            {
-              type: "text",
-              text: templateFirstName(
-                greetingName(parseQualification(contact).name) || greetingName(contact.name),
-                lang,
-              ),
-            },
-          ],
-        },
-      ];
+  const componentsFor = (l: "es" | "en") =>
+    isGenericExtendedStep(kind, day7)
+      ? []
+      : [
+          {
+            type: "body",
+            parameters: [
+              {
+                type: "text",
+                text: templateFirstName(
+                  greetingName(parseQualification(contact).name) || greetingName(contact.name),
+                  l,
+                ),
+              },
+            ],
+          },
+        ];
   try {
-    await deps.sendTemplate(env, phone, template, lang, components);
+    await deps.sendTemplate(env, phone, template, lang, componentsFor(lang));
     return { outcome: "sent" };
   } catch (err) {
-    await kvDelete(env.DB, claim);
     const error = err instanceof Error ? err.message : String(err);
-    return {
-      outcome: "template_missing",
-      template,
-      missing: isTemplateMissingError(error),
-      error,
-    };
+    const missing = isTemplateMissingError(error);
+    // The English twin is not approved at Meta (132001; every `nudge_*_en` in
+    // the week of 2026-11-10): send the approved Spanish one instead of going
+    // silent on the lead. Only for "missing" — any other failure is our bug and
+    // is reported as-is. A failed fallback reports the ENGLISH failure.
+    if (lang === "en" && missing) {
+      try {
+        await deps.sendTemplate(env, phone, deps.templateName(base, "es"), "es", componentsFor("es"));
+        return { outcome: "sent" };
+      } catch {
+        /* fall through */
+      }
+    }
+    await kvDelete(env.DB, claim);
+    return { outcome: "template_missing", template, missing, error };
   }
 }
 

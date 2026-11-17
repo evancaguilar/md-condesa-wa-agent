@@ -457,3 +457,57 @@ test("processExtendedNudge: a d7 row left over after the flag is switched off is
 test("features.nudgeDay7 ships ON (Evan OK + nudge_d7/d5v2 templates APPROVED 2026-11-05)", () => {
   assert.equal((CLIENT.features as { nudgeDay7?: boolean }).nudgeDay7, true);
 });
+
+// ---- English template not approved at Meta → Spanish twin ---------------------
+
+test("processExtendedNudge: a missing English template falls back to the approved Spanish one", async () => {
+  const closed = new Error("window closed");
+  const run = async (lang: "es" | "en", failEs: boolean, enError: string) => {
+    const { raw, db } = sqliteDb();
+    const calls: string[] = [];
+    let res: unknown;
+    await withClock({ now: T0 + 2 * 24 * H }, async () => {
+      insertContact(raw, contact({ last_inbound_at: T0, lang }));
+      res = await processExtendedNudge(envWith(db), PHONE, "nudge_d2", {
+        async sendText(): Promise<string> {
+          throw closed;
+        },
+        isWindowClosed: (e: unknown) => e === closed,
+        async sendTemplate(_e: Env, _p: string, name: string, l: string): Promise<string> {
+          calls.push(`${name}/${l}`);
+          if (name.endsWith("_en")) throw new Error(enError);
+          if (failEs) throw new Error("boom");
+          return "wamid";
+        },
+        templateName: (base: string, l: string) => `${base}_${l}`,
+        campaignName: async () => null,
+      } as never);
+    });
+    return { res: res as { outcome: string; template?: string; missing?: boolean }, calls };
+  };
+  const MISSING = "Template name does not exist in the translation";
+
+  // English lead, English template missing → the Spanish template goes out.
+  const a = await run("en", false, MISSING);
+  assert.equal(a.res.outcome, "sent");
+  assert.equal(a.calls.length, 2);
+  assert.match(a.calls[0]!, /_en\/en$/);
+  assert.match(a.calls[1]!, /_es\/es$/);
+
+  // Any OTHER English failure is our bug: no fallback, reported as-is.
+  const b = await run("en", false, "(#132000) Number of parameters does not match");
+  assert.equal(b.res.outcome, "template_missing");
+  assert.equal(b.res.missing, false);
+  assert.equal(b.calls.length, 1);
+
+  // Fallback failed too → the ENGLISH failure is what gets reported.
+  const c = await run("en", true, MISSING);
+  assert.equal(c.res.outcome, "template_missing");
+  assert.equal(c.res.missing, true);
+  assert.match(c.res.template!, /_en$/);
+
+  // Spanish lead: one attempt, never a second.
+  const d = await run("es", false, MISSING);
+  assert.equal(d.res.outcome, "sent");
+  assert.equal(d.calls.length, 1);
+});
