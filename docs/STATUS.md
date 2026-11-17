@@ -1,11 +1,23 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-16** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-17** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### 2026-11-17: week review (11-10 → 11-17) fixes — branch `feat/buen-fin-2026`, NOT pushed
+
+Week in numbers: auditor ran 8/8 nights; 143 approval drafts (29% approved as-is, 30% edited, 0 expired; daytime median 19 min, p90 7.6 h overall); both Buen Fin waves sent with 0 failures (418 + 317); 08:00 brief posted daily; 1 missed turn, rescued.
+
+- Auditor now receives closed / special-schedule days (2 back, 14 ahead) so holiday offers are judged against that day's classes (`closuresForAudit`, src/cron/nightly-audit.ts).
+- An "edit" that changes nothing is recorded as approved and kept out of the edits log (`isNoopEdit`, src/services/approvals.ts). Slack card after an unchanged edit not checked live.
+- Persona: propose ONE hour by default (soonest valid; alternatives only on rejection, on request, or when morning/afternoon is unknown), and read short/ambiguous messages from context instead of answering "no me aparece tu último mensaje" (8 such drafts in the week, 5 rewritten by staff).
+- Persona, from regrading 39 chats of 11-13 → 11-17: a lead with a class already booked who accepts another day gets a real `book_trial` + full confirmation; "siguiente/próximo <día>" and "¿no podría ser…?" get the exact date confirmed first; a day/hour given by staff in the chat wins. Regrade vs 11-11: nudges ignoring the chat 27% → 5%, chase after decline 6% → 0, wrong-day bookings 3% → 8% (3/39).
+- Funnel, leads created 11-10 → 11-16: 331 leads, 19.0% booked (paid Meta 12.3% vs 18%), show 29.8% of booked (25/84) vs 37.8%, 14 sign-ups vs ~11/week; 16 of 84 trials unmarked.
+- Separate commit, Evan's call: English leads whose `nudge_*_en` template is not approved at Meta (132001, 5 alerts in the week) get the approved Spanish twin instead of nothing (src/cron/nudges.ts). Not tested against live Meta.
+- Open, not built: "hoy" offered for a class that starts before the draft is approved (4 nights); wrong name in confirmations (3 nights); Students sync moved 0 leads all week; teen-rule slips (5 nights).
 
 ### 2026-11-16: holiday vs booked trials, «Cancelar clase», adult on a kids ad, Ver chat on approvals — branch `feat/buen-fin-2026`
 
 - **Pushed 2026-11-16 (27ab95f):** context adds the next ADULT hours when the band is only guessed from a kids campaign and the lead's latest message says adult (`saysAdult`, src/brain/prompt.ts); 💬 Ver chat on normal approval cards.
-- **NOT pushed yet:** a trial booked on a closed / tbd / special day it is not part of (Mariela, kids 3:15 pm on holiday Monday) no longer gets reminders or the no-show chain. `trialDayCheck` (src/services/trial-day-check.ts) is used by the send-time guard `noClassGuard` (followups.ts) and by an hourly sweep (src/cron/trial-day-sweep.ts, only while a closure is within 14 days; served by `idx_followups_kind_status_due`). One #wa-leads task per phone + trial; the bot never messages the lead.
+- **Pushed 2026-11-17 (801301e, live rev fd1c1e09ba05; button + cancel route probed live):** a trial booked on a closed / tbd / special day it is not part of (Mariela, kids 3:15 pm on holiday Monday) no longer gets reminders or the no-show chain. `trialDayCheck` (src/services/trial-day-check.ts) is used by the send-time guard `noClassGuard` (followups.ts) and by an hourly sweep (src/cron/trial-day-sweep.ts, only while a closure is within 14 days; served by `idx_followups_kind_status_due`). One #wa-leads task per phone + trial; the bot never messages the lead.
 - **NOT pushed yet:** «🚫 Cancelar clase de prueba» in the chat view and on upcoming Agenda rows → `POST /admin/api/conversations/:phone/cancel-trial` (owner + staff). Stops reminders + no-show for that class, sends nothing, does not write Airtable. `syncBookings` no longer re-arms a trial listed in the `trial_cancelled` marker while the record keeps the old date (a new date arms normally).
 - Untested live: the route and both buttons (typecheck + syntax check only), the dispatcher wiring, the trial_confirm branch of the guard.
 - Known gap (pre-existing): a lead who cancels and rebooks the exact same slot gets no new reminders.

@@ -17,7 +17,7 @@ import { listApprovalHistory, namesForPhones } from "../db/queries-admin.js";
 import { cdmxDateStr } from "./time.js";
 import { CLIENT } from "../client.gen.js";
 import { priceTestActive } from "../services/price-experiment.js";
-import type { PriceExperimentConfig } from "../client-config.js";
+import type { ClosedDate, PriceExperimentConfig } from "../client-config.js";
 import { dashboardUrl } from "../services/dashboard-link.js";
 
 export const AUDIT_MODEL = "claude-opus-5-5";
@@ -216,6 +216,43 @@ export function renderSlotsForAudit(): string {
   ).join("\n");
 }
 
+/**
+ * Pure. Holidays / special-schedule days near the audited window (2 days back,
+ * 14 ahead), so an offer on such a day is judged against THAT day's schedule
+ * and not the normal grid (2026-11-16: the auditor could not tell which
+ * holiday hours were right and flagged correct offers "(verificar)").
+ */
+export function closuresForAudit(
+  today: string,
+  closedDates: readonly ClosedDate[] = CLIENT.closedDates ?? [],
+): string[] {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today);
+  if (!m) return [];
+  const base = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const out: string[] = [];
+  for (const c of closedDates) {
+    const cm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(c.date);
+    if (!cm) continue;
+    const days = Math.round((Date.UTC(Number(cm[1]), Number(cm[2]) - 1, Number(cm[3])) - base) / 86400000);
+    if (days < -2 || days > 14) continue;
+    const why = c.reason ? ` (${c.reason})` : "";
+    const slots = c.mode === "special" ? (c.slots ?? []) : [];
+    if (slots.length > 0) {
+      const list = slots
+        .slice()
+        .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
+        .map((s) => `${s.time} ${s.label ?? s.discipline} (${s.group ?? "adult"})`)
+        .join(", ");
+      out.push(`${c.date}${why}: HORARIO ESPECIAL. La parrilla normal NO aplica ese día; las ÚNICAS clases son: ${list}.`);
+    } else if (c.mode === "tbd") {
+      out.push(`${c.date}${why}: horario especial POR CONFIRMAR. El bot no debe ofrecer ni confirmar clases ese día.`);
+    } else {
+      out.push(`${c.date}${why}: CERRADO, sin clases.`);
+    }
+  }
+  return out;
+}
+
 export function formatApprovals(rows: AuditApprovalRow[]): string {
   if (!rows.length) return "(ninguna)";
   return rows
@@ -252,10 +289,19 @@ export function activeExperimentLines(
 
 export function buildAuditSystem(
   kb: string,
-  opts: { experiments?: { priceFirstAsk?: PriceExperimentConfig } | null; today?: string } = {},
+  opts: {
+    experiments?: { priceFirstAsk?: PriceExperimentConfig } | null;
+    today?: string;
+    closedDates?: readonly ClosedDate[];
+  } = {},
 ): SystemBlock[] {
   const experiments = opts.experiments !== undefined ? opts.experiments : CLIENT.experiments;
-  const expLines = activeExperimentLines(experiments, opts.today ?? cdmxDateStr(Math.floor(Date.now() / 1000)));
+  const today = opts.today ?? cdmxDateStr(Math.floor(Date.now() / 1000));
+  const expLines = activeExperimentLines(experiments, today);
+  const closures = closuresForAudit(today, opts.closedDates);
+  const closureBlock = closures.length
+    ? `\n\nDÍAS ESPECIALES / FERIADOS (ese día mandan sobre la parrilla; una clase ofrecida fuera de esta lista en esa fecha SÍ es un error, y una dentro de la lista NO lo es):\n${closures.join("\n")}`
+    : "";
   return [
     {
       type: "text",
@@ -273,7 +319,7 @@ Tu ÚNICA salida es el reporte. Reglas:
     },
     {
       type: "text",
-      text: `PARRILLA REAL DE CLASES (única fuente de verdad de horarios):\n${renderSlotsForAudit()}\n\nCONOCIMIENTO DEL NEGOCIO (para validar datos que dio el bot):\n${kb}`,
+      text: `PARRILLA REAL DE CLASES (única fuente de verdad de horarios):\n${renderSlotsForAudit()}${closureBlock}\n\nCONOCIMIENTO DEL NEGOCIO (para validar datos que dio el bot):\n${kb}`,
       cache_control: { type: "ephemeral", ttl: "1h" },
     },
   ];

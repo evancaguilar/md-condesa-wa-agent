@@ -8,6 +8,7 @@ import {
   buildAuditSystem,
   buildAuditUser,
   chunkForSlack,
+  closuresForAudit,
   compactTranscripts,
   formatApprovals,
   renderSlotsForAudit,
@@ -122,4 +123,38 @@ test("audit prompt: active price A/B is explained from config; inactive/expired 
   assert.ok(!off.includes("EXPERIMENTO"));
   assert.deepEqual(activeExperimentLines(null, "2026-11-12"), []);
   assert.deepEqual(activeExperimentLines({}, "2026-11-12"), []);
+});
+
+test("closuresForAudit: special day lists its only classes; window is 2 days back to 14 ahead", () => {
+  const closed = [
+    {
+      date: "2026-11-16",
+      reason: "feriado",
+      mode: "special" as const,
+      slots: [
+        { time: "18:00", discipline: "muay-thai" },
+        { time: "10:00", discipline: "muay-thai" },
+      ],
+    },
+    { date: "2026-12-25", reason: "Navidad" },
+    { date: "2026-11-20", mode: "tbd" as const },
+  ];
+  // The audit of the morning AFTER the holiday still sees it (yesterday).
+  const lines = closuresForAudit("2026-11-17", closed as never);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0]!, /2026-11-16 \(feriado\): HORARIO ESPECIAL/);
+  assert.ok(lines[0]!.indexOf("10:00") < lines[0]!.indexOf("18:00"), "sorted by time");
+  assert.match(lines[1]!, /2026-11-20: horario especial POR CONFIRMAR/);
+  // Outside the window: nothing; inside: a plain closure reads CERRADO.
+  assert.deepEqual(closuresForAudit("2026-11-19", closed as never).length, 1);
+  assert.match(closuresForAudit("2026-12-24", closed as never)[0]!, /2026-12-25 \(Navidad\): CERRADO/);
+  assert.deepEqual(closuresForAudit("bad", closed as never), []);
+});
+
+test("buildAuditSystem: holiday block rides next to the grid only when a closure is near", () => {
+  const closed = [{ date: "2026-11-16", mode: "special", slots: [{ time: "10:00", discipline: "muay-thai" }] }];
+  const near = buildAuditSystem("KB", { today: "2026-11-17", closedDates: closed as never })[1]!.text;
+  assert.match(near, /DÍAS ESPECIALES \/ FERIADOS/);
+  const far = buildAuditSystem("KB", { today: "2026-10-01", closedDates: closed as never })[1]!.text;
+  assert.doesNotMatch(far, /DÍAS ESPECIALES/);
 });

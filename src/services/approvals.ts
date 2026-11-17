@@ -302,6 +302,18 @@ export function cleanEditedText(raw: string | null | undefined): string {
   return (raw ?? "").trim();
 }
 
+/**
+ * Pure. True when a staff "edit" left a non-empty draft unchanged (whitespace
+ * aside). Week of 2026-11-10: 4 of 43 "edited" approvals were this — Editar
+ * opened, nothing changed, Enviar — which inflated the edit rate and logged
+ * identical draft→final pairs into the edits log the KB editor learns from.
+ */
+export function isNoopEdit(draft: string | null | undefined, finalText: string): boolean {
+  const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const d = norm(draft ?? "");
+  return d !== "" && d === norm(finalText);
+}
+
 /** Send an edited version of the reply, logging the draft→final edit. */
 export async function editAndSend(
   env: Env,
@@ -315,10 +327,18 @@ export async function editAndSend(
   if (!finalText) return EMPTY_DRAFT;
   const a = await loadApproval(env, id);
   if (!a) return NOT_PENDING;
-  const res = await claimAndSend(env, id, "edited", finalText, finalText, opts);
+  // An unchanged "edit" is an approval: record it as one and keep it out of the
+  // edits log. Still sent through this path (not approveAndSend) so Editar stays
+  // the human override for the stale-date refusal.
+  const noop = isNoopEdit(a.draft, finalText);
+  const res = await claimAndSend(env, id, noop ? "approved" : "edited", finalText, finalText, opts);
   if (res.ok) {
-    await insertEdit(env.DB, a.phone, a.draft, finalText);
-    await markEditedCard(env, a, finalText);
+    if (noop) {
+      await markApprovedCard(env, a, finalText);
+    } else {
+      await insertEdit(env.DB, a.phone, a.draft, finalText);
+      await markEditedCard(env, a, finalText);
+    }
     // Audits the SENT text (a human may have edited a plain answer into a
     // booking confirmation that nothing wrote to Airtable).
     await runPostSendEffects(env, id, a.phone, finalText, "edited");
