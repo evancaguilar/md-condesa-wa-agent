@@ -784,6 +784,7 @@ async function openChat(phone){
     +'<div class="transcript" id="bubWrap"><div class="loading"><span class="spin"></span></div></div>'
     +'<div id="pendWrap"></div>'
     +'<div id="schedWrap"></div>'
+    +'<div id="trialCancelWrap"></div>'
     +'<div class="row" style="flex-wrap:wrap;margin-top:8px;flex:none" id="convoActions"></div>'
     +'<div class="composer" id="chatComposer">'
     +'<button class="btn ic" id="chatAttach" title="Adjuntar imagen, video o PDF" style="flex:none">📎</button>'
@@ -855,6 +856,10 @@ async function detailTick(full){
   appendMessages(d.messages||[], full);
   renderPendingCards(d.pending||[]);
   renderScheduledCards(d.scheduled||[]);
+  // Armed trial rows come on full loads only (the incremental poll omits them).
+  if(d.trialRows){ chatState.trialRows=d.trialRows; chatState.trialPhone=phone; }
+  else if(chatState.trialPhone!==phone){ chatState.trialRows=[]; }
+  renderTrialCancel();
   // Mark read locally (badge) + blue ticks to the lead on open. The shared
   // read_at watermark must also advance while the chat stays OPEN — otherwise
   // an inbound that arrives mid-conversation leaves the chat flagged unread
@@ -1245,6 +1250,43 @@ function renderScheduledCards(list){
       detailTick(false);
     };
   });
+}
+// «🚫 Cancelar clase de prueba»: stops the armed trial's reminders + the
+// «no llegaste» touch (POST /conversations/:phone/cancel-trial). Sends nothing.
+var TRIAL_CONFIRM_TXT="¿Cancelar la clase de prueba de este lead?\n\nSe detienen el recordatorio y el mensaje de «no llegaste» de esta clase. No se le envía nada al lead.\n\nDespués avísale tú y actualiza la fecha de prueba en Airtable.";
+function trialCancelReq(phone){
+  return api("/conversations/"+encodeURIComponent(phone)+"/cancel-trial",{method:"POST"});
+}
+function trialCancelToast(r){
+  if(r && r.ok) toast("Clase cancelada"+(r.classes&&r.classes.length?" ("+r.classes.join(" / ")+")":"")+": "+r.cancelled+" mensaje(s) automático(s) detenido(s)","ok");
+  else if(r && r.error==="no_trial") toast("No hay clase de prueba con mensajes programados","err");
+  else toast("No se pudo cancelar la clase","err");
+}
+function renderTrialCancel(){
+  var wrap=el("trialCancelWrap"); if(!wrap) return;
+  var rows=(chatState.trialPhone===chatState.phone && chatState.trialRows)||[];
+  var key=rows.map(function(r){return r.id;}).join(",");
+  if(wrap.getAttribute("data-key")===key) return;
+  wrap.setAttribute("data-key",key);
+  if(!rows.length){ wrap.innerHTML=""; return; }
+  var trial=null;
+  rows.forEach(function(r){ if(r.trial && !trial) trial=r.trial; });
+  var when=trial?(' · clase '+esc(schedWhen(trial))):'';
+  wrap.innerHTML='<div class="pendcard"><div class="lbl">🗓️ Clase de prueba con '+rows.length+' mensaje(s) automático(s) programado(s)'+when+'</div>'
+    +'<div class="row" style="flex-wrap:wrap;margin-top:8px"><button class="btn red sm" id="trialCancelBtn">🚫 Cancelar clase de prueba</button></div></div>';
+  var b=el("trialCancelBtn");
+  b.onclick=async function(){
+    var phone=chatState.phone; if(!phone) return;
+    if(!confirm(TRIAL_CONFIRM_TXT)) return;
+    b.disabled=true;
+    var r=null;
+    try{ r=await trialCancelReq(phone); }catch(e){ r=(e&&e.data)||null; }
+    trialCancelToast(r);
+    if(r && (r.ok || r.error==="no_trial")){ chatState.trialRows=[]; renderTrialCancel(); }
+    else b.disabled=false;
+    chatState.schedKey="";
+    detailTick(false);
+  };
 }
 function pendResultToast(st,action){
   if(st==="ok") toast(action==="discard"?"Descartada":"Enviada","ok");
@@ -3043,6 +3085,8 @@ function agendaRowHtml(r){
         +(r.windowOpen?'':' disabled title="Ventana de 24h cerrada"')+'>📹 '+esc(v.label)+'</button>');
     });
   }
+  var upcoming=r.trialEpoch && r.trialEpoch*1000>Date.now() && !r.enrolled && !r.resultClass;
+  if(waId && upcoming && chanOf(waId)==="wa") acts.push('<button class="btn sm red" data-agact="canceltrial" data-phone="'+esc(waId)+'">🚫 Cancelar clase</button>');
   if(state.me && state.me.role==="owner" && r.phone && !r.enrolled) acts.push('<button class="btn sm" data-agact="cq" data-phone="'+esc(r.phone)+'">📋 Enviar cuestionario</button>');
   if(!r.enrolled){
     acts.push('<button class="btn sm'+(r.resultClass==="attended"?" green":"")+'" data-agact="mark" data-rid="'+rid+'" data-mark="'+(r.resultClass==="attended"?"clear":"attended")+'">✅ Asistió</button>');
@@ -3063,6 +3107,16 @@ function onAgendaClick(ev){
   if(act==="confirm"){ agendaConfirm(b); return; }
   if(act==="mark"){ agendaMark(b); return; }
   if(act==="video"){ agendaSendVideo(b); return; }
+  if(act==="canceltrial"){ agendaCancelTrial(b); return; }
+}
+async function agendaCancelTrial(b){
+  var phone=b.getAttribute("data-phone"); if(!phone) return;
+  if(!confirm(TRIAL_CONFIRM_TXT)) return;
+  agendaBusy(b,true);
+  var r=null;
+  try{ r=await trialCancelReq(phone); }catch(e){ r=(e&&e.data)||null; }
+  trialCancelToast(r);
+  loadAgenda(true);
 }
 async function agendaSendVideo(b){
   var id=b.getAttribute("data-vid");

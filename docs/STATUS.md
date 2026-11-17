@@ -1,6 +1,14 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-14** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-16** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### 2026-11-16: holiday vs booked trials, «Cancelar clase», adult on a kids ad, Ver chat on approvals — branch `feat/buen-fin-2026`
+
+- **Pushed 2026-11-16 (27ab95f):** context adds the next ADULT hours when the band is only guessed from a kids campaign and the lead's latest message says adult (`saysAdult`, src/brain/prompt.ts); 💬 Ver chat on normal approval cards.
+- **NOT pushed yet:** a trial booked on a closed / tbd / special day it is not part of (Mariela, kids 3:15 pm on holiday Monday) no longer gets reminders or the no-show chain. `trialDayCheck` (src/services/trial-day-check.ts) is used by the send-time guard `noClassGuard` (followups.ts) and by an hourly sweep (src/cron/trial-day-sweep.ts, only while a closure is within 14 days; served by `idx_followups_kind_status_due`). One #wa-leads task per phone + trial; the bot never messages the lead.
+- **NOT pushed yet:** «🚫 Cancelar clase de prueba» in the chat view and on upcoming Agenda rows → `POST /admin/api/conversations/:phone/cancel-trial` (owner + staff). Stops reminders + no-show for that class, sends nothing, does not write Airtable. `syncBookings` no longer re-arms a trial listed in the `trial_cancelled` marker while the record keeps the old date (a new date arms normally).
+- Untested live: the route and both buttons (typecheck + syntax check only), the dispatcher wiring, the trial_confirm branch of the guard.
+- Known gap (pre-existing): a lead who cancels and rebooks the exact same slot gets no new reminders.
 
 ### Buen Fin 2026 blast: «Quiero inscribirme» to staff + Monday 11-16 holiday schedule — branch `feat/buen-fin-2026`, pushed 2026-11-14
 

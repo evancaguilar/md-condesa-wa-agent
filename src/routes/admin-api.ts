@@ -17,6 +17,9 @@ import {
   setContactNameIfEmpty as setNameIfEmptyRow,
 } from "../db/queries.js";
 import { scheduleTrialSequence } from "../cron/followups.js";
+import { applyStaffCancellation } from "../services/trial-cancel.js";
+import { decodeChainNote } from "../cron/post-trial.js";
+import { taskNote } from "../cron/deps.js";
 import { clampExportWindow, exportWindow } from "../db/export.js";
 import { mergeProgramSignal, programSignalFromText } from "../services/program-signal.js";
 import { setQualification } from "../db/queries.js";
@@ -955,7 +958,7 @@ export async function handleAdminApi(
     return handleMediaRemuxCheck(req, session);
   }
   const convoMatch = path.match(
-    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-video|send-later|booking\/parse|booking|reactivate))?$/,
+    /^\/admin\/api\/conversations\/([^/]+)(\/(pause|resume|status|reset|send|assign|read|unread|send-media|send-video|send-later|cancel-trial|booking\/parse|booking|reactivate))?$/,
   );
   if (convoMatch) {
     const phone = decodeURIComponent(convoMatch[1]!);
@@ -989,6 +992,18 @@ export async function handleAdminApi(
     }
     if (sub === "reactivate" && method === "POST") {
       return handleReactivateFollowup(env, phone, ports, session);
+    }
+    // «🚫 Cancelar clase de prueba» (owner + staff): stops the armed trial's
+    // reminders + first no-show touch and marks the class so the no-show
+    // chain and an Airtable re-sync never chase / re-arm it. Sends NOTHING to
+    // the lead and never writes Airtable (staff update the date there).
+    if (sub === "cancel-trial" && method === "POST") {
+      const by = session.displayName || session.user;
+      const res = await applyStaffCancellation(env, phone, by, {
+        postTaskNote: (t) => taskNote(ports.slack, t),
+      });
+      if (!res) return json({ ok: false, error: "no_trial" });
+      return json({ ok: true, cancelled: res.cancelled, classes: res.classes });
     }
     if (sub === "read" && method === "POST") {
       // Blue ticks to the lead: mark their newest inbound as read. Best-effort.
@@ -1992,7 +2007,43 @@ async function handleConversationDetail(
       campaignName = null;
     }
   }
-  return json({ contact, messages: shown, pending, scheduled, campaignName, declined, now: nowSec() });
+  // Armed trial rows (reminders + first no-show touch) for the «🚫 Cancelar
+  // clase de prueba» button. Full loads only (the 5 s incremental poll omits
+  // it; the SPA keeps the last value): a ≤4-row lookup on the
+  // UNIQUE(phone, kind, airtable_record_id) index.
+  let trialRows: { id: number; kind: string; dueAt: number; trial: number | null }[] | undefined;
+  if (since === undefined) {
+    try {
+      trialRows = await armedTrialRows(env, phone);
+    } catch (err) {
+      console.warn(`[admin] trial rows failed for ${phone}: ${String(err)}`);
+      trialRows = [];
+    }
+  }
+  return json({
+    contact,
+    messages: shown,
+    pending,
+    scheduled,
+    campaignName,
+    declined,
+    ...(trialRows ? { trialRows } : {}),
+    now: nowSec(),
+  });
+}
+
+async function armedTrialRows(
+  env: Env,
+  phone: string,
+): Promise<{ id: number; kind: string; dueAt: number; trial: number | null }[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, kind, due_at, note FROM followups
+     WHERE phone = ?1 AND kind IN ('trial_confirm', 'day_before', 'same_day', 'no_show_hoy') AND status = 'scheduled'
+     ORDER BY due_at`,
+  )
+    .bind(phone)
+    .all<{ id: number; kind: string; due_at: number; note: string | null }>();
+  return (results ?? []).map((r) => ({ id: r.id, kind: r.kind, dueAt: r.due_at, trial: decodeChainNote(r.note).trial }));
 }
 
 async function handlePause(req: Request, env: Env, phone: string): Promise<Response> {

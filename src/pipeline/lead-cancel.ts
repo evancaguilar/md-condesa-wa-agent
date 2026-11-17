@@ -135,13 +135,22 @@ export function parseTrialCancelMarker(raw: string | null): TrialCancelMarker | 
   }
 }
 
+/** Who called a trial off: the lead in chat, staff from the panel, or the
+ *  holiday check (the class does not run that day). */
+export type TrialCancelBy = "lead" | "staff" | "holiday";
+
 /** Pure. The marker to store: this cancellation's trials merged with the
- *  previous marker's (a family's second row, an earlier cancel), last 10. */
+ *  previous marker's (a family's second row, an earlier cancel), last 10.
+ *  `ts` / `intent` describe the LEAD's own cancellation (recentCancelIntent
+ *  steers the brain with it), so a staff / holiday cancel only adds trials and
+ *  keeps the previous lead timestamp (0 when there was none). */
 export function mergeTrialCancelMarker(
   prev: TrialCancelMarker | null,
   next: TrialCancelMarker,
+  by: TrialCancelBy = "lead",
 ): TrialCancelMarker {
   const trials = [...new Set([...(prev?.trials ?? []), ...next.trials])].slice(-10);
+  if (by !== "lead") return { ts: prev?.ts ?? 0, intent: prev?.intent ?? "cancel", trials };
   return { ts: next.ts, intent: next.intent, trials };
 }
 

@@ -143,7 +143,9 @@ import {
   slotFromIso,
 } from "../services/confirm-once.js";
 import { CLIENT } from "../client.gen.js";
-import { detectLeadCancel } from "../pipeline/lead-cancel.js";
+import { detectLeadCancel, isCancelledTrial, trialCancelledKey } from "../pipeline/lead-cancel.js";
+import { trialDayCheck } from "../services/trial-day-check.js";
+import { applyNoClassCancellation } from "../services/trial-cancel.js";
 import { renderCopy } from "../client-config.js";
 import {
   nameParam,
@@ -606,6 +608,11 @@ async function processOne(
     await markFollowup(env.DB, f.id, "cancelled");
     return;
   }
+  // The booked class does not run that day (a closed / tbd / special holiday
+  // configured after the booking — incident 2026-11-16): never "mañana es tu
+  // clase" / "hoy no pudieron llegar". trial_confirm is checked in its case
+  // (its trial date lives on the Airtable record, not the row).
+  if (NO_CLASS_GUARD_KINDS.includes(f.kind) && (await noClassGuard(env, deps, f, decodeChainNote(f.note).trial))) return;
   // At most perDay / per7Days unsolicited messages since the lead last wrote.
   if (await enforceCeiling(env, f, contact, tick)) return;
   const lang = contact?.lang ?? "es";
@@ -620,7 +627,8 @@ async function processOne(
       // syncBookings pass that read a brain-made record before the chat
       // marker existed armed this row; the chat confirmation (+ video) already
       // went out (…9313, 2026-10-17: 20:45:59 chat, 20:50:50 trial_confirm).
-      const slot = await trialConfirmSlot(env, deps, recordId);
+      const { slot, trialEpoch } = await trialConfirmSlot(env, deps, recordId);
+      if (await noClassGuard(env, deps, f, trialEpoch)) return;
       if (!(await claimBookingConfirmation(env.DB, f.phone, slot, nowSec()))) {
         console.log(`[followups] trial_confirm #${f.id} ${f.phone}: ${slot} already confirmed — skipped`);
         await markFollowup(env.DB, f.id, "cancelled");
@@ -1194,16 +1202,62 @@ async function postAttendedCard(
 }
 
 /** The CDMX slot ("YYYY-MM-DDTHH:mm") of a trial_confirm's record; null when unreadable. */
-async function trialConfirmSlot(env: Env, deps: FollowupDeps, recordId: string): Promise<string | null> {
+async function trialConfirmSlot(
+  env: Env,
+  deps: FollowupDeps,
+  recordId: string,
+): Promise<{ slot: string | null; trialEpoch: number | null }> {
   const recId = airtableRecId(recordId);
-  if (!recId) return null;
+  if (!recId) return { slot: null, trialEpoch: null };
   try {
     const rec = await (deps.getRecord ?? getBookingRecord)(env, recId);
-    return slotFromIso(rec?.trialDateTimeIso);
+    const ms = Date.parse(rec?.trialDateTimeIso ?? "");
+    return { slot: slotFromIso(rec?.trialDateTimeIso), trialEpoch: Number.isFinite(ms) ? Math.floor(ms / 1000) : null };
   } catch (err) {
     console.warn(`[followups] trial_confirm slot read failed for ${recId}: ${String(err)}`);
-    return null;
+    return { slot: null, trialEpoch: null };
   }
+}
+
+/** Rows whose note carries the trial epoch and that must never go out for a
+ *  class that does not run: the reminders + the whole no-show chain. */
+export const NO_CLASS_GUARD_KINDS: readonly string[] = [
+  "day_before",
+  "same_day",
+  "no_show_hoy",
+  "no_show_d2",
+  "no_show_d7",
+  "no_show_d3",
+];
+
+/**
+ * Send-time guard (services/trial-day-check.ts): true when the row was closed
+ * here because its trial falls on a configured closed / tbd / special day it
+ * is not part of. Closes the row, cancels the trial's other armed rows,
+ * releases the confirm claim, writes the trial_cancelled marker and posts ONE
+ * #wa-leads task note per phone + trial (applyNoClassCancellation). Nothing is
+ * sent to the lead. A failure past the row close is logged, never thrown.
+ */
+async function noClassGuard(env: Env, deps: FollowupDeps, f: Followup, trialEpoch: number | null): Promise<boolean> {
+  if (trialEpoch === null) return false;
+  const verdict = trialDayCheck(trialEpoch, CLIENT.closedDates ?? []);
+  if (verdict.runs) return false;
+  console.log(`[followups] ${f.kind} #${f.id} ${f.phone} skipped: no class (${verdict.why}, ${verdict.date})`);
+  await markFollowup(env.DB, f.id, "cancelled");
+  try {
+    await applyNoClassCancellation(
+      env,
+      f.phone,
+      trialEpoch,
+      verdict,
+      { postTaskNote: (t) => taskNote(deps.slack, t) },
+      nowSec(),
+      1,
+    );
+  } catch (err) {
+    console.warn(`[followups] no-class handling failed for ${f.phone}: ${String(err)}`);
+  }
+  return true;
 }
 
 /**
@@ -1672,7 +1726,13 @@ export async function syncBookings(
     // Future booking → schedule the sequence and kill the drip.
     if (rec.trialDateTimeIso && syncAction === "arm") {
       const trialEpoch = Math.floor(Date.parse(rec.trialDateTimeIso) / 1000);
-      if (Number.isFinite(trialEpoch) && trialEpoch > nowSec()) {
+      if (Number.isFinite(trialEpoch) && trialEpoch > nowSec() && (await trialCancelledForSync(env, phone, trialEpoch)) && (await phoneForRecordId(env.DB, rec.id)) !== null) {
+        // This exact class was called off (lead in chat, staff «Cancelar clase»,
+        // or the holiday check) and this record still holds the old date: never
+        // re-arm it from a re-sync. A NEW date is a different epoch and arms; a
+        // record this system never saw (a fresh web-form booking) is new intent.
+        console.log(`[syncBookings] ${phone} ${rec.id}: trial ${trialEpoch} was cancelled — not re-armed`);
+      } else if (Number.isFinite(trialEpoch) && trialEpoch > nowSec()) {
         await upsertContact(env.DB, { phone, name: rec.name ?? null });
         // trial_confirm is ONLY for bookings this system has never seen (a
         // web-form booker). A record whose sequence already exists, or a phone
@@ -1757,6 +1817,16 @@ export async function syncBookings(
   }
   await kvSet(env.DB, "airtable_sync_cursor", new Date(nowSec() * 1000).toISOString());
   return scheduled;
+}
+
+/** The trial_cancelled marker lists this class (fail-soft: unreadable ⇒ arm). */
+async function trialCancelledForSync(env: Env, phone: string, trialEpoch: number): Promise<boolean> {
+  try {
+    return isCancelledTrial(await kvGet(env.DB, trialCancelledKey(phone)), trialEpoch);
+  } catch (err) {
+    console.warn(`[syncBookings] cancel marker read failed for ${phone}: ${String(err)}`);
+    return false;
+  }
 }
 
 /** What syncBookings does with a record's trial date. Pure. */

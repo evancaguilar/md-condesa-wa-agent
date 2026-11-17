@@ -43,6 +43,7 @@ import {
 } from "./metrics-link.js";
 import { runMetricsBrief } from "./metrics-brief.js";
 import { runBlastBatch } from "./blasts.js";
+import { runTrialDaySweep } from "./trial-day-sweep.js";
 import { runSalesAudio } from "./sales-audio.js";
 import { runCapiDrain } from "./capi.js";
 import { runCapiFunnelSweep } from "./capi-sweep.js";
@@ -198,6 +199,13 @@ export async function runCron(env: Env, _ports: Ports): Promise<void> {
     });
   }
 
+  // Booked trials on a day that does not run (closed / tbd / special holiday,
+  // src/cron/trial-day-sweep.ts): stop their reminders and tell staff once.
+  // Pure no-op unless a closure is within 14 days; then at most once an hour.
+  // Before the due followups, so a row it cancels is not sent this tick.
+  await safe("trialDaySweep", () =>
+    runTrialDaySweep(env, { postTaskNote: (t) => taskNote(cronDeps.slack, t) }, nowEpoch),
+  );
   // Every tick: due followups + approval timeouts. Isolate failures so one
   // subsystem can't starve the others.
   await safe("runDueFollowups", () => runDueFollowups(env, cronDeps));
