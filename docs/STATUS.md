@@ -2,6 +2,14 @@
 
 > Update this file whenever something ships or a pending item completes. Last updated: **2026-11-21** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
 
+### 2026-11-21: panel on a phone (Chats, Aprobar, Agenda) — branch `fix/mobile-panel`
+
+- Chat thread is full screen under 768 px: only the transcript flexes. Before, the page header + banners + three rows of action buttons + a six-button composer left the transcript and the text box a sliver each. Conversation actions (pausar, asignar, no leído, alumno, baja, reiniciar, cuestionario) open from ⋯; 📎 🎤 🎥 📹 ⏰ open from ＋; the text box takes the row and grows with the message. Pause / sin-seguimiento / ad / trial banners are one-line strips above the transcript (ad strip expands on tap).
+- Keyboard: `syncViewport` sizes the thread to `visualViewport` while a text field has focus (`html.kb-open`, `--vvh`, `--vvtop`), hides the tab bar and the ad/trial strips, and Enviar keeps the keyboard up. Checked only by simulating the class at 390×700 in a desktop browser; **not checked on a real iPhone keyboard**.
+- Transcript stays pinned to the newest message when its box changes size; toasts drop from the top on phones; tab bar scrolls sideways; filter chips are one swipeable row; Aprobar/Agenda action buttons are a two-column grid of full-size buttons; edit boxes grow to fit the draft.
+- «Ver chat» / «Abrir chat» from Aprobar or Agenda: ← returns to that tab on a phone. «Reiniciar» on a phone no longer leaves the chat list hidden.
+- Desktop layout unchanged (same DOM, `display:contents` + `order` put the composer back in its old order). All in src/ui/admin.html.
+
 ### 2026-11-21: auditor nocturno lost a night (invalid JSON) — branch `fix/audit-lone-surrogate`
 
 - No report on 2026-11-21: Anthropic answered HTTP 400 "request body is not valid JSON: unexpected end of hex escape" on all 3 attempts. Cause: a truncation (`draft.slice(0, 160)` in `formatApprovals`) cut an emoji in half. Fix: emoji-safe `clip()` on the four truncations + `wellFormed()` over the whole user message (src/cron/nightly-audit.ts). The offending row was not pulled from D1.

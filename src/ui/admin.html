@@ -162,9 +162,12 @@ pre.base{white-space:pre-wrap;word-break:break-word;background:var(--panel2);bor
 
 /* composer */
 .composer{display:flex;gap:8px;margin-top:10px}
-.composer textarea{flex:1;min-height:44px;max-height:120px}
+.composer textarea{flex:1;min-width:0;min-height:44px;max-height:120px;margin-top:0;resize:none}
 .composer .ic{flex:none;padding:11px 10px}
-@media (max-width:480px){.composer{gap:6px}.composer textarea{min-width:0}.composer .ic{padding:11px 7px;min-width:40px}}
+.chattop{display:flex;align-items:center;gap:8px;flex:none;margin-bottom:10px}
+.chattop .dhead{flex:1;min-width:0;margin-bottom:0}
+.convoacts{flex-wrap:wrap;margin-top:8px;flex:none}
+#actsBackdrop{display:none}
 .recbox{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel2)}
 .recbox video{display:block;width:100%;max-height:45dvh;border-radius:10px;background:#000;margin-top:8px}
 .recbox audio{display:block;width:100%;margin-top:8px}
@@ -234,8 +237,104 @@ pre.base{white-space:pre-wrap;word-break:break-word;background:var(--panel2);bor
   .pane-2 .list{width:340px;flex:none}
   .pane-2 .detail{flex:1;min-width:0}
   .backbtn.mobile-only{display:none}
+  .only-m{display:none!important}
+  /* composer: the tool group dissolves into the row; ⏰ stays after the text box */
+  .ctools{display:contents}
+  #chatComposer #chatTa{order:1}
+  #chatComposer #chatLater{order:2;flex:none}
+  #chatComposer #chatSend{order:3}
 }
 @media(min-width:1000px){.grid.stats{grid-template-columns:repeat(4,1fr)}}
+
+/* ===== phones ===== */
+@media(max-width:767px){
+  .hide-m{display:none!important}
+  #main{padding:12px 12px calc(var(--tabh) + env(safe-area-inset-bottom) + 20px)}
+  /* tab bar scrolls sideways instead of crushing 10 tabs into the width */
+  #tabs{height:calc(var(--tabh) + env(safe-area-inset-bottom));overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  #tabs::-webkit-scrollbar{display:none}
+  #tabs button{flex:1 0 68px;font-size:11px}
+  #tabs button .ic{font-size:22px}
+  /* toasts drop from the top: at the bottom they covered the composer / hid behind the keyboard */
+  #toasts{bottom:auto;top:calc(var(--vvtop,0px) + env(safe-area-inset-top) + 8px)}
+  /* filter chips: one swipeable row, finger-sized */
+  .filterbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -12px 10px;padding:0 12px}
+  .filterbar::-webkit-scrollbar{display:none}
+  .filterbar .chip{flex:none;padding:8px 14px;font-size:13px}
+  /* action rows (Aprobar cards, Agenda rows): two-column grid of full-size buttons */
+  .row.acts,.agrow .agacts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .row.acts .btn,.agrow .agacts .btn{width:100%;min-height:46px;font-size:14px;padding:8px 8px;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.2}
+  .agrow .agacts .agm1{grid-column-start:1}
+  .card{padding:14px}
+  .card .bub{font-size:16px}
+  .editbox textarea.ta{max-height:50dvh;font-size:16px}
+  .editbox .guide{min-width:0!important;flex:1 1 100%!important}
+  .editbox .row .btn.sm{min-height:44px;font-size:14px;flex:1}
+  .agrow{padding:12px 14px}
+  .agslot .aghead{padding:10px 14px}
+
+  /* ---- chat thread: full screen, only the transcript flexes ---- */
+  html.thread-open,html.thread-open body{overflow:hidden;overscroll-behavior:none}
+  html.thread-open #chatsHead{display:none}
+  .chatshell{position:fixed;left:0;right:0;top:0;z-index:30;background:var(--bg);min-height:0;
+    height:calc(100dvh - var(--tabh) - env(safe-area-inset-bottom));
+    padding:calc(env(safe-area-inset-top) + 4px) 10px 8px;overflow-y:auto}
+  html.kb-open .chatshell{top:var(--vvtop,0px);height:var(--vvh,100dvh);padding-top:4px}
+  html.thread-open.kb-open #tabs{display:none}
+  .chattop{margin-bottom:6px;gap:4px}
+  .chattop .dhead{gap:2px}
+  #chatMore{flex:none;width:44px;height:44px;padding:0;font-size:24px;line-height:1;border-radius:12px}
+  .chatshell .transcript{min-height:72px;padding:6px 2px 10px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .chatshell .bub{max-width:86%;font-size:16px}
+  /* status strips sit above the transcript, one line each */
+  .chattop,#adCard,#pauseBanner,#trialCancelWrap{order:-1}
+  .pausebanner{padding:6px 6px 6px 12px;margin-bottom:6px;font-size:13px;line-height:1.3}
+  .pausebanner>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-width:0}
+  .pausebanner .btn{flex:none;white-space:nowrap;min-height:40px}
+  .adcard{margin-bottom:6px;padding:6px 10px;cursor:pointer}
+  .adcard>div{min-width:0;flex:1}
+  #adCard:not(.open) .adcard img,#adCard:not(.open) .adl3,#adCard:not(.open) .adl4{display:none}
+  #adCard:not(.open) .adcard>div{display:flex;gap:6px;white-space:nowrap}
+  #adCard:not(.open) .adl1{flex:none}
+  #adCard:not(.open) .adl2{overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .adcard::after{content:"▾";flex:none;opacity:.6}
+  #adCard.open .adcard::after{content:"▴"}
+  #trialCancelWrap .pendcard{display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:6px 6px 6px 12px}
+  #trialCancelWrap .lbl{flex:1;min-width:0;margin:0;font-size:12px;line-height:1.3}
+  #trialCancelWrap .row{margin:0!important;flex:none}
+  #trialCancelWrap .btn{min-height:40px;white-space:nowrap}
+  /* the keyboard takes half the screen: drop the context strips, keep the conversation */
+  html.kb-open #adCard,html.kb-open #trialCancelWrap{display:none}
+  /* bot draft waiting for approval */
+  #pendWrap{max-height:45%;flex:0 1 auto;min-height:0}
+  #pendWrap:focus-within{max-height:80%}
+  .chatshell:has(#chatComposer:focus-within) #pendWrap{max-height:24%}
+  .recbox video{max-height:30dvh}
+  .pendcard .pbody{max-height:none;font-size:15px!important}
+  .pendcard .row.acts{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:1fr}
+  .pendcard .row.acts .btn{font-size:13px;padding:8px 4px;min-height:44px}
+  /* conversation actions live behind ⋯ */
+  #convoActions{display:none;position:absolute;left:10px;right:10px;top:calc(env(safe-area-inset-top) + 56px);z-index:6;margin:0;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 14px 36px rgba(0,0,0,.6);
+    grid-template-columns:1fr 1fr;gap:8px;max-height:calc(100% - 70px);overflow-y:auto}
+  html.kb-open #convoActions{top:56px}
+  .chatshell.acts-open #convoActions{display:grid}
+  .chatshell.acts-open #actsBackdrop{display:block;position:absolute;inset:0;z-index:5;background:rgba(0,0,0,.5)}
+  #convoActions .btn{width:100%;min-height:48px;font-size:15px}
+  #convoActions select{grid-column:1/-1;width:100%!important;min-height:48px!important;font-size:16px;padding:10px 12px!important}
+  #convoActions #cqResult,#convoActions>.btn:first-child,#convoActions #cqBtn{grid-column:1/-1}
+  /* composer: ＋ | text box (grows) | Enviar; the tools open as a labelled row above */
+  .chatshell .composer{flex-wrap:wrap;align-items:flex-end;gap:6px;margin-top:6px}
+  .ctools{display:none;order:-1;flex:1 0 100%;gap:6px}
+  .composer.tools-open .ctools{display:flex}
+  .ctools .btn{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 2px!important;font-size:22px;line-height:1.1}
+  .ctools .btn::after{content:attr(data-tl);font-size:11px;color:var(--muted)}
+  #chatPlus{flex:none;width:44px;height:44px;padding:0;border-radius:22px;font-size:24px;line-height:1}
+  .composer.tools-open #chatPlus{background:var(--gold);color:#111;border-color:var(--gold)}
+  .chatshell .composer textarea{min-height:44px;max-height:136px;padding:10px 14px;border-radius:22px;line-height:1.35}
+  #chatSend{flex:none;min-height:44px;border-radius:22px;padding:0 16px}
+  .chatshell .windowhint{font-size:13px}
+}
 </style>
 </head>
 <body>
@@ -413,23 +512,87 @@ function renderNav(){
     return '<button class="nav'+(t.id===active?" on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+tabBadge(t)+'</button>';
   }).join("")+'<div style="flex:1"></div><button class="nav" data-logout="1"><span class="ic">🚪</span>Salir</button>';
   var tabs=el("tabs");
+  var tabScroll=tabs.scrollLeft;
   tabs.innerHTML=visibleTabs().map(function(t){
     return '<button class="'+(t.id===active?"on":"")+'" data-go="'+t.id+'"><span class="ic">'+t.icon+'</span>'+esc(t.label)+tabBadge(t)+'</button>';
   }).join("");
+  tabs.scrollLeft=tabScroll;
   qa("[data-go]").forEach(function(b){ b.onclick=function(){ location.hash="#"+b.getAttribute("data-go"); }; });
   qa("[data-logout]").forEach(function(b){ b.onclick=doLogout; });
   document.title = state.unreadCount>0 ? "("+state.unreadCount+") "+BASE_TITLE : BASE_TITLE;
 }
 function updateBadges(){ renderNav(); }
+// Phone tab bar scrolls sideways: bring the active tab into view on navigation.
+function tabsReveal(){
+  var tabs=el("tabs"), on=q("#tabs button.on"); if(!tabs||!on) return;
+  var l=on.offsetLeft, r=l+on.offsetWidth;
+  if(l<tabs.scrollLeft) tabs.scrollLeft=Math.max(0,l-24);
+  else if(r>tabs.scrollLeft+tabs.clientWidth) tabs.scrollLeft=r-tabs.clientWidth+24;
+}
+function isPhone(){ return !window.matchMedia("(min-width:768px)").matches; }
+
+// ---------- phone keyboard / visual viewport ----------
+// iOS keeps the layout viewport full-height under the keyboard, so a chat
+// pinned to 100dvh ends up half hidden. Track the VISIBLE area instead: while
+// a text field has focus and the visible height has dropped, html gets
+// .kb-open plus --vvh/--vvtop, and the chat thread sizes itself to that box.
+var vv=window.visualViewport||null, vvBase=0, vvWidth=0, vvTimer=null;
+function isTextField(a){
+  if(!a) return false;
+  var t=a.tagName;
+  return t==="TEXTAREA" || (t==="INPUT" && !/^(checkbox|radio|button|submit|file|range|color)$/.test(a.type||"")) || a.isContentEditable===true;
+}
+function syncViewport(){
+  if(!vv) return;
+  var root=document.documentElement;
+  if(Math.abs(vv.width-vvWidth)>1){ vvWidth=vv.width; vvBase=0; } // rotation: new baseline
+  var zoomed=Math.abs((vv.scale||1)-1)>0.02;
+  if(!zoomed) vvBase=Math.max(vvBase,vv.height,window.innerHeight||0);
+  var kb=!zoomed && isPhone() && isTextField(document.activeElement) && (vvBase-vv.height)>120;
+  if(kb){
+    root.style.setProperty("--vvh",Math.round(vv.height)+"px");
+    root.style.setProperty("--vvtop",Math.max(0,Math.round(vv.offsetTop))+"px");
+  }else{
+    root.style.removeProperty("--vvh");
+    root.style.removeProperty("--vvtop");
+  }
+  if(root.classList.contains("kb-open")!==kb){
+    root.classList.toggle("kb-open",kb);
+    if(!kb && root.classList.contains("thread-open")) window.scrollTo(0,0);
+  }
+}
+function syncViewportSoon(){ if(vvTimer) clearTimeout(vvTimer); vvTimer=setTimeout(syncViewport,120); }
+if(vv){
+  vv.addEventListener("resize",syncViewport);
+  vv.addEventListener("scroll",syncViewport);
+  document.addEventListener("focusin",syncViewport);
+  // Deferred: Enviar re-focuses the text box right after the tap blurs it.
+  document.addEventListener("focusout",syncViewportSoon);
+}
+// Text boxes grow with what is typed (CSS max-height caps them).
+function growTa(ta){
+  if(!ta) return;
+  ta.style.height="";
+  if(ta.value && ta.scrollHeight>0) ta.style.height=(ta.scrollHeight+2)+"px";
+}
+document.addEventListener("input",function(ev){
+  var t=ev.target;
+  if(t && t.tagName==="TEXTAREA" && (t.id==="chatTa" || t.classList.contains("ta"))) growTa(t);
+});
 
 var VIEWS={};
-function route(){
+function route(ev){
   el("login").classList.add("hidden");
   el("shell").classList.remove("hidden");
   stopPoll();
+  document.documentElement.classList.remove("thread-open");
+  // Where we came from: «Ver chat» on Aprobar/Agenda returns there on ←.
+  var old=(ev && ev.oldURL)?String(ev.oldURL):"";
+  state.fromHash=old.indexOf("#")>=0?old.slice(old.indexOf("#")+1):"";
   var id=currentHash();
   if(!VIEWS[id]){ id="inicio"; }
   renderNav();
+  tabsReveal();
   window.scrollTo(0,0);
   VIEWS[id]();
 }
@@ -451,6 +614,7 @@ async function refreshOverviewSilent(){
 // ---------- LOGIN ----------
 function showLogin(){
   stopPoll();
+  document.documentElement.classList.remove("thread-open");
   el("shell").classList.add("hidden");
   el("login").classList.remove("hidden");
   el("loginErr").textContent="";
@@ -596,10 +760,10 @@ VIEWS.chats=function(){
   var m=el("main");
   chatState.phone=null;
   var muted=isMuted();
-  m.innerHTML='<div id="chatsView"><div class="between"><h1>Chats</h1>'
+  m.innerHTML='<div id="chatsView"><div id="chatsHead"><div class="between"><h1>Chats</h1>'
     +'<button class="btn sm" id="muteBtn" title="Sonido de nuevos mensajes">'+(muted?"🔕":"🔔")+'</button></div>'
     +'<input class="field" id="chatSearch" type="search" placeholder="🔍 Buscar por nombre, teléfono o mensaje…" autocomplete="off" style="margin:0 0 10px">'
-    +'<div class="filterbar" id="chatFilters"></div>'
+    +'<div class="filterbar" id="chatFilters"></div></div>'
     +'<div class="pane-2">'
     +'<div class="list chatlist" id="chatList"><div class="loading"><span class="spin"></span></div></div>'
     +'<div class="detail" id="chatDetail"></div></div></div>';
@@ -612,6 +776,8 @@ VIEWS.chats=function(){
   wireChatSearch();
   chatsCache.firstLoad=true;
   var deep=(location.hash||"").replace(/^#chats\/?/,"").replace(/\D/g,"");
+  chatsCache.backTo=(deep && /^(aprobaciones|agenda)(\/|$)/.test(state.fromHash||""))?state.fromHash:null;
+  chatsCache.listScroll=0;
   if(deep){
     history.replaceState(null,"",location.pathname+location.search+"#chats");
     api("/conversations/resolve?phone="+deep).then(function(r){
@@ -776,25 +942,35 @@ async function openChat(phone){
   var isMobile=!window.matchMedia("(min-width:768px)").matches;
   var det=el("chatDetail");
   var list=el("chatList");
-  if(isMobile){ list.classList.add("hidden"); }
-  det.innerHTML='<div class="chatshell">'
-    +'<div class="dhead" id="chatHead"></div>'
+  if(isMobile){
+    if(!list.classList.contains("hidden")) chatsCache.listScroll=window.scrollY||0;
+    list.classList.add("hidden");
+    document.documentElement.classList.add("thread-open");
+    window.scrollTo(0,0);
+  }
+  det.innerHTML='<div class="chatshell" id="chatShell">'
+    +'<div class="chattop"><div class="dhead" id="chatHead"></div>'
+    +'<button class="btn only-m" id="chatMore" title="Acciones del chat" aria-label="Acciones del chat">⋯</button></div>'
     +'<div id="adCard"></div>'
     +'<div id="pauseBanner"></div>'
     +'<div class="transcript" id="bubWrap"><div class="loading"><span class="spin"></span></div></div>'
     +'<div id="pendWrap"></div>'
     +'<div id="schedWrap"></div>'
     +'<div id="trialCancelWrap"></div>'
-    +'<div class="row" style="flex-wrap:wrap;margin-top:8px;flex:none" id="convoActions"></div>'
+    +'<div id="actsBackdrop"></div>'
+    +'<div class="row convoacts" id="convoActions"></div>'
     +'<div class="composer" id="chatComposer">'
-    +'<button class="btn ic" id="chatAttach" title="Adjuntar imagen, video o PDF" style="flex:none">📎</button>'
-    +'<button class="btn ic" id="chatMic" title="Grabar nota de voz">🎤</button>'
-    +'<button class="btn ic" id="chatCam" title="Grabar video">🎥</button>'
-    +(savedVideoList().length && chanOf(phone)==="wa"?'<button class="btn ic" id="chatVid" title="Enviar un video guardado">📹</button>':'')
+    +'<button class="btn only-m" id="chatPlus" title="Adjuntar, grabar o programar" aria-label="Adjuntar, grabar o programar">＋</button>'
+    +'<div class="ctools" id="chatTools">'
+    +'<button class="btn ic" id="chatAttach" data-tl="Archivo" title="Adjuntar imagen, video o PDF">📎</button>'
+    +'<button class="btn ic" id="chatMic" data-tl="Voz" title="Grabar nota de voz">🎤</button>'
+    +'<button class="btn ic" id="chatCam" data-tl="Video" title="Grabar video">🎥</button>'
+    +(savedVideoList().length && chanOf(phone)==="wa"?'<button class="btn ic" id="chatVid" data-tl="Guardados" title="Enviar un video guardado">📹</button>':'')
+    +'<button class="btn" id="chatLater" data-tl="Programar" title="Programar envío">⏰</button>'
+    +'</div>'
     +'<input type="file" id="chatFile" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf" style="display:none">'
     +'<input type="file" id="chatCamFile" accept="video/*" capture="user" style="display:none">'
-    +'<textarea class="field" id="chatTa" placeholder="Escribe un mensaje…"></textarea>'
-    +'<button class="btn" id="chatLater" title="Programar envío" style="flex:none">⏰</button>'
+    +'<textarea class="field" id="chatTa" rows="1" placeholder="Escribe un mensaje…"></textarea>'
     +'<button class="btn gold" id="chatSend">Enviar</button></div>'
     +'<div class="editbox recbox hidden" id="recBox" style="margin-top:8px;flex:none"></div>'
     +'<div class="editbox hidden" id="vidBox" style="margin-top:8px;flex:none">'
@@ -814,7 +990,44 @@ async function openChat(phone){
     +'<div class="windowhint hidden" id="windowHint">Ventana de 24h cerrada — se reabre cuando el lead escriba.</div>'
     +'</div>';
   var ta=el("chatTa");
-  el("chatSend").onclick=sendChatMsg;
+  var shell=el("chatShell"), composer=el("chatComposer");
+  // Enviar must not drop the keyboard on a phone: keep focus in the text box.
+  el("chatSend").onmousedown=function(ev){ ev.preventDefault(); };
+  el("chatSend").onclick=function(){
+    if(isPhone() && document.documentElement.classList.contains("kb-open")){ try{ ta.focus(); }catch(e){} }
+    sendChatMsg();
+  };
+  // Phone: ⋯ opens the conversation actions; ＋ opens the composer tools.
+  function closeActs(){ shell.classList.remove("acts-open"); }
+  el("chatMore").onclick=function(){ shell.classList.toggle("acts-open"); };
+  el("actsBackdrop").onclick=closeActs;
+  el("convoActions").addEventListener("click",function(ev){
+    if(ev.target && ev.target.closest && ev.target.closest("button")) closeActs();
+  });
+  el("convoActions").addEventListener("change",closeActs);
+  el("chatPlus").onclick=function(){ composer.classList.toggle("tools-open"); };
+  ta.addEventListener("input",function(){ composer.classList.remove("tools-open"); });
+  el("chatTools").addEventListener("click",function(ev){
+    if(ev.target && ev.target.closest && ev.target.closest("button")) composer.classList.remove("tools-open");
+  });
+  el("adCard").onclick=function(){ el("adCard").classList.toggle("open"); };
+  // Stay pinned to the newest message when the transcript's box changes size
+  // (keyboard, a draft card arriving, the tools row opening).
+  var bw=el("bubWrap");
+  // A scroll event that arrives after the box changed height is the resize
+  // talking, not the reader — the observer below owns that case.
+  var bwH=bw.clientHeight;
+  chatState.pinned=true;
+  bw.addEventListener("scroll",function(){
+    if(bw.clientHeight!==bwH) return;
+    chatState.pinned=(bw.scrollHeight-bw.scrollTop-bw.clientHeight)<60;
+  });
+  if(window.ResizeObserver){
+    new ResizeObserver(function(){
+      bwH=bw.clientHeight;
+      if(chatState.pinned) bw.scrollTop=bw.scrollHeight;
+    }).observe(bw);
+  }
   el("chatAttach").onclick=function(){ el("chatFile").click(); };
   el("chatFile").onchange=function(){ sendChatMedia(); };
   el("chatMic").onclick=function(){ startVoiceRec(); };
@@ -883,10 +1096,10 @@ function renderChatHeader(nowSec){
     var camp=chatState.campaignName||null;
     if(camp || (ad && (ad.headline||ad.body||ad.sourceId))){
       var thumb=(ad&&ad.thumbnailUrl)?'<img src="'+esc(ad.thumbnailUrl)+'" loading="lazy" onerror="this.remove()">':"";
-      var line1='📣 '+(camp?'<b>'+esc(camp)+'</b>':'Anuncio');
-      var line2=(ad&&ad.headline)?'<div><b>'+esc(ad.headline)+'</b></div>':'';
-      var line3=(ad&&ad.body)?'<div>'+esc(String(ad.body).slice(0,120))+'</div>':'';
-      var line4=(ad&&ad.sourceId)?'<div style="opacity:.7">ad '+esc(ad.sourceId)+'</div>':'';
+      var line1='<div class="adl1">📣 '+(camp?'<b>'+esc(camp)+'</b>':'Anuncio')+'</div>';
+      var line2=(ad&&ad.headline)?'<div class="adl2"><b>'+esc(ad.headline)+'</b></div>':'';
+      var line3=(ad&&ad.body)?'<div class="adl3">'+esc(String(ad.body).slice(0,120))+'</div>':'';
+      var line4=(ad&&ad.sourceId)?'<div class="adl4" style="opacity:.7">ad '+esc(ad.sourceId)+'</div>':'';
       adCard.innerHTML='<div class="adcard">'+thumb+'<div>'+line1+line2+line3+line4+'</div></div>';
     }else{ adCard.innerHTML=""; }
   }
@@ -902,10 +1115,10 @@ function renderChatHeader(nowSec){
   if(banner){
     var dm=chatState.declined;
     var bhtml=(paused
-      ? '<div class="pausebanner"><span>⏸️ Bot en pausa — el equipo lleva esta conversación.</span><button class="btn green sm" id="bannerResume">▶ Reanudar bot</button></div>'
+      ? '<div class="pausebanner"><span>⏸️ Bot en pausa<span class="hide-m"> — el equipo lleva esta conversación.</span></span><button class="btn green sm" id="bannerResume">▶ Reanudar<span class="hide-m"> bot</span></button></div>'
       : "")
       +(dm
-      ? '<div class="pausebanner"><span>⏸ Sin seguimiento automático'+(dm.ts?' desde el '+esc(fmtDate(dm.ts)):'')+' ('+esc(DECLINE_SRC_LABEL[dm.source]||dm.source||"")+')'+(dm.text?': «'+esc(String(dm.text).slice(0,120))+'»':'')+'. El bot sigue contestando si escribe.</span><button class="btn green sm" id="bannerReactivate">▶ Reactivar seguimiento</button></div>'
+      ? '<div class="pausebanner"><span>⏸ Sin seguimiento automático'+(dm.ts?' desde el '+esc(fmtDate(dm.ts)):'')+' ('+esc(DECLINE_SRC_LABEL[dm.source]||dm.source||"")+')'+(dm.text?': «'+esc(String(dm.text).slice(0,120))+'»':'')+'. El bot sigue contestando si escribe.</span><button class="btn green sm" id="bannerReactivate">▶ Reactivar<span class="hide-m"> seguimiento</span></button></div>'
       : "");
     if(banner.__html!==bhtml){
       banner.__html=bhtml;
@@ -1023,7 +1236,7 @@ function appendMessages(msgs,forcePin){
     if(fresh[j].ts>chatState.lastTs) chatState.lastTs=fresh[j].ts;
   }
   wrap.insertAdjacentHTML("beforeend",html);
-  if(atBottom) wrap.scrollTop=wrap.scrollHeight;
+  if(atBottom){ wrap.scrollTop=wrap.scrollHeight; chatState.pinned=true; }
 }
 // ---- edit-preservation guards (shared by Chats pendcards + Aprobaciones) ----
 // Polls rebuild card lists with innerHTML, which used to wipe whatever the
@@ -1060,7 +1273,7 @@ function restoreEdits(node,snap){
     var box=q(".editbox",card); if(!box) return;
     if(s.open) box.classList.remove("hidden");
     var ta=q(".ta",box), gd=q(".guide",box);
-    if(ta) ta.value=s.ta;
+    if(ta){ ta.value=s.ta; if(s.open) growTa(ta); }
     if(gd) gd.value=s.guide;
   });
 }
@@ -1077,12 +1290,12 @@ function renderPendingCards(pending){
       +(p.escalation
         ? '<div class="lbl">⚠️ Necesita respuesta humana</div>'
           +'<div class="pbody" style="font-size:14px;white-space:pre-wrap;word-break:break-word">'+esc(p.escalation)+'</div>'
-          +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'
+          +'<div class="row acts" style="flex-wrap:wrap;margin-top:8px">'
           +'<button class="btn gold sm" data-pa="edit">✏️ Responder</button>'
           +'<button class="btn red sm" data-pa="discard">🗑 Descartar</button></div>'
         : '<div class="lbl">🟡 Borrador del bot pendiente</div>'
           +'<div class="pbody" style="font-size:14px;white-space:pre-wrap;word-break:break-word">'+esc(p.draft||"")+'</div>'
-          +'<div class="row" style="flex-wrap:wrap;margin-top:8px">'
+          +'<div class="row acts" style="flex-wrap:wrap;margin-top:8px">'
           +'<button class="btn green sm" data-pa="approve">✅ Aprobar</button>'
           +'<button class="btn sm" data-pa="edit">✏️ Editar</button>'
           +'<button class="btn red sm" data-pa="discard">🗑 Descartar</button></div>')
@@ -1098,7 +1311,7 @@ function renderPendingCards(pending){
     qa("[data-pa]",card).forEach(function(b){
       var a=b.getAttribute("data-pa");
       b.onclick=async function(){
-        if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); return; }
+        if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); growTa(q(".ta",card)); return; }
         var st=await resolveApprovalApi(p.id,a);
         pendResultToast(st,a);
         card.remove(); chatState.pendKey="";
@@ -1130,6 +1343,7 @@ async function rewriteDraft(id,card){
     if(r&&r.ok&&r.text){
       q(".editbox",card).classList.remove("hidden");
       q(".ta",card).value=r.text;
+      growTa(q(".ta",card));
       toast("Borrador reescrito — revísalo y Enviar");
     } else { toast("No se pudo reescribir","err"); }
   }catch(e){
@@ -1206,7 +1420,7 @@ async function scheduleChatMsg(){
   }
   if(btn) btn.disabled=false;
   chatState.laterToken=null;
-  ta.value="";
+  ta.value=""; growTa(ta);
   if(inp) inp.value="";
   if(el("laterBox")) el("laterBox").classList.add("hidden");
   chatState.schedKey="";
@@ -1237,7 +1451,7 @@ function renderScheduledCards(list){
     b.onclick=async function(){
       if(b.getAttribute("data-sa")==="reuse"){
         var ta=el("chatTa");
-        if(ta && !ta.disabled){ ta.value=s.text||""; ta.focus(); toast("Texto copiado al recuadro","ok"); }
+        if(ta && !ta.disabled){ ta.value=s.text||""; growTa(ta); ta.focus(); toast("Texto copiado al recuadro","ok"); }
         else toast("Ventana de 24h cerrada","err");
         return;
       }
@@ -1272,8 +1486,10 @@ function renderTrialCancel(){
   var trial=null;
   rows.forEach(function(r){ if(r.trial && !trial) trial=r.trial; });
   var when=trial?(' · clase '+esc(schedWhen(trial))):'';
-  wrap.innerHTML='<div class="pendcard"><div class="lbl">🗓️ Clase de prueba con '+rows.length+' mensaje(s) automático(s) programado(s)'+when+'</div>'
-    +'<div class="row" style="flex-wrap:wrap;margin-top:8px"><button class="btn red sm" id="trialCancelBtn">🚫 Cancelar clase de prueba</button></div></div>';
+  var whenShort=trial?(' '+esc(schedWhen(trial).replace(/( de)? \d{4}/,""))):'';
+  wrap.innerHTML='<div class="pendcard"><div class="lbl"><span class="hide-m">🗓️ Clase de prueba con '+rows.length+' mensaje(s) automático(s) programado(s)'+when+'</span>'
+    +'<span class="only-m">🗓️ Clase de prueba'+whenShort+' · '+rows.length+' recordatorio(s)</span></div>'
+    +'<div class="row" style="flex-wrap:wrap;margin-top:8px"><button class="btn red sm" id="trialCancelBtn">🚫 Cancelar<span class="hide-m"> clase de prueba</span></button></div></div>';
   var b=el("trialCancelBtn");
   b.onclick=async function(){
     var phone=chatState.phone; if(!phone) return;
@@ -1327,7 +1543,7 @@ async function sendChatMsg(){
     else toast("No se pudo enviar","err");
     return;
   }
-  ta.value="";
+  ta.value=""; growTa(ta);
   if(r && r.message){ appendMessages([r.message], true); }
   renderChatHeader(); // paused state changed (takeover)
   loadChats();
@@ -1381,7 +1597,7 @@ async function sendChatBlob(blob, filename, opts){
     }else if(r.reason!=="duplicate") toast("No se pudo enviar","err");
     return false;
   }
-  if(ta && caption!==null) ta.value="";
+  if(ta && caption!==null){ ta.value=""; growTa(ta); }
   if(r.message){ appendMessages([r.message], true); }
   renderChatHeader();
   loadChats();
@@ -1732,10 +1948,15 @@ async function loadStaff(){
 }
 function backToChatList(){
   stopRecorder();
-  el("chatList").classList.remove("hidden");
-  el("chatDetail").innerHTML="";
+  document.documentElement.classList.remove("thread-open");
   chatState.phone=null;
+  // Opened from «Ver chat» / «Abrir chat»: ← goes back to that tab.
+  var back=chatsCache.backTo; chatsCache.backTo=null;
+  if(back && isPhone()){ location.hash="#"+back; return; }
+  if(el("chatList")) el("chatList").classList.remove("hidden");
+  if(el("chatDetail")) el("chatDetail").innerHTML="";
   loadChats();
+  if(isPhone()) window.scrollTo(0,chatsCache.listScroll||0);
 }
 async function markUnreadConvo(phone){
   try{
@@ -1869,7 +2090,7 @@ async function sendCuestionarioTo(phone){
 async function resetConvo(phone){
   if(!confirm("¿Borrar TODO el historial y estado de este número? El bot lo tratará como lead nuevo (bienvenida de campaña incluida). Solo para pruebas.")) return;
   try{ await api("/conversations/"+encodeURIComponent(phone)+"/reset",{method:"POST",body:{}});
-    toast("Conversación reiniciada","ok"); el("chatDetail").innerHTML=""; chatState.phone=null; loadChats(); }
+    toast("Conversación reiniciada","ok"); chatsCache.backTo=null; backToChatList(); }
   catch(e){ toast("No se pudo reiniciar","err"); }
 }
 
@@ -1925,12 +2146,12 @@ function apprCard(it){
     +(it.escalation
       ? '<div class="pendcard" style="margin:8px 0 10px"><div class="lbl">⚠️ Necesita respuesta humana</div>'
         +'<div class="sm" style="white-space:pre-wrap;word-break:break-word">'+esc(it.escalation)+'</div></div>'
-        +'<div class="row" style="flex-wrap:wrap"><button class="btn gold sm" data-a="edit">✏️ Responder</button>'
+        +'<div class="row acts" style="flex-wrap:wrap"><button class="btn gold sm" data-a="edit">✏️ Responder</button>'
         +'<button class="btn red sm" data-a="discard">🗑 Descartar</button>'
         +'<button class="btn sm" data-a="chat">💬 Ver chat</button></div>'
       : '<div class="sm muted" style="margin-top:8px">Respuesta propuesta</div>'
         +'<div class="bub bot" style="max-width:100%;margin:4px 0 10px;align-self:stretch">'+esc(it.draft||"")+'</div>'
-        +'<div class="row" style="flex-wrap:wrap"><button class="btn green sm" data-a="approve">✅ Aprobar</button>'
+        +'<div class="row acts" style="flex-wrap:wrap"><button class="btn green sm" data-a="approve">✅ Aprobar</button>'
         +'<button class="btn sm" data-a="edit">✏️ Editar</button>'
         +'<button class="btn red sm" data-a="discard">🗑 Descartar</button>'
         +'<button class="btn sm" data-a="chat">💬 Ver chat</button></div>')
@@ -1948,7 +2169,7 @@ function wireApprCard(it){
     b.onclick=function(){
       if(a==="approve") resolveAppr(it.id,"approve");
       else if(a==="discard") resolveAppr(it.id,"discard");
-      else if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); }
+      else if(a==="edit"){ q(".editbox",card).classList.toggle("hidden"); growTa(q(".ta",card)); }
       else if(a==="chat"){ location.hash="#chats/"+String(it.phone||"").replace(/\D/g,""); }
     };
   });
@@ -2017,7 +2238,7 @@ function owedCard(it){
         +'<div class="sm" style="white-space:pre-wrap;word-break:break-word">'+esc(it.escalation)+'</div></div>'
       : '<div class="sm muted" style="margin-top:8px">Respuesta propuesta</div>'
         +'<div class="bub bot" style="max-width:100%;margin:4px 0 10px;align-self:stretch">'+esc(text)+'</div>')
-    +'<div class="row" style="flex-wrap:wrap">'+btns+'</div>'
+    +'<div class="row acts" style="flex-wrap:wrap">'+btns+'</div>'
     +(canSend?'<div class="editbox hidden" style="margin-top:10px"><textarea class="field ta" placeholder="Escribe la respuesta…">'+esc(text)+'</textarea>'
       +'<div class="row" style="margin-top:8px"><button class="btn gold sm sendedit">Enviar</button></div></div>':'')
     +(!canSend && wa?'<div class="muted sm" style="margin-top:6px">Se abre desde el otro número — esa conversación seguirá allá, no en este panel.</div>':'')
@@ -2029,7 +2250,7 @@ function wireOwedCard(it){
     var a=b.getAttribute("data-o");
     b.onclick=function(){
       if(a==="approve") resolveOwed(it,"approve");
-      else if(a==="edit"){ var eb=q(".editbox",card); if(eb) eb.classList.toggle("hidden"); }
+      else if(a==="edit"){ var eb=q(".editbox",card); if(eb){ eb.classList.toggle("hidden"); growTa(q(".ta",eb)); } }
       else if(a==="copy"){
         var t=it.draft||"";
         try{ navigator.clipboard.writeText(t).then(function(){toast("Borrador copiado","ok");},function(){toast("No se pudo copiar","err");}); }
@@ -2113,7 +2334,7 @@ function waitCard(it,i){
     +'<div class="muted sm">'+esc(fmtPhone(it.phone))+'</div>'
     +'<div class="chips" style="margin-top:6px">'+chips+'</div>'
     +'<div class="bub in" style="max-width:100%;margin:8px 0 10px">'+esc(it.lastBody||"")+'</div>'
-    +'<div class="row" style="flex-wrap:wrap">'
+    +'<div class="row acts" style="flex-wrap:wrap">'
     +'<button class="btn sm" data-w="chat">💬 Ver chat</button>'
     +'<button class="btn gold sm" data-w="done">☑️ Ya lo atendí</button></div>'
     +'</div>';
@@ -2985,7 +3206,7 @@ VIEWS.agenda=function(){
   if(AGENDA_VIEWS.some(function(v){ return v[0]===sub; })) agendaState.view=sub;
   var m=el("main");
   m.innerHTML='<div class="between"><h1>Agenda</h1><button class="btn sm" id="agRefresh">↻ Refrescar</button></div>'
-    +'<div class="muted sm" style="margin-bottom:10px">Clases prueba de Airtable (Leads) agrupadas por hora. <b>Quién entrena</b> en grande; el contacto de WhatsApp (mamá/papá) debajo cuando es distinto.</div>'
+    +'<div class="muted sm hide-m" style="margin-bottom:10px">Clases prueba de Airtable (Leads) agrupadas por hora. <b>Quién entrena</b> en grande; el contacto de WhatsApp (mamá/papá) debajo cuando es distinto.</div>'
     +'<div class="filterbar" id="agFilters"></div>'
     +'<div id="agBody"><div class="loading"><span class="spin"></span></div></div>';
   renderAgendaFilters();
@@ -3089,7 +3310,7 @@ function agendaRowHtml(r){
   if(waId && upcoming && chanOf(waId)==="wa") acts.push('<button class="btn sm red" data-agact="canceltrial" data-phone="'+esc(waId)+'">🚫 Cancelar clase</button>');
   if(state.me && state.me.role==="owner" && r.phone && !r.enrolled) acts.push('<button class="btn sm" data-agact="cq" data-phone="'+esc(r.phone)+'">📋 Enviar cuestionario</button>');
   if(!r.enrolled){
-    acts.push('<button class="btn sm'+(r.resultClass==="attended"?" green":"")+'" data-agact="mark" data-rid="'+rid+'" data-mark="'+(r.resultClass==="attended"?"clear":"attended")+'">✅ Asistió</button>');
+    acts.push('<button class="btn sm agm1'+(r.resultClass==="attended"?" green":"")+'" data-agact="mark" data-rid="'+rid+'" data-mark="'+(r.resultClass==="attended"?"clear":"attended")+'">✅ Asistió</button>');
     acts.push('<button class="btn sm'+(r.resultClass==="no_show"?" red":"")+'" data-agact="mark" data-rid="'+rid+'" data-mark="'+(r.resultClass==="no_show"?"clear":"no_show")+'">❌ No asistió</button>');
   }
   return '<div class="agrow'+(r.enrolled||r.resultClass?" agdone":"")+'" id="agrow-'+rid+'">'
