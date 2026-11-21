@@ -253,14 +253,30 @@ export function closuresForAudit(
   return out;
 }
 
+// 2026-11-21 had no report: `draft.slice(0, 160)` cut an emoji in half, the
+// lone surrogate serialised as "\\ud83d" and Anthropic rejected the whole body
+// ("not valid JSON: unexpected end of hex escape") on all three attempts.
+
+/** Truncate to at most `max` UTF-16 units without splitting a surrogate pair. */
+export function clip(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const c = s.charCodeAt(max - 1);
+  return s.slice(0, c >= 0xd800 && c <= 0xdbff ? max - 1 : max);
+}
+
+/** Replace any lone surrogate with U+FFFD so the JSON body is always valid. */
+export function wellFormed(s: string): string {
+  return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD");
+}
+
 export function formatApprovals(rows: AuditApprovalRow[]): string {
   if (!rows.length) return "(ninguna)";
   return rows
     .map((a) => {
       const lat = a.resolved_at ? `${Math.round((a.resolved_at - a.created_at) / 60)}m` : "PENDIENTE";
       const edited =
-        a.final_text !== null && a.final_text !== a.draft ? ` | EDITADA→ «${a.final_text.slice(0, 120)}»` : "";
-      return `#${a.id} ${a.phone} [${a.status} ${lat}] «${a.draft.slice(0, 160)}»${edited}`;
+        a.final_text !== null && a.final_text !== a.draft ? ` | EDITADA→ «${clip(a.final_text, 120)}»` : "";
+      return `#${a.id} ${a.phone} [${a.status} ${lat}] «${clip(a.draft, 160)}»${edited}`;
     })
     .join("\n");
 }
@@ -330,7 +346,8 @@ export function buildAuditUser(
   approvals: string,
   windowLabel: string,
 ): string {
-  return `Ventana auditada: ${windowLabel}\n\n=== APROBACIONES DEL DÍA ===\n${approvals}\n\n=== CONVERSACIONES (hora CDMX) ===\n${transcripts || "(sin conversaciones en la ventana)"}`;
+  // Last line of defence: stored bodies can carry a lone surrogate too.
+  return wellFormed(`Ventana auditada: ${windowLabel}\n\n=== APROBACIONES DEL DÍA ===\n${approvals}\n\n=== CONVERSACIONES (hora CDMX) ===\n${transcripts || "(sin conversaciones en la ventana)"}`);
 }
 
 /**
@@ -367,12 +384,12 @@ export function auditSummaryMessage(digest: string, header: string, logsUrl: str
   if (numeros) out.push(`📊 ${numeros}`);
   if (!resumen && !numeros) {
     const head = lines.filter(Boolean).slice(0, 4).join("\n");
-    out.push(head.length > 600 ? `${head.slice(0, 599)}…` : head || "(el auditor no produjo reporte)");
+    out.push(head.length > 600 ? `${clip(head, 599)}…` : head || "(el auditor no produjo reporte)");
   }
   const tally = clean && !problems ? "✅ sin problemas" : `🐛 ${problems} problema${problems === 1 ? "" : "s"}`;
   out.push(`${tally} · 💡 ${ideas} sugerencia${ideas === 1 ? "" : "s"} — <${logsUrl}|reporte completo en el panel>`);
   const msg = out.join("\n");
-  return msg.length > SLACK_CHUNK ? `${msg.slice(0, SLACK_CHUNK - 1)}…` : msg;
+  return msg.length > SLACK_CHUNK ? `${clip(msg, SLACK_CHUNK - 1)}…` : msg;
 }
 
 /** Split the digest into Slack-sized chunks on line boundaries. */

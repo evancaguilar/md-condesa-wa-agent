@@ -1,6 +1,11 @@
 # Project status
 
-> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-17** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+> Update this file whenever something ships or a pending item completes. Last updated: **2026-11-21** (push/merge markers reconciled against `origin/main` on 2026-10-22; "pushed" dates come from the push/merge commits).
+
+### 2026-11-21: auditor nocturno lost a night (invalid JSON) — branch `fix/audit-lone-surrogate`
+
+- No report on 2026-11-21: Anthropic answered HTTP 400 "request body is not valid JSON: unexpected end of hex escape" on all 3 attempts. Cause: a truncation (`draft.slice(0, 160)` in `formatApprovals`) cut an emoji in half. Fix: emoji-safe `clip()` on the four truncations + `wellFormed()` over the whole user message (src/cron/nightly-audit.ts). The offending row was not pulled from D1.
+- Open: `npm run build` fails on main, KB compiles to ~12,271 tokens vs the 12,100 cap (site repo grew). The committed KB was left untouched.
 
 ### 2026-11-17: week review (11-10 → 11-17) fixes — branch `feat/buen-fin-2026`, NOT pushed
 

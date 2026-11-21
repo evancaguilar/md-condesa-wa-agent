@@ -8,10 +8,12 @@ import {
   buildAuditSystem,
   buildAuditUser,
   chunkForSlack,
+  clip,
   closuresForAudit,
   compactTranscripts,
   formatApprovals,
   renderSlotsForAudit,
+  wellFormed,
   type AuditApprovalRow,
   type AuditMessageRow,
 } from "../src/cron/nightly-audit.js";
@@ -157,4 +159,34 @@ test("buildAuditSystem: holiday block rides next to the grid only when a closure
   assert.match(near, /DÍAS ESPECIALES \/ FERIADOS/);
   const far = buildAuditSystem("KB", { today: "2026-10-01", closedDates: closed as never })[1]!.text;
   assert.doesNotMatch(far, /DÍAS ESPECIALES/);
+});
+
+// 2026-11-21: an emoji cut in half by a truncation made the request body
+// invalid JSON for Anthropic (HTTP 400 ×3, no report).
+const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+test("clip: never splits a surrogate pair", () => {
+  assert.equal(clip("abc🙂def", 4), "abc");
+  assert.equal(clip("abc🙂def", 5), "abc🙂");
+  assert.equal(clip("corto", 160), "corto");
+});
+
+test("formatApprovals: emoji on the truncation boundary stays valid", () => {
+  const row: AuditApprovalRow = {
+    id: 1,
+    phone: "5215511111111",
+    draft: "a".repeat(159) + "🙂 resto",
+    final_text: "b".repeat(119) + "💪 resto",
+    status: "edited",
+    created_at: 0,
+    resolved_at: 60,
+  };
+  assert.ok(!LONE.test(formatApprovals([row])));
+});
+
+test("buildAuditUser: lone surrogates from stored bodies are replaced", () => {
+  const user = buildAuditUser("09:00 LEAD: hola \ud83d", "(ninguna)", "ventana");
+  assert.ok(!LONE.test(user));
+  assert.ok(user.includes("hola \uFFFD"));
+  assert.equal(wellFormed("ok 🙂"), "ok 🙂");
 });
