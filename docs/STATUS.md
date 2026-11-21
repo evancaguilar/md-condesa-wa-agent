@@ -5,7 +5,8 @@
 ### 2026-11-21: auditor nocturno lost a night (invalid JSON) — branch `fix/audit-lone-surrogate`
 
 - No report on 2026-11-21: Anthropic answered HTTP 400 "request body is not valid JSON: unexpected end of hex escape" on all 3 attempts. Cause: a truncation (`draft.slice(0, 160)` in `formatApprovals`) cut an emoji in half. Fix: emoji-safe `clip()` on the four truncations + `wellFormed()` over the whole user message (src/cron/nightly-audit.ts). The offending row was not pulled from D1.
-- Open: `npm run build` fails on main, KB compiles to ~12,271 tokens vs the 12,100 cap (site repo grew). The committed KB was left untouched.
+- KB cap raised 12,100 → 12,300 (Evan's OK): the site's reworded MMA / box / drop-in FAQs put the compile at ~12,271 and blocked every push. Recompiled KB (~12,178) ships with this fix; slots unchanged.
+- The site's new Muay Thai / MMA FAQs quote the drop-in rate; `curatePages` now skips drop-in FAQs so the bot keeps escalating visitors instead of quoting (clients/md-condesa/kb-build.mjs). The English FAQ slots now carry the next FAQ of each page.
 
 ### 2026-11-17: week review (11-10 → 11-17) fixes — branch `feat/buen-fin-2026`, NOT pushed
 

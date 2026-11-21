@@ -40,7 +40,9 @@ const REPO = join(__dirname, "..");
 // Raised 11750 → 12100 (2026-10-16): the one-message booking confirmation
 // carries the owner-approved copy for adults / kids / Baby Fight Club (HEAD
 // sat at ~11 749).
-const TOKEN_LIMIT = 12100;
+// Raised 12100 → 12300 (2026-11-21, owner OK): the site's reworded MMA / box /
+// drop-in FAQs pushed the compile past 12 100 (~12 178) and blocked every push.
+const TOKEN_LIMIT = 12300;
 
 async function main() {
   const clientId = process.env.CLIENT || "md-condesa";

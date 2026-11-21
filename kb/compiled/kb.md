@@ -1,6 +1,6 @@
 <!-- KB compilado por tools/compile-kb.mjs — NO editar a mano.
-     version: 2026-11-17+ae8cd5096890
-     approx_tokens: 12098 (chars 42342 / 3.5)
+     version: 2026-11-21+264a49abcbde
+     approx_tokens: 12178 (chars 42620 / 3.5)
      fuentes: schedule-data.js, site.js, content/pages/*, en-hub.js, founder.js, intake.md -->
 
 # MD Self Defense Academy Condesa — Knowledge Base
@@ -79,18 +79,18 @@ Academia de artes marciales (Jiu-Jitsu, Muay Thai, MMA, Box) en la Condesa, CDMX
 ### Español
 - **¿Necesito experiencia previa para empezar Jiu-Jitsu?** No. Tenemos alumnos desde principiantes completos hasta competidores, y la clase de Fundamentos de los sábados 9:00 AM está diseñada para quienes van empezando. Los profesores adaptan la clase a tu nivel.
 - **¿Necesito experiencia para empezar Muay Thai?** No. La mayoría de nuestros alumnos empezó desde cero. La clase se adapta a tu nivel y los profesores te enseñan la técnica base desde el primer día.
-- **¿Necesito experiencia previa para entrenar MMA?** No, aunque tener base de striking o grappling ayuda. Aceptamos principiantes y la clase se adapta a tu nivel; los profesores te construyen las bases con seguridad.
-- **¿Necesito experiencia para empezar a boxear?** No. La mayoría empieza desde cero. Aprendes guardia, jab y footwork desde la primera clase, a tu ritmo.
+- **¿Necesito experiencia para empezar MMA?** No. Puedes entrar a MMA sin experiencia previa y sin estar en forma: la clase se adapta a tu nivel y los profesores te construyen las bases con seguridad. Tener algo de Jiu-Jitsu o Muay Thai acelera tu progreso, y como un solo plan incluye todas las disciplinas, puedes construir esas bases en paralelo.
+- **¿Necesito experiencia para empezar box?** No. La mayoría empieza desde cero. Aprendes guardia, jab y footwork desde la primera clase, a tu ritmo, y la clase se ajusta a tu nivel.
 - **¿Cuál es la mejor arte marcial para defensa personal?** No hay una sola: el Jiu-Jitsu domina el suelo y el control, mientras el Muay Thai y el Box dominan la distancia de pie. Lo ideal es una base de las tres, que es justo lo que puedes entrenar en MD Condesa con un solo plan.
 - **¿Hay clases solo para mujeres?** Nuestras clases regulares son mixtas, en un ambiente respetuoso y seguro donde entrenan muchas mujeres. Si te interesa un formato o taller específico para mujeres, escríbenos por WhatsApp y te contamos las opciones disponibles.
 - **¿Desde qué edad pueden empezar?** Desde los 3 años en el grupo Mini (Muay Thai), de 6 a 12 en Jiu-Jitsu y Muay Thai Kids, y de 13 a 17 en Teens. Para bebés de 6 a 36 meses tenemos Baby Fight Club.
 - **¿Mi bebé va a pelear?** No. El nombre es un guiño divertido, pero la clase es puramente de movimiento, juego y estimulación. La seguridad del bebé es la prioridad número uno.
 
 ### English
-- **Do you accept drop-ins from visitors?** Yes — traveling BJJ practitioners are welcome. Message us on WhatsApp (+52 55 3426 0813) to confirm the class you want to attend and current visitor rates, or see the drop-in guide on this site.
-- **Do you accept drop-ins from visitors?** Yes — traveling athletes are welcome in Muay Thai and all adult programs. Message us on WhatsApp (+52 55 3426 0813) to confirm a class and the current drop-in rate.
-- **Do you accept drop-ins?** Yes — visiting athletes are welcome in MMA and all adult programs. Message us on WhatsApp (+52 55 3426 0813) to confirm a class and the drop-in rate.
-- **Do you accept drop-ins from visitors?** Yes — visiting athletes are welcome. Message us on WhatsApp (+52 55 3426 0813) to confirm a boxing class and the current drop-in rate.
+- **Are classes taught in English?** Classes are taught in Spanish, but several coaches and many students speak English, and technique is shown visually — English speakers train here comfortably every week.
+- **Do I need experience to start Muay Thai?** No. Most of our students started from zero. Classes scale to your level and coaches teach the fundamentals from day one.
+- **Do I need experience to start MMA?** No. You can start MMA with no prior experience, and classes scale to your level. Some BJJ or Muay Thai will speed up your progress, and since one membership includes every adult discipline you can build those bases in parallel.
+- **Is there a boxing gym in Condesa or Roma Norte?** Yes. MD Condesa is a martial arts academy with adult boxing classes at Av. México 49, 1st floor, Condesa — next to Parque México, above the Santas Conchas bakery. Roma Norte is right next door, a short walk or quick ride away.
 - **What's the best martial art for self defense?** There isn't a single one: BJJ dominates ground control while Muay Thai and boxing dominate stand-up distance. A base in all three is ideal — exactly what one MD Condesa membership lets you train.
 - **Are there women-only classes?** Our regular classes are mixed, in a respectful and safe environment where many women train. If you're interested in a women-specific format or workshop, message us on WhatsApp and we'll share current options.
 - **What ages do you teach?** From age 3 in the Mini group (Muay Thai), ages 6–12 in Jiu-Jitsu and Muay Thai Kids, and 13–17 in Teens. For babies 6–36 months we have Baby Fight Club.

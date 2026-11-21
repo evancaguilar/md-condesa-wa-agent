@@ -477,19 +477,22 @@ function curatePages(pages) {
     "baby-fight-club",
   ];
   const byslug = new Map(pages.map((p) => [p.slug, p]));
+  // Drop-in FAQs never reach the KB: the site quotes the visitor rate, and the
+  // bot must not (intake.md: "el drop-in NO se cotiza por chat — escala").
+  const notDropIn = (f) => !/drop[- ]?in|de visita|visitante/i.test(`${f.q} ${f.a}`);
 
   for (const slug of order) {
     const p = byslug.get(slug);
     if (!p) continue;
     if (p.es) {
       blurbEs.push(`- **${stripHtml(p.es.h1 || p.es.serviceName)}**: ${stripHtml(p.es.lead)}`);
-      for (const f of (p.es.faqs || []).slice(0, faqMax)) {
+      for (const f of (p.es.faqs || []).filter(notDropIn).slice(0, faqMax)) {
         faqEs.push(`- **${stripHtml(f.q)}** ${stripHtml(f.a)}`);
       }
     }
     if (p.en) {
       blurbEn.push(`- **${stripHtml(p.en.h1 || p.en.serviceName)}**: ${stripHtml(p.en.lead)}`);
-      for (const f of (p.en.faqs || []).slice(0, faqMax)) {
+      for (const f of (p.en.faqs || []).filter(notDropIn).slice(0, faqMax)) {
         faqEn.push(`- **${stripHtml(f.q)}** ${stripHtml(f.a)}`);
       }
     }
