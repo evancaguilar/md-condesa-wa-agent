@@ -90,6 +90,42 @@ export const PROMO_BUTTONS: readonly PromoButton[] = [
     humansOnly: true,
     emoji: "🛍️",
   },
+  // Black Friday 2026 blasts (2026-11-27, promo runs Fri 27 → Mon 30).
+  // Visitors (came to a trial, did not enrol): «Quiero inscribirme» = here;
+  // «Tengo una duda» = normal brain flow. Never-booked / no-shows: «Quiero ver
+  // las promos» = here (Evan has not given the bot the deals; humans quote
+  // them); «Quiero mi día gratis» = normal brain/booking flow. «No recibir
+  // mensajes» = the generic opt-out label on all five.
+  ...["black_friday_2026_visitantes", "black_friday_2026_visitantes_bfc"].map(
+    (template): PromoButton => ({
+      template,
+      handoff: "quiero inscribirme",
+      teamTask: true,
+      note: "quiere inscribirse con la promo de Black Friday ($999 primer mes, inscripción incluida)",
+      ack: {
+        es: "¡Excelente! 🙌 En un momento te escribe alguien del equipo para dejar lista tu inscripción con la promo de Black Friday.",
+        en: "Great! 🙌 Someone from our team will message you shortly to get your enrollment with the Black Friday promo ready.",
+      },
+      pauseHours: 48,
+      humansOnly: true,
+      emoji: "🖤",
+    }),
+  ),
+  ...["black_friday_2026_adultos", "black_friday_2026_kids", "black_friday_2026_bfc"].map(
+    (template): PromoButton => ({
+      template,
+      handoff: "quiero ver las promos",
+      teamTask: true,
+      note: "pidió las promos de Black Friday",
+      ack: {
+        es: "¡Claro! 🙌 En un momento te escribe alguien del equipo con las promos de Black Friday.",
+        en: "Sure! 🙌 Someone from our team will message you shortly with the Black Friday deals.",
+      },
+      pauseHours: 48,
+      humansOnly: true,
+      emoji: "🖤",
+    }),
+  ),
 ];
 
 /**
